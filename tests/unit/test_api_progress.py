@@ -61,6 +61,43 @@ def test_bar_counts_items_off_and_closes(bar):
     assert dialog.events[-2][2].endswith("4 / 4")
 
 
+def test_the_text_counts_the_kind_and_the_bar_the_whole_pass(bar, monkeypatch):
+    """Read off the pass's count, the text was everything done so far against
+    everything to do, under the name of the kind in hand."""
+    monkeypatch.setattr(progress_module.xbmc, "getLocalizedString", str)
+    bar_ = progress_module.Progress()
+    bar_.begin(10)
+    bar_.applying("Season", 3)
+    for _ in range(3):
+        bar_.step("Season")
+    bar_.applying("Episode", 7)
+    for _ in range(7):
+        bar_.step("Episode")
+    (dialog,) = bar.instances
+    updates = [(e[1], e[2]) for e in dialog.events if e[0] == "update"]
+    assert updates[0] == (0, "33054 0 / 3")
+    assert updates[3] == (30, "33054 3 / 3")
+    assert updates[4] == (30, "20360 0 / 7")
+    assert updates[-1] == (100, "20360 7 / 7")
+
+
+def test_a_phase_inside_a_kind_gives_its_count_back(bar, monkeypatch):
+    monkeypatch.setattr(progress_module.xbmc, "getLocalizedString", str)
+    bar_ = progress_module.Progress()
+    bar_.begin(4)
+    bar_.applying("Movie", 4)
+    bar_.step("Movie")
+    saved = bar_.phase(2, "scan")
+    bar_.step("Audio")
+    assert bar_.counted("Audio") == "134 1 / 2"
+    bar_.restore(saved)
+    bar_.step("Movie")
+    assert bar_.counted("Movie") == "20342 2 / 4"
+    # The next enumeration counts its own pages, not the last pass's kind.
+    bar_.track("Movie", 500, 1788)
+    assert bar_.counted("Movie") == "20342 500 / 1788"
+
+
 def test_bar_respects_the_setting_and_the_threshold(bar):
     SETTINGS["syncProgressThreshold"] = 10
     small = progress_module.Progress()
@@ -108,6 +145,25 @@ def test_pass_shows_the_bar_and_lets_kodi_show_its_scan(store, backend, kodi, ba
     )
     scans = methods(kodi, "VideoLibrary.Scan")
     assert scans and all(p["showdialogs"] is True for p in scans)
+
+
+def test_a_pass_counts_each_kind_against_its_own_items(
+    store, backend, kodi, bar, monkeypatch
+):
+    from tests.unit.apifixtures import show_bundle
+
+    monkeypatch.setattr(progress_module.xbmc, "getLocalizedString", str)
+    store.publish(
+        [movie("m%02d" % i) for i in range(2)] + show_bundle(episodes=3),
+        library=LIB,
+    )
+    backend.reconcile()
+    (dialog,) = bar.instances
+    messages = [e[2] for e in dialog.events if e[0] == "update"]
+    # Two movies, a show, a season and three episodes: seven to do.
+    assert "20342 2 / 2" in messages
+    assert "20360 3 / 3" in messages
+    assert not any(m.endswith("/ 7") for m in messages if m)
 
 
 def test_music_scans_never_show_kodi_dialogs(store, backend, kodi, bar):
