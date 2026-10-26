@@ -904,6 +904,16 @@ class Store(Catalogue):
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
 
+    def mapped_to(self, kind, kodi_id) -> List[str]:
+        """The items of ``kind`` acknowledged against Kodi's row ``kodi_id``."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT item_id FROM api_native WHERE namespace=? AND kind=? AND kodi_id=?",
+                (self.namespace, kind, kodi_id),
+            ).fetchall()
+        return sorted(row[0] for row in rows)
+
     def movies_with_extras(
         self, has_extras: Callable[[Dict[str, Any]], bool]
     ) -> Tuple[Dict[str, Entry], Set[str]]:

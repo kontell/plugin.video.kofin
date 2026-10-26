@@ -131,6 +131,49 @@ def test_identity_lookups_cover_episodes_and_music_videos(
     assert identity.mapped_item(episode_id, "episode") is None
 
 
+def test_identity_lookups_cover_shows_seasons_and_sets(
+    store, backend, kodi, monkeypatch
+):
+    """The Jellyfin actions menu on a show, a season or a set reaches the
+    item the pass filed it from."""
+    from kofin.service import libraryclaim
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    store.publish(
+        [
+            series(),
+            season("s1", SHOW, 1),
+            season("s2", SHOW, 2),
+            episode("e1", SHOW, 1, 1),
+            episode("e2", SHOW, 2, 1),
+            movie(),
+            movie("b"),
+            boxset("box", "Pair", ["a", "b"]),
+            # Same title, no member synced: applied without a row, and it
+            # sorts first.
+            boxset("bo", "Pair", ["z"]),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    show_id = store.mapping(SHOW).kodi_id
+    seasons = {
+        r["season"]: r["seasonid"]
+        for r in kodi.rows["Season"].values()
+        if r["tvshowid"] == show_id
+    }
+    (set_id,) = [r["setid"] for r in kodi.rows["BoxSet"].values()]
+    assert identity.mapped_item(show_id, "tvshow") == SHOW
+    assert libraryclaim.mapped_jellyfin_id(show_id, "tvshow") == SHOW
+    assert identity.mapped_item(seasons[1], "season") == "s1"
+    assert identity.mapped_item(seasons[2], "season") == "s2"
+    assert identity.mapped_item(set_id, "set") == "box"
+    assert identity.mapped_item(show_id, "movie") is None
+    kodi.rows["Series"][show_id]["file"] = "/foreign/"
+    assert identity.mapped_item(show_id, "tvshow") is None
+    assert identity.mapped_item(seasons[2], "season") is None
+
+
 def test_syncplay_resolves_a_native_row_through_the_identity_lookup(
     store, backend, kodi, monkeypatch
 ):

@@ -609,7 +609,9 @@ class Kodi:
         }[kind]
         if "filter" in params:
             rule = params["filter"]
-            if kind == "Audio":
+            if kind == "Audio" and "albumid" in rule:
+                rows = [r for r in rows if r["albumid"] == rule["albumid"]]
+            elif kind == "Audio":
                 rows = [r for r in rows if filed_under(r["file"], rule)]
             else:
                 albums = {

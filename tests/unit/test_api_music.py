@@ -861,6 +861,33 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
     assert "MediaStreams" not in compacted
 
 
+def test_album_and_artist_identity_lookups(store, backend, kodi, monkeypatch):
+    """The Jellyfin actions menu on an album or an artist row: the album is
+    the directory its songs are filed in, the artist its name."""
+    from kofin.service import libraryclaim
+    from kofin.sync.backends.api import identity
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    store.publish(
+        album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, songs=1, prefix="u"),
+        library=LIB,
+    )
+    backend.reconcile()
+    albumid = store.mapping(ALBUM).kodi_id
+    artistid = store.mapping(ARTIST).kodi_id
+    assert identity.mapped_item(albumid, "album") == ALBUM
+    assert libraryclaim.mapped_jellyfin_id(albumid, "album") == ALBUM
+    assert identity.mapped_item(store.mapping(ALBUM2).kodi_id, "album") == ALBUM2
+    assert identity.mapped_item(artistid, "artist") == ARTIST
+    assert identity.mapped_item(store.mapping(ARTIST2).kodi_id, "artist") == ARTIST2
+    kodi.artists[artistid].update(artist="Someone else", label="Someone else")
+    assert identity.mapped_item(artistid, "artist") is None
+    for row in kodi.songs.values():
+        if row["albumid"] == albumid:
+            row["file"] = "/foreign.flac"
+    assert identity.mapped_item(albumid, "album") is None
+
+
 def test_song_identity_lookups_use_the_url(store, backend, kodi, monkeypatch):
     from kofin.service import libraryclaim
     from kofin.sync.backends.api import identity
