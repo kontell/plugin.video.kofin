@@ -989,8 +989,8 @@ msgid "Media segments"
 msgstr "Segmentos de mídia"
 
 msgctxt "#30453"
-msgid "React to media segments"
-msgstr "Reagir aos segmentos de mídia"
+msgid "Skip media segments"
+msgstr "Pular segmentos de mídia"
 
 msgctxt "#30454"
 msgid "Fetch Jellyfin media segments (intro, credits, recap, preview, commercial) during playback and act on them per type."

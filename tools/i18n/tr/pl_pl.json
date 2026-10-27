@@ -195,7 +195,7 @@
   "#30450": "Pomijanie i odtwarzanie następnego",
   "#30451": "Pomijanie segmentów multimediów i propozycja następnego odcinka.",
   "#30452": "Segmenty multimediów",
-  "#30453": "Reaguj na segmenty multimediów",
+  "#30453": "Pomijaj segmenty multimediów",
   "#30454": "Pobiera segmenty multimediów Jellyfin (czołówka, napisy końcowe, streszczenie, zapowiedź, reklama) podczas odtwarzania i reaguje na nie zależnie od typu.",
   "#30455": "Czołówki",
   "#30456": "Wyłączone ignoruje segmenty czołówki, Automatycznie je pomija, Pytaj pokazuje przycisk pominięcia.",

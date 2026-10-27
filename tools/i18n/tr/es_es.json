@@ -195,7 +195,7 @@
   "#30450": "Saltos y reproducir siguiente",
   "#30451": "Omisión de segmentos multimedia y aviso de Reproducir siguiente.",
   "#30452": "Segmentos multimedia",
-  "#30453": "Reaccionar a los segmentos multimedia",
+  "#30453": "Saltar segmentos multimedia",
   "#30454": "Obtiene los segmentos multimedia de Jellyfin (intro, créditos, resumen, avance, publicidad) durante la reproducción y actúa según su tipo.",
   "#30455": "Intros",
   "#30456": "Desactivado ignora los segmentos de intro, Automático los salta y Preguntar muestra un botón para saltarlos.",

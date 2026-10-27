@@ -195,7 +195,7 @@
   "#30450": "Hoppa över och spela nästa",
   "#30451": "Överhoppning av mediesegment och frågan Spela nästa.",
   "#30452": "Mediesegment",
-  "#30453": "Reagera på mediesegment",
+  "#30453": "Hoppa över mediesegment",
   "#30454": "Hämta Jellyfins mediesegment (intro, eftertexter, sammanfattning, förhandsvisning, reklam) under uppspelning och agera på dem per typ.",
   "#30455": "Intron",
   "#30456": "Av ignorerar introsegment, Auto hoppar över dem, Fråga visar en hoppa över-knapp.",

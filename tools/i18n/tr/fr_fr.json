@@ -195,7 +195,7 @@
   "#30450": "Passages et lire la suite",
   "#30451": "Saut des segments média et invite Lire la suite.",
   "#30452": "Segments média",
-  "#30453": "Réagir aux segments média",
+  "#30453": "Passer les segments média",
   "#30454": "Récupère les segments média de Jellyfin (générique de début, générique de fin, résumé, aperçu, publicité) pendant la lecture et agit selon leur type.",
   "#30455": "Génériques de début",
   "#30456": "Désactivé ignore les segments de générique de début, Auto les saute, Demander affiche un bouton de saut.",

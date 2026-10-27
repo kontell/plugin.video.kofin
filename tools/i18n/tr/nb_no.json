@@ -195,7 +195,7 @@
   "#30450": "Hopping og spill neste",
   "#30451": "Hopping over mediesegmenter og Spill neste-spørsmålet.",
   "#30452": "Mediesegmenter",
-  "#30453": "Reager på mediesegmenter",
+  "#30453": "Hopp over mediesegmenter",
   "#30454": "Hent Jellyfins mediesegmenter (intro, rulletekst, oppsummering, forhåndsvisning, reklame) under avspilling og reager på dem per type.",
   "#30455": "Introer",
   "#30456": "Av ignorerer introsegmenter, Auto hopper over dem, Spør viser en hopp over-knapp.",

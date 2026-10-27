@@ -989,8 +989,8 @@ msgid "Media segments"
 msgstr "미디어 구간"
 
 msgctxt "#30453"
-msgid "React to media segments"
-msgstr "미디어 구간에 반응"
+msgid "Skip media segments"
+msgstr "미디어 구간 건너뛰기"
 
 msgctxt "#30454"
 msgid "Fetch Jellyfin media segments (intro, credits, recap, preview, commercial) during playback and act on them per type."

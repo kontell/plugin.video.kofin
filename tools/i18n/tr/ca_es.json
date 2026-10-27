@@ -195,7 +195,7 @@
   "#30450": "Omissió i reproduir el següent",
   "#30451": "Omissió de segments multimèdia i avís de Reprodueix el següent.",
   "#30452": "Segments multimèdia",
-  "#30453": "Reacciona als segments multimèdia",
+  "#30453": "Omet els segments multimèdia",
   "#30454": "Recupera els segments multimèdia del Jellyfin (introducció, crèdits, resum, avanç, anunci) durant la reproducció i actua-hi segons el tipus.",
   "#30455": "Introduccions",
   "#30456": "Desactivat ignora els segments d'introducció, Automàtic els omet i Pregunta mostra un botó per ometre'ls.",

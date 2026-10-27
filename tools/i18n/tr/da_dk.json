@@ -195,7 +195,7 @@
   "#30450": "Overspring og afspil næste",
   "#30451": "Overspringning af mediesegmenter og Afspil næste-prompten.",
   "#30452": "Mediesegmenter",
-  "#30453": "Reagér på mediesegmenter",
+  "#30453": "Spring mediesegmenter over",
   "#30454": "Hent Jellyfins mediesegmenter (intro, rulletekster, resumé, forhåndsvisning, reklame) under afspilning, og reagér på dem pr. type.",
   "#30455": "Introer",
   "#30456": "Fra ignorerer introsegmenter, Auto springer forbi dem, Spørg viser en spring over-knap.",

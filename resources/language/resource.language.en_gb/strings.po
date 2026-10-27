@@ -1033,7 +1033,7 @@ msgid "Media segments"
 msgstr ""
 
 msgctxt "#30453"
-msgid "React to media segments"
+msgid "Skip media segments"
 msgstr ""
 
 msgctxt "#30454"

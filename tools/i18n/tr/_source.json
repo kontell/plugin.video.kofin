@@ -242,7 +242,7 @@
   "#30450": "Skipping & Play next",
   "#30451": "Media segment skipping and the Play Next prompt.",
   "#30452": "Media segments",
-  "#30453": "React to media segments",
+  "#30453": "Skip media segments",
   "#30454": "Fetch Jellyfin media segments (intro, credits, recap, preview, commercial) during playback and act on them per type.",
   "#30455": "Intros",
   "#30456": "Off ignores intro segments, Auto skips past them, Ask shows a skip button.",
