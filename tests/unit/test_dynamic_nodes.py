@@ -364,9 +364,8 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
 ):
     """The Manage menu reads a library's downloads from its folder in the
     music tree. The folder's nodes take the library's songs by the folder they
-    are filed under, Kodi's own music nodes are seeded first, and there is no
-    Downloaded folder, whose rule on the downloads folder matches nothing in
-    this build."""
+    are filed under, Kodi's own music nodes are seeded first, and the
+    Downloaded folder stands beside the library's while downloads are on."""
     import os
     import shutil
 
@@ -389,7 +388,8 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     folder = music / NODE_ROOT / ("kofinmusic" + MUSIC)
     assert (music / "albums" / "index.xml").read_text() == "<node/>"
     assert sorted(p.name for p in (music / NODE_ROOT).iterdir() if p.is_dir()) == [
-        "kofinmusic" + MUSIC
+        "kofin_Downloaded",
+        "kofinmusic" + MUSIC,
     ]
     assert sorted(p.name for p in folder.iterdir()) == [
         "albums.xml",
@@ -485,3 +485,46 @@ def test_the_favourite_episodes_node_is_written_only_where_kodi_keeps_episode_ta
     assert not (root / "kofin_Favoriteepisodes.xml").exists()
     assert (root / "kofin_Favoritemovies.xml").is_file()
     assert "Favorite episodes" not in " ".join(props().values())
+
+
+def test_the_downloaded_folder_lists_the_finished_songs_through_the_add_on(
+    views_env, monkeypatch
+):
+    """A download keeps its row's plugin URL and MyMusic has no tag, so no
+    rule of Kodi's tells a downloaded song apart: the folder's three nodes
+    are folder nodes on the add-on's own listing (plugin/downloaded.py),
+    written while the downloads feature is on and swept with the rest when
+    it is off, the library's folder staying."""
+    from urllib.parse import parse_qs, urlsplit
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    music = views_env["profile"] / "library" / "music"
+    folder = music / NODE_ROOT / "kofin_Downloaded"
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "albums.xml",
+        "artists.xml",
+        "index.xml",
+        "songs.xml",
+    ]
+    index = ET.parse(folder / "index.xml").getroot()
+    assert index.find("label").text == "string-30736"
+    assert index.find("icon").text.endswith("/downloaded.png")
+    # After the one library folder, which is order 0.
+    assert index.get("order") == "1"
+    for stem, label in (("artists", "133"), ("albums", "132"), ("songs", "134")):
+        node = ET.parse(folder / ("%s.xml" % stem)).getroot()
+        assert node.get("type") == "folder"
+        assert node.find("label").text == label
+        assert node.find("rule") is None
+        path = node.find("path").text
+        assert path.startswith("plugin://plugin.video.kofin/?")
+        assert parse_qs(urlsplit(path).query) == {
+            "mode": ["downloadedmusic"],
+            "content": [stem],
+        }
+    FakeAddon.store["downloadsEnabled"] = "false"
+    dynamic.publish(ITEMS, FakeApi())
+    assert not folder.exists()
+    assert (music / NODE_ROOT / ("kofinmusic" + MUSIC)).is_dir()

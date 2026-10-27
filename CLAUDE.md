@@ -523,11 +523,15 @@ What remains is kofin's own:
   an album or an artist by its songs. The Manage menu reads a library's downloads from that folder's path. Blank login ids
   take the tree down only from a store that answered (`dynamic.music_entries`): an
   unregistered add-on and a settings document that did not load read blank too. Kodi's music nodes
-  are seeded first, the skin entry stays Kodi's music root, and there is no Downloaded folder: a
-  download keeps its plugin URL, so a rule on the downloads folder matches nothing. For the same
-  reason the Downloaded-music view is not a smart playlist but `Downloaded music.m3u8`, the
-  finished songs listed from the download store (`backends/api/playlists.write_downloaded_music`),
-  rewritten when a download finishes or leaves (`downloads/nativeport.py`); its stem is reserved in the managed folder (`playlists.RESERVED_STEMS`). A server
+  are seeded first and the skin entry stays Kodi's music root. **The Downloaded folder of the
+  music tree is three folder nodes on the add-on's own listing** (`plugin/downloaded.py`,
+  `mode=downloadedmusic`): a download keeps its plugin URL and MyMusic has no tag, so no rule of
+  Kodi's tells a downloaded song apart; the listing reads the download store and the catalogue
+  and asks nothing of the server, so it answers offline. For the same reason the Downloaded-music
+  view is not a smart playlist but `Downloaded music.m3u8`, the finished songs listed from the
+  download store (`backends/api/playlists.write_downloaded_music`), rewritten when a download
+  finishes or leaves (`downloads/nativeport.py`); its stem is reserved in the managed folder
+  (`playlists.RESERVED_STEMS`). A server
   playlist stored under that name earlier moves to `(2)` on its next pass, Etag or not, and
   the old name is removed only while it is still that playlist's copy (`_remove_stored`).
   **Kodi's shipped video nodes are seeded into the profile

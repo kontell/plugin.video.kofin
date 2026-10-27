@@ -1860,9 +1860,9 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr ""
 
-# 30736 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the Downloaded music smart
-# playlist; the API sync lists the downloaded songs in a playlist file of
-# the same name. Kept, never reused, for the reason given at #30744.
+# 30736 — the Downloaded folder of the music tree (sync/nodes/music.py) and
+# the playlist file of the same name; the retired SQL build's smart playlist
+# carried it first.
 msgctxt "#30736"
 msgid "Downloaded music"
 msgstr ""

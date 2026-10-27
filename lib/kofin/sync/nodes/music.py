@@ -3,13 +3,18 @@
 Kodi keeps music nodes in a tree of their own (``CLibraryDirectory`` over
 ``library://music/``), so nothing in the video tree reaches here. The tree
 holds a folder per synced music library -- Artists, Albums, Songs and
-Genres, the same ways in Kodi's own music library offers.
+Genres, the same ways in Kodi's own music library offers -- and a Downloaded
+folder while the downloads feature is on.
 
 A library's sub-nodes filter on the folder its songs are filed under
 (``library_rule``): a music smart playlist's ``path`` rule takes an album or
-an artist by its songs' paths. Every file is written whole on every pass:
-nothing in them is the user's to keep, and a leftover rule for a renamed
-library would match nothing under ``match=all`` -- silently.
+an artist by its songs' paths. The Downloaded folder's nodes are folder nodes
+on the add-on's own listing of the finished song downloads
+(plugin/downloaded.py): a download leaves its row's plugin URL alone and
+MyMusic has no tag, so no rule of Kodi's tells a downloaded song apart. Every
+file is written whole on every pass: nothing in them is the user's to keep,
+and a leftover rule for a renamed library would match nothing under
+``match=all`` -- silently.
 """
 
 import os
@@ -19,8 +24,10 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.core.urls import plugin_url
 from kofin.sync.nodes import fs
 from kofin.sync.nodes.video import (
+    NODE_DOWNLOADS_ICON,
     NODE_ROOT,
     NODE_ROOT_ICON,
     _node_label,
@@ -36,13 +43,13 @@ LOG = Logger(__name__)
 MUSIC_NODE_ROOT_ORDER = 55
 
 # The Downloaded-music folder inside the music tree. Named with the prefix
-# so the pruner claims it like everything else kofin writes.
+# so the pruner claims it like everything else kofin writes; labelled with
+# the Downloaded-music string and the downloads icon, like the video tree's
+# Downloaded singles. Its nodes are folder nodes on the add-on's listing
+# (plugin/downloaded.py, mode=downloadedmusic), one per content type.
 MUSIC_DOWNLOADED_FOLDER = fs.PREFIX + "_Downloaded"
-
-# The flat Downloaded-music node this replaced. The pruner sweeps it by
-# prefix like any other stale file; the name survives only for the tests
-# that plant one.
-MUSIC_DOWNLOADED_FILE = fs.PREFIX + "_DownloadedMusic.xml"
+MUSIC_DOWNLOADED_LABEL = 30736
+MUSIC_DOWNLOADED_MODE = "downloadedmusic"
 
 # (file stem, label, content, group) for the sub-nodes inside a music folder.
 # Every label is a *Kodi-core* string id -- the same ones Kodi's own music
@@ -55,6 +62,10 @@ MUSIC_NODES = (
     ("songs", 134, "songs", None),
     ("genres", 135, "artists", "genres"),
 )
+
+# The Downloaded folder gets no genres leg: it is three ways into one small
+# pile of files, and a genre level over a handful of albums is noise.
+MUSIC_DOWNLOAD_NODES = MUSIC_NODES[:3]
 
 
 # Stock Kodi icons for those sub-nodes, so skins substitute their own.
@@ -93,9 +104,9 @@ def write_music_nodes(libraries):
 
     ``libraries`` are the whitelisted music libraries, each with the folder
     its songs are filed under (``dynamic.music_entries``); an empty list
-    takes the tree down. There is no Downloaded folder: a download keeps its
-    row's plugin URL, so a path rule on the downloads folder would match
-    nothing.
+    takes the tree down, the Downloaded folder with it. That folder is
+    written while the downloads feature is on and swept with the rest when
+    it is off, as the video tree's Downloaded singles are.
     """
     root = music_node_root_path()
 
@@ -113,6 +124,10 @@ def write_music_nodes(libraries):
         for index, view in enumerate(libraries):
             _write_music_library_folder(root, view, index)
             keep.add(music_node_folder(view))
+
+        if _downloads_on():
+            _write_music_downloaded_folder(root, len(libraries))
+            keep.add(MUSIC_DOWNLOADED_FOLDER)
 
         # Reconcile: a library that left the whitelist, and the loose
         # kofin_DownloadedMusic.xml from before the Downloaded folder
@@ -151,6 +166,48 @@ def _write_music_library_folder(root, view, index):
     for order, (stem, label, content, group) in enumerate(MUSIC_NODES):
         rule = library_rule(view)
         _write_music_filter_node(folder, order, stem, label, content, group, rule)
+
+
+def _downloads_on():
+    """Whether the Downloaded folder is written: the downloads switch, read
+    as video.single_nodes reads it (a build whose settings have no such
+    setting raises)."""
+    try:
+        return bool(settings.get_bool("downloadsEnabled"))
+    except TypeError:
+        return False
+
+
+def downloaded_node_path(content):
+    """The add-on's listing one Downloaded node opens on."""
+    return plugin_url({"mode": MUSIC_DOWNLOADED_MODE, "content": content})
+
+
+def _write_music_downloaded_folder(root, order):
+    """The Downloaded folder: its index and a folder node per content type,
+    each on the add-on's listing of the finished song downloads."""
+    folder = os.path.join(root, MUSIC_DOWNLOADED_FOLDER)
+
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+
+    _write_music_folder_index(
+        folder, order, _node_label(MUSIC_DOWNLOADED_LABEL), NODE_DOWNLOADS_ICON
+    )
+
+    for position, (stem, label, content, _group) in enumerate(MUSIC_DOWNLOAD_NODES):
+        _write_music_path_node(
+            folder, position, stem, label, downloaded_node_path(content)
+        )
+
+
+def _write_music_path_node(folder, order, stem, label, path):
+    """One folder node inside a music folder: Kodi lists ``path`` for it."""
+    xml = etree.Element("node", {"order": str(order), "type": "folder"})
+    set_node_icon(xml, MUSIC_NODE_ICONS[stem])
+    etree.SubElement(xml, "label").text = _node_label(label, stem)
+    etree.SubElement(xml, "path").text = path
+    write_xml(os.path.join(folder, "%s.xml" % stem), xml)
 
 
 def _write_music_folder_index(folder, order, label, icon):
