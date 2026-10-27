@@ -416,7 +416,7 @@ def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeyp
         library, "Native", lambda *args, **kwargs: SimpleNamespace(setup=lambda: None)
     )
     monkeypatch.setattr(w, "apply", lambda native: None)
-    monkeypatch.setattr(library, "status", lambda value: None)
+    monkeypatch.setattr(library, "status", lambda *a, **k: None)
     monkeypatch.setattr(
         library.Credentials, "load", lambda: SimpleNamespace(server_id="s", user_id="u")
     )
@@ -448,7 +448,7 @@ def test_first_content_reloads_the_skin_once_per_kind_and_waits_for_playback(
     monkeypatch.setattr(library.xbmc, "executebuiltin", builtins.append)
     monkeypatch.setattr(library.xbmc, "getCondVisibility", lambda _: True)
     monkeypatch.setattr(library.xbmc, "getLocalizedString", lambda _: "Done")
-    monkeypatch.setattr(library, "status", lambda value: None)
+    monkeypatch.setattr(library, "status", lambda *a, **k: None)
     w = worker(store, Server({}), [LIB], monkeypatch)
     store.publish([movie()] + show_bundle(), library=LIB)
     playing = [True]

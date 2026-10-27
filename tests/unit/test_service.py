@@ -1084,7 +1084,7 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
 
     _connected(service, monkeypatch)
 
-    assert service.library.commands == ["FastSync"]
+    assert service.library.commands == ["Reconnected"]
 
 
 # --- Who's watching? restore on session attach -------------------------------

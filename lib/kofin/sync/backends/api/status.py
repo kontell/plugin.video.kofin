@@ -7,6 +7,13 @@ the server answered for (``record_feed``). Everything else the dialog shows is
 read from the catalogue at the moment it is opened, by the plugin process that
 draws it, so nothing is kept up to date for a dialog nobody has open.
 
+The thread stamps what it writes with its account's namespace, and the dialog
+reads the document for the account that is logged in: a login to another
+server with nothing selected starts no thread, and the previous server's
+state, listing and feed would otherwise stand for as long as nothing wrote.
+What the service writes before there is an account (a Kodi this build cannot
+sync on) carries no stamp and is read by any account.
+
 The document replaces two settings the service used to write, "Synced
 libraries" and "Sync status". A setting write rewrites settings.xml and
 fires the settings callback of every running part of the add-on, and what
@@ -45,16 +52,21 @@ def path() -> str:
     return os.path.join(private.addon_data_path(), DOCUMENT)
 
 
-def read() -> Dict[str, Any]:
+def read(namespace: str = "") -> Dict[str, Any]:
     """The document, as far as it has the shape ``write`` gives it. It is
     read by another process than the one that wrote it, and a field of
-    another type (a hand edit, a later build's) is left out, not shown."""
+    another type (a hand edit, a later build's) is left out, not shown. A
+    document another account's thread stamped reads as nothing for
+    ``namespace``; one without a stamp is anyone's."""
     try:
         with open(path(), "r", encoding="utf-8") as handle:
             document = json.load(handle)
     except (OSError, ValueError):
         return {}
     if not isinstance(document, dict):
+        return {}
+    stamped = document.get("namespace")
+    if namespace and isinstance(stamped, str) and stamped and stamped != namespace:
         return {}
     found: Dict[str, Any] = {}
     state = document.get("state")
@@ -72,36 +84,44 @@ def read() -> Dict[str, Any]:
     return found
 
 
-def write(state: str, listing=()) -> None:
+def write(state: str, listing=(), namespace: str = "") -> None:
     """Record what the sync is doing, in the words the dialog shows, and the
-    names of the libraries whose first listing is under way. Written only
-    when either changes; ``since`` is when the state began. The feed the
-    library thread last detected rides along unchanged."""
-    current = read()
+    names of the libraries whose first listing is under way, for the account
+    ``namespace`` (the library thread's store). Written only when either
+    changes; ``since`` is when the state began. The feed the library thread
+    last detected rides along unchanged, and another account's document is
+    replaced whole."""
+    current = read(namespace)
     listing = list(listing)
     same = current.get("state") == state
     if same and (current.get("listing") or []) == listing:
         return
     since = current.get("since") if same else None
-    document = {"state": state, "since": since or time.time(), "listing": listing}
+    document: Dict[str, Any] = {
+        "state": state,
+        "since": since or time.time(),
+        "listing": listing,
+    }
     if "feed" in current:
         document["feed"] = current["feed"]
-    _store(document)
+    _store(document, namespace)
 
 
-def record_feed(tier: str) -> None:
+def record_feed(tier: str, namespace: str = "") -> None:
     """Record which change-feed companion the server answered for
     (``changefeed.detect``: its ``TIER_*``), so the dialog can say whether
     KofinSyncQueue is there. Written only when the answer moved."""
-    current = read()
+    current = read(namespace)
     if current.get("feed") == tier:
         return
     document: Dict[str, Any] = dict(current)
     document["feed"] = tier
-    _store(document)
+    _store(document, namespace)
 
 
-def _store(document: Dict[str, Any]) -> None:
+def _store(document: Dict[str, Any], namespace: str = "") -> None:
+    if namespace:
+        document["namespace"] = namespace
     target = path()
     # A path of this thread's own. Two service generations run side by side
     # for a moment, each with a library thread: on one shared ".part" the
@@ -347,7 +367,13 @@ def show(store) -> None:
             found = snapshot(
                 store, metadata.scanner_format({n for n, on in table.items() if on})
             )
-            lines = rows(read(), found, progress.stage, progress.label, features=table)
+            lines = rows(
+                read(store.namespace),
+                found,
+                progress.stage,
+                progress.label,
+                features=table,
+            )
             unfiled = unfiled_row(found, progress.stage)
             entries = store.unfiled(counted(found)) if unfiled else []
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]

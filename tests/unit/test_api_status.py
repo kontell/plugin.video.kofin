@@ -491,7 +491,60 @@ def test_the_library_thread_records_what_its_detection_answered(store, monkeypat
 
     w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
     assert w._changefeed() is None
-    assert status.read()["feed"] == "none"
+    assert status.read(store.namespace)["feed"] == "none"
     monkeypatch.setattr(library.changefeed, "detect", lambda api: Feed([]))
     assert w._changefeed() is not None
-    assert status.read()["feed"] == "kofin"
+    assert status.read(store.namespace)["feed"] == "kofin"
+    assert status.read("another-account") == {}
+
+
+def test_a_reconnect_has_the_thread_detect_the_feed_again(store, monkeypatch):
+    """A found feed is kept for the thread's life, so a plugin installed on
+    the server (a server restart, which is a websocket reconnect) would go
+    unnoticed: the reconnect command forgets it and makes the catch-up due,
+    and the record follows the new answer."""
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Feed, Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    monkeypatch.setattr(library.changefeed, "detect", lambda api: Feed([]))
+    w.changefeed = Feed([])
+    w.changefeed.tier = "official"
+    w._changefeed()
+    status.record_feed("official", store.namespace)
+    w._catchup_due = 10**9
+    w.enqueue_command("Reconnected")
+    w.commands()
+    assert w.changefeed is None and w._catchup_due == 0
+    assert w._changefeed() is not None
+    assert status.read(store.namespace)["feed"] == "kofin"
+
+
+def test_the_document_is_read_for_the_account_that_wrote_it(store, monkeypatch):
+    """A login to another server with nothing selected starts no thread, so
+    the previous server's document would stand: the dialog reads what its
+    own account's thread wrote, the service's unstamped lines are anyone's,
+    and the next account's first write replaces the lot."""
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    status.write("Updating library", ["Films"], namespace="other")
+    status.record_feed("kofin", namespace="other")
+    assert status.read("other")["feed"] == "kofin"
+    assert status.read(store.namespace) == {}
+    dialog, _ = _dialog(monkeypatch, store, [-1])
+    _heading, shown, _preselect = dialog.selects[0]
+    assert shown[1] == "L30262:  K20177"
+    assert not any(row.startswith("L30886") for row in shown)
+    # The service's own line, written before there is an account.
+    status.write("Library sync is off")
+    assert status.read(store.namespace)["state"] == "Library sync is off"
+    # This account's thread writes over whatever stood there.
+    status.write("Updating library", namespace=store.namespace)
+    status.record_feed("official", namespace=store.namespace)
+    assert status.read(store.namespace) == {
+        "state": "Updating library",
+        "since": status.read(store.namespace)["since"],
+        "listing": [],
+        "feed": "official",
+    }
+    assert status.read("other") == {}
