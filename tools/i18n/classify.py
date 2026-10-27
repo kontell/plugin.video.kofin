@@ -18,6 +18,8 @@ from po_lib import parse_entries
 # language. Entries that pair a token with descriptor words ("Dolby Vision with
 # HDR10 fallback") are deliberately NOT here -- the descriptor needs translating.
 PASSTHROUGH = {
+    # The server plugin's name, on its Library status row.
+    "#30886",  # KofinSyncQueue
     # Video codecs. 30150-30153 carry a parenthesised second name (AVC, HEVC,
     # Hi10P) that is part of the token, not a gloss.
     "#30150",  # H.264 (AVC)

@@ -582,5 +582,7 @@
   "#30883": "Removing dropped versions and extras",
   "#30884": "Fine sync",
   "#30885": "Kodi imports a special only with an episode number. Give these one on the server, or play them from the Kofin add-on.",
+  "#30886": "KofinSyncQueue",
+  "#30887": "Available",
   "#30990": "Not available in this preview"
 }

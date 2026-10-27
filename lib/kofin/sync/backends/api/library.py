@@ -614,6 +614,13 @@ class Library(threading.Thread):
             except Exception as error:
                 LOG.info("no change-feed companion detected (%s)", error)
                 self.changefeed = None
+            # For the status dialog: a found feed is kept for the thread's
+            # life, a missing one is looked for again on every call, and the
+            # record moves with the answer.
+            feed = self.changefeed
+            apistatus.record_feed(
+                feed.tier if feed is not None else changefeed.TIER_NONE
+            )
         return self.changefeed
 
     def _server_now(self):

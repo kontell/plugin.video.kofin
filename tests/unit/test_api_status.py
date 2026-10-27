@@ -455,3 +455,43 @@ def test_picking_what_kodi_cannot_import_lists_it(store, monkeypatch):
     assert heading == "L30868"
     assert text.startswith("L30885\n\n[B]Anime[/B]\nOther \u2014 Pilot")
     assert [preselect for _, _, preselect in dialog.selects] == [0, row, row - 1]
+
+
+def test_the_sync_queue_companion_is_reported_once_known(store, monkeypatch):
+    """Whether the server has KofinSyncQueue: the row shows what the library
+    thread last recorded, and not at all before it has asked (a fresh
+    install). The official KodiSyncQueue and no companion read alike, as
+    Kodi's own "Not available"; the log names which."""
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    text = lambda i: TEXT.get(i, "L%d" % i)  # noqa: E731
+    found = status.snapshot(store, 2)
+
+    def row():
+        rows = status.rows(status.read(), found, text, LABELS.__getitem__)
+        return [line for line in rows if line.startswith("L30886")]
+
+    assert row() == []
+    status.record_feed("kofin")
+    assert status.read()["feed"] == "kofin"
+    assert row() == ["L30886:  L30887"]
+    # The sync's own writes carry the record along.
+    status.write("Updating library", ["Films"])
+    assert status.read()["feed"] == "kofin"
+    for tier in ("official", "none"):
+        status.record_feed(tier)
+        assert row() == ["L30886:  L10005"]
+
+
+def test_the_library_thread_records_what_its_detection_answered(store, monkeypatch):
+    """A found feed is kept for the thread's life; a missing one is looked
+    for again on every call, and the record moves with the answer."""
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Feed, Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    assert w._changefeed() is None
+    assert status.read()["feed"] == "none"
+    monkeypatch.setattr(library.changefeed, "detect", lambda api: Feed([]))
+    assert w._changefeed() is not None
+    assert status.read()["feed"] == "kofin"

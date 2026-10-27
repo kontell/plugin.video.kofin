@@ -2348,6 +2348,14 @@ msgctxt "#30885"
 msgid "Kodi imports a special only with an episode number. Give these one on the server, or play them from the Kofin add-on."
 msgstr "Kodi importă un episod special doar dacă are număr de episod. Atribuie-le unul pe server sau redă-le din suplimentul Kofin."
 
+msgctxt "#30886"
+msgid "KofinSyncQueue"
+msgstr "KofinSyncQueue"
+
+msgctxt "#30887"
+msgid "Available"
+msgstr "Disponibil"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Indisponibil în această versiune preliminară"

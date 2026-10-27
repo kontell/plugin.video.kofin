@@ -1,11 +1,11 @@
 """What the sync has done and is doing, for the status dialog in the settings.
 
 The library thread writes one small document when its state changes: what it
-is doing, since when, and the names of the libraries it is listing for the
-first time, which the catalogue has no row of yet. Everything else the dialog
-shows is read from the catalogue at the moment it is opened, by the plugin
-process that draws it, so nothing is kept up to date for a dialog nobody has
-open.
+is doing, since when, the names of the libraries it is listing for the first
+time, which the catalogue has no row of yet, and which change-feed companion
+the server answered for (``record_feed``). Everything else the dialog shows is
+read from the catalogue at the moment it is opened, by the plugin process that
+draws it, so nothing is kept up to date for a dialog nobody has open.
 
 The document replaces two settings the service used to write, "Synced
 libraries" and "Sync status". A setting write rewrites settings.xml and
@@ -25,7 +25,7 @@ import xbmcgui
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import private
+from kofin.sync import changefeed, private
 from . import capabilities, metadata, progress
 
 LOG = Logger(__name__)
@@ -66,13 +66,17 @@ def read() -> Dict[str, Any]:
     listing = document.get("listing")
     if isinstance(listing, list):
         found["listing"] = [name for name in listing if isinstance(name, str)]
+    feed = document.get("feed")
+    if isinstance(feed, str):
+        found["feed"] = feed
     return found
 
 
 def write(state: str, listing=()) -> None:
     """Record what the sync is doing, in the words the dialog shows, and the
     names of the libraries whose first listing is under way. Written only
-    when either changes; ``since`` is when the state began."""
+    when either changes; ``since`` is when the state began. The feed the
+    library thread last detected rides along unchanged."""
     current = read()
     listing = list(listing)
     same = current.get("state") == state
@@ -80,6 +84,24 @@ def write(state: str, listing=()) -> None:
         return
     since = current.get("since") if same else None
     document = {"state": state, "since": since or time.time(), "listing": listing}
+    if "feed" in current:
+        document["feed"] = current["feed"]
+    _store(document)
+
+
+def record_feed(tier: str) -> None:
+    """Record which change-feed companion the server answered for
+    (``changefeed.detect``: its ``TIER_*``), so the dialog can say whether
+    KofinSyncQueue is there. Written only when the answer moved."""
+    current = read()
+    if current.get("feed") == tier:
+        return
+    document: Dict[str, Any] = dict(current)
+    document["feed"] = tier
+    _store(document)
+
+
+def _store(document: Dict[str, Any]) -> None:
     target = path()
     # A path of this thread's own. Two service generations run side by side
     # for a moment, each with a library thread: on one shared ".part" the
@@ -216,6 +238,15 @@ def rows(
     enumerated = _moment(found.enumerated, clock)
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
+    feed = document.get("feed")
+    if feed is not None:
+        # Whether the server has the companion the catch-up is built for.
+        # Kodi's own "Not available" (10005) covers the official KodiSyncQueue
+        # and no companion alike; the log names which.
+        available = feed == changefeed.TIER_KOFIN
+        lines.append(
+            "%s:  %s" % (text(30886), text(30887) if available else text(10005))
+        )
     if features is not None:
         # What this Kodi cannot do, counted here and named in the viewer the
         # row opens (``show``): the one place a viewer is told, since nothing
