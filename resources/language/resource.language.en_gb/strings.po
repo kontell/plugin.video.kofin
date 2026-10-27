@@ -783,7 +783,9 @@ msgctxt "#30270"
 msgid "Update which libraries?"
 msgstr ""
 
-# 30300-30349 — Sync tab
+# 30300-30349 — the Sync tab, merged into Library in 0.96.3; its settings
+# kept their ids. 30300-30301 (the tab's label and help) are retired: kept,
+# never reused, for the reason given at #30744.
 
 msgctxt "#30300"
 msgid "Sync"
@@ -2384,7 +2386,7 @@ msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr ""
 
-# 30845-30846 — Sync-tab toggle for Kodi's library-update progress bar.
+# 30845-30846 — Library-tab toggle for Kodi's library-update progress bar.
 # #30302 (the item threshold) is visible only while this is on.
 msgctxt "#30845"
 msgid "Show library update progress"

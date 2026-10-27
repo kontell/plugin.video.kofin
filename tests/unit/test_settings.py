@@ -233,24 +233,38 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
     assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
 
 
-def test_library_update_progress_leads_the_sync_tab():
-    """The toggle is first and on by default. The item threshold is visible
-    only while it is on, and the tab is one group — a second drew a separator
-    under Download threads."""
+def test_the_library_tab_holds_the_sync_settings_in_reading_order():
+    """The Sync tab merged into Library: what to sync, then the progress
+    toggle with its item threshold (visible only while the toggle is on),
+    then the status and the actions, then the presentation and artwork
+    choices. One group — a second draws a separator."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    assert "sync" not in [element.get("id") for element in root.iter("category")]
     category = next(
-        element for element in root.iter("category") if element.get("id") == "sync"
+        element for element in root.iter("category") if element.get("id") == "library"
     )
     assert len(list(category.iter("group"))) == 1
-    settings_in_tab = list(category.iter("setting"))
-    assert settings_in_tab[0].get("id") == "showLibraryUpdateProgress"
-    assert settings_in_tab[0].findtext("default") == "true"
-    assert settings_in_tab[1].get("id") == "syncProgressThreshold"
+    shown = [element for element in category.iter("setting") if element.get("label")]
+    assert [element.get("id") for element in shown] == [
+        "selectLibraries",
+        "showLibraryUpdateProgress",
+        "syncProgressThreshold",
+        "libraryStatus",
+        "notifyNewContent",
+        "updateLibraries",
+        "repairLibraries",
+        "fullUpdateInterval",
+        "libraryNodes",
+        "preferCriticRating",
+        "compressArt",
+        "maxArtResolution",
+    ]
+    assert shown[1].findtext("default") == "true"
     visible = [
         condition.get("setting")
-        for dependency in settings_in_tab[1].iter("dependency")
+        for dependency in shown[2].iter("dependency")
         if dependency.get("type") == "visible"
         for condition in dependency.iter("condition")
         if (condition.text or "").strip() == "true"
