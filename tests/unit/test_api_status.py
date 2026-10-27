@@ -400,9 +400,11 @@ def test_a_fact_that_is_picked_does_nothing_and_back_closes_the_report(
     assert dialog.selects[0][1] == dialog.selects[1][1] == dialog.selects[2][1]
 
 
-def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
+def test_what_this_kodi_cannot_do_is_counted_on_one_row_and_named_behind_it(
+    store, monkeypatch
+):
     """A feature the capability probe found missing is told to the viewer
-    here and nowhere else: one row, every missing feature by its label, and
+    here and nowhere else: one row counting them, the names behind it, and
     no row at all on a Kodi that has them all."""
     from kofin.sync.backends.api import capabilities
 
@@ -416,15 +418,16 @@ def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
     table["season_plot"] = False
     table["tempo"] = False
     rows = status.rows({}, found, text, LABELS.__getitem__, features=table)
-    assert rows[-1] == "L30876:  L30877, L30884"
+    assert rows[-1] == "L30876:  2"
     # The dialog reads the table off the report the service wrote.
     monkeypatch.setattr(capabilities, "table", lambda: table)
     dialog, _ = _dialog(monkeypatch, store, [-1])
     _heading, shown, _preselect = dialog.selects[0]
-    assert shown[-1] == "L30876:  L30877, L30884"
+    assert shown[-1] == "L30876:  2"
     assert dialog.textviewers == []
-    # The row is cut short by the skin once a few are off: picking it opens
-    # the list, one feature a line, and the report stays up behind it.
+    # The names scrolled on the row once a few were off, so the row counts
+    # them: picking it opens the list, one feature a line, and the report
+    # stays up behind it.
     dialog, _ = _dialog(monkeypatch, store, [len(shown) - 1, -1])
     assert dialog.textviewers == [("L30876", "L30877\nL30884")]
     assert len(dialog.selects) == 2

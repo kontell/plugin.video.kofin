@@ -217,11 +217,12 @@ def rows(
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
     if features is not None:
-        # What this Kodi cannot do, by name: the one place a viewer is told,
-        # since nothing logs it per item (the capability profile, CLAUDE.md).
+        # What this Kodi cannot do, counted here and named in the viewer the
+        # row opens (``show``): the one place a viewer is told, since nothing
+        # logs it per item (the capability profile, CLAUDE.md).
         off = off_features(features, text)
         if off:
-            lines.append("%s:  %s" % (text(30876), ", ".join(off)))
+            lines.append("%s:  %s" % (text(30876), _number(len(off))))
     return [line.rstrip() for line in lines]
 
 
@@ -293,11 +294,12 @@ def show(store) -> None:
     ones that do anything. A select dialog closes on whichever row is
     picked, so a fact that was picked is shown again as it was, the cursor
     on it: picking one used to close the report, which read as the report
-    having gone wrong. Back is what closes it. The row naming what this
-    Kodi lacks is cut short by the skin once a few features are off (eight
-    on a Piers), so picking it opens the list, one feature a line, in a
-    text viewer; picking the count of what Kodi cannot import opens what
-    it counts. Both lists are read with the rows they explain, so a pass
+    having gone wrong. Back is what closes it. The row for what this Kodi
+    lacks carries a count, and picking it opens the names, one feature a
+    line, in a text viewer: named on the row, they were cut short by the
+    skin and scrolled once a few features were off (eight on a Piers).
+    Picking the count of what Kodi cannot import opens what it counts the
+    same way. Both lists are read with the rows they explain, so a pass
     that moves either while the report is open cannot make the text
     disagree with the row.
     """
