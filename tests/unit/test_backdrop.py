@@ -1,9 +1,5 @@
-"""L1: the addon backdrop swap — what gets written, and (mostly) what does not.
-
-The invariants worth guarding are the negative ones. Every service connect
-runs this, so an unchanged splashscreen must not rewrite the asset or drop the
-cached texture, and a server that is down must never leave the install with a
-half-written image.
+"""L1: the server backdrop lands in addon_data, and the bundled asset is
+never touched.
 """
 
 import json
@@ -13,7 +9,9 @@ import pytest
 from kofin.service import backdrop
 from tests.unit.fakes import FakeAddon
 
-DEFAULT_BYTES = b"bundled-artwork-webp-bytes"
+# The asset addon.xml names; the service module has no reason to know it.
+BUNDLED = "fanart.jpeg"
+DEFAULT_BYTES = b"bundled-artwork-jpeg-bytes"
 SPLASH_BYTES = b"server-splashscreen-webp-bytes"
 OTHER_SPLASH = b"a-different-server-splashscreen"
 
@@ -46,9 +44,7 @@ def env(monkeypatch, tmp_path):
     addon_dir = tmp_path / "addon"
     media = addon_dir / "resources" / "media"
     media.mkdir(parents=True)
-    # Only the live asset ships; the pristine copy is captured into addon_data
-    # on first run (a second shipped copy would be a second source of truth).
-    (media / backdrop.LIVE_NAME).write_bytes(DEFAULT_BYTES)
+    (media / BUNDLED).write_bytes(DEFAULT_BYTES)
 
     data_dir = tmp_path / "addon_data"
     data_dir.mkdir()
@@ -60,30 +56,12 @@ def env(monkeypatch, tmp_path):
 
 
 def live(env):
-    return (env["media"] / backdrop.LIVE_NAME).read_bytes()
+    return (env["media"] / BUNDLED).read_bytes()
 
 
 def state(env):
     path = env["data"] / backdrop.STATE_NAME
     return json.loads(path.read_text()) if path.exists() else {}
-
-
-# --- the happy path ----------------------------------------------------------
-
-
-# --- the writes that must not happen -----------------------------------------
-
-
-# --- turning it off ----------------------------------------------------------
-
-
-# --- failure leaves the current image alone ----------------------------------
-
-
-# --- the asset being replaced underneath us ----------------------------------
-
-
-# --- the bundled copy is captured, not shipped twice -------------------------
 
 
 def test_backdrop_writes_only_profile_and_keeps_install_immutable(env, monkeypatch):

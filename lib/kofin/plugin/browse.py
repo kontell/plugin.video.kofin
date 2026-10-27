@@ -19,12 +19,12 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-# The addon fanart asset, used as the backdrop behind structural listings.
-# Named rather than imported from service/backdrop.py (which owns the file and
-# rewrites it): the plugin process has no business importing service code for
-# a filename. Keep the two in step — this is the same asset addon.xml declares,
-# so whatever the backdrop setting has put there is what listings show.
-BACKDROP_IMAGE = "fanart.webp"
+# The addon fanart asset, the backdrop behind structural listings: the same
+# file addon.xml declares, named here rather than read from the manifest.
+# Nothing rewrites it. With the server-backdrop setting on, the server's
+# splashscreen — a content-addressed file in addon_data (service/backdrop.py,
+# profile_path) — wins over it in with_backdrop.
+BACKDROP_IMAGE = "fanart.jpeg"
 
 BROWSE_FIELDS = (
     "Overview,Genres,Studios,Taglines,PremiereDate,ProductionYear,"
