@@ -149,6 +149,7 @@
     <platform>all</platform>
     <license>GPL-3.0-only</license>
     <source>https://github.com/kontell/plugin.video.kofin</source>
+    <forum>https://forum.kodi.tv/showthread.php?tid=388267</forum>
     <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>
     <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
     <!-- The bundled backdrop, behind structural listings that have no art of
