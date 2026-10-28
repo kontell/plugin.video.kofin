@@ -1,10 +1,7 @@
 """Jellyfin device profile, ported from pvr.kofin's BuildDeviceProfile.
 
-Deliberate deviation from the C++ source: pvr.kofin clears DirectPlayProfiles
-whenever a bitrate cap is set, because live-TV direct play ignores
-MaxStreamingBitrate server-side. For VOD the server honors the cap in its
-direct-play decision, so kofin keeps direct play available and lets the
-server gate it per item.
+A bitrate cap leaves direct play available: for VOD the server applies the
+cap in its direct-play decision, per item.
 
 ``forceDirectPlay`` is scoped to video. It suppresses every video-side
 constraint (HDR, width, streaming bitrate), but music delivery belongs to
@@ -19,9 +16,9 @@ the music settings say.
 Force remux is HLS + codec-copy: the video transcoding legs list every
 HLS-legal allowed codec, copy stays on, and the bitrate / channel caps are
 ignored so StreamBuilder does not refuse a listed E-AC3 copy and then try
-to encode it (HTTP 400 on 10.11 live, same pin on VOD). Force transcode
-names the preferred encode target only and denies both copies. Transcode
-wins when both are set. Music PlaybackInfo is not this path.
+to encode it. Force transcode names the preferred encode target only and
+denies both copies. Transcode wins when both are set. Music PlaybackInfo is
+not this path.
 """
 
 from typing import Any, Dict, List, Optional
@@ -65,19 +62,16 @@ DEFAULT_VIDEO_CODECS = [
 DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "eac3", "opus", "flac", "dts"]
 
 # The video codecs ffmpeg muxes into mp4, for the download transcoding
-# profile's stream-copy list (build_download). vc1 is deliberately absent:
-# its mp4 mapping is poorly supported, and a within-limits vc1 source never
-# reaches this list anyway — the DirectPlayProfile downloads it as the
-# original; only a source *already* violating some other limit would ask for
-# a vc1 copy, and that one re-encodes instead.
+# profile's stream-copy list (build_download). No vc1: its mp4 mapping is
+# poorly supported, and a compliant vc1 source downloads as the original.
 MP4_COPY_CODECS = ("h264", "hevc", "av1", "vp9", "mpeg2video")
 
 # What counts as an acceptable *music file* for the download decision: lossy
 # codecs only, so FLAC/ALAC/WAV answer SupportsDirectPlay=false and convert
 # whatever the bitrate cap says — "lossless always converts" is the music
-# toggle's core promise (plan W3.2). Distinct from DEFAULT_AUDIO_CODECS,
-# which describes what the *device decodes* (flac included) for video-embedded
-# audio and streaming.
+# toggle's core promise. Distinct from DEFAULT_AUDIO_CODECS, which describes
+# what the *device decodes* (flac included) for video-embedded audio and
+# streaming.
 LOSSY_AUDIO_CODECS = ("aac", "mp3", "opus", "vorbis", "wma", "mp2", "ac3", "eac3")
 
 # HLS will copy only these. A remux TranscodingProfile that lists anything
@@ -91,14 +85,9 @@ HLS_TS_VIDEO = ("h264", "hevc", "vp9")
 def audio_bitrate_bps(audio_cap_kbps: int, budget_bps: int) -> int:
     """The audio allowance for a transcode confined to ``budget_bps``.
 
-    pvr.kofin splits the budget rather than reserving a fixed share, because
-    a fixed reservation pushes VideoBitrate negative whenever the budget is
-    below it — a 0.5 Mbit/s context transcode, or force-transcoding a source
-    that reports less than the reservation — and the server rejects a
-    negative bitrate. Deviation from the C++ source, which hardcodes 384k and
-    divides by 8: kofin has a configurable transcode audio bitrate, so the
-    share is min(setting, budget/10). An unlimited budget carves nothing off
-    and leaves the setting to stand on its own.
+    The budget is split rather than a fixed share reserved, because a
+    reservation above a small budget pushes VideoBitrate negative, which the
+    server rejects. The share is min(setting, budget/10).
     """
     cap = max(audio_cap_kbps, 0) * 1000
     if budget_bps <= 0 or budget_bps >= UNLIMITED_BITRATE:
@@ -159,9 +148,6 @@ class ProfileConfig:
             preferred_video=settings.get_str("preferredVideoCodec") or "h264",
             preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
             max_channels=settings.get_int("maxAudioChannels") or 6,
-            # get_float, not get_int: the cap offers sub-1 Mbit/s options and
-            # is therefore a string setting, exactly as the downloads one is
-            # (see settings.xml, and for_downloads below).
             max_bitrate_mbps=settings.get_float("maxStreamingBitrate"),
             max_width=settings.get_int("maxResolution"),
             audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
@@ -182,7 +168,7 @@ class ProfileConfig:
 
     @classmethod
     def for_downloads(cls) -> "ProfileConfig":
-        """The snapshot the *download* decision is built from (plan W3.1/W3.2).
+        """The snapshot the *download* decision is built from.
 
         Device compatibility — codec lists, HDR types, preferred targets —
         comes from the transcode tab, because the device is the same device;
@@ -200,8 +186,6 @@ class ProfileConfig:
             preferred_video=settings.get_str("preferredVideoCodec") or "h264",
             preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
             max_channels=settings.get_int("maxAudioChannels") or 6,
-            # get_float, not get_int: the downloads cap offers sub-1 Mbit/s
-            # options and is therefore a string setting (see settings.xml).
             max_bitrate_mbps=settings.get_float("downloadsMaxBitrate"),
             max_width=settings.get_int("downloadsMaxResolution"),
             audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
@@ -272,7 +256,7 @@ def _envelope(
     burn_subtitles: bool,
 ) -> JsonDict:
     """The DeviceProfile shell :func:`build` and :func:`build_download`
-    share (P1.8): the envelope fields, the codec profiles — which derive
+    share: the envelope fields, the codec profiles — which derive
     their own capability tokens from ``config`` — and the subtitle list."""
     return {
         "Name": "Kodi",
@@ -291,9 +275,8 @@ def _subtitle_profiles(burn_subtitles: bool) -> List[JsonDict]:
     """Declaring a format here is what keeps the server from burning it in.
 
     With the image formats present the server answers ``External`` for every
-    subtitle, embedded PGS included — which is why kofin has never burned
-    anything in. Withdrawing them is therefore an explicit request for
-    ``Encode``, not a tidy-up; the text formats stay either way so a text
+    subtitle, embedded PGS included, so withdrawing them is an explicit
+    request for ``Encode``; the text formats stay either way so a text
     subtitle chosen alongside is still delivered as a file.
     """
     formats = TEXT_SUBTITLE_FORMATS if burn_subtitles else SUBTITLE_FORMATS
@@ -339,28 +322,21 @@ def _direct_video_codecs(config: ProfileConfig) -> List[str]:
 
 
 def build_download(config: ProfileConfig) -> JsonDict:
-    """The DeviceProfile for the conditional download decision (plan W3.1).
+    """The DeviceProfile for the conditional download decision.
 
     Same device statement as :func:`build` — direct-play lists, codec and
     HDR conditions, the width cap — with the caps read from the downloads
-    settings (``ProfileConfig.for_downloads``) and two deliberate deviations:
+    settings (``ProfileConfig.for_downloads``) and two deviations:
 
-    * The video transcoding profile is a single progressive fragmented-MP4
-      leg: ``Protocol: "http"`` (a file, not a playlist), ``Container:
-      "mp4"`` (the server muxes progressive mp4 as fMP4 — feasibility V3,
-      seekable on disk even unfinalized, AV1-capable). Its codec list is
-      every mp4-muxable direct-play codec — preferred first, then hevc,
-      then h264, then the rest — so the server's own stream-copy logic
-      keeps a compliant video track through an audio-only fix and
-      re-encodes only what violates a limit (the exact behavior
-      ``deny_video_stream_copy`` exists to suppress for the context item is
-      the point here), and an encoder fallback costs quality-per-byte
-      rather than following the direct-play list's display order.
+    * The video transcoding profile is a single progressive leg:
+      ``Protocol: "http"`` (a file, not a playlist), ``Container: "mp4"``.
+      Its codec list is every mp4-muxable direct-play codec, so the
+      server's own stream-copy logic keeps a compliant video track and
+      re-encodes only what violates a limit.
     * The audio DirectPlayProfile is the lossy list, not the open one:
       ``SupportsDirectPlay`` is the whole decision for a music download, and
-      an open profile would answer "keep the FLAC" — the opposite of what
-      the music toggle promises. The bitrate cap rides the Audio codec
-      profile as in :func:`build` (``music_max_bitrate_kbps``).
+      an open profile would answer "keep the FLAC". The bitrate cap rides
+      the Audio codec profile as in :func:`build` (``music_max_bitrate_kbps``).
     """
     if config.max_bitrate_mbps <= 0:
         max_bitrate = UNLIMITED_BITRATE
@@ -510,16 +486,10 @@ def _transcoding_profiles(
     music = _music_transcoding_profile(config)
 
     # The fMP4 leg exists to carry av1, so it is offered only when the device
-    # decodes av1 — same rule _direct_play_profiles applies to the preferred
-    # codec, because preferring one implies decoding it. Offering it
-    # unconditionally is not a harmless spare tyre: a TranscodingProfile is a
-    # device statement too, and the server reads it as one. Jellyfin's
+    # decodes av1 (preferring a codec implies decoding it). Jellyfin's
     # StreamBuilder ranks the transcoding profiles rather than taking the
-    # first that matches, and one whose VideoCodec list holds the *source*
-    # codec ranks top so it can stream-copy — so an av1 source correctly
-    # refused direct play came back VideoCodec=av1 and `-codec:v:0 copy`,
-    # from second place in the list. Ordering cannot fix that; only not
-    # offering av1 can.
+    # first that matches, and one whose VideoCodec list holds the source codec
+    # ranks top so it can stream-copy, so ordering cannot withdraw av1.
     if "av1" not in video_codecs and config.preferred_video != "av1":
         return [ts, music]
 
@@ -570,14 +540,6 @@ def _direct_play_profiles(
         # context item), so it takes the audio entry with it.
         return []
 
-    # Scoped to video, like forceDirectPlay above: forceRemux/forceTranscode
-    # and the direct-play codec list all describe the *video* pipe. Dropping
-    # the audio entry with them left no audio DirectPlayProfile at all, so the
-    # server re-encoded every song — measured against 10.11: an mp3 came back
-    # SupportsDirectPlay=false with a stream.opus TranscodingUrl, whatever
-    # musicTranscode and the music bitrate cap said. Music delivery is owned
-    # by musicTranscode and its cap, which gate direct play through the audio
-    # CodecProfile in _codec_profiles.
     audio = [{"Type": "Audio"}]
 
     if config.force_remux or config.force_transcode or not video_codecs:
@@ -646,9 +608,7 @@ def _codec_profiles(config: ProfileConfig, force_direct: bool) -> List[JsonDict]
             )
 
     # Outside the force-direct-play block on purpose: that toggle is scoped to
-    # video. Music delivery is owned by ``musicTranscode`` and its cap, so a
-    # user who forces direct play for video can still have the server hold
-    # music to a bitrate.
+    # video.
     if config.music_max_bitrate_kbps > 0:
         profiles.append(
             {

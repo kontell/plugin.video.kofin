@@ -1,10 +1,9 @@
 """The only cross-process live state: a few window properties on window 10000.
 
 Anything else someone wants to share between the plugin and service processes
-must argue its way into this module. Two groups here are read by skin XML
-rather than by kofin's other process — the context bitrates and the lyrics
-overlay — because a <visible> condition and a skin control can read a window
-property and nothing else.
+must argue its way into this module. Several are read outside kofin's Python —
+by addon.xml, settings.xml, skins and other add-ons — which can read a window
+property and none of kofin's other state.
 """
 
 import json
@@ -32,11 +31,9 @@ PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
 # tests to choose the stream context item's label.
 #
 # PROP_PLAYING_STREAMS is here because no other surface reaches: the streams
-# are resolved in the *plugin* process (the play route's PlaybackInfo already
-# answers them), the service claims the playback and empties the play queue,
-# and the thing that needs them is a *third* process — the context item, run
-# minutes later. Putting them on the play-state alone would mean they vanish
-# at the moment the menu becomes reachable.
+# are resolved in the *plugin* process, the service claims the playback and
+# empties the play queue, and the thing that needs them is a *third*
+# process — the context item, run minutes later.
 #
 # PROP_PLAYING_MENU earns its place the same way PROP_CONTEXT_BITRATES does: a
 # context item's <label> is a fixed string id, so an entry whose wording
@@ -52,8 +49,7 @@ PROP_PLAYING_MENU = "kofin.playing.menu"
 # the reader are different processes: the *service* is where the set changes
 # (the picker worker, the connect-time restore) and it knows the names the
 # moment it changes them, while the *plugin* renders the label on every root
-# listing — which previously cost a /Sessions round trip per render, and made
-# an offline root hang for that call's whole retry ladder.
+# listing.
 PROP_WHO_NAMES = "kofin.who.names"
 
 # Whether the addon-root "Who's watching?" / SyncPlay entries are on offer.
@@ -81,30 +77,14 @@ PROP_SYNCPLAY_PULSE = "kofin.syncplay.pulse"
 # it, and a bounce does not grey the settings while the next generation
 # starts.
 PROP_FEATURE_TEMPO = "kofin.feature.tempo"
-# The public sync-session mirror (plan G2.2): what a provider add-on or a
-# skin needs to offer "watch together" affordances — in-group, group name,
-# member names, phase, the current item's provider:key. Cross-process shared
-# live state read by add-ons that are not kofin, which is exactly this
-# module's charter; deliberately NOT kofin-prefixed, because the name is part
-# of the published provider contract (docs/syncplay-provider-contract.md)
-# and must survive any future re-hosting of the engine.
+# The public sync-session mirror: what a provider add-on or a skin needs to
+# offer "watch together" affordances — in-group, group name, member names,
+# phase, the current item's provider:key. Cross-process shared live state
+# read by add-ons that are not kofin, which is exactly this module's charter;
+# deliberately NOT kofin-prefixed, because the name is part of the published
+# provider contract (docs/syncplay-provider-contract.md).
 PROP_SYNCSESSION = "syncsession.state"
 
-# The lyrics channel. These earn their place for the same reason as
-# PROP_CONTEXT_BITRATES: a skin or a script can only read window properties,
-# and lyrics cannot reach one any other way -- Kodi's music database has no
-# lyrics column, and an addon window cannot draw a passive overlay (it becomes
-# the active window and swallows the OSD).
-#
-# kofin publishes and stops. It fetches the lyrics at playback start, when it
-# alone knows the song's Jellyfin id, and hands them over here; rendering
-# them and following the clock belong to script.kofin.lyrics (a350452 removed
-# the Control.SetFocus driver the service used to run). PROP_LYRIC_JSON
-# carries the timed lines; PROP_LYRIC_HAS is what a renderer shows and hides
-# on; PROP_LYRIC_PATH is the address of the plugin directory that serves the
-# lines as list items, and it carries the song id so that it *changes* per
-# song -- a list bound to it re-reads the directory on the change, which
-# Container.Refresh cannot do for a window that is not a media window.
 # The native music pass's hold on Kodi's music scanner. Every song or album
 # written through the public API is announced, and Estuary's music home
 # widgets re-query the whole library on each announcement -- unless the
@@ -133,6 +113,20 @@ PROP_LISTING_FLIGHT = "kofin.listing.flight"
 # never race on a read and an increment.
 PROP_QUEUE_OWNER = "kofin.queue.owner"
 
+# The lyrics channel. These earn their place for the same reason as
+# PROP_CONTEXT_BITRATES: a skin or a script can only read window properties,
+# and lyrics cannot reach one any other way -- Kodi's music database has no
+# lyrics column, and an addon window cannot draw a passive overlay (it becomes
+# the active window and swallows the OSD).
+#
+# kofin publishes and stops. It fetches the lyrics at playback start, when it
+# alone knows the song's Jellyfin id, and hands them over here; rendering
+# them and following the clock belong to script.kofin.lyrics. PROP_LYRIC_JSON
+# carries the timed lines; PROP_LYRIC_HAS is what a renderer shows and hides
+# on; PROP_LYRIC_PATH is the address of the plugin directory that serves the
+# lines as list items, and it carries the song id so that it *changes* per
+# song -- a list bound to it re-reads the directory on the change, which
+# Container.Refresh cannot do for a window that is not a media window.
 PROP_LYRIC_HAS = "kofin.lyric.has"
 PROP_LYRIC_JSON = "kofin.lyric.json"
 PROP_LYRIC_PATH = "kofin.lyric.path"
@@ -167,7 +161,7 @@ def set_online(online: bool) -> None:
     Writing "false" rather than clearing is what lets a caller tell a known
     outage from an unanswered question: refusing a playback during the
     startup window because the flag had not been raised yet would be a
-    false negative on the most ordinary action there is (plan W2.2).
+    false negative on the most ordinary action there is.
     """
     _window().setProperty(PROP_ONLINE, "true" if online else "false")
 
@@ -188,16 +182,13 @@ def is_offline() -> bool:
 # The play queue is a directory of one file per resolved play, not a window
 # property holding a list. Both processes write it — the plugin's play route
 # pushes, the service's player claims — and a window property can only be
-# read-modify-written, which across processes is a race with no lock available
-# (audit finding #12): a claim landing inside the plugin's read/write window
-# resurrects the entry it just took, and a push landing inside the service's
-# loses the new one, whose playback is then never claimed or reported.
+# read-modify-written, which across processes is a race with no lock
+# available.
 #
 # One file per entry removes the shared structure: nobody rewrites anybody
 # else's data, and ``os.remove`` is the claim — the filesystem guarantees
-# exactly one caller succeeds, which is the mutual exclusion the property
-# could not give. Names are time-ordered so "oldest" is a sort, not a
-# timestamp field to trust.
+# exactly one caller succeeds. Names are time-ordered so "oldest" is a sort,
+# not a timestamp field to trust.
 PLAY_QUEUE_DIR = "special://profile/addon_data/plugin.video.kofin/playqueue"
 
 # How long an unclaimed entry survives. A play that resolved but never reached
@@ -253,7 +244,7 @@ def push_play_item(item: Dict[str, Any]) -> None:
         os.replace(temporary, target)
     except OSError:
         # A queue that cannot be written costs this playback its reporting,
-        # which is what the old property did on failure too. Never the play.
+        # never the play.
         pass
 
 
@@ -293,8 +284,7 @@ def claim_play_item_of(item_id: str) -> Optional[Dict[str, Any]]:
     seconds before the current one ends; the play route resolves it and
     queues its entry under the stream it resolved to; and when the track
     starts Kodi names it by the plugin URL it was listed under, not by that
-    stream. Matched on the path alone, every track of an album after the
-    first went unclaimed: played and counted in Kodi, never reported.
+    stream.
     """
     newest = None
     for entry_path in reversed(_queue_files()):
@@ -355,7 +345,7 @@ def clear_playing_id() -> None:
 
 
 def set_should_stop(stop: bool) -> None:
-    """Raised while the service shuts down so sync workers exit their loops."""
+    """Raised while the service shuts down."""
     if stop:
         _window().setProperty(PROP_SYNC_STOP, "true")
     else:
@@ -504,7 +494,7 @@ def set_feature_tempo(on: bool) -> None:
 
 
 def publish_syncsession(payload: Dict[str, Any]) -> None:
-    """The public sync-session state (plan G2.2), JSON on PROP_SYNCSESSION."""
+    """The public sync-session state, JSON on PROP_SYNCSESSION."""
     _window().setProperty(PROP_SYNCSESSION, json.dumps(payload))
 
 
@@ -575,13 +565,8 @@ def clear_lyrics() -> None:
 
 
 def clear_all(keep_stop: bool = False) -> None:
-    """Drop the live state. ``keep_stop`` leaves PROP_SYNC_STOP raised.
-
-    The teardown passes it when a sync thread outlived the wait: that flag is
-    what every worker's @stop guard reads, so clearing it would un-pause a
-    thread the service has already replaced. Better a stuck thread that stays
-    stopped than one that resumes into a second Library.
-    """
+    """Drop the live state. ``keep_stop`` leaves PROP_SYNC_STOP raised; the
+    teardown passes it when a sync thread outlived the wait."""
     window = _window()
     props = [
         PROP_ONLINE,
