@@ -36,8 +36,6 @@ LOG = Logger(__name__)
 # Cancel, and this is written from a worker thread at arbitrary times.
 STATE_NAME = "backdrop.json"
 
-# Source markers for the state file.
-SOURCE_SERVER = "server"
 SOURCE_DEFAULT = "default"
 
 # Floor between fetches. The splashscreen is a collage the server rebuilds as

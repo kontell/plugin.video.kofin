@@ -1,7 +1,6 @@
-"""L1 units for the change-feed providers and planners: record parsing on both tiers, the detection ladder with the protocol guard,
-watermark conversions, retention-overrun decisions, and the build_plan
-matrix — skip-before-download, parent prefetch, ordering, image-only
-demotion, userdata dedup."""
+"""L1 units for the change-feed providers: record parsing on both tiers,
+the detection ladder with the protocol guard, watermark conversions and
+retention-overrun decisions."""
 
 import calendar
 
@@ -9,15 +8,11 @@ import calendar
 from kofin.core.http import JellyfinError
 from kofin.sync import changefeed
 from kofin.sync.changefeed import (
-    ChangeRecord,
     KofinFeed,
     LegacyFeed,
-    build_plan,
     detect,
-    parent_candidates,
     parse_record,
     retention_overrun,
-    stored_checksum_matches,
     unix_to_watermark,
     watermark_to_unix,
 )
@@ -216,172 +211,11 @@ def test_retention_overrun_matrix():
     assert retention_overrun("", cutoff) is False  # fresh install
 
 
-# --- skip predicate -----------------------------------------------------------
-
-
-def test_stored_checksum_matches_is_the_plugin_suffix_predicate():
-    assert stored_checksum_matches("e1", "e1|plugin") is True
-    assert stored_checksum_matches("e1", "e2|plugin") is False
-    assert stored_checksum_matches("e1", None) is False
-    assert stored_checksum_matches(None, "e1|plugin") is False
-
-
-# --- build_plan ---------------------------------------------------------------
-
-
-def rec(id, status="Updated", **kw):
-    return ChangeRecord(id=id, status=status, **kw)
-
-
-def everyone_known(_id):
-    return True
-
-
-def nobody_known(_id):
-    return False
-
-
-def test_plan_skips_etag_matches_before_download():
-    records = [
-        rec("keep1", etag="new", item_type="Movie"),
-        rec("skip1", etag="same", item_type="Movie"),
-        rec("skip2", status="Added", etag="same", item_type="Movie"),
-        rec("noetag", item_type="Movie"),
-    ]
-    checksums = {"skip1": "same|plugin", "skip2": "same|plugin", "keep1": "old|plugin"}
-
-    plan = build_plan(records, [], checksums, everyone_known)
-
-    assert plan.skipped == 2
-    assert plan.updated == ["keep1", "noetag"]
-    assert plan.added == []
-
-
-def test_plan_removed_never_skipped():
-    records = [rec("gone1", status="Removed", etag="same", item_type="Movie")]
-    plan = build_plan(records, [], {"gone1": "same|plugin"}, everyone_known)
-    assert plan.removed == ["gone1"]
-    assert plan.skipped == 0
-
-
-def test_plan_image_only_demotion_is_exact():
-    records = [
-        rec("art1", update_reason="ImageUpdate", item_type="Movie"),
-        rec("full1", update_reason="ImageUpdate, MetadataEdit", item_type="Movie"),
-        rec("music1", update_reason="ImageUpdate", item_type="MusicAlbum"),
-        rec("none1", item_type="Movie"),
-    ]
-    plan = build_plan(records, [], {}, everyone_known)
-    assert plan.artwork == ["art1"]
-    # Mixed reasons and non-video types take the full path.
-    assert plan.updated == ["full1", "music1", "none1"]
-
-
-def test_plan_added_orders_parents_first_then_newest():
-    records = [
-        rec("ep-old", "Added", item_type="Episode", last_modified=100),
-        rec("movie-new", "Added", item_type="Movie", last_modified=900),
-        rec("series1", "Added", item_type="Series", last_modified=50),
-        rec("ep-new", "Added", item_type="Episode", last_modified=800),
-        rec("season1", "Added", item_type="Season", last_modified=60),
-        rec("movie-old", "Added", item_type="Movie", last_modified=200),
-    ]
-    plan = build_plan(records, [], {}, everyone_known)
-    assert plan.added == [
-        "series1",  # rank 0
-        "movie-new",  # rank 1, newest first
-        "movie-old",
-        "season1",
-        "ep-new",  # rank 2, newest first
-        "ep-old",
-    ]
-
-
-def test_plan_prefetches_unknown_parents():
-    records = [
-        rec("ep1", "Added", item_type="Episode", series_id="s9", season_id="se9"),
-        rec("ep2", "Added", item_type="Episode", series_id="s9", season_id="se8"),
-    ]
-    plan = build_plan(records, [], {}, nobody_known)
-    # Series before seasons, deduped, ahead of the children.
-    assert plan.added == ["s9", "se9", "se8", "ep1", "ep2"]
-
-
-def test_plan_no_prefetch_when_parent_known_or_in_batch():
-    records = [
-        rec("s1", "Added", item_type="Series"),
-        rec("ep1", "Added", item_type="Episode", series_id="s1", season_id="se1"),
-        rec("ep2", "Added", item_type="Episode", series_id="s2"),
-    ]
-    plan = build_plan(records, [], {}, lambda i: i == "s2")
-    # s1 is in the batch, s2 is known locally; only se1 needs prefetching.
-    assert plan.added[0] == "se1"
-    assert "s2" not in plan.added
-
-
-def test_plan_tier2_records_never_prefetch():
-    records = [rec("ep1", "Added")]  # sparse: no series_id
-    plan = build_plan(records, [], {}, nobody_known)
-    assert plan.added == ["ep1"]
-
-
-def test_plan_userdata_dedup_spares_skipped_and_artwork():
-    records = [
-        rec("dl1", item_type="Movie"),  # downloads -> dto dropped
-        rec("skip1", etag="same", item_type="Movie"),  # skipped -> dto kept
-        rec("art1", update_reason="ImageUpdate", item_type="Movie"),  # kept
-    ]
-    userdata = [{"ItemId": "dl1"}, {"ItemId": "skip1"}, {"ItemId": "art1"}]
-
-    plan = build_plan(records, userdata, {"skip1": "same|plugin"}, everyone_known)
-
-    assert [d["ItemId"] for d in plan.userdata] == ["skip1", "art1"]
-    # The changed-ids tag set carries the full list regardless.
-    assert plan.userdata_changed_ids == {"dl1", "skip1", "art1"}
-
-
-def test_parent_candidates_from_every_live_status():
-    """ "Updated" is the server's word about its own item and says nothing
-    about whether we ever synced it, so an updated child's parent is a
-    candidate too. Removals bring no parent of their own."""
-    records = [
-        rec("ep1", "Updated", item_type="Episode", series_id="s1"),
-        rec("ep2", "Added", item_type="Episode", series_id="s2", season_id="se2"),
-        rec("ep3", "Removed", item_type="Episode", series_id="s3"),
-    ]
-    assert parent_candidates(records) == ["s1", "s2", "se2"]
-
-
-def test_plan_prefetches_parent_of_updated_child():
-    """The prefetched series joins plan.added even though the season that
-    wanted it is an update -- that ordering is the point: every addition is
-    downloaded and written before any update is downloaded at all."""
-    records = [rec("season1", "Updated", item_type="Season", series_id="s9")]
-
-    plan = build_plan(records, [], {}, nobody_known)
-
-    assert plan.added == ["s9"]
-    assert plan.updated == ["season1"]
-
-
-def test_plan_skipped_records_prefetch_nothing():
-    """A skipped record's Etag matched a stored checksum, so it is in kofin.db
-    and its parent went in with it. Prefetching there would download a series
-    per unchanged episode."""
-    records = [rec("ep1", "Updated", etag="same", item_type="Episode", series_id="s9")]
-
-    plan = build_plan(records, [], {"ep1": "same|plugin"}, nobody_known)
-
-    assert plan.added == []
-    assert plan.updated == []
-    assert plan.skipped == 1
-
-
 # --- library scope ------------------------------------------------------------
 #
 # The feed is scoped by media type, which cannot tell two tvshows libraries
-# apart. LibraryIds lets the planner refuse a record from a library it does
-# not sync before anything is fetched.
+# apart. LibraryIds lets the library thread refuse a record from a library it
+# does not sync before anything is fetched.
 
 
 def test_parse_record_reads_library_ids():
@@ -400,160 +234,13 @@ def test_parse_record_absent_library_ids_is_unknown_not_empty():
     )
 
 
-def test_plan_drops_records_from_libraries_we_do_not_sync():
-    records = [
-        rec("mine", status="Added", item_type="Episode", library_ids=["libA"]),
-        rec("theirs", status="Added", item_type="Episode", library_ids=["bench"]),
-    ]
-
-    plan = build_plan(records, [], {}, everyone_known, {"libA"})
-
-    assert plan.added == ["mine"]
-    assert plan.filtered == 1
-
-
-def test_plan_keeps_records_whose_library_is_unknown():
-    """A server that predates the field, a folder-less artist and an orphan
-    are indistinguishable here, and only one of the three is safe to drop."""
-    records = [rec("legacy", status="Added", item_type="Movie")]
-
-    plan = build_plan(records, [], {}, everyone_known, {"libA"})
-
-    assert plan.added == ["legacy"]
-    assert plan.filtered == 0
-
-
-def test_plan_keeps_a_record_matching_any_of_its_libraries():
-    """One path under two libraries belongs to both."""
-    records = [
-        rec("shared", status="Added", item_type="Movie", library_ids=["bench", "libA"])
-    ]
-
-    plan = build_plan(records, [], {}, everyone_known, {"libA"})
-
-    assert plan.added == ["shared"]
-
-
-def test_plan_diverts_playlists_off_writer_queues():
-    records = [
-        rec("pl-new", status="Added", media_type="playlists", item_type="Playlist"),
-        rec("pl-upd", status="Updated", media_type="playlists", item_type="Playlist"),
-        rec("pl-del", status="Removed", media_type="playlists", item_type="Playlist"),
-        rec("movie1", status="Added", item_type="Movie"),
-    ]
-    checksums = {"pl-upd": "old|plugin"}
-
-    plan = build_plan(records, [], checksums, everyone_known)
-
-    assert plan.playlist_added == ["pl-new"]
-    assert plan.playlist_updated == ["pl-upd"]
-    assert plan.playlist_removed == ["pl-del"]
-    assert plan.added == ["movie1"]
-    assert plan.updated == []
-    assert plan.removed == []
-
-
-def test_plan_skips_unchanged_playlist_etags():
-    records = [
-        rec(
-            "pl1",
-            status="Updated",
-            media_type="playlists",
-            item_type="Playlist",
-            etag="same",
-        )
-    ]
-    plan = build_plan(records, [], {"pl1": "same|plugin"}, everyone_known)
-    assert plan.skipped == 1
-    assert plan.playlist_updated == []
-
-
-def test_plan_keeps_boxsets_whatever_library_they_name():
-    """Boxsets live in Jellyfin's Collections library, which no client
-    whitelists. Filtering them by library would delete every collection."""
-    records = [
-        rec(
-            "set1",
-            status="Added",
-            media_type="boxsets",
-            item_type="BoxSet",
-            library_ids=["collections"],
-        )
-    ]
-
-    plan = build_plan(records, [], {}, everyone_known, {"libA"})
-
-    assert plan.added == ["set1"]
-    assert plan.filtered == 0
-
-
-def test_plan_never_filters_removals():
-    """A removal costs two local lookups, not a round trip — and one dropped
-    in error leaves a row orphaned in Kodi that no watermark brings back."""
-    records = [rec("gone1", status="Removed", item_type="Movie", library_ids=["bench"])]
-
-    plan = build_plan(records, [], {}, everyone_known, {"libA"})
-
-    assert plan.removed == ["gone1"]
-    assert plan.filtered == 0
-
-
-def test_plan_without_a_library_filter_keeps_everything():
-    records = [rec("theirs", status="Added", item_type="Movie", library_ids=["bench"])]
-
-    assert build_plan(records, [], {}, everyone_known).added == ["theirs"]
-    assert build_plan(records, [], {}, everyone_known, set()).added == ["theirs"]
-
-
-def test_out_of_scope_records_prefetch_no_parents():
-    """A refused record must cost nothing at all, and a prefetched series is
-    a download."""
-    records = [
-        rec(
-            "ep1",
-            status="Added",
-            item_type="Episode",
-            series_id="s9",
-            library_ids=["bench"],
-        )
-    ]
-
-    plan = build_plan(records, [], {}, nobody_known, {"libA"})
-
-    assert plan.added == []
-    assert plan.filtered == 1
-
-
-def test_out_of_scope_userdata_survives():
-    """Same rule as a skipped record: nothing will download and apply it, so
-    the dto path has to."""
-    records = [rec("theirs", status="Added", item_type="Movie", library_ids=["bench"])]
-    userdata = [{"ItemId": "theirs"}]
-
-    plan = build_plan(records, userdata, {}, everyone_known, {"libA"})
-
-    assert plan.userdata == [{"ItemId": "theirs"}]
-
-
 # --- checksum spelling --------------------------------------------------------
-
-
-def test_reference_checksum_is_the_single_spelling():
-    """Every comparison with a stored checksum goes through
-    policy.reference_checksum."""
-    from kofin.sync.policy import reference_checksum
-
-    stored = reference_checksum("abc123")
-
-    assert changefeed.stored_checksum_matches("abc123", stored)
-    assert not changefeed.stored_checksum_matches("abc124", stored)
-    assert not changefeed.stored_checksum_matches("abc123", None)
-    assert not changefeed.stored_checksum_matches(None, stored)
 
 
 def test_direct_mode_splits_from_plugin_mode_in_one_place():
     from kofin.sync.policy import reference_checksum
 
+    assert reference_checksum("abc") == "abc|plugin"
     assert reference_checksum("abc", direct_path=True) == "abc|direct"
     assert reference_checksum(None) is None
 

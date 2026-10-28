@@ -127,19 +127,6 @@ def test_rows_filters_by_state_in_queue_order():
     assert [row.jellyfin_id for row in store.rows()] == ["a", "b", "c"]
 
 
-def test_series_done_on_is_the_tvshow_tag_lookup():
-    store.queue(_movie("e1", media_type="episode", series_id="show9"))
-    with sync_db.Database("kofin") as opened:
-        assert store.series_done_on(opened.cursor, "show9") is False  # queued
-
-    store.claim()
-    store.finish("e1", "Shows/S/Season 01/e1.mkv", "mkv", 10)
-    with sync_db.Database("kofin") as opened:
-        assert store.series_done_on(opened.cursor, "show9") is True
-        assert store.series_done_on(opened.cursor, "othershow") is False
-        assert store.series_done_on(opened.cursor, "") is False
-
-
 def test_recover_interrupted_requeues_crashed_actives():
     """A crash mid-download leaves rows active with nobody working them;
     manager start moves them back to queued, keeping bytes_done so an
@@ -245,15 +232,8 @@ def test_queue_records_the_media_type_it_was_given():
     assert store.get("s1").media_type == "song"
 
 
-def _seed_container_child(item_id, state, series_id="", parent_id=""):
+def _seed_container_child(item_id, state, series_id=""):
     store.queue(store.Download(jellyfin_id=item_id, series_id=series_id))
-    if parent_id:
-        with sync_db.Database("kofin") as opened:
-            opened.cursor.execute(
-                "INSERT INTO jellyfin (jellyfin_id, parent_id, media_type) "
-                "VALUES (?, ?, 'episode')",
-                (item_id, parent_id),
-            )
     if state != store.QUEUED:
         store.claim()
     if state == store.DONE:
@@ -262,25 +242,16 @@ def _seed_container_child(item_id, state, series_id="", parent_id=""):
         store.fail(item_id, "nope")
 
 
-def test_container_counts_see_children_by_series_and_by_parent():
-    """Two lookups because the table records one parent: series_id answers a
-    Series or an album outright, and a Season — which is nobody's series_id
-    — is found through the kofin.db mapping's parent_id."""
+def test_container_counts_see_children_by_series():
+    """series_id answers a Series or an album outright."""
     _seed_container_child("e1", store.DONE, series_id="show1")
     _seed_container_child("e2", store.QUEUED, series_id="show1")
     _seed_container_child("e3", store.FAILED, series_id="show1")
-    _seed_container_child("s1", store.DONE, parent_id="season1")
-    _seed_container_child("s2", store.ACTIVE, parent_id="season1")
 
     show = store.container_counts("show1")
     assert show == {"done": 1, "pending": 1}  # the failure counts as neither
     assert store.container_done_ids("show1") == ["e1"]
     assert store.container_pending_ids("show1") == ["e2"]
-
-    season = store.container_counts("season1")
-    assert season == {"done": 1, "pending": 1}
-    assert store.container_done_ids("season1") == ["s1"]
-    assert store.container_pending_ids("season1") == ["s2"]
 
     assert store.container_counts("") == {"done": 0, "pending": 0}
     assert store.container_counts("nothing") == {"done": 0, "pending": 0}

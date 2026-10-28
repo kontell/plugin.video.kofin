@@ -38,9 +38,6 @@ KINDS = (
     "MusicAlbum",
     "MusicArtist",
 )
-# A season or episode is filed under its show; a song under its album (or
-# the singles folder of its artist); nothing else has a parent.
-PARENTED = ("Season", "Episode", "Audio")
 
 
 def namespace(server_id, user_id):

@@ -243,12 +243,6 @@ class SettingsApplier:
             library.enqueue_command("CleanupMusicPlaylists")
         self._regenerate_nodes()
 
-    def _playlists_wanted(self) -> bool:
-        """The presentation switch (sync/dynamic.py)."""
-        from kofin.sync import dynamic
-
-        return dynamic.wanted()
-
     def _server_backdrop_changed(self, old: str, new: str) -> None:
         """Swap the addon fanart now rather than at the next connect."""
         service = self.service

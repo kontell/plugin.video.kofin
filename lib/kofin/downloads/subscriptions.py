@@ -185,18 +185,6 @@ def release(owner_id: str) -> None:
         )
 
 
-def reconcile_playlist_memberships(memberships: Dict[str, List[str]]) -> None:
-    """Apply only confirmed audio snapshots after their playlist writes commit."""
-    active = set(subscribed(PLAYLIST_SETTING))
-    for playlist_id, item_ids in memberships.items():
-        if playlist_id not in active:
-            continue
-        try:
-            reconcile(owner("playlist", playlist_id), item_ids)
-        except Exception:
-            LOG.exception("playlist subscription failed for %s", playlist_id)
-
-
 def reconcile_playlist_direct(api: Any, playlist_id: str) -> None:
     """Reconcile one subscribed playlist from the server's listing."""
     if playlist_id not in subscribed(PLAYLIST_SETTING):
@@ -219,36 +207,6 @@ def reconcile_playlist_direct(api: Any, playlist_id: str) -> None:
 def reconcile_playlists_direct(api: Any) -> None:
     for playlist_id in subscribed(PLAYLIST_SETTING):
         reconcile_playlist_direct(api, playlist_id)
-
-
-def remove_confirmed_playlist(playlist_id: str) -> None:
-    """Release an audio standing order only for a confirmed deletion event."""
-    if playlist_id in subscribed(PLAYLIST_SETTING):
-        reconcile(owner("playlist", playlist_id), [])
-
-
-def claim_new_library_songs(entries: Iterable[Any]) -> None:
-    """Claim newly written songs without walking every subscribed library."""
-    if not settings.get_bool("downloadsEnabled"):
-        return
-    libraries = set(subscribed(LIBRARY_SETTING))
-    songs = {
-        entry.item_id
-        for entry in entries
-        if getattr(entry, "type", "") == "Audio" and entry.item_id
-    }
-    if not libraries or not songs:
-        return
-    placed: Dict[str, str] = {}
-    with Database("kofin") as opened:
-        for item_id in songs:
-            opened.cursor.execute(
-                "SELECT media_folder FROM jellyfin WHERE jellyfin_id = ?", (item_id,)
-            )
-            row = opened.cursor.fetchone()
-            if row:
-                placed[item_id] = row[0]
-    claim_library_songs(placed)
 
 
 def claim_library_songs(placed: Dict[str, str]) -> None:

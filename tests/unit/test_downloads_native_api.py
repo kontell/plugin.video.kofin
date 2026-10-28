@@ -78,7 +78,7 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     port = nativeport.NativeApi()
     row = downloaded_movie()
     # Attached: the pass is handed the item, and always has work.
-    assert port.attached(row, "/dl") is True and port.restore(row, "/dl") is True
+    assert port.attached(row, "/dl") is True
     backend.reconcile()
     (kodi_row,) = kodi.rows["Movie"].values()
     assert kodi_row["art"][downloaded.BADGE_ART] == downloaded.BADGE_URL
@@ -360,7 +360,6 @@ def test_the_play_state_is_read_back_by_the_mapped_id(store, backend, kodi):
     )
     # An item Kodi never filed has no state to read.
     assert port.last_touch(Download(jellyfin_id="zz", media_type="movie")) is None
-    assert port.mapped("a") is True and port.mapped("zz") is False
 
 
 def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(

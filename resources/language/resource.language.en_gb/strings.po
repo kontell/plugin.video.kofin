@@ -2230,8 +2230,8 @@ msgctxt "#30821"
 msgid "Server error — %s"
 msgstr ""
 
-# Remove download refused: the library entry could not be restored, so the
-# download is kept as it is. %s is the item name.
+# 30822 — retired: the toast for a download kept because its library entry
+# could not be restored. Kept, never reused, for the reason given at #30744.
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr ""

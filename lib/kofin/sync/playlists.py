@@ -63,7 +63,6 @@ DOWNLOADED_MUSIC_M3U8 = "Downloaded music.m3u8"
 RESERVED_STEMS = frozenset({os.path.splitext(DOWNLOADED_MUSIC_M3U8)[0].lower()})
 OURS = frozenset({DOWNLOADED_MUSIC_XSP, DOWNLOADED_MUSIC_M3U8})
 
-PLUGIN_PREFIX = "plugin://"
 
 VIDEO_VIEW_TYPES = frozenset({"movies", "tvshows", "musicvideos"})
 AUDIO_ITEM_TYPES = frozenset({"Audio"})
@@ -174,40 +173,6 @@ def safe_filename(name: str) -> str:
     cleaned = _UNSAFE.sub("_", (name or "").strip())
     cleaned = cleaned.rstrip(" .")
     return cleaned or "playlist"
-
-
-def playlist_line(kodi_id: int, str_path: str, str_filename: str) -> str:
-    """The path to write for a song row: its own, or the musicdb URL for it.
-
-    The extension is load-bearing — ``CMusicDatabaseFile::TranslateUrl`` checks
-    it against the row and refuses the id when it disagrees — so a direct row
-    whose filename carries none keeps its own path.
-    """
-    if str_path.startswith(PLUGIN_PREFIX):
-        return join_song_path(str_path, str_filename)
-    extension = os.path.splitext(str_filename.split("?", 1)[0])[1]
-    if not extension:
-        return join_song_path(str_path, str_filename)
-    return "musicdb://songs/%d%s" % (kodi_id, extension)
-
-
-def join_song_path(str_path: str, str_filename: str) -> str:
-    """Rebuild the playable path the way Kodi joins path + filename."""
-    path = str_path or ""
-    filename = str_filename or ""
-    if path and not path.endswith(("/", "\\")):
-        # Direct and plugin paths from kofin always end with /; tolerate missing.
-        return path + "/" + filename
-    return path + filename
-
-
-def video_playlist_line(str_path: str, str_filename: str) -> str:
-    """The path ``CVideoDatabase::ConstructPath`` would produce for this row:
-    ``strFileName`` unchanged when ``strPath`` is plugin (or the filename is a
-    stack), the folder join otherwise."""
-    if str_path.startswith(PLUGIN_PREFIX) or str_filename.startswith("stack://"):
-        return str_filename
-    return join_song_path(str_path, str_filename)
 
 
 def entry_label(entry: Entry) -> str:
@@ -450,17 +415,13 @@ def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
 def _entries_for(
     items: List[Dict[str, Any]],
     side: str,
-    mapping: Any,
-    music: Optional[Any],
-    video: Optional[Any],
     resolver: Any = None,
 ) -> Tuple[List[Entry], int]:
     """The lines of one playlist, in the server's order, duplicates kept.
 
     The ``resolver`` (``entry(item, side) -> Entry | None``) answers for each
     item the pass has filed (backends/api/playlists.py); an item it has not,
-    or an item with no id, is counted missing. ``mapping``, ``music`` and
-    ``video`` are unused.
+    or an item with no id, is counted missing.
     """
     entries: List[Entry] = []
     missing = 0
@@ -529,9 +490,6 @@ def _remove_stored(
 
 def apply_one(
     api: Any,
-    mapping: Any,
-    music: Optional[Any],
-    video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
     playlist: Dict[str, Any],
     kinds: Set[str],
@@ -580,7 +538,7 @@ def apply_one(
     ):
         return False
 
-    entries, missing = _entries_for(items, side, mapping, music, video, resolver)
+    entries, missing = _entries_for(items, side, resolver)
     directory = (
         managed_dir(music_root)
         if side == "Audio"
@@ -617,30 +575,8 @@ def apply_one(
     return written or bool(stored and stored[1] != filename)
 
 
-def remove_one(
-    state: jellyfin_db.JellyfinDatabase,
-    playlist_id: str,
-    music_root: Optional[str] = None,
-    video_root: Optional[str] = None,
-) -> bool:
-    stored = state.get_playlist_state(playlist_id)
-    if not stored:
-        return False
-    directory = (
-        managed_dir(music_root)
-        if stored[0] == "Audio"
-        else (video_root if video_root is not None else managed_video_dir())
-    )
-    removed = _remove_stored(directory, stored[0], stored[1])
-    state.remove_playlist_state(playlist_id)
-    return removed
-
-
 def reconcile(
     api: Any,
-    mapping: Any,
-    music: Optional[Any],
-    video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
     kinds: Set[str],
     music_root: Optional[str] = None,
@@ -737,7 +673,7 @@ def reconcile(
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
             continue
-        entries, missing = _entries_for(items, side, mapping, music, video, resolver)
+        entries, missing = _entries_for(items, side, resolver)
         stats["tracks"] += len(entries)
         stats["skipped"] += missing
         stored_name = stored[1] if stored and stored[0] == side else None
@@ -852,30 +788,6 @@ def parse_m3u_paths(text: str) -> List[str]:
     return paths
 
 
-def jellyfin_id_from_path(path: str, mapping: Any) -> Optional[str]:
-    """Jellyfin id encoded in a playlist line; a musicdb/videodb line is looked
-    up through ``mapping`` when one is given."""
-    if not path:
-        return None
-    match = re.search(r"[?&]id=([0-9a-fA-F]{32})", path)
-    if match:
-        return match.group(1).lower()
-    match = re.search(r"/(?:Audio|Videos)/([0-9a-fA-F]{32})(?:/|$)", path)
-    if match:
-        return match.group(1).lower()
-    match = re.search(r"musicdb://songs/(\d+)", path)
-    if match and mapping is not None:
-        kodi_id = int(match.group(1))
-        found = mapping.get_item_by_kodi_id(kodi_id, "song")
-        return found if isinstance(found, str) else None
-    match = re.search(r"videodb://movies/titles/(\d+)", path)
-    if match and mapping is not None:
-        kodi_id = int(match.group(1))
-        found = mapping.get_item_by_kodi_id(kodi_id, "movie")
-        return found if isinstance(found, str) else None
-    return None
-
-
 # --- the video smart playlists -------------------------------------------------
 #
 # One .xsp per synced video library, in a managed folder under Kodi's own
@@ -944,12 +856,3 @@ def remove_video_playlists() -> None:
     directory = managed_video_dir()
     fs.remove_managed_entries(directory, also=(FOLDER_ICON,), label="playlist")
     fs.remove_empty(directory)
-
-
-def remove_video_playlist_for(view_id: str) -> None:
-    """Remove one library's generated playlist from the managed folder."""
-    directory = managed_video_dir()
-    _, files = fs.listdir(directory)
-    for name in files:
-        if fs.is_managed(name) and name.endswith("%s.xsp" % view_id):
-            fs.delete_file(os.path.join(directory, name), "playlist")

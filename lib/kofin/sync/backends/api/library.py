@@ -243,9 +243,6 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
                 LOG.debug("page client not closed: %s", error)
 
 
-fetch_movies = fetch_kind
-
-
 def attach_extras(api, items, abort=lambda: False):
     """A movie's special features travel in its payload: the scanner's
     listings never contact the server, and the movie folder's extras folder
@@ -395,7 +392,7 @@ class Library(threading.Thread):
     def userdata(self, data):
         self._queue.put(("userdata", list(data)))
 
-    def refresh_libraries(self, databases, force_reload=False):
+    def refresh_libraries(self):
         self.enqueue_command("FastSync")
 
     # -- the loop ----------------------------------------------------------------
