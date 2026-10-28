@@ -1,15 +1,8 @@
 """Command execution against the Kodi player.
 
-Ported from the fork with two substantive changes. Phase-4 plan §2: the
-fork resolved a MediaSource path itself and fed it to the player; kofin's
-``play_item`` builds the playlist from **kofin plugin URLs**
-(``plugin://…?mode=play&id=…``) so device-profile selection, the transcode
-ladder, resume, and playback reporting all stay in the existing pipeline —
-SyncPlay says *which id at what position*, kofin's normal play path decides
-*how*. And the fork's continuous drift controller is gone entirely: see
-:class:`PlaybackController` for why, and ``docs/syncplay-drift-shakedown.md``
-for the measurements that retired it. Everything else — scheduling, the
-buffering watch, the audio (PAPlayer) choreography — is the fork's proven code.
+``play_item`` plays **kofin plugin URLs** (``plugin://…?mode=play&id=…``) for
+Jellyfin items, so SyncPlay says *which id at what position* and kofin's normal
+play path decides *how*.
 """
 
 import threading
@@ -42,26 +35,20 @@ class PlaybackController(object):
     """Executes group commands against the Kodi player and converges local
     playback on the group timeline at each command (SYNCPLAY.md §5.1).
 
-    There is deliberately **no continuous drift controller**. One existed —
-    a ``Player.SetTempo`` ladder driven by a per-second position comparison —
-    and it was withdrawn after measurement showed the actuator cannot serve the
-    error it was aimed at: tempo is available only while Kodi's "sync playback
-    to display" is on, and that setting slaves the media clock to the panel, so
-    a display rate that is not a whole multiple of the video frame rate imposes
-    a fixed rate error. Measured on three Piers devices, that error ran from
-    0.5 % to 4.3 % — the worst of it 14x the +/-3 % the ladder could command,
-    and none of it fixable from Kodi's settings on those panels.
-    ``docs/syncplay-drift-shakedown.md`` §10 has the numbers and the controls.
+    There is deliberately **no continuous drift controller**: stock Kodi
+    plays a tempo only while "sync playback to display" is on, which imposes
+    a fixed rate error wherever the display rate is not a whole multiple of
+    the frame rate.
 
     Position is converged where the group tells us to converge it — on
     Unpause, Pause, Seek and item load. Between commands, an item Kodi can
     play at a tempo is kept on the group position by the
     :class:`~kofin.syncplay.tempo.PulseScheduler`: bounded, confirmed rate
-    pulses through Kodi's own tempo, which with kontell/xbmc #16 works with the
-    display clock *off*, with a quiet window after each one — not a loop.
-    Anything else is left alone. All
-    privileged player operations run inside the manager's programmatic() guard
-    so they are not echoed back to the group as user actions.
+    pulses through Kodi's own tempo, which with the ``tempo`` feature works
+    with the display clock *off*, with a quiet window after each one — not a
+    loop. Anything else is left alone. All privileged player operations run
+    inside the manager's programmatic() guard so they are not echoed back to
+    the group as user actions.
     """
 
     def __init__(self, manager, player):
@@ -71,10 +58,7 @@ class PlaybackController(object):
         self._timer = None  # pending scheduled command
         self._timer_lock = threading.Lock()
         self.last_command = None
-        # An Unpause that arrived while LOADING. last_command is not set
-        # for it — the server re-issues the same When when we Ready, and
-        # _is_repeat would drop that re-issue if we had marked it applied.
-        # Measured: Tab zap to a second live channel, paused forever.
+        # An Unpause that arrived while LOADING.
         self._deferred_unpause = None
 
         # (media_ms, server_when_ms, playing) group position reference
@@ -83,12 +67,9 @@ class PlaybackController(object):
         self._loop_thread = None
         self._loop_stop = threading.Event()
 
-        # schedule() arms the fire-time timer and *then* pre-aligns on the
-        # dispatcher, so both touch the player at once whenever the align
-        # overruns the scheduling lead — measured on a transcoding member,
-        # where a 600 ms seek beat a 437 ms lead and the align's re-pause
-        # landed after the resume, stranding it. The two sequences take this
-        # in turn instead.
+        # schedule() pre-aligns on the dispatcher with the fire-time timer
+        # armed; an align that overruns the scheduling lead would meet the
+        # timer on the player, so the two take this lock in turn.
         self._player_lock = threading.RLock()
 
         self._caching_since = None
@@ -154,7 +135,7 @@ class PlaybackController(object):
         # on the start position, so the fire instant starts from exactly the
         # group position (initial-start tightness for barrier restarts and
         # hot joins alike). Blocking here is fine: this runs on the dispatcher
-        # like any REST round trip, and the seek settle is well inside the lead.
+        # like any REST round trip.
         if command.get("Command") == "Unpause":
             self._prealign_unpause(command)
 
@@ -163,16 +144,15 @@ class PlaybackController(object):
 
         While paused, the position at the start instant IS the command's
         PositionTicks — no extrapolation. Audio is excluded: a paused
-        PAPlayer must never be seeked (it aligns after its resume instead).
+        PAPlayer is never seeked.
         """
         if self._is_audio() or self.manager.phase not in FOLLOWING:
             return
 
         if self.manager.is_transcoding():
-            # A transcode cannot seek to an arbitrary position (it snaps to a
-            # segment: 47603 ms asked, 43964 ms landed) and the restart costs
-            # more than the scheduling lead, so pre-aligning makes the start
-            # both later and further out. Resume where we are instead.
+            # A transcode seek snaps to a segment and its restart costs more
+            # than the scheduling lead, so pre-aligning makes the start both
+            # later and further out. Resume where we are instead.
             LOG.info("[ syncplay/align ] skipped: transcoding")
             return
 
@@ -197,22 +177,13 @@ class PlaybackController(object):
     def _leave_to_fine_sync(self, offset_ms, where):
         """Whether an unpause offset is better closed by a rate pulse than a cut.
 
-        ``_align_after_resume`` already makes this trade -- "a skip is for gross
-        errors" -- but the two aligns on the way *into* the resume did not, so
-        anything past UNPAUSE_ALIGN_MS (100 ms) was seeked even when it sat well
-        inside the pulse budget. That is the skip a viewer notices on an
-        ordinary unpause, and it is smaller than the residual fine sync would
-        have been allowed to close on the other side of the same resume.
-
         Only in the ``synced`` phase. A ``waiting_ready`` start -- a barrier
         restart or a hot join -- is the one chance to begin exactly on the group
-        position, and its offsets are the large ones (1.0-1.7 s measured on the
-        rig against a 5 s budget); handing those to the scheduler would trade a
-        single cut for twenty seconds off-rate. Those keep the seek.
+        position, and keeps the seek.
 
-        ``can_close`` is already the right gate: it answers False for an item
-        Kodi cannot play at a tempo now (``Player.TempoEnabled``) and for one
-        whose pulse was not confirmed, so exactly when nothing can be nudged.
+        ``can_close`` answers False for an item Kodi cannot play at a tempo now
+        (``Player.TempoEnabled``) and for one whose pulse was not confirmed, so
+        exactly when nothing can be nudged.
         """
         if self.manager.phase != Phase.SYNCED:
             return False
@@ -237,12 +208,10 @@ class PlaybackController(object):
 
         The server re-issues the transport command when the last member
         reports ready out of a Waiting state, so a member that reloaded to
-        serve a Seek is handed that same Seek again as it comes back --
-        identical ``When``, four seconds later. Re-applying is invisible on a
-        direct stream (a seek to where it already is) and a second full stop
-        and restart on a transcoded one, which is the reload the viewer sees
-        twice for one skip. Measured on a Pixel 7 Pro, 2026-08-28: one group
-        skip, two reloads, 6.5s of black.
+        serve a Seek is handed that same Seek again as it comes back, with an
+        identical ``When``. Re-applying is invisible on a direct stream (a seek
+        to where it already is) and a second full stop and restart on a
+        transcoded one.
 
         ``When`` is the server's own instant for the event, so equality here
         means the same event and not a second one that happens to match.
@@ -272,10 +241,6 @@ class PlaybackController(object):
             self.tempo.cancel(name)
 
             if name == "Unpause":
-                # Seek is skipped on live, then the protocol Unpauses at the
-                # same ticks — Kodi Player.Time, EPG-relative. Adopting them
-                # knocked a DirectPlay pair off PTS (residual −9919s,
-                # session-time log, Sky Racing 2026-09-04).
                 if not self._keep_source_clock(ticks):
                     self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
                 if self.manager.phase == Phase.LOADING:
@@ -315,7 +280,7 @@ class PlaybackController(object):
     def _do_unpause(self, ticks, when_ms, rebind_origin=True):
         # Gate on our own phase, not on player state reads: around a held
         # music boundary isPlaying/getTime intermittently report no media
-        # for media that is right there, paused (fork field log 2026-07-10).
+        # for media that is right there, paused.
         phase = self.manager.phase
 
         if phase == Phase.LOADING:
@@ -328,8 +293,7 @@ class PlaybackController(object):
 
         # Shared-start Unpause fires at When. A zap / late Unpause carries a
         # When the group already played through; rebinding then maps a newer
-        # picture onto that position and pulses will not close it (Premier
-        # Sports 2, 71:06 vs 71:10 after rebind, 2026-09-04).
+        # picture onto that position and pulses will not close it.
         late_ms = self.manager.server_now_ms() - (when_ms or 0)
         if rebind_origin and late_ms <= 1000.0 and self._skip_live_seek():
             self.bind_live_origin_to_group()
@@ -350,10 +314,10 @@ class PlaybackController(object):
         with self._player_lock, self.manager.programmatic():
             if self._is_audio():
                 # Resume first: a paused PAPlayer must never be seeked
-                # (field-verified: seeks and even the pause toggle queue
-                # up until user input on some builds, self-resume on
-                # others). All audio alignment happens while running, and
-                # the resume itself is retried until the clock moves.
+                # (seeks and even the pause toggle queue up until user
+                # input on some builds, self-resume on others). All audio
+                # alignment happens while running, and the resume itself is
+                # retried until the clock moves.
                 resumed = self._resume_with_retries()
 
                 if not resumed:
@@ -386,13 +350,8 @@ class PlaybackController(object):
                 # (late commands execute immediately): the same tight band.
                 # stay_paused=False because a resume follows immediately: the
                 # settle's re-pause would fight it, and the pause it queues
-                # lands after the resume decision is taken.
-                #
-                # Never on a transcode, for the same reason the arm-time align
-                # is skipped: the seek snaps to a segment boundary, so aligning
-                # a member that was 224 ms out left it 4.2 s out instead. An
-                # offset the transport cannot close is better carried than
-                # widened.
+                # lands after the resume decision is taken. Never on a
+                # transcode (see _prealign_unpause).
                 if abs(behind_ms) > utils.UNPAUSE_ALIGN_MS:
                     if self.manager.is_transcoding():
                         LOG.info(
@@ -411,19 +370,12 @@ class PlaybackController(object):
     def _align_after_resume(self):
         """Close what the resume itself opened up, once the picture is moving.
 
-        The alignment above happens *before* the resume, and the resume then
-        takes somewhere between 0.1s and 1.2s to land -- measured across four
-        captures on two devices, from the same command, agreeing on the
-        schedule to within 3ms. Whatever was aligned is therefore stale by the
-        time anything is on screen, and nothing looked again: that is the whole
-        of why a resume drifts where a seek does not. A seek names a position,
-        so arriving late costs nothing; a resume names an instant, and the
-        instants land a second apart.
-
-        Here the clock has demonstrably started, so the reading is real and the
-        group estimate is comparable to it. Not on a transcode, where a seek
-        snaps to a segment boundary and can widen the gap it was closing, and
-        not on audio, whose resume choreography aligns itself.
+        The alignment above happens *before* the resume, and the resume lands
+        up to about a second after it is asked, so whatever was aligned is
+        stale by the time anything is on screen. Here the clock has started, so
+        the reading is real and the group estimate is comparable to it. Not on
+        a transcode (see ``_prealign_unpause``), and not on audio, whose resume
+        choreography aligns itself.
         """
         if self._is_audio() or self.manager.is_transcoding():
             return
@@ -435,10 +387,8 @@ class PlaybackController(object):
 
         behind_ms = target_ms - self._position_ms()
 
-        # Logged whether or not it acts. A threshold that never fires and one
-        # that fires and does nothing look identical from the outside, and
-        # both have been believed today; the residual itself distinguishes
-        # them, and it is the number the threshold should be chosen from.
+        # Logged whether or not it acts: the residual is what the threshold is
+        # chosen from.
         LOG.info(
             "[ syncplay/resumed ] residual %+.0fms (threshold %.0fms)",
             behind_ms,
@@ -449,10 +399,8 @@ class PlaybackController(object):
             return
 
         if self._live_claim() is not None:
-            # A live member has no seek. Behind the group it pulses forward;
-            # ahead of it by more than a pulse or two it holds still for the
-            # excess instead — exact on a timeshift buffer, and seconds
-            # rather than the minutes of slow motion the pulses would take.
+            # A live member has no seek: ahead by more than LIVE_HOLD_MIN_MS
+            # it holds, otherwise fine sync.
             if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
                 self._live_hold(-behind_ms)
             else:
@@ -474,10 +422,7 @@ class PlaybackController(object):
             return
 
         LOG.info("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
-        # Aimed ahead by what a seek costs here: the group keeps moving while
-        # it lands, and a seek aimed at where the group *was* left +600-900 ms
-        # behind on both rig members, which the fine-sync scheduler then had to
-        # close with a second seek.
+        # Aimed ahead by seek_lag_ms: the group moves on while the seek lands.
         self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
 
     def _resume_with_retries(self):
@@ -503,9 +448,6 @@ class PlaybackController(object):
                 pos = None
 
             if pos is not None and last_pos is not None and pos > last_pos + 0.1:
-                # Outcome, not just the attempts: a resume that took three
-                # nudges and one that took none look identical from the nudge
-                # lines alone, and churn (section 6.4) is the difference.
                 LOG.info(
                     "[ syncplay/unpause ] resumed after %d nudge(s), %.0f ms",
                     nudges,
@@ -542,10 +484,10 @@ class PlaybackController(object):
         """Ask for playing, and keep asking until the clock actually moves.
 
         ``speed`` is not proof: Kodi reports speed 1 for a player that is not
-        advancing, so the only signal is the position sampled twice
-        (kodi-drive: kodi-jsonrpc). Re-asking matters as much as checking —
-        the failure this exists for is another thread's pause landing *after*
-        our resume, and a second explicit play is what undoes that.
+        advancing, so the only signal is the position sampled twice. Re-asking
+        matters as much as checking — the failure this exists for is another
+        thread's pause landing *after* our resume, and a second explicit play
+        is what undoes that.
         """
         deadline = utils.local_ms() + utils.RESUME_VERIFY_S * 1000
         started = utils.local_ms()
@@ -555,9 +497,6 @@ class PlaybackController(object):
         while utils.local_ms() < deadline:
             now = utils.local_ms()
 
-            # Re-asking is what undoes another thread's pause landing after our
-            # resume, so it stays -- but on its own clock. Tying it to the poll
-            # cadence is what made a slow detection into a late start.
             if asked_at is None or now - asked_at >= utils.RESUME_REASK_MS:
                 kodirpc.resume_player()
                 asked_at = now
@@ -583,17 +522,12 @@ class PlaybackController(object):
         if not self._has_media():
             return
 
-        # Y1: schedule() arms the timer and then pre-aligns on the dispatcher
-        # under _player_lock, so a timer-thread Pause fired mid-align waits
-        # its turn instead of interleaving with that seek.
         with self._player_lock, self.manager.programmatic():
             if not self._is_paused():
                 self.player.pause()
 
-            # Land everyone on the same frame when we drifted visibly.
-            # Video only: a paused PAPlayer swallows seeks (or worse),
-            # and while the group is paused nothing is audible anyway —
-            # the Unpause aligns audio the moment it resumes.
+            # Land everyone on the same frame when we drifted visibly. Video
+            # only: a paused PAPlayer is never seeked.
             diff_ms = utils.ticks_to_ms(ticks) - self._position_ms()
 
             if abs(diff_ms) > 250 and not self._is_audio():
@@ -604,11 +538,10 @@ class PlaybackController(object):
             return
 
         if self._is_audio():
-            # Never seek a paused PAPlayer. The protocol always follows a
-            # group Seek with an Unpause carrying the same position, so
-            # pause here, promise the target in the ready report, and let
-            # the Unpause land it on resume.
-            with self._player_lock, self.manager.programmatic():  # Y1
+            # Never seek a paused PAPlayer: pause, promise the target in the
+            # ready report, and let the Unpause that follows a group Seek at
+            # the same position land it.
+            with self._player_lock, self.manager.programmatic():
                 if not self._is_paused():
                     self.player.pause()
 
@@ -621,46 +554,22 @@ class PlaybackController(object):
             # Live before Transcode: Jellyfin labels a live HLS remux
             # Transcode, and the reload path below would Player.Open the
             # same channel. Kodi does not restart it, OnAVStarted never
-            # fires, and the 45s load watchdog leaves the group. Measured
-            # P1D/Tab, Premier Sports 1, 2026-09-03.
+            # fires, and the 45s load watchdog leaves the group.
             LOG.info("[ syncplay/seek ] skipped: live item, pulses only")
             self.report_ready()
             return
 
         if self.manager.is_transcoding():
-            # Reload rather than seek — but not for the reason this comment
-            # used to give, and the difference is worth writing down because
-            # the old one invites exactly the change that was tried and
-            # reverted here (PR #208).
-            #
-            # The old claim was that an in-stream seek "cannot land where it
-            # was asked to" (a logged 8.4 s overshoot) while a reload is
-            # exact. Measured, neither half holds. An in-stream seek lands on
-            # the next segment boundary, which bounds the miss at one segment:
-            # +0.000, +0.118, +1.700 and +2.900 s for four targets on
-            # production's 3.003 s segmentation, reproduced on Omega, a Piers
-            # flatpak and an Android tablet; the 8.4 s did not reproduce
-            # anywhere. And the reload is not exact either — in a live group
-            # it landed 878 ms past the target.
-            #
-            # What actually rules the seek out is *time*, which neither figure
-            # measures. A transcode seek makes the server restart the encode,
-            # so the position does not move for seconds — far longer than
-            # _seek_and_settle's SEEK_SETTLE_TIMEOUT. Seeking and then reading
-            # the position therefore measures the position *before* the seek:
-            # live, a 60 s group seek reported a residual of +59901 ms, i.e.
-            # the whole seek distance, and the fallback reload that followed
-            # started ~4 s later and landed 10.7 s from the group instead of
-            # the usual 0.9 s. Measuring first makes the fallback worse than
-            # not measuring at all.
-            #
-            # The reload reports Ready through the normal load flow, so
-            # nothing is reported here.
+            # Reload rather than seek: a transcode seek restarts the encode,
+            # so the position does not move within _seek_and_settle's
+            # SEEK_SETTLE_TIMEOUT and the settle would read the position
+            # before the seek. The reload reports Ready through the normal
+            # load flow, so nothing is reported here.
             LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
             self.manager.reload_current_item()
             return
 
-        with self._player_lock, self.manager.programmatic():  # Y1
+        with self._player_lock, self.manager.programmatic():
             if not self._is_paused():
                 self.player.pause()
 
@@ -679,12 +588,10 @@ class PlaybackController(object):
 
         if was_following and self._has_media():
             with self.manager.programmatic():
-                # Never player.stop() from here: this runs on the dispatcher,
-                # and that call holds the GIL until Kodi's teardown finishes
-                # (kodirpc.stop_player, issue #155). Landing asynchronously is
-                # safe — on_group_stopped() has already left the phase behind,
-                # so the late callback finds nothing to forward, and it is
-                # inside PROGRAMMATIC_ECHO_GRACE either way.
+                # Not player.stop() (see kodirpc.stop_player). Landing
+                # asynchronously is safe: on_group_stopped() has already left
+                # the phase behind, so the late callback finds nothing to
+                # forward, and it is inside PROGRAMMATIC_ECHO_GRACE either way.
                 kodirpc.stop_player()
 
     # ------------------------------------------------------------------
@@ -695,9 +602,8 @@ class PlaybackController(object):
         """Start a provider play target paused-on-arrival; the ready flow
         reports in.
 
-        The phase-4 re-target, behind the G1 provider seam
-        (``syncplay/providers.py``): the playlist entry is whatever URL the
-        owning provider resolved — for Jellyfin, a kofin plugin URL, so the
+        The playlist entry is whatever URL the owning provider resolved
+        (``syncplay/providers.py``) — for Jellyfin, a kofin plugin URL, so the
         plugin process resolves it (device profile, direct-play vs
         transcode, PlaybackInfo at ``startticks``) and pushes the play state
         for the service player to claim — exactly the path a user-initiated
@@ -709,12 +615,10 @@ class PlaybackController(object):
 
         with self.manager.programmatic():
             if self.player.isPlaying():
-                # Asked for and waited on rather than player.stop()'d: see
-                # kodirpc.stop_player (issue #155). The wait keeps the playlist
-                # rewrite below on the far side of the outgoing playback, which
-                # the synchronous stop used to guarantee; Kodi orders the play
-                # itself, since playPlaylist reaches the app thread behind the
-                # stop message.
+                # Stopped through kodirpc and waited on, so the playlist
+                # rewrite below follows the outgoing playback; Kodi orders the
+                # play itself, since playPlaylist reaches the app thread behind
+                # the stop message.
                 kodirpc.stop_player(wait_seconds=utils.STOP_WAIT_SECONDS)
 
             playlist.clear()
@@ -736,11 +640,8 @@ class PlaybackController(object):
             landed_ms = self._position_ms()
             diff = target_ms - landed_ms
 
-            # Where a load actually lands, which is not always where it was
-            # asked to. Worth a line of its own: a transcode is served from a
-            # playlist the server is still writing, so the stream can begin
-            # somewhere other than the requested start, and the size of that is
-            # the difference between a group that looks synced and one that is.
+            # Where a load lands: a transcode can begin away from the
+            # requested start, since the server is still writing its playlist.
             LOG.info(
                 "[ syncplay/landed ] %.1fs, wanted %.1fs (%+.0fms)%s",
                 landed_ms / 1000.0,
@@ -749,9 +650,7 @@ class PlaybackController(object):
                 " transcoding" if self.manager.is_transcoding() else "",
             )
 
-            # Audio holds are left where they paused: a paused PAPlayer
-            # must never be seeked, and the group Unpause aligns the
-            # position the moment playback resumes.
+            # A paused PAPlayer is never seeked.
             if abs(diff) > 500 and not (self._is_audio() and self._is_paused()):
                 with self.manager.programmatic():
                     self._seek_and_settle(target_ms)
@@ -765,8 +664,7 @@ class PlaybackController(object):
             # Group already Playing: the Unpause arrived during load and
             # was not applied. The server re-issues it on Ready; run it
             # here too so a dropped re-issue cannot leave us paused.
-            # This member opened later: the open-time gap is the picture
-            # offset. Do not rebind it to zero.
+            # No rebind: see bind_live_origin_to_group.
             deferred = dict(deferred)
             deferred["_rebind_origin"] = False
             self.schedule(deferred)
@@ -787,7 +685,7 @@ class PlaybackController(object):
     def stop_media(self):
         if self._has_media():
             with self.manager.programmatic():
-                kodirpc.stop_player()  # not player.stop() — issue #155
+                kodirpc.stop_player()  # not player.stop(): see kodirpc.stop_player
 
     # ------------------------------------------------------------------
     # Reports (SYNCPLAY.md §4)
@@ -799,10 +697,6 @@ class PlaybackController(object):
         )
 
     def report_buffering(self):
-        # A Buffering report is where this member *is*: the server pauses the
-        # group there and everyone resumes from it. A promise here put the
-        # group 5 s ahead of both members per provider stall on the rig
-        # (three stalls, 13 s, all of it pulsed back at the rate ceiling).
         self.manager.post_report(
             "syncplay_buffering", position_s=self.reported_position_s(promise=False)
         )
@@ -883,12 +777,9 @@ class PlaybackController(object):
                 self._watch_buffering()
 
                 if self.manager.watching_own_media():
-                    # Blocking the group's transport commands is not enough on
-                    # its own: the member is still in phase "synced", so fine
-                    # sync went on measuring its private playback against the
-                    # group and rate-shifting it to close a residual of whole
-                    # minutes. Measured: 0.750x for 10s against a -306.6s gap.
-                    # cancel() is quiet when no pulse is in flight.
+                    # A spectator on its own media is still in phase "synced",
+                    # so fine sync is cancelled rather than measured against
+                    # the group. cancel() is quiet when no pulse is in flight.
                     self.tempo.cancel("spectator playing own media")
                     continue
 
@@ -979,7 +870,7 @@ class PlaybackController(object):
     def _position_ms(self):
         """The playing position on the group's clock: the player clock, or
         for a live item the live clock (``_live_source_offset_ms``) placed
-        on the group reference's cycle of it (pvr sync plan P4)."""
+        on the group reference's cycle of it."""
         try:
             player_ms = self.player.getTime() * 1000.0
         except Exception:
@@ -993,7 +884,7 @@ class PlaybackController(object):
         return utils.unwrap_live_ms(player_ms + offset, self.estimate_position_ms())
 
     # ------------------------------------------------------------------
-    # Live items: the source clock (pvr sync plan P4)
+    # Live items: the source clock
     # ------------------------------------------------------------------
 
     def _current_claim(self):
@@ -1012,10 +903,10 @@ class PlaybackController(object):
         on a live playlist, and a source-clock position is not a stream
         offset. Fine sync closes what it can.
 
-        Before the claim, a delegated start (pvr.kofin) is treated as live
-        — waiting for the claim sought a live channel to 0 on Android.
-        Once a claim exists, claim_is_live is the only signal: catchup is
-        also pvr.kofin and must seek.
+        Before the claim, a delegated start (pvr.kofin) is treated as live,
+        since a seek would send a live channel to 0. Once a claim exists,
+        claim_is_live is the only signal: catchup is also pvr.kofin and must
+        seek.
         """
         if self._live_claim() is not None:
             return True
@@ -1061,7 +952,7 @@ class PlaybackController(object):
 
         Origin is a raw offset: ``_position_ms`` unwraps player+origin onto
         the epoch. Storing the already-unwrapped group position here
-        double-applies the epoch (measured: a 5 s residual became 5006 s).
+        double-applies the epoch.
 
         Call only for a shared-start Unpause. A later open's gap is the
         picture offset; zeroing it leaves pictures apart with residual ~0.
@@ -1087,12 +978,10 @@ class PlaybackController(object):
         """player clock → live clock; None for anything but a live item.
 
         The live clock is the stream's own when Kodi reports it
-        (``presentationtime``, kontell/xbmc #19: a broadcast's PTS, one clock
-        for every member's stream whatever moment it opened), and otherwise
-        the join origin: player t=0 plus the server time at open, which is
-        the live edge this member started on. A server remux restamps from
-        the job's start, which ``utils.presentation_offset_ms`` refuses, so
-        a channel through the server runs on the join origin.
+        (``presentationtime``: a broadcast's PTS, one clock for every member's
+        stream whatever moment it opened), and otherwise the join origin:
+        player t=0 plus the server time at open, which is the live edge this
+        member started on.
         """
         if self._live_claim() is None:
             return None
@@ -1149,7 +1038,7 @@ class PlaybackController(object):
         """The group position to propose for the live item playing here:
         LIVE_DELAY_S behind this member's own source-clock reading, or None
         when it has no such reading (the proposal then tunes together from
-        zero, as P2 did)."""
+        zero)."""
         offset = self._live_source_offset_ms()
 
         if offset is None:
@@ -1168,10 +1057,8 @@ class PlaybackController(object):
         of its own, a private Seek in answer would be refused here anyway,
         and a Ready that reports the real reading — the proposer's, a
         delay ahead of its anchor — is one the server's ready barrier does
-        not release on (measured: the group started on the 10 s wait
-        timeout instead of the Ready, and every later joiner inherited
-        that as extra distance from live). Without it, the real reading:
-        what a Buffering report must say, since the group pauses there."""
+        not release on. Without it, the real reading: what a Buffering report
+        must say, since the group pauses there."""
         if promise and self._live_claim() is not None:
             estimate = self.estimate_position_ms()
 
@@ -1199,9 +1086,6 @@ class PlaybackController(object):
 
     def _live_resume(self, seq):
         if seq != self._live_hold_seq:
-            # A later hold replaced this one (a second Unpause landed during
-            # the first hold on the rig, and the first timer cut the second
-            # hold short): only the newest hold's timer resumes.
             return
 
         held = self._live_hold_ms
@@ -1269,15 +1153,11 @@ class PlaybackController(object):
 
         ``stay_paused`` is the caller's intent for afterwards. It matters
         because a seek can resume a paused player by itself — PAPlayer always
-        does, and Android's VideoPlayer was measured doing it too — so a caller
-        that wants to stay paused has to undo that, and a caller about to
-        resume must *not*, or the two fight and the player can end up stopped.
+        does, and Android's VideoPlayer does too — so a caller that wants to
+        stay paused has to undo that, and a caller about to resume must *not*,
+        or the two fight and the player can end up stopped.
         """
         if self._skip_live_seek():
-            # A live stream is never seeked: ffmpeg's HLS demuxer refuses a
-            # seek on a live playlist, and a position on the source clock is
-            # not a stream offset to begin with. Fine sync closes what it
-            # can; the rest is the feed's.
             if not self._live_seek_logged:
                 self._live_seek_logged = True
                 LOG.info("[ syncplay/align ] skipped: live item, pulses only")
@@ -1305,19 +1185,9 @@ class PlaybackController(object):
             xbmc.sleep(100)
 
         if landed and not was_paused:
-            # Only a seek issued while playing can be measured: a paused
-            # player's clock never restarts, and polling it for the budget
-            # held the group Unpause back by 2.5 s (measured +3.3 s residual
-            # after the resume, on two of three members).
-            # What a seek leaves behind is measured, not assumed. Kodi reports
-            # the target the moment it accepts the seek and holds there while
-            # the pipeline refills; the clock then restarts from wherever the
-            # seek really landed. Both matter: the Tab took ~370 ms to restart
-            # and landed 350 ms *early* (MediaCodec cannot drop to the accurate
-            # point), so a seek aimed at the group's current position left it
-            # ~700 ms behind — and a 2 s landing test saw none of it, which is
-            # how the earlier estimate decayed to 150 ms. The residual a seek
-            # leaves is restart time minus landing offset; smoothed, it is what
+            # Only a seek issued while playing is measured: a paused player's
+            # clock never restarts. The residual a seek leaves is restart time
+            # minus landing offset (see _clock_restart); smoothed, it is what
             # the next seek aims ahead by.
             restarted = self._clock_restart(target_ms)
 
@@ -1329,12 +1199,8 @@ class PlaybackController(object):
         self.tempo.note_settle()
 
         if was_paused and stay_paused:
-            # PAPlayer::SeekTime() unconditionally restores playback speed,
-            # silently resuming a paused music player, and Android's
-            # VideoPlayer does the same (OnPlayBackStarted right after the
-            # seek — the fork's comment claimed otherwise). The resume can
-            # also land after the settle loop, so on audio watch a short
-            # window before trusting the state.
+            # Audio's resume can land after the settle loop, so it is watched
+            # for SEEK_REPAUSE_WINDOW_MS before the state is trusted.
             watch_until = utils.local_ms() + (
                 utils.SEEK_REPAUSE_WINDOW_MS if self._is_audio() else 0
             )
