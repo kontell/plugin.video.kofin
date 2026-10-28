@@ -118,11 +118,11 @@ def localize(
         elif attachment.sidecar:
             files.append((attachment, attachment.url))
         else:
-            LOG.info(
+            LOG.debug(
                 "subtitle %s deferred: the server is still extracting it",
                 attachment.stream_index,
             )
             deferred.append(attachment)
     if fetched:
-        LOG.info("fetched %d subtitle(s) for their labels", fetched)
+        LOG.debug("fetched %d subtitle(s) for their labels", fetched)
     return Localized(files, deferred)

@@ -477,7 +477,7 @@ def offline_answer(request: Request, item_id: str) -> bool:
 
     path = downloaded_file(item_id)
     if path:
-        LOG.info("offline: resolving %s to its download", item_id)
+        LOG.debug("offline: resolving %s to its download", item_id)
         listitem = xbmcgui.ListItem(path=path)
         listitem.setContentLookup(False)
         dbid = request.params.get("dbid", "")
@@ -500,7 +500,7 @@ def offline_answer(request: Request, item_id: str) -> bool:
         _resolve_to(request, listitem, path)
         return True
 
-    LOG.info("offline: %s is not downloaded", item_id)
+    LOG.debug("offline: %s is not downloaded", item_id)
     _fail(request, 30720)
     return True
 
@@ -547,7 +547,7 @@ def resolve_downloaded(
     li.setPath(path)
     li.setContentLookup(False)
 
-    LOG.info("play %s via Download", item.get("Id", ""))
+    LOG.debug("play %s via Download", item.get("Id", ""))
     sources = item.get("MediaSources") or [{}]
     # The claim shape the streamed play pushes: DirectPlay, since Kodi opens
     # the file; the "source" is the id alone, so the runtime is the item's
@@ -738,7 +738,7 @@ def play(request: Request) -> None:
             timeshift = live_timeshift(source, method)
         else:
             timeshift_missing = True
-    LOG.info(
+    LOG.debug(
         "play %s via %s%s%s",
         item_id,
         method,

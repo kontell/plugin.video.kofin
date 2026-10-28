@@ -173,7 +173,7 @@ def _choose_audio(
         if ordinal is None:
             return
         xbmc.Player().setAudioStream(ordinal)
-        LOG.info("audio -> jellyfin %s (kodi %s)", chosen.get("Index"), ordinal)
+        LOG.debug("audio -> jellyfin %s (kodi %s)", chosen.get("Index"), ordinal)
         return
 
     _restart(payload, playing._replace(audio=chosen.get("Index")))
@@ -238,7 +238,7 @@ def _choose_subtitle(
             _restart(payload, playing._replace(subtitle=None, burned=False))
             return
         xbmc.Player().showSubtitles(False)
-        LOG.info("subtitles off")
+        LOG.debug("subtitles off")
         return
     if chosen.get("Index") == playing.subtitle:
         return  # already on screen; never pay anything to arrive where we are
@@ -259,7 +259,7 @@ def _choose_subtitle(
     player = xbmc.Player()
     player.setSubtitleStream(ordinal)
     player.showSubtitles(True)
-    LOG.info("subtitle -> jellyfin %s (kodi %s)", chosen.get("Index"), ordinal)
+    LOG.debug("subtitle -> jellyfin %s (kodi %s)", chosen.get("Index"), ordinal)
 
 
 def _current_subtitle_index(
@@ -296,7 +296,7 @@ def _fetch_subtitle(chosen: JsonDict) -> None:
     index = chosen.get("Index")
     if index is None:
         return
-    LOG.info("subtitle %s requested; asking the service to fetch it", index)
+    LOG.debug("subtitle %s requested; asking the service to fetch it", index)
     toast.show(settings.localized(30776), time_ms=4000)
     ipc.notify(ipc.ATTACH_SUBTITLE, {"Index": int(index)})
 
@@ -347,7 +347,7 @@ def _restart(payload: JsonDict, playing: Playing) -> None:
     else:
         params["fromstart"] = "1"
 
-    LOG.info(
+    LOG.debug(
         "restarting %s at %.1fs (audio=%s subtitle=%s burn=%s)",
         item_id,
         position,

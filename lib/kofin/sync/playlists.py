@@ -434,7 +434,7 @@ def cleanup_managed_playlists(root: Optional[str] = None) -> int:
             os.rmdir(directory)
     except OSError:
         pass
-    LOG.info("music playlists: cleaned %d managed file(s)", removed)
+    LOG.debug("music playlists: cleaned %d managed file(s)", removed)
     return removed
 
 
@@ -608,7 +608,7 @@ def apply_one(
         "" if resolver is not None and missing else checksum,
     )
     if missing:
-        LOG.info(
+        LOG.debug(
             "playlist %s: %d item(s), %d not in the Kodi library",
             playlist.get("Name"),
             len(entries),
@@ -766,7 +766,7 @@ def reconcile(
         if written:
             stats["written"] += 1
         if missing:
-            LOG.info(
+            LOG.debug(
                 "playlist %s: %d item(s), %d not in the Kodi library",
                 playlist.get("Name"),
                 len(entries),
@@ -809,7 +809,7 @@ def reconcile(
                 except OSError:
                     LOG.exception("failed to prune managed playlist %s", existing)
 
-    LOG.info(
+    LOG.debug(
         "playlists: %d playlist(s), %d rewritten, %d track(s), "
         "%d skipped, %d pruned",
         stats["playlists"],
@@ -932,7 +932,7 @@ def write_video_playlists(entries: Iterable[Any]) -> None:
         keep.add(name)
 
     for name in fs.remove_managed_entries(directory, keep=keep, label="playlist"):
-        LOG.info("--[ playlists ] pruned stale %s", name)
+        LOG.debug("--[ playlists ] pruned stale %s", name)
 
 
 def remove_video_playlists() -> None:

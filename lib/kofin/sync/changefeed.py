@@ -287,7 +287,7 @@ def detect(api: Any) -> Optional[Any]:
         version = _as_int(info.get("ProtocolVersion"))
 
         if version == PROTOCOL_VERSION:
-            LOG.info(
+            LOG.debug(
                 "KofinSyncQueue companion detected (plugin %s, protocol %s)",
                 info.get("PluginVersion", "?"),
                 version,
@@ -301,13 +301,13 @@ def detect(api: Any) -> Optional[Any]:
             PROTOCOL_VERSION,
         )
     except JellyfinError as error:
-        LOG.info("no KofinSyncQueue companion detected (%s)", error)
+        LOG.debug("no KofinSyncQueue companion detected (%s)", error)
 
     try:
         api.server_time()
         return LegacyFeed(api)
     except JellyfinError as error:
-        LOG.info("no KodiSyncQueue companion detected (%s)", error)
+        LOG.debug("no KodiSyncQueue companion detected (%s)", error)
 
     return None
 

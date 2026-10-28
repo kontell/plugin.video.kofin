@@ -70,7 +70,7 @@ def reconcile(owner_id: str, item_ids: Iterable[str], request_name: str = "") ->
                 },
             )
     if queue or delete:
-        LOG.info(
+        LOG.debug(
             "subscription %s: %d queued, %d removed", owner_id, len(queue), len(delete)
         )
 

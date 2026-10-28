@@ -106,7 +106,7 @@ def select_shortlist(request: Request) -> None:
     else:
         value = ",".join(str(candidates[i - 1].get("Id", "")) for i in chosen)
     settings.set_str(SHORTLIST, value)
-    LOG.info(
+    LOG.debug(
         "who's-watching shortlist updated: %s",
         {SHORTLIST_ALL: "everyone", SHORTLIST_NOBODY: "off"}.get(
             value, "%d users" % len(chosen)

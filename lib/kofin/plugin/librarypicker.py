@@ -77,4 +77,4 @@ def select_libraries(request: Request) -> None:
 
     picked = [candidates[index]["Id"] for index in chosen]
     settings.set_str("librarySelection", ",".join(picked))
-    LOG.info("library selection updated: %s ids", len(picked))
+    LOG.debug("library selection updated: %s ids", len(picked))

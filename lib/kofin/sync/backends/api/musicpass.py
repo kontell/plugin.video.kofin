@@ -103,7 +103,7 @@ class MusicPass:
         self._album_items.pop(library, None)
         self.store.plan_walk(library, rows)
         parts = walk.parts(len(rows))
-        LOG.info(
+        LOG.debug(
             "music: %d of %d directories changed; scanning them in %d part(s)",
             len(rows),
             len(every | set(folders)),
@@ -132,7 +132,7 @@ class MusicPass:
         finally:
             if saved is not None:
                 native.progress.restore(saved)
-        LOG.info(
+        LOG.debug(
             "music: %d directories scanned in %.1f s",
             len(rows),
             time.monotonic() - began,
@@ -262,7 +262,7 @@ class MusicPass:
             if revived:
                 self.store.invalidate(revived)
                 upserts.update(revived)
-            LOG.info(
+            LOG.debug(
                 "music: %d songs compared in %.1f s; %d directories to scan,"
                 " %d applied songs put back",
                 len(songs),

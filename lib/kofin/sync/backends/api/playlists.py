@@ -171,7 +171,7 @@ def _drop_side(side: str, state, root) -> int:
         removed = playlists.cleanup_video_playlists(root)
     for row in stale:
         state.remove_playlist_state(row[0])
-    LOG.info("%s playlists pruned: no synced library left (%d files)", side, removed)
+    LOG.debug("%s playlists pruned: no synced library left (%d files)", side, removed)
     return removed
 
 

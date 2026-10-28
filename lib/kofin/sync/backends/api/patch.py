@@ -252,7 +252,7 @@ class Applier:
             self.commit()
             if kind == kinds[-1] or KINDS[kind].removal != "rescan":
                 self.native.release_all()
-            LOG.info(
+            LOG.debug(
                 "%s: %d planned in %.1f s, %.1f s of it in Kodi calls",
                 kind.lower(),
                 len(ids),
@@ -516,7 +516,7 @@ class Applier:
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
             if (row.get("uniqueid") or {}).get("kofinrefresh") != token:
-                LOG.info(
+                LOG.debug(
                     "refreshing %s %s: %s",
                     kind.lower(),
                     record.item_id,
@@ -774,7 +774,7 @@ class Applier:
             self._expectations = []
         # Kodi logs no announcements, so this line is the only count of
         # what a pass actually wrote (an import whose rows match sends none).
-        LOG.info("patching %d %s rows", len(patches), patches[0].record.kind.lower())
+        LOG.debug("patching %d %s rows", len(patches), patches[0].record.kind.lower())
         if KINDS[patches[0].record.kind].removal == "rescan":
             # Writes announced during a music scan are a transaction to the
             # home widgets: hold the scanner for the burst (native.hold).

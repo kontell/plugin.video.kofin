@@ -134,6 +134,6 @@ class Arrivals:
             return
         if not messages:
             return
-        LOG.info("--[ new content ] %s", " | ".join(messages))
+        LOG.debug("--[ new content ] %s", " | ".join(messages))
         for message in messages:
             toast.show(message, time_ms=TOAST_MS)

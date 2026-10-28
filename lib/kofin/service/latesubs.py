@@ -134,7 +134,7 @@ class LateSubtitles:
                 return
             waited += POLL_SECONDS
         if not self._cancel.is_set():
-            LOG.info(
+            LOG.debug(
                 "subtitle %s gave up after %.0fs; the server never produced it",
                 attachment.stream_index,
                 DEADLINE_SECONDS,
@@ -164,7 +164,7 @@ class LateSubtitles:
         attached = payload.setdefault("Attached", [])
         if attachment.stream_index not in attached:
             attached.append(attachment.stream_index)
-        LOG.info(
+        LOG.debug(
             "subtitle %s attached late (kodi %s)",
             attachment.stream_index,
             len(attached) - 1,

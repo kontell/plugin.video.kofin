@@ -564,5 +564,5 @@ def recover_interrupted() -> int:
         )
         moved = opened.cursor.rowcount
     if moved:
-        LOG.info("re-queued %d interrupted download(s)", moved)
+        LOG.debug("re-queued %d interrupted download(s)", moved)
     return int(moved)

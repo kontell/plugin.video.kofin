@@ -206,7 +206,7 @@ def play_with_transcode() -> None:
         params["startticks"] = str(int(resume_seconds * 10_000_000))
     else:
         params["fromstart"] = "1"
-    LOG.info(
+    LOG.debug(
         "context transcode %s at %s Mbit/s (%s)",
         item_id,
         bitrate,
@@ -642,7 +642,7 @@ def manage() -> None:
         return
 
     _, params = options[index]
-    LOG.info("manage: %s for %s", params.get("mode"), item_id)
+    LOG.debug("manage: %s for %s", params.get("mode"), item_id)
     if params.get("mode") == "extras":
         # The one entry here that goes somewhere rather than doing something.
         # RunPlugin would execute the listing and throw it away.

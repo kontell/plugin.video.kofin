@@ -74,7 +74,7 @@ def deconflict(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         kept.append(segment)
         run_end[segment_type] = float(segment["End"])
     if dropped:
-        LOG.info(
+        LOG.debug(
             "dropped %d overlapping segment(s) — more than one provider is "
             "analysing this library",
             dropped,

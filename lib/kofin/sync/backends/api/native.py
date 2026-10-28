@@ -263,7 +263,7 @@ class Native:
             dict.fromkeys(folders if force else [p for p in folders if p not in bound])
         )
         if wanted:
-            LOG.info(
+            LOG.debug(
                 "binding %d %s folder(s)%s",
                 len(wanted),
                 content,
@@ -330,7 +330,7 @@ class Native:
             return
         force = state not in (MOVIE_BINDINGS_STATE, EXTRAS_BINDINGS_STATE)
         if force:
-            LOG.info("binding every movie folder with noupdate, once")
+            LOG.debug("binding every movie folder with noupdate, once")
         self.bind_folders("movies", folders, force=force, noupdate=True)
         if state != EXTRAS_BINDINGS_STATE:
             dirs = sorted(
@@ -515,7 +515,7 @@ class Native:
                     busy=lambda: self._scanning(scanner),
                     on_poll=watch,
                 )
-                LOG.info(
+                LOG.debug(
                     "%s scan of %s took %.1f s",
                     scanner,
                     paths.describe(directory),
@@ -579,7 +579,7 @@ class Native:
         if not folders:
             return
         if "asset_clean" not in self.features:
-            LOG.info(
+            LOG.debug(
                 "%d movie folder(s) lost a version or an extra; the rows are left "
                 "for a Clean library of the viewer's (Kodi 22 keeps them until the "
                 "movie leaves)",
@@ -589,7 +589,7 @@ class Native:
         for folder in sorted(folders):
             try:
                 self.clean(folder)
-                LOG.info("retired the dropped versions and extras of %s", folder)
+                LOG.debug("retired the dropped versions and extras of %s", folder)
             except InterruptedError:
                 raise
             except Exception:
@@ -646,7 +646,7 @@ class Native:
                         self.store.release_setting(ACTOR_THUMBS_SETTING)
                         raise
                     held = True
-                    LOG.info(
+                    LOG.debug(
                         "Kodi setting %s off for a scan of %d rows",
                         ACTOR_THUMBS_SETTING,
                         rows,
@@ -681,7 +681,7 @@ class Native:
                 continue
             self.store.release_setting(setting)
             self._refused_settings.discard(setting)
-            LOG.info("Kodi setting %s back to %r", setting, value)
+            LOG.debug("Kodi setting %s back to %r", setting, value)
         self.settings_owed = owed
 
     def _prepare_scan(self, directory):
@@ -772,7 +772,7 @@ class Native:
         # written where the row already matches.
         stamped = self.store.features_applied()
         if stamped is not None and stamped != self.features and not repair:
-            LOG.info(
+            LOG.debug(
                 "Kodi's features changed since the last pass (on: %s): comparing "
                 "every row",
                 ", ".join(sorted(self.features)) or "none",
@@ -783,7 +783,7 @@ class Native:
         # row that never changes again keeps the state the old build gave it.
         serializer = self.store.serializer_applied()
         if stamped is not None and serializer != metadata.SERIALIZER and not repair:
-            LOG.info(
+            LOG.debug(
                 "the desired state changed since the last pass (serializer %s, "
                 "now %d): comparing every row",
                 serializer,

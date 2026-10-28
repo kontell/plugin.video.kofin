@@ -470,7 +470,7 @@ def write_tree(entries, singles):
         order += 1
 
     for name in fs.remove_managed_entries(root, keep=keep):
-        LOG.info("--[ nodes ] pruned stale %s", name)
+        LOG.debug("--[ nodes ] pruned stale %s", name)
 
 
 # --- taking it down ------------------------------------------------------------

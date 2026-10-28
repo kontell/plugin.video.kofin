@@ -160,7 +160,7 @@ class SyncPlayManager(object):
         self._inbox.put((func, args))
 
     def _dispatch_loop(self):
-        LOG.info("--->[ syncplay dispatcher ]")
+        LOG.debug("--->[ syncplay dispatcher ]")
 
         while self._running:
             entry = self._inbox.get()
@@ -182,7 +182,7 @@ class SyncPlayManager(object):
             except Exception as error:
                 LOG.exception("SyncPlay dispatch error: %s", error)
 
-        LOG.info("---<[ syncplay dispatcher ]")
+        LOG.debug("---<[ syncplay dispatcher ]")
 
     def get_api(self) -> Optional[SyncPlayApi]:
         return self.api
@@ -200,7 +200,7 @@ class SyncPlayManager(object):
             return getattr(api_client, name)(*args)
         except Unauthorized:
             if self.in_group():
-                LOG.info("SyncPlay %s unauthorized, attempting rejoin", name)
+                LOG.debug("SyncPlay %s unauthorized, attempting rejoin", name)
                 self._post(self._attempt_rejoin)
             else:
                 LOG.warning("SyncPlay %s unauthorized", name)
@@ -450,7 +450,7 @@ class SyncPlayManager(object):
             weight = utils.LOAD_ALLOWANCE_SMOOTHING
             self._load_ms = weight * elapsed + (1.0 - weight) * self._load_ms
 
-        LOG.info(
+        LOG.debug(
             "[ syncplay/load ] took %.1fs; aiming %.1fs ahead next time",
             elapsed / 1000.0,
             self._load_ms / 1000.0,
@@ -671,7 +671,7 @@ class SyncPlayManager(object):
             return
 
         if utils.is_stale_version(version, previous_version):
-            LOG.info("Ignoring stale %s (v%s < v%s)", gtype, version, previous_version)
+            LOG.debug("Ignoring stale %s (v%s < v%s)", gtype, version, previous_version)
             return
 
         handler = self._GROUP_UPDATES_VERSIONED.get(gtype)
@@ -723,7 +723,7 @@ class SyncPlayManager(object):
 
         assert self.group is not None  # in_group() above
         if command.get("GroupId") and command["GroupId"] != self.group["GroupId"]:
-            LOG.info("Discarding command for another group")
+            LOG.debug("Discarding command for another group")
             return
 
         previous_version = self.state_version
@@ -733,19 +733,19 @@ class SyncPlayManager(object):
             self.state_version = max(previous_version, version)
 
         if utils.is_stale_version(version, previous_version):
-            LOG.info("Ignoring stale command (v%s < v%s)", version, previous_version)
+            LOG.debug("Ignoring stale command (v%s < v%s)", version, previous_version)
             return
 
         emitted = utils.parse_iso_ms(command.get("EmittedAt"))
 
         if emitted is not None and emitted < self.join_server_ms() - 2000:
-            LOG.info("Discarding command emitted before our join")
+            LOG.debug("Discarding command emitted before our join")
             return
 
         if self.watching_own_media():
             # A spectator's own playback follows no transport command, as it
             # follows no group queue (_apply_play_queue).
-            LOG.info("Spectator playing own media; not following transport")
+            LOG.debug("Spectator playing own media; not following transport")
             return
 
         if command.get("Command") != "Stop" and self._stopped_here(
@@ -753,7 +753,7 @@ class SyncPlayManager(object):
         ):
             # Not a missed queue update, so nothing to reconcile: the item is
             # known, and the user stopped it.
-            LOG.info("Command for the item stopped here; waiting on the stop prompt")
+            LOG.debug("Command for the item stopped here; waiting on the stop prompt")
             return
 
         if (
@@ -761,7 +761,7 @@ class SyncPlayManager(object):
             and command.get("PlaylistItemId")
             and command["PlaylistItemId"] != self.current_playlist_item_id
         ):
-            LOG.info(
+            LOG.debug(
                 "Command for another queue item (%s != %s)",
                 command.get("PlaylistItemId"),
                 self.current_playlist_item_id,
@@ -778,7 +778,7 @@ class SyncPlayManager(object):
 
     def _on_group_joined(self, info, version):
         if not self.enabled():
-            LOG.info("SyncPlay is disabled in settings, ignoring GroupJoined")
+            LOG.debug("SyncPlay is disabled in settings, ignoring GroupJoined")
             return
 
         group = self.group  # in_group() is exactly this None test
@@ -824,7 +824,7 @@ class SyncPlayManager(object):
             self._live_route_told = False
             self.tempo_session.begin()
 
-        LOG.info(
+        LOG.debug(
             "--->[ syncplay group/%s ] protocol v%s",
             self.group["GroupId"],
             self.protocol_version,
@@ -872,7 +872,7 @@ class SyncPlayManager(object):
         self.player.syncplay_group_active = False
         self._release_hold()
         self.publish_session_state(announce=True)
-        LOG.info("---<[ syncplay group ]")
+        LOG.debug("---<[ syncplay group ]")
 
     def _attempt_rejoin(self, force=False):
         """§9: one automatic re-join before surfacing an error."""
@@ -886,7 +886,7 @@ class SyncPlayManager(object):
             return
 
         self._last_rejoin = now
-        LOG.info("Attempting SyncPlay rejoin of %s", self.last_group_id)
+        LOG.debug("Attempting SyncPlay rejoin of %s", self.last_group_id)
 
         try:
             self._api_raw("syncplay_join", self.last_group_id, 2)
@@ -937,10 +937,10 @@ class SyncPlayManager(object):
         )
 
         if self.server_external_content:
-            LOG.info("SyncPlay server accepts external content")
+            LOG.debug("SyncPlay server accepts external content")
 
         if self.timesync_ws_path:
-            LOG.info("SyncPlay time-sync socket at %s", self.timesync_ws_path)
+            LOG.debug("SyncPlay time-sync socket at %s", self.timesync_ws_path)
 
     def _on_ws_connected(self):
         """Reconnect contract (§9): a v2 server re-attaches the member and
@@ -958,7 +958,7 @@ class SyncPlayManager(object):
 
             def check():
                 if self.in_group() and self.last_snapshot_at < connected_at:
-                    LOG.info("No snapshot pushed after reconnect, requesting one")
+                    LOG.debug("No snapshot pushed after reconnect, requesting one")
                     self._request_snapshot()
 
             utils.later(5, self._post, check)
@@ -980,7 +980,7 @@ class SyncPlayManager(object):
             self._attempt_rejoin(force=True)
             return
 
-        LOG.info("Group %s no longer exists after reconnect", group_id)
+        LOG.debug("Group %s no longer exists after reconnect", group_id)
         self._leave_locally()
         self._toast(settings.localized(30571), warning=True)
 
@@ -1036,7 +1036,7 @@ class SyncPlayManager(object):
     def _on_beacon(self, beacon, version, previous_version):
         """§11: advisory position data; §6: version gap detection."""
         if version is not None and previous_version and version > previous_version:
-            LOG.info(
+            LOG.debug(
                 "Beacon v%s ahead of last update v%s, requesting snapshot",
                 version,
                 previous_version,
@@ -1077,7 +1077,7 @@ class SyncPlayManager(object):
         is_playing = bool(data.get("IsPlaying"))
         start_ticks = data.get("StartPositionTicks") or 0
 
-        LOG.info(
+        LOG.debug(
             "[ syncplay/queue ] %s items, playing %s (%s)",
             len(self.queue),
             index,
@@ -1101,7 +1101,7 @@ class SyncPlayManager(object):
             # is still on the item the user just stopped. A different item
             # falls through and starts — the group really moved on, which is
             # what _stop_superseded expects.
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/queue ] still the item stopped here; "
                 "waiting on the stop prompt"
             )
@@ -1129,7 +1129,7 @@ class SyncPlayManager(object):
             # that is already on screen, regardless of phase. A held start
             # matches on the id we proposed, since the play pipeline may
             # not have claimed the new item yet.
-            LOG.info("Adopting queue identity for the playing item")
+            LOG.debug("Adopting queue identity for the playing item")
             self._hold_done("adopted")
             self._hold = None
             self.current_item_id = item_id
@@ -1145,7 +1145,7 @@ class SyncPlayManager(object):
             # A spectator watching their own thing: the group's queue
             # must not tear it down. They re-attach via the menu (or
             # automatically once their player is idle again).
-            LOG.info("Spectator playing own media; not following the queue")
+            LOG.debug("Spectator playing own media; not following the queue")
             return
 
         self._start_item(item_id, playlist_item_id, provider)
@@ -1191,7 +1191,7 @@ class SyncPlayManager(object):
         estimate_ms += allowance_ms
         self._load_started_ms = utils.local_ms()
 
-        LOG.info(
+        LOG.debug(
             "[ syncplay/play ] %s (%s) at %.1fs%s",
             item_id,
             playlist_item_id,
@@ -1228,7 +1228,7 @@ class SyncPlayManager(object):
                 # 0:00 on a transcode, so nothing is loaded. The item stays
                 # ours, and a queue or snapshot that puts the group back inside
                 # it starts it then.
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/play ] not started: %.1fs is at or past the "
                     "item's end (%.1fs)",
                     estimate_ms / 1000.0,
@@ -1340,7 +1340,7 @@ class SyncPlayManager(object):
                 "item_id": None,
                 "at": utils.local_ms(),
             }
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/hold ] entered (%s)",
                 "transition" if hold["transition"] else "fresh start",
             )
@@ -1394,7 +1394,7 @@ class SyncPlayManager(object):
             return
 
         if self.phase == Phase.SYNCED:
-            LOG.info("[ syncplay/user pause ]")
+            LOG.debug("[ syncplay/user pause ]")
             self._post(self._api, "syncplay_pause")
 
     def on_resumed(self):
@@ -1406,7 +1406,7 @@ class SyncPlayManager(object):
             return
 
         if self.phase in FOLLOWING:
-            LOG.info("[ syncplay/user unpause ]")
+            LOG.debug("[ syncplay/user unpause ]")
             # The group start time is the server's call: hold position
             # and ask for a group unpause instead of running ahead.
             self.playback.ensure_paused()
@@ -1417,7 +1417,7 @@ class SyncPlayManager(object):
             return
 
         if self.phase in FOLLOWING:
-            LOG.info("[ syncplay/user seek ] %.1fs", seconds)
+            LOG.debug("[ syncplay/user seek ] %.1fs", seconds)
             self._post(self._api, "syncplay_seek", utils.seconds_to_ticks(seconds))
 
     def on_stopped(self):
@@ -1456,7 +1456,7 @@ class SyncPlayManager(object):
         self.phase = Phase.IDLE
 
         if playlist_item_id:
-            LOG.info("[ syncplay/next item ]")
+            LOG.debug("[ syncplay/next item ]")
             self._post(self._api, "syncplay_next_item", playlist_item_id)
 
     def on_error(self):
@@ -1612,7 +1612,7 @@ class SyncPlayManager(object):
             # edge.
             anchor_ms = self.playback.live_anchor_ms()
             position = anchor_ms / 1000.0 if anchor_ms is not None else 0.0
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/live ] proposing %s %s",
                 item_id,
                 (
@@ -1698,7 +1698,7 @@ class SyncPlayManager(object):
         if self.ignore_wait:
             return
 
-        LOG.info("Unmanaged playback while in a group, detaching")
+        LOG.debug("Unmanaged playback while in a group, detaching")
         self.ignore_wait = True
         self._api("syncplay_set_ignore_wait", True)
         self._toast(settings.localized(30569))
@@ -1721,7 +1721,7 @@ class SyncPlayManager(object):
         hold = self._hold
         if hold is None or not hold.get("at"):
             return
-        LOG.info(
+        LOG.debug(
             "[ syncplay/hold ] released after %.0f ms (%s)",
             utils.local_ms() - hold["at"],
             reason,
@@ -1773,7 +1773,7 @@ class SyncPlayManager(object):
                     "RunTimeTicks": int(info.get("RunTimeTicks") or 0),
                 }
 
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/set queue ] %s:%s at %.1fs", provider, item_id, position
             )
             self._api(
@@ -1784,7 +1784,7 @@ class SyncPlayManager(object):
             )
             return
 
-        LOG.info("[ syncplay/set queue ] %s at %.1fs", item_id, position)
+        LOG.debug("[ syncplay/set queue ] %s at %.1fs", item_id, position)
         self._api(
             "syncplay_set_new_queue",
             [item_id],
@@ -1805,7 +1805,7 @@ class SyncPlayManager(object):
     def _set_foreign_claim(self, claim):
         self.foreign_claim = claim
         self._foreign_claim_at = time.time()
-        LOG.info(
+        LOG.debug(
             "[ syncplay/claim ] foreign: %s via %s",
             claim.get("Id"),
             claim.get("Provider"),
@@ -1837,7 +1837,7 @@ class SyncPlayManager(object):
         play = contract.register_template(payload)
 
         if play is None:
-            LOG.info("Register from %s without a usable play template", sender)
+            LOG.debug("Register from %s without a usable play template", sender)
             return
 
         name = payload["provider"]
@@ -1852,7 +1852,7 @@ class SyncPlayManager(object):
             self.providers.register(
                 name, TemplateProvider(play["url_template"], play["audio"])
             )
-        LOG.info(
+        LOG.debug(
             "[ syncplay/provider ] %r registered by %s%s",
             name,
             sender,
@@ -1866,7 +1866,7 @@ class SyncPlayManager(object):
 
     def _propose_from_bus(self, payload):
         if not self.in_group():
-            LOG.info(
+            LOG.debug(
                 "Propose from %r outside a group; ignored", payload.get("provider")
             )
             return

@@ -219,7 +219,7 @@ class DownloadManager:
             self._spawn_worker("kofin-downloads-%d" % index, VIDEO_KINDS)
         for index in range(music_worker_count()):
             self._spawn_worker("kofin-downloads-music-%d" % index, MUSIC_KINDS)
-        LOG.info("download manager started (%d worker(s))", len(self._workers))
+        LOG.debug("download manager started (%d worker(s))", len(self._workers))
 
     def _spawn_worker(self, name: str, kinds: Tuple[str, ...]) -> None:
         worker = threading.Thread(
@@ -243,7 +243,7 @@ class DownloadManager:
         # After the joins, so no worker races the close; unconditional, so
         # no bar ghosts in the corner past the manager that drew it.
         self._progress.close()
-        LOG.info("download manager stopped")
+        LOG.debug("download manager stopped")
 
     def _should_stop(self) -> bool:
         return self._stop.is_set() or self._stopping.is_set()
@@ -430,7 +430,7 @@ class DownloadManager:
                             if not key.startswith("request:")
                         }
                     )
-            LOG.info("download queued: %s", entry.item_id)
+            LOG.debug("download queued: %s", entry.item_id)
             return True
         return False
 
@@ -445,7 +445,7 @@ class DownloadManager:
             self._delete_media(row)
             store.remove(item_id)
             self._clear_cancel(item_id)
-            LOG.info("download cancelled: %s", item_id)
+            LOG.debug("download cancelled: %s", item_id)
 
     def _remove_row(self, row: "store.Download") -> None:
         """The ordered removal every path shares: media, store row, then the
@@ -508,7 +508,7 @@ class DownloadManager:
             self._mark_playlist_dirty(row.jellyfin_id)
         with self._removed_lock:
             self._removed.append(_display_name(row))
-        LOG.info("download removed: %s", item_id)
+        LOG.debug("download removed: %s", item_id)
 
     def _apply_remove_all(self) -> None:
         """Every download goes: finished rows through the full remove path,
@@ -535,7 +535,7 @@ class DownloadManager:
 
         if not stopped:
             sweep_category_dirs(downloads_root())
-        LOG.info("removed all %d download(s)", len(rows))
+        LOG.debug("removed all %d download(s)", len(rows))
         self._flush_refresh(force=True)
         self._flush_removed()
 
@@ -550,7 +550,7 @@ class DownloadManager:
             self._delete_part(store.get(item_id) or row)
             store.remove(item_id)
             self._clear_cancel(item_id)
-            LOG.info("download cancelled mid-transfer: %s", item_id)
+            LOG.debug("download cancelled mid-transfer: %s", item_id)
         except Unauthorized as error:
             # The server's EnableContentDownloading gate: retrying cannot fix
             # a permission, so the row settles immediately.
@@ -666,7 +666,7 @@ class DownloadManager:
         if media_type == "song":
             self._mark_playlist_dirty(item_id)
         self._announce_complete(media_type, group_id, item, finished)
-        LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
+        LOG.debug("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _capture_segments(self, api: Any, item_id: str) -> None:
         """The offline segment cache, taken at completion. Best-effort:
@@ -978,7 +978,7 @@ class DownloadManager:
         if state.is_offline():
             # The server went away mid-transfer: back to queued without
             # spending an attempt, for the offline hold to pick up.
-            LOG.info("download interrupted by an outage: %s", item_id)
+            LOG.debug("download interrupted by an outage: %s", item_id)
             store.release(item_id)
             return
         if self._should_stop():
@@ -987,7 +987,7 @@ class DownloadManager:
             # ``active`` so ``recover_interrupted`` re-queues it at the next
             # start, resuming from the .part with a Range; settling it as
             # failed would lose the automatic resume.
-            LOG.info("download interrupted by shutdown: %s", item_id)
+            LOG.debug("download interrupted by shutdown: %s", item_id)
             return
         attempts = self._attempts.get(item_id, 0) + 1
         self._attempts[item_id] = attempts
@@ -1183,7 +1183,7 @@ class DownloadManager:
         try:
             api.mark_played(row.jellyfin_id)
         except Exception as error:
-            LOG.info(
+            LOG.debug(
                 "played push failed for %s (%s); parking it for replay",
                 row.jellyfin_id,
                 error,
@@ -1249,7 +1249,7 @@ class DownloadManager:
                     continue
                 if self._playing_now(row):
                     continue
-                LOG.info(
+                LOG.debug(
                     "retention: removing watched %s (%s)",
                     row.jellyfin_id,
                     row.origin,
@@ -1291,7 +1291,7 @@ class DownloadManager:
                     continue
                 if self._playing_now(row):
                     continue
-                LOG.info(
+                LOG.debug(
                     "stale: removing %s, untouched for %d day(s)",
                     row.jellyfin_id,
                     int(

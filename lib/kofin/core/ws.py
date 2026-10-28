@@ -76,7 +76,7 @@ class WSClient(threading.Thread):
         self._keepalive: Optional[_KeepAlive] = None
 
     def run(self) -> None:
-        LOG.info("websocket url: %s", self._url)
+        LOG.debug("websocket url: %s", self._url)
         # Socket-level timeout for the connect phase: without one, a
         # black-holed host blocks create_connection for the OS TCP timeout
         # (~2 min), through which stop()'s bounded join fails and the thread
@@ -178,7 +178,7 @@ class WSClient(threading.Thread):
             # stop() left to run it down, and the connected callback would
             # fire into a service that is mid-teardown.
             return
-        LOG.info("websocket connected")
+        LOG.debug("websocket connected")
         self._connected = True
         self._last_inbound = time.monotonic()
         if self._keepalive is not None:
@@ -209,7 +209,7 @@ class WSClient(threading.Thread):
         if not was_connected or self._stop:
             return
 
-        LOG.info("websocket disconnected (%s %s)", status_code, message)
+        LOG.debug("websocket disconnected (%s %s)", status_code, message)
 
         if self._on_disconnected is None:
             return
@@ -234,7 +234,7 @@ class WSClient(threading.Thread):
             return False
         if time.monotonic() - self._last_inbound <= STALE_SECONDS:
             return False
-        LOG.info("websocket half-open: no traffic for %ss; recycling", STALE_SECONDS)
+        LOG.debug("websocket half-open: no traffic for %ss; recycling", STALE_SECONDS)
         try:
             if self._app is not None:
                 self._app.close()

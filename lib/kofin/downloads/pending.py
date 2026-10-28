@@ -86,7 +86,7 @@ def enqueue(
                     json.dumps(snapshot or {}),
                 ),
             )
-            LOG.info("userdata parked for %s (played=%s)", jellyfin_id, played)
+            LOG.debug("userdata parked for %s (played=%s)", jellyfin_id, played)
             return
         sets = ["event_at = ?", "attempts = 0"]
         args: List[Any] = [now]

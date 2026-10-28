@@ -189,7 +189,7 @@ def save_playlist(request: Request) -> None:
         return
     toast.show(settings.localized(30843))
     if skipped:
-        LOG.info("save playlist %s: %d line(s) not in the Kodi library", name, skipped)
+        LOG.debug("save playlist %s: %d line(s) not in the Kodi library", name, skipped)
     ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": playlist_id} if playlist_id else {})
 
 

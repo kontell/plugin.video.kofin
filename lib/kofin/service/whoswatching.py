@@ -169,7 +169,7 @@ def detach_all(api: Api, device_id: str) -> None:
     for user_id in attached:
         try:
             api.session_remove_user(session_id, user_id)
-            LOG.info("who's-watching detached user %s", user_id)
+            LOG.debug("who's-watching detached user %s", user_id)
         except JellyfinError as error:
             LOG.warning("who's-watching detach failed for %s: %s", user_id, error)
     _publish_from_server(api, device_id)
@@ -227,7 +227,7 @@ def restore_additional_users(api: Api, device_id: str) -> None:
     for user_id in missing:
         try:
             api.session_add_user(session_id, user_id)
-            LOG.info("who's-watching restored user %s", user_id)
+            LOG.debug("who's-watching restored user %s", user_id)
         except JellyfinError as error:
             LOG.warning("who's-watching restore failed for %s: %s", user_id, error)
     _publish_from_server(api, device_id)

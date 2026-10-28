@@ -161,7 +161,7 @@ def scan(
                 on_found(entry)
     finally:
         sock.close()
-    LOG.info("discovery: %s server(s) answered in %.1fs", len(found), SCAN_SECONDS)
+    LOG.debug("discovery: %s server(s) answered in %.1fs", len(found), SCAN_SECONDS)
     return found
 
 

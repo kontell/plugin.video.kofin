@@ -836,6 +836,9 @@ What remains is kofin's own:
 - `kofin.menu.who` and `kofin.menu.syncplay` are the skin-facing mirrors of those two root
   entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
   publishes on `mark_ready` and whenever the two settings change.
+- **Kofin logs at debug.** The official repository allows `xbmc.log` at the debug level only,
+  so `Logger` has no `info`; `warning` and `error` are for faults (a failed request, a refused
+  call, a thread that will not stop), and an expected event, however notable, is debug.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Comments

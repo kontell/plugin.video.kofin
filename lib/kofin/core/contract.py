@@ -98,25 +98,25 @@ def decode(name: str, data: str) -> Optional[Dict[str, Any]]:
         return None
 
     if payload.get("v") != VERSION:
-        LOG.info("contract %s: unsupported version %r", name, payload.get("v"))
+        LOG.debug("contract %s: unsupported version %r", name, payload.get("v"))
         return None
 
     for field in _REQUIRED[name]:
         if field not in payload:
-            LOG.info("contract %s: missing %r", name, field)
+            LOG.debug("contract %s: missing %r", name, field)
             return None
 
     if "provider" in payload and not (
         isinstance(payload["provider"], str)
         and PROVIDER_NAME.match(payload["provider"])
     ):
-        LOG.info("contract %s: bad provider name %r", name, payload.get("provider"))
+        LOG.debug("contract %s: bad provider name %r", name, payload.get("provider"))
         return None
 
     if "key" in payload and not (
         isinstance(payload["key"], str) and 0 < len(payload["key"]) <= MAX_KEY_LENGTH
     ):
-        LOG.info("contract %s: bad key", name)
+        LOG.debug("contract %s: bad key", name)
         return None
 
     return payload

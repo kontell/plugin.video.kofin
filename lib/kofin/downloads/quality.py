@@ -159,7 +159,7 @@ def decide(api: Any, item: JsonDict) -> Decision:
             if item_type == "Audio"
             else "mp4"
         )
-    LOG.info(
+    LOG.debug(
         "download decision for %s: transcode (%s)",
         item_id,
         source.get("TranscodeReasons") or "reasons unstated",
