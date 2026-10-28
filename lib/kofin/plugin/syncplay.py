@@ -1,7 +1,7 @@
 """The ``mode=syncplay`` plugin entry: one IPC message to the service.
 
 The plugin invocation is transient — it cannot hold group state, an Api, or
-the player — so everything SyncPlay lives in the service (phase-4 plan §2).
+the player — so everything SyncPlay lives in the service.
 This handler only validates that a menu makes sense right now and sends
 ``SyncPlayMenu``; the service opens the menu on a dedicated worker thread.
 """
@@ -12,7 +12,7 @@ from kofin.plugin.router import Request
 
 # Re-exported: the root listing and this route gate on them; the gates
 # themselves live with the syncplay package so the service can read them
-# without importing the plugin (P1.5).
+# without importing the plugin.
 from kofin.syncplay.offer import available, external_player_configured
 
 LOG = Logger(__name__)
@@ -37,6 +37,5 @@ def menu(request: Request) -> None:
 
 
 def _notify(message: str) -> None:
-    """Only ever used for "SyncPlay is unavailable", which is a failure --
-    the info glyph it used to carry read as though nothing were wrong."""
+    """Only ever used for "SyncPlay is unavailable", which is a failure."""
     toast.show(message, toast.ERROR, heading="SyncPlay", time_ms=4000)

@@ -8,7 +8,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-# Every path the API build's scanner provider answers lies under this
+# Every path the scanner provider answers lies under this
 # (sync/backends/api/paths.py); spelled again in plugin/gate.py, which
 # imports nothing of kofin's, and a test holds the two together.
 NATIVE_MARK = "/native/"
@@ -31,13 +31,7 @@ class Request:
 
 
 # The handler registry, as (module under kofin.plugin, attribute) pairs
-# resolved per dispatch. Dotted names rather than imported callables because a
-# plugin invocation must only pay for the module it routes to: a cold
-# invocation re-imports from scratch, and importing all ten handler modules
-# pulled in the whole requests tree — ~1 s inside Kodi's Python — for routes
-# that never touch the network (docs/perf-hardening-plan.md W1.2). Invoker
-# reuse spares a warm click that work, but only while nothing else on the
-# system runs Python in between, so the lazy table still earns its keep.
+# resolved per dispatch, so an invocation imports only the module it routes to.
 ROUTES: Dict[str, Tuple[str, str]] = {
     "": ("browse", "root"),
     "streams": ("streams", "menu"),
@@ -89,17 +83,12 @@ ROUTES: Dict[str, Tuple[str, str]] = {
 # failures). Every other route runs for its side effect and returns nothing,
 # and dispatch closes the handle on its behalf.
 #
-# That backstop is load-bearing, not tidiness. With reuselanguageinvoker the
-# invoker thread parks between invocations instead of exiting, and Kodi only
-# marks a script done from CLanguageInvokerThread::OnExit — so
-# CScriptRunner::WaitOnScriptResult, which loops on IsRunning(scriptId) with
-# no timeout on its first loop, waits forever for a route that leaves its
-# handle open. Before the flag was honoured the interpreter died after every
-# invocation and the fetch failed out at once, which is exactly what the
-# fire-an-IPC-and-exit routes (syncplay, adduser) were written against and
-# what their docstrings still describe. Measured: mode=streams reached as a
-# directory finished its script in 2 ms and hung the caller indefinitely.
-# test_router.py refuses any ROUTES entry that is in neither set.
+# With reuselanguageinvoker the invoker thread parks between invocations
+# instead of exiting, and Kodi only marks a script done from
+# CLanguageInvokerThread::OnExit — so CScriptRunner::WaitOnScriptResult, which
+# loops on IsRunning(scriptId) with no timeout on its first loop, waits forever
+# for a route that leaves its handle open. test_router.py refuses any ROUTES
+# entry that is in neither set.
 LISTING_MODES = frozenset(
     {
         "",
@@ -143,14 +132,7 @@ def dispatch(argv: List[str]) -> None:
     query = argv[2] if len(argv) > 2 else ""
     # One trailing slash off the whole query before it is parsed. A library
     # node's <path> is a folder path and carries one, and it lands on whichever
-    # parameter happens to be last — which is only ``mode`` for the routes that
-    # take no other. Stripping it after the parse covered those and nothing
-    # else: measured on Omega 21.3, a node on
-    # ?mode=browse&view=…&type=movies&folder=all/ reached browse with
-    # folder="all/", which node_query matches nowhere, so the listing fell
-    # through to its container branch and asked the server for an item with
-    # that id — a 400, a failed fetch, and a node that reads as broken beside a
-    # ?mode=continuewatching/ one that works.
+    # parameter happens to be last.
     params = dict(parse_qsl(query.lstrip("?").rstrip("/")))
     # Kodi appends "resume:true|false" for video plugin items (the native
     # resume prompt's outcome).
@@ -158,8 +140,7 @@ def dispatch(argv: List[str]) -> None:
     request = Request(base_url, handle, params, resume)
 
     # A path outside the provider's is not parsed, and pays for none of the
-    # provider's imports: every home widget's request spent 3 s on them on a
-    # Raspberry Pi 3 at rest to learn that it was not native.
+    # provider's imports.
     if NATIVE_MARK in base_url:
         import time
 
@@ -223,8 +204,6 @@ def dispatch(argv: List[str]) -> None:
                 raise
             return
 
-    # Already unslashed by the query strip above, which is where a node path's
-    # trailing slash is answered for every parameter rather than just this one.
     # Kodi's cleaner appends kodi_action to the stored play URL. It must win
     # over mode=play: resolving a stream would start playback-side work and
     # make a library clean depend on Jellyfin being online.
@@ -248,15 +227,10 @@ def dispatch(argv: List[str]) -> None:
         failed = True
         raise
     finally:
-        # Close the handle for the routes that build nothing, so a directory
-        # fetch that reached one fails out at once instead of waiting on an
-        # invoker thread that parks rather than exiting (see LISTING_MODES) —
-        # and for *any* route whose handler raised. A listing route catches
-        # JellyfinError and closes its own handle on that path; everything
-        # else (a locked kofin.db under the play resolve, a settings read
-        # that failed) used to leave the handle open, which is the same
-        # indefinite wait. The exception still propagates, so Kodi logs the
-        # traceback exactly as before; only the caller is released.
+        # Close the handle for the routes that build nothing (LISTING_MODES)
+        # and for *any* route whose handler raised: a listing route closes its
+        # own handle only on JellyfinError. The exception still propagates;
+        # only the caller is released.
         if handle >= 0 and (failed or not builds_listing):
             import xbmcplugin
 

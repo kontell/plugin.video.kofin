@@ -1,11 +1,9 @@
 """'Who's watching?' route handlers.
 
 The feature's vocabulary, the toggle picker and the session restore live in
-``service/whoswatching.py`` — the picker blocks on a dialog and runs on a
-service worker thread, so a plugin invocation only validates and fires the
-IPC (see the note on :func:`who_is_watching` for why blocking here breaks
-node invocation). The Advanced-tab shortlist dialog stays a route: the
-settings button runs in the plugin process and may block.
+``service/whoswatching.py``; the picker runs in the service
+(:func:`who_is_watching`). The Advanced-tab shortlist dialog stays a route:
+the settings button runs in the plugin process and may block.
 """
 
 import xbmc
