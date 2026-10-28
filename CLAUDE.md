@@ -157,11 +157,11 @@ What remains is kofin's own:
   anything playing by *id* — a kofin listing, a widget, a SyncPlay group start. The preference was offline-only once, and the plan's "downloaded items
   never reach the plugin" is what SyncPlay disproved: the initiator adopts the group queue for
   the playback it is already running (`syncplay/manager.py`), so only the follower reloads, and
-  it streamed media the initiator was playing locally. `resolve_downloaded` pushes the claim
-  itself, since a group start carries no Kodi dbid off `Player.OnPlay`. A request naming a
+  it streamed media the initiator was playing locally. `resolve_downloaded` queues the play
+  state as the stream path does, so the service reports the play. A request naming a
   source, a track or a bitrate still streams — a download has only the tracks it was made with.
-- **A scanner ListItem never stamps a zero resume point** (`metadata.build` passes
-  `stamp_zero_resume=False` to `listitems.build`). Kodi's scanner persists any *set* point —
+- **A scanner ListItem never stamps a zero resume point** (`metadata.listitem` stamps one only
+  for a position above zero). Kodi's scanner persists any *set* point —
   `CBookmark::IsSet` is `totalTimeInSeconds > 0` — as a type-1 bookmark, and the in-progress
   smart-playlist rule is that row's existence, so the zero stamp a browse row needs (to mask the
   bookmark Kodi saved for the plugin path) put every imported movie in the in-progress widget
@@ -740,8 +740,6 @@ What remains is kofin's own:
   per directory and pass, folded into every listed song's date and the folder's root label).
   `CMusicInfoScanner::DoScan` stores the directory hash whatever `RetrieveMusicInfo` wrote,
   so a scan stopped mid-directory leaves a hash every later scan skips on.
-- Widget refreshes are fingerprint-gated and command paths own their own
-  (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
   the only cover for a websocket that went half-open while asleep.
 - Every property in `core/state.py` is shared across service generations — see
@@ -837,6 +835,16 @@ What remains is kofin's own:
   entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
   publishes on `mark_ready` and whenever the two settings change.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
+
+## Comments
+
+Comments and docstrings say what the code cannot show, in the present tense: a Kodi, Jellyfin,
+SQLite or Python behaviour the line depends on, an invariant, a contract. What an earlier build
+did, approaches tried, measurements, device names, plan and audit tags, PR numbers and the story
+of how a rule was found go in the commit message or the PR body. Each rule is explained once,
+where it belongs, and deleting a comment beats rewording it. `kontell/xbmc #N` belongs where a
+feature is declared or probed (`requirements.json`, `contract.py`); elsewhere the feature name
+is enough.
 
 ## Translations
 
