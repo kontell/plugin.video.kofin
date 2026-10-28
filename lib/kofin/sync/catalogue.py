@@ -1,9 +1,8 @@
 """Private desired/applied state for API operations.
 
-This is the phase-1 outbox foundation, not a published scanner snapshot. A
-native API accepting a request does not call confirm(); the adapter must first
-read back the owned item. Failed and superseded work cannot advance applied.
-Namespaces include server and user identity; no native IDs are adopted here.
+confirm() follows a readback of the owned item, never an accepted request.
+Failed and superseded work cannot advance applied. Namespaces include server
+and user identity; no native IDs are adopted here.
 """
 
 import json
@@ -124,8 +123,7 @@ class Catalogue:
 
     def failed_many(self, rows) -> None:
         """One transaction for a batch of failures: a pass whose scanner
-        imported nothing fails every row, and one open per row cost a
-        Raspberry Pi four minutes for four thousand episodes."""
+        imported nothing fails every row."""
         rows = list(rows)
         if not rows:
             return
@@ -142,8 +140,7 @@ class Catalogue:
 
     def has_pending(self) -> bool:
         """Whether any work is pending, without loading a payload: the tick
-        asks this twice a second, and a scan of 31,000 payload rows each
-        time kept the idle service at a third of a core."""
+        asks this twice a second."""
         with Database() as db:
             self._prepare(db.cursor)
             return bool(

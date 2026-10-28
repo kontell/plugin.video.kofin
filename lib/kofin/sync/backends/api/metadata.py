@@ -41,8 +41,8 @@ NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
-    # An episode keeps its tags only on a Kodi with kontell/xbmc #12: the
-    # episode_tags feature (details, kinds.FEATURE_FIELDS).
+    # An episode keeps its tags only with the episode_tags feature (details,
+    # kinds.FEATURE_FIELDS).
     "Episode": "Favorite episodes",
     "MusicVideo": "Favorite musicvideos",
 }
@@ -50,8 +50,7 @@ FAVORITE_TAG = {
 AFTER_SEASON_EPISODE = 4096
 
 # Payload keys no serializer reads. A Jellyfin DTO carries them on every
-# item and every cast member; stored once per item they were a third of the
-# 0.90.0 catalogue.
+# item and every cast member.
 _DROP = ("ImageBlurHashes", "Chapters", "Trickplay", "MediaAttachments")
 
 
@@ -59,13 +58,11 @@ def compact(item):
     """The DTO minus what nothing reads; applied before hashing or storing.
 
     A song keeps its sources (the file size is the scanner's hash input)
-    and drops its streams: no music setter reads them, and 22,000 of them
-    would be the catalogue's largest field.
+    and drops its streams: no music setter reads them.
     """
     result = {k: v for k, v in item.items() if k not in _DROP}
     if not result.get("SpecialFeatureCount"):
-        # Every movie is sent the count; only one with extras keeps it, or
-        # every payload hash would have moved the day the field was asked.
+        # Every movie is sent the count; only one with extras keeps it.
         result.pop("SpecialFeatureCount", None)
     sources = item.get("MediaSources")
     if item.get("Type") == "Audio":
@@ -120,10 +117,7 @@ _EXTRA_KEYS = (
 )
 
 
-# The tag every row of a library carried until the library's nodes filtered
-# on its folder instead (sync/dynamic.py). Kodi showed it in the info dialog
-# and the Tags list; a row that still carries one has it taken off
-# (patch.merge).
+# A tag earlier builds put on every row; patch.merge takes it off.
 LIBRARY_TAG_PREFIX = "kofin.library."
 
 
@@ -154,9 +148,8 @@ def version_label(source) -> str:
     """A media source's name as a video asset title, or empty when it is no
     label: Jellyfin's ``GetMediaSourceName`` returns the file name without
     its extension unless local alternate versions exist, so a name equal to
-    the source file's stem says nothing about the version (Kofin's audit
-    finding A4-1, where a type row per such name filled Kodi's Versions
-    picker). Kodi files an untitled asset as the Standard Edition."""
+    the source file's stem says nothing about the version. Kodi files an
+    untitled asset as the Standard Edition."""
     name = str(source.get("Name") or "").strip(ASCII_SPACE)
     if not name or name.lower() == "standard edition":
         return ""
@@ -235,8 +228,7 @@ def item_separator():
     The ListItem must outlive the tag: ``getVideoInfoTag`` hands out a
     pointer into the item (``InfoTagVideo(tag, offscreen)``, owned=false),
     and the item's destructor deletes it. Taken from a temporary, the tag
-    dangles and the first setter writes freed memory; a 32-bit ARM Kodi
-    segfaulted in ``setGenres`` on it (LibreELEC 22.0b2, 9 October 2026).
+    dangles and the first setter writes freed memory.
     """
     probe = xbmcgui.ListItem(offscreen=True)
     tag = probe.getVideoInfoTag()
@@ -254,10 +246,9 @@ def _token(value) -> str:
 def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
-    An episode's sort numbering has no setter, so it joins the token the way
-    cast and streams did for movies. A show's seasons join it by number
-    alone: a season's name and plot are its own row's to patch
-    (``SetSeasonDetails`` takes a plot from kontell/xbmc #6).
+    An episode's sort numbering has no setter, so it joins the token. A
+    show's seasons join it by number alone: a season's name and plot are its
+    own row's to patch.
     """
     kind = item.get("Type")
     keys: Tuple[str, ...] = ("People",)
@@ -272,15 +263,11 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
         )
     value: Dict[str, Any] = {key: item.get(key) for key in keys}
     if kind == "Movie" and isinstance(value.get("MediaSources"), list):
-        # A movie's row is its own file's. Its further sources are its
-        # version files, filed by its folder's scan and retired by a clean
-        # of the folder (Native.retire_assets): a version that came or went
-        # refreshed the movie, which Kodi files again under a new id. So
-        # did the first source's name, which Jellyfin makes a label while
-        # the movie has versions and the file's stem when it has none, and
-        # its streams, which the payload keeps on the source only while
-        # there are several (compact): the item's own streams are the
-        # token's either way.
+        # The movie's own source alone, without its name or streams: its
+        # further sources are version files its folder's scan files,
+        # Jellyfin's first-source name and the source's streams change with
+        # the number of versions, and a refresh files the movie again under
+        # a new id.
         value["MediaSources"] = [
             (
                 {k: v for k, v in source.items() if k not in ("Name", "MediaStreams")}
@@ -351,17 +338,13 @@ def userdata(item) -> Dict[str, Any]:
         # An unplayed song has no opinion on its stamp. Kodi's song setter
         # cannot clear one: it loads the row, an empty date leaves the old
         # one standing (CDateTime::SetFromDBDateTime), and UpdateSong writes
-        # it back. Wanted empty, a song played once and then marked unplayed
-        # failed its readback on every pass, and every failed pass was run
-        # again in full a few seconds later, for good.
+        # it back, so a desired empty date fails every readback.
     elif item.get("Type") == "Audio":
         # Played, but the server never recorded when. Kodi's UpdateSong
         # stamps the current time on a played song with no date
-        # (MusicDatabase.cpp), which put sixteen songs marked played years
-        # ago at the top of a tablet's recently played albums on the day of
-        # its import. The date the server first saw the song is the latest
-        # moment certainly no later than the play, and it never reads as
-        # recent. The video setters leave a missing date alone.
+        # (MusicDatabase.cpp). The date the server first saw the song is the
+        # latest moment certainly no later than the play, and it never reads
+        # as recent. The video setters leave a missing date alone.
         result["lastplayed"] = _timestamp(item.get("DateCreated"))
     return result
 
@@ -480,15 +463,7 @@ def _date(value, length=10):
 
 
 def _int(value) -> int:
-    """A number the server sent, or the missing-field zero.
-
-    ``song_tags`` is both the directory listing and the hash the pass
-    compares, so it has to be total: a track number of "x" raised out of
-    ``int`` and skipped the scan of every directory in its library on every
-    pass. A value that does not parse is treated as absent, which is what
-    the listing, the hash and the directory picker already agree on for a
-    field that is not there.
-    """
+    """A number the server sent, or 0 when absent or unparsable."""
     try:
         return int(value or 0)
     except (TypeError, ValueError):
@@ -522,16 +497,8 @@ STOP_REPORT = 10
 
 def same_play(actual: str, wanted: str) -> bool:
     """Whether Kodi's last-played stamp needs no write to agree with the
-    server's. Equal stamps do, and so does one of Kodi's that is later by
-    no more than a sitting: written back to the server's earlier one, every
-    song played here cost a setter twenty seconds after it ended, and a
-    song's setter rewrites its date added.
-
-    So does one of Kodi's that is earlier by no more than the stop report.
-    Kodi stamps a song as it ends, and the server stamps the stop kofin
-    reports right after it: the last song of an album, which nothing
-    follows, was 0.3 s behind it, a second by the clock, and was rewritten
-    a second later, a setter and a widget refresh after the album ended."""
+    server's: equal, later by up to SAME_PLAY or earlier by up to
+    STOP_REPORT, it is the same play."""
     if actual == wanted:
         return True
     if not actual or not wanted:
@@ -546,17 +513,12 @@ def same_play(actual: str, wanted: str) -> bool:
 
 
 def own_art(item, server) -> Dict[str, str]:
-    """The art a row carries in its own right: an episode's ``tvshow.*`` and
-    ``season.*`` keys are the show's and the season's (see ``details``).
+    """The art a row carries in its own right: no dotted key (``tvshow.*``,
+    ``season.*``), which Kodi reads off the show and season rows.
 
-    An episode's own picture is its thumb and nothing stands in for it. The
-    listing mapping gives every episode its show's poster as ``poster``, and
-    as ``thumb`` too when the episode has no picture: right for a row of a
-    plugin listing, which has no show row behind it, and wrong for a library
-    row. A Kodi episode has no poster of its own, so a skin that asks for
-    one before the thumb showed the show's poster on every episode kofin
-    filed, where the SQL build, which writes the thumb alone, shows the
-    still. Kodi reads the show's and the season's art off their own rows.
+    An episode has no poster, and a thumb only for its own picture: the
+    listing mapping fills both from the show, which is right for a plugin
+    listing and wrong for a library row.
     """
     art = {
         key: value
@@ -593,11 +555,6 @@ def details(
     data: Dict[str, Any] = {
         "title": item.get("Name", ""),
         "plot": item.get("Overview") or "",
-        # An episode's tvshow.* and season.* art is Kodi's own, read off the
-        # show and season rows: the episode setter cannot make such a key
-        # true, and a show whose art URL changed after its episodes were
-        # acknowledged (the artwork cap) left two episodes on the LibreELEC
-        # box failing "readback differs: art" on every pass.
         "art": own_art(item, server),
         "dateadded": _timestamp(item.get("DateCreated")),
     }
@@ -713,11 +670,8 @@ def details(
     if kind in ("Movie", "Episode", "MusicVideo"):
         data.update(userdata(item))
     # No opinion on a date the server does not have. Kodi fills a missing
-    # premiere or aired date itself (its zero date on the P1D, a sibling's
-    # date on the LibreELEC box) and its setters ignore an empty one, so an
-    # empty desired value would differ from the row on every readback and
-    # keep the item pending for ever (187 rows on the box, re-patched by
-    # every pass).
+    # premiere or aired date itself and its setters ignore an empty one, so
+    # an empty desired value never matches the row.
     for key in ("dateadded", "premiered", "firstaired"):
         if key in data and not data.get(key):
             data.pop(key)
@@ -737,8 +691,8 @@ def music_details(item, server) -> Dict[str, Any]:
     """The desired native state of a music kind.
 
     A song's tags are the scanner's to write: the only public setter a song
-    needs after import is for the userdata the scanner discards (phase 0:
-    ``CSong`` zeroes the play count of every new row). An album or artist
+    needs after import is for the userdata the scanner discards (``CSong``
+    zeroes the play count of every new row). An album or artist
     is derived from its songs, and what it cannot derive -- its art and its
     description -- is the whole of its desired state.
     """
@@ -829,8 +783,7 @@ def mark_loaded(li, size):
 
     ``InfoTagMusic`` has no ``setLoaded``; the legacy ``setInfo`` sets the
     flag, and its ``size`` key is the one that does so without the
-    per-row deprecation warning (checked on 22.0b2: ``size`` takes the
-    non-deprecated branch). The real file size is the scanner's hash
+    per-row deprecation warning. The real file size is the scanner's hash
     input, never an invented one. An upstream ``setLoaded`` replaces this
     here and nowhere else.
     """
@@ -872,11 +825,9 @@ def song_listitem(item, album=None, salt: int = 0, features=frozenset()):
         tag.setMusicBrainzAlbumID(tags["musicbrainzalbumid"])
     if tags["musicbrainzreleasegroupid"]:
         tag.setMusicBrainzReleaseGroupID(tags["musicbrainzreleasegroupid"])
-    # When the server first saw the song. Kodi 23 keeps it for a file with
-    # no date of its own (kontell/xbmc #13), where it took the time of the
-    # scan, and of every setter after it. Not one of the tags: a date the
-    # server corrects moves no directory's hash, and an existing library
-    # takes the date as its directories are listed again.
+    # When the server first saw the song (song_date_added). Not one of the
+    # tags: a date the server corrects moves no directory's hash, and an
+    # existing library takes the date as its directories are listed again.
     created = _timestamp(item.get("DateCreated"))
     if created and "song_date_added" in features:
         tag.setDateAdded(created)
@@ -945,15 +896,11 @@ def _cast(tag, item, server):
 
 
 # What a scanner row carries that no setter can put there afterwards, as a
-# number: raised when the listing gains something the rows already filed
-# lack. Nothing is re-imported for it unasked; a library filed under an
-# older number is rebuilt when the viewer repairs it (library.Library
-# .rebuild_stale). 2: a single-source row's video, audio and subtitle
-# streams. 3: their default, forced and hearing-impaired flags, which the
-# listing carries only where the stream detail classes take them, so the
-# format a Kodi reaches is ``scanner_format`` of its features: a library a
-# Piers filed at 2 is not stale on that Piers, and is on the Kodi 23 the
-# profile moves to, where a Repair re-files it with the flags.
+# number, raised when the listing gains something the rows already filed
+# lack: 3 with the streams' default, forced and hearing-impaired flags, 2
+# without them (``scanner_format`` gives what a Kodi reaches). A library
+# filed under a lower number is rebuilt only on Repair (library.Library
+# .rebuild_stale).
 SCANNER_FORMAT = 3
 
 
@@ -963,7 +910,7 @@ def scanner_format(features) -> int:
 
 
 # A Jellyfin stream's flags by the names an NFO's <flag> takes, which is
-# what the stream details' setFlags reads (kontell/xbmc #9).
+# what the stream details' setFlags reads.
 STREAM_FLAGS = (
     ("IsDefault", "default"),
     ("IsForced", "forced"),
@@ -984,8 +931,7 @@ def _flags(raw, kind) -> List[List[str]]:
 def _stream_source(item):
     """The item as ``streams_and_runtime`` reads it. ``compact`` keeps a
     single source's streams on the item alone, and the shared reader looks
-    in the first source: every single-source row was filed with a stub
-    video stream and no audio or subtitle stream at all."""
+    in the first source, so they are copied there."""
     sources = item.get("MediaSources") or []
     streams = item.get("MediaStreams")
     if (
@@ -1001,7 +947,7 @@ def _stream_source(item):
 
 def _streams(tag, item, features=frozenset()):
     """The item's streams on the tag; their flags only where the stream
-    detail classes take them (the stream_flags feature, kontell/xbmc #9)."""
+    detail classes take them (the stream_flags feature)."""
     flagged = "stream_flags" in features
     source = _stream_source(item)
     streams, runtime = streams_and_runtime(source)
@@ -1051,12 +997,8 @@ def _streams(tag, item, features=frozenset()):
 # What ``details`` makes of a payload, as a number: raised when the same
 # payload and inputs come to a different desired state, so that an
 # acknowledgement made under the old one is compared again and not taken
-# on trust (inputs_token). 2: an episode's art without its show's poster.
-# 3: the download badge on the show and the season of a downloaded episode.
-# 4: a season's plot and an episode's tags (Kodi 23).
-# 5: a downloaded episode's own tag (Kodi 23).
-# 6: no library tag. A pass that finds a number other than the one the last
-#    pass stamped compares every row (Native.reconcile).
+# on trust (inputs_token). A pass that finds a number other than the one
+# the last pass stamped compares every row (Native.reconcile).
 SERIALIZER = 6
 
 
@@ -1152,11 +1094,13 @@ class Version(NamedTuple):
     """A file of a movie with several media sources, as its scanner row
     says so: the source's label, whether it is the movie's own file, and
     the movie's unique ids (not the source's, whose streams move the
-    refresh token). A further version's ids leave out ``kofinrefresh``
-    (``Version.of``): Kodi groups a file under a movie only while no unique
-    id type of the two differs (``HasConflictingUniqueID``), and the token
-    the movie's row was filed under need not be the one a version listed
-    later carries."""
+    refresh token). A plugin item's tag takes the NFO branch of
+    RetrieveInfoForMovie, which groups a file under the movie its unique ids
+    name only when the tag says it has versions. A further version's ids
+    leave out ``kofinrefresh`` (``Version.of``): Kodi groups a file under a
+    movie only while no unique id type of the two differs
+    (``HasConflictingUniqueID``), and the token the movie's row was filed
+    under need not be the one a version listed later carries."""
 
     label: str
     default: bool
@@ -1187,10 +1131,8 @@ def listitem(
     point as a bookmark, and the in-progress rule for movies and episodes
     alike is that row's existence.
 
-    A ``version`` row says it is one of the movie's versions: a plugin
-    item's tag takes the NFO branch of RetrieveInfoForMovie, which groups a
-    file under the movie its unique ids name only when the tag says it has
-    versions (kontell/xbmc #8).
+    A ``version`` row says it is one of the movie's versions (see
+    ``Version``).
     """
     kind = item.get("Type", "Movie")
     if kind == "Audio":
@@ -1286,11 +1228,9 @@ def listitem(
             # The season's art rides with the show. The scanner files what a
             # show's tag offers under a season number with the show's own
             # row (GetSeasonThumbs, SetDetailsForTvShow), so a first import
-            # finds the season row as desired and sends it nothing: a
-            # SetSeasonDetails and its readback are 0.2 s a season on a
-            # Raspberry Pi, in either journal mode. A row Kodi filed
-            # otherwise (an artwork level that takes fewer types) differs
-            # and is patched as before.
+            # finds the season row as desired and sends it nothing. A row
+            # Kodi filed otherwise (an artwork level that takes fewer types)
+            # differs and is patched.
             for art_type, url in sorted(own_art(season, server).items()):
                 tag.addAvailableArtwork(url, art_type, season=number)
         if episodes is not None:

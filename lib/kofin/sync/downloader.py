@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """The /Items query shapes the API catalogue's enumeration shares.
 
-``info`` is the field list every video listing asks the server for, and
-``library_filter`` the filter every library listing shares: this parent,
-recursive, real files only (present, not virtual-unaired), sets uncollapsed.
+``info`` is the field list every video listing asks the server for.
 """
 
 

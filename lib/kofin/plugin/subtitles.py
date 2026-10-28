@@ -1,59 +1,30 @@
 """Sidecar subtitles as local files, so Kodi's own menu can name them.
 
 Kodi reads a subtitle's language and label out of its **filename**, and
-Jellyfin's delivery route has a fixed one: every attached track arrives as
+Jellyfin's delivery route fixes it: every attached track arrives as
 ``Stream.<codec>``. Worse, that stem matches the video stream's own
 (``/Videos/<id>/stream.mkv``), so Kodi strips it as a redundant prefix and is
-left with nothing at all — measured on Omega 21.3, a real sidecar SRT listed as
-``name: "(External)", language: ""``.
+left with nothing at all. So the file has to be local, and this module is the
+only thing in kofin that fetches media content on the play path.
 
-The filename cannot be fixed at the source. Both escapes were tried against
-10.11.11 and refused: ``Stream.eng.srt`` is a 400 (the format is a route
-constraint) and ``English.eng.srt`` a 404. So the file has to be local, and
-this module is the only thing in kofin that fetches media content on the play
-path — hence the care about cost.
+**Everything attached**: sidecars, plus at most the one embedded track a
+transcode was resolved with (``streams.attached_subtitles``). Kodi opens every
+attached subtitle while building the demuxer, and an embedded track is
+extracted on demand by the server, so an embedded track that cannot be fetched
+here is never given to Kodi by its URL: the URL is what stalls. It is
+*deferred* instead — handed back to the caller so the service can chase it
+while the picture runs (``service/latesubs.py``). A sidecar still falls back
+to its URL, because the server serves a file it already has and Kodi opening
+it costs nothing.
 
-**Everything attached**, which is now a short list: sidecars, plus at most the
-one embedded track a transcode was resolved with (``streams.attached_subtitles``
-stopped attaching the rest). The old rule — sidecars fetched, embedded ones left
-as URLs — assumed Kodi fetched an attached URL only when the viewer picked it.
-It does not: it opens every attached subtitle while building the demuxer, and an
-embedded track is extracted on demand by the server, so a slow or failing one
-cost a 20-second timeout before the picture appeared.
+A cold extraction takes tens of seconds and is cached after, and abandoning
+the request does not abandon the work: the extraction runs to completion
+server-side, which is what makes chasing it worthwhile rather than a second
+cold start.
 
-That is also why an embedded track that cannot be fetched here is never given
-its URL to Kodi: the URL is precisely what stalls. A sidecar still falls back,
-because the server serves a file it already has and Kodi opening it costs
-nothing. An embedded one is *deferred* instead — handed back to the caller so
-the service can chase it while the picture runs (``service/latesubs.py``).
-
-The two are on different clocks, which is why they have different budgets.
-A sidecar is a file on disk and answers at once. An embedded track is an
-ffmpeg extraction the server runs on demand, and measured against 10.11.11 on
-a real library that is not a few seconds: **28 s** for a 2.4 GB MKV, **30 s**
-for a 2.6 GB one, **146 s** for a 22.7 GB one — after which the result is
-cached and the same request answers in ~25 ms. So the wait here buys the warm
-case only, and every second it spends on a cold one is a second of black
-screen bought for nothing: the old single 8 s budget missed *every* first play
-of an unextracted track and charged the viewer 8 s to do it. Hence a short
-embedded budget, and the deferral for the rest.
-
-Abandoning the request does not abandon the work — measured, the extraction
-runs to completion server-side and the next request is served from the cache
-— which is what makes chasing it worthwhile rather than a second cold start.
-
-What Kodi does with a name was measured, not guessed (all on Omega 21.3, real
-tracks added to a running playback):
-
-| filename | Kodi's answer |
-|---|---|
-| ``English.eng.srt`` | ``name "English (External)", language "eng"`` |
-| ``Commentary.eng.forced.srt`` | ``name "Commentary (External)"``, forced flag set |
-| ``eng.srt`` | language ``eng``, **no name** |
-| ``English SDH.eng.sdh.srt`` | ``sdh`` is not a flag — it leaks into the name |
-
-So: a name, the language, and ``forced`` when it applies. Nothing else, because
-anything Kodi does not parse ends up rendered.
+Kodi parses ``<name>.<language>[.forced].<ext>``: a name, the language, and
+``forced`` when it applies. Nothing else, because anything Kodi does not parse
+ends up rendered.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -63,7 +34,7 @@ from kofin.core import streams
 from kofin.core.http import Http
 from kofin.core.log import Logger
 
-# The naming and the fetch live in core (P2.6) so the service's late chase
+# The naming and the fetch live in core so the service's late chase
 # labels a track exactly as this route would have; re-exported here for
 # the play path and the stream menu, which reach them through this module.
 from kofin.core.subtitles import (  # noqa: F401 - re-exports
@@ -115,15 +86,11 @@ def localize(
 
     Order is the order in. A sidecar whose fetch failed keeps its URL and its
     place — worse-labelled, never missing. An embedded track whose fetch did
-    not land is deferred rather than attached, because its URL is the thing
-    that stalls Kodi.
+    not land is deferred rather than attached.
 
-    The fetches run concurrently (perf plan W2.6): sequentially, each cost its
-    whole round trip — ~0.4 s each on LAN. The cap bounds fetch *attempts*
-    rather than successes: "stop after the eighth success" would mean
-    submitting a ninth only after one fails, which re-serializes exactly the
-    pathological item the cap exists for. Anything past the cap that is
-    embedded is deferred too, for the same reason it would have been if slow.
+    The fetches run concurrently, and the cap bounds fetch *attempts* rather
+    than successes. Anything past the cap that is embedded is deferred too,
+    for the same reason it would have been if slow.
     """
     if not attached:
         return Localized([], [])

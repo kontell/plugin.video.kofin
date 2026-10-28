@@ -1,10 +1,4 @@
-"""Shared image-cache plumbing for the two texture-cache seeders (P1.10).
-
-``service/chapters.py`` and ``service/artcache.py`` each carried the same
-JPEG SOF parser, the thumbnails root, and the write-then-measure step. The
-schema-gated ``Database("texture")`` row write deliberately stays in each
-caller, beside the schema — what lives here is free of the gate.
-"""
+"""Image size and cache-extension helpers."""
 
 import os
 import struct
@@ -20,11 +14,7 @@ _SOF_MARKERS = frozenset(
 
 
 def image_size(data: bytes) -> Tuple[int, int]:
-    """(width, height) for a JPEG or PNG; (0, 0) when unparseable.
-
-    The dimensions are bookkeeping in the ``sizes`` row — Kodi's lookup keys
-    on ``size=1`` — so an unreadable header degrades rather than skips.
-    """
+    """(width, height) for a JPEG or PNG; (0, 0) when unparseable."""
     if data[:8] == _PNG_MAGIC and len(data) >= 24:
         width, height = struct.unpack(">II", data[16:24])
         return int(width), int(height)
@@ -46,9 +36,8 @@ def image_size(data: bytes) -> Tuple[int, int]:
 
 
 def extension_for(data: bytes) -> str:
-    """The cache file's extension. Kodi stores a PNG source as ``.png`` and
-    everything else as ``.jpg``, and the extension is part of the cachedurl
-    the seeders write — so it has to match what the bytes actually are."""
+    """The cache file's extension: Kodi stores a PNG source as ``.png`` and
+    everything else as ``.jpg``."""
     return ".png" if data[:8] == _PNG_MAGIC else ".jpg"
 
 

@@ -1,5 +1,5 @@
 """Remote control: Play / Playstate / GeneralCommand from the websocket,
-plus the SyncPlay message routing (phase 4).
+plus the SyncPlay message routing.
 
 Runs on the websocket thread; every handler is a quick JSON-RPC call or
 builtin — the SyncPlay messages only enqueue onto the manager's dispatcher
@@ -43,12 +43,7 @@ INPUT_ACTIONS = {
 
 
 def _as_int(value: Any, default: int = 0) -> int:
-    """A server-supplied number, or ``default`` for anything that is not one.
-
-    Every one of these arrives over the websocket from the server, and a
-    non-numeric value used to raise straight out of the handler (audit
-    finding #22). The message is the server's, the crash was ours.
-    """
+    """A server-supplied number, or ``default`` for anything that is not one."""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -61,7 +56,7 @@ def _is_audio(item_id: str) -> bool:
     Read from the catalogue rather than the server: the remote payload
     carries ids and nothing else, and this runs on the websocket thread
     where a round trip would hold the command up. An unknown or unreadable
-    id answers False -- the video queue, which is the behaviour before A2-M4.
+    id answers False -- the video queue.
     """
     try:
         from kofin.sync.backends.api.identity import current_store
@@ -97,8 +92,6 @@ class RemoteHandler:
             if manager is None:
                 LOG.debug("%s with no SyncPlay manager; dropped", message_type)
             else:
-                # Enqueue-only: the manager's dispatcher thread preserves
-                # message ordering and the websocket thread never blocks.
                 manager.on_notification(message_type, data)
         else:
             return False
@@ -117,9 +110,7 @@ class RemoteHandler:
         command = data.get("PlayCommand", "PlayNow")
         LOG.info("remote %s of %d item(s)", command, len(ordered))
 
-        # Remote Play carries no media kind, so the queue was always the video
-        # one and an album sent from the Jellyfin app landed there (A2-M4).
-        # SyncPlay and play-all already branch on it.
+        # Remote Play carries no media kind; the catalogue picks the queue.
         playlist = xbmc.PlayList(
             xbmc.PLAYLIST_MUSIC if _is_audio(ordered[0]) else xbmc.PLAYLIST_VIDEO
         )
@@ -145,10 +136,7 @@ class RemoteHandler:
         """Seek once the player is up — off this thread.
 
         The wait is up to 10 s of half-second polls, and this handler runs
-        on the websocket thread: run inline it stalled every message behind
-        it for the time to first frame (a transcode's worth), and a start
-        slower than the bound lost the seek. A daemon thread waits instead;
-        the socket keeps reading.
+        on the websocket thread, which must keep reading.
         """
         thread = threading.Thread(
             target=self._seek_when_playing,
@@ -179,7 +167,7 @@ class RemoteHandler:
         command = data.get("Command", "")
         player = xbmc.Player()
         if command == "Stop":
-            kodirpc.stop_player()  # not player.stop() — issue #155
+            kodirpc.stop_player()  # not player.stop(); see kodirpc.stop_player
         elif command in ("Pause", "Unpause", "PlayPause"):
             player.pause()  # Kodi's pause() toggles
         elif command == "NextTrack":

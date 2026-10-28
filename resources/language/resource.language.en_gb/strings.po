@@ -174,8 +174,8 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr ""
 
-# 30068-30070 — retired with the settings reorganisation of 2026-07-21
-# (the device name and the Connection category). Kept, never reused, for the reason given at #30744.
+# 30068-30070 — retired: the device name and the Connection category. Kept,
+# never reused, for the reason given at #30744.
 msgctxt "#30068"
 msgid "Device name"
 msgstr ""
@@ -392,8 +392,8 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr ""
 
-# 30128 — retired with the settings reorganisation of 2026-07-21 (the Music
-# category). Kept, never reused, for the reason given at #30744.
+# 30128 — retired: the Music category. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30128"
 msgid "Music"
 msgstr ""
@@ -426,8 +426,8 @@ msgctxt "#30135"
 msgid "Transcode music"
 msgstr ""
 
-# 30136 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the help of #30135 that named the
-# SQL build's music route; #30874 is the help since. Kept, never reused, for the reason given at #30744.
+# 30136 — retired: a help for #30135, whose help is #30861. Kept, never
+# reused, for the reason given at #30744.
 msgctxt "#30136"
 msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
 msgstr ""
@@ -664,8 +664,8 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr ""
 
-# 30042-30044 — retired with the settings reorganisation of 2026-07-21
-# (the who's-watching picker took Kodi's own strings). Kept, never reused, for the reason given at #30744.
+# 30042-30044 — retired: the who's-watching picker's own labels. Kept, never
+# reused, for the reason given at #30744.
 msgctxt "#30042"
 msgid "Add a user"
 msgstr ""
@@ -712,9 +712,10 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr ""
 
-# 30254-30255, 30257, 30260-30261, 30263, 30270 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23):
-# the Synced libraries list, the Update libraries help, Refresh boxsets, the
-# Sync status help and the per-library update prompt. Kept, never reused, for the reason given at #30744.
+# 30254-30255, 30257, 30260-30261, 30263, 30270 — retired: the Synced
+# libraries list, the Update libraries help, Refresh boxsets, the Sync status
+# help and the per-library update prompt. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30254"
 msgid "Synced libraries"
 msgstr ""
@@ -783,9 +784,8 @@ msgctxt "#30270"
 msgid "Update which libraries?"
 msgstr ""
 
-# 30300-30349 — the Sync tab, merged into Library in 0.96.3; its settings
-# kept their ids. 30300-30301 (the tab's label and help) are retired: kept,
-# never reused, for the reason given at #30744.
+# 30300-30349 — Library tab, sync settings. 30300-30301 retired: the Sync
+# tab's label and help. Kept, never reused, for the reason given at #30744.
 
 msgctxt "#30300"
 msgid "Sync"
@@ -803,9 +803,9 @@ msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr ""
 
-# 30306-30307, 30310-30314 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): sync during
-# playback, the page size, the download threads and the Artwork category.
-# Kept, never reused, for the reason given at #30744.
+# 30306-30307, 30310-30314 — retired: sync during playback, the page size,
+# the download threads and the Artwork category. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30306"
 msgid "Sync during video playback"
 msgstr ""
@@ -907,8 +907,8 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr ""
 
-# 30357 — retired with 0.26.0, which dropped Continue watching and Next up
-# from the library tree. Kept, never reused, for the reason given at #30744.
+# 30357 — retired: a library node label. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30357"
 msgid "Next episodes"
 msgstr ""
@@ -925,8 +925,8 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr ""
 
-# 30361-30362 — retired with 0.21.1, with the code the schema gate left
-# behind. Kept, never reused, for the reason given at #30744.
+# 30361-30362 — retired: two library node labels. Kept, never reused, for
+# the reason given at #30744.
 msgctxt "#30361"
 msgid "Favorites"
 msgstr ""
@@ -936,7 +936,8 @@ msgid "First letter"
 msgstr ""
 
 # 30400-30429 — sync runtime messages. 30400, 30402, 30404-30407 and
-# 30409-30414 retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the SQL build's sync toasts and status labels. Kept, never reused, for the reason given at #30744.
+# 30409-30414 retired: sync toasts and status labels. Kept, never reused, for
+# the reason given at #30744.
 
 msgctxt "#30400"
 msgid "Gathering:"
@@ -1028,8 +1029,8 @@ msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
 msgstr ""
 
-# 30452 — retired with the settings reorganisation of 2026-07-21 (the Media
-# segments category). Kept, never reused, for the reason given at #30744.
+# 30452 — retired: the Media segments category. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30452"
 msgid "Media segments"
 msgstr ""
@@ -1094,8 +1095,8 @@ msgctxt "#30467"
 msgid "Ask"
 msgstr ""
 
-# 30468 — retired with the settings reorganisation of 2026-07-21 (the Play
-# next label). Kept, never reused, for the reason given at #30744.
+# 30468 — retired: the Play next label. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30468"
 msgid "Play next"
 msgstr ""
@@ -1218,7 +1219,7 @@ msgid "Mark as unwatched on Jellyfin"
 msgstr ""
 
 # 30550-30599 — SyncPlay (settings tab label 30550, toggle 30551-30552,
-# menu/toasts 30560+; fork ids 33262-33302 remapped). #30837 is the tab help.
+# menu/toasts 30560+). #30837 is the tab help.
 
 msgctxt "#30550"
 msgid "SyncPlay"
@@ -1232,13 +1233,9 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr ""
 
-# 30553-30556 — retired with the SyncPlay drift controller (the Player.SetTempo
+# 30553-30556 — retired: the SyncPlay drift controller (the Player.SetTempo
 # ladder and its tolerance slider). Kept, never reused, for the reason given at
-# #30744. Why the feature went rather than being retuned: tempo needs Kodi's
-# sync-to-display, which slaves the media clock to the panel, so a refresh rate
-# that is not a whole multiple of the frame rate imposes a rate error the ladder
-# cannot reach — measured at 0.5% to 4.3% on three Piers devices
-# (docs/syncplay-drift-shakedown.md §10). #30552 now warns about that instead.
+# #30744.
 msgctxt "#30553"
 msgid "Drift correction"
 msgstr ""
@@ -1367,19 +1364,10 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
 
-# 30586-30599 — SyncPlay fine sync (lib/kofin/syncplay/tempo.py,
-# docs/syncplay-fine-sync.md): through Kodi's own tempo on master, through
-# inputstream.tempo on the api and sql branches. #30592 is a toast.
-# 30588-30589 retired (the passthrough toggle folded into #30587's help),
-# 30590-30591 retired on master with the shorter video queue (Kodi's tempo is
-# heard once the audio already queued at the output has played, not after the
-# demux queue an add-on's rate went through; the api branch still shows them),
-# and 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against
-# was the add-on freeing the first packets after a seek, fixed in
-# inputstream.tempo 22.4.1, and the same phone then passed AV1 at 1.25x with
-# seeks). #30599 retired on master with inputstream.tempo, the add-on it
-# names; the live TV toast that took its place is #30875. Kept, never reused,
-# for the reason given at #30744.
+# 30586-30599 — SyncPlay fine sync (lib/kofin/syncplay/tempo.py). #30592 is a
+# toast. 30588-30591 and 30597-30599 retired: the passthrough, video-queue and
+# AV1 toggles and the inputstream.tempo toast. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30586"
 msgid "Fine sync using tempo"
 msgstr ""
@@ -1436,9 +1424,8 @@ msgctxt "#30599"
 msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
 msgstr ""
 
-# 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress.
-# 30600-30603 retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the Library tab's read-only status
-# labels and the comparison toast. Kept, never reused, for the reason given at #30744.
+# 30600-30603 — retired: the Library tab's read-only status labels and the
+# comparison toast. Kept, never reused, for the reason given at #30744.
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
@@ -1456,7 +1443,7 @@ msgctxt "#30603"
 msgid "Comparing with the server"
 msgstr ""
 
-# 30604-30605 — maximum-resolution steps missing from the original port
+# 30604-30605 — maximum-resolution steps
 msgctxt "#30604"
 msgid "480p"
 msgstr ""
@@ -1465,9 +1452,8 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr ""
 
-# 30606-30610 — retired with the Jellyfin song lyrics setting. Lyrics are
-# published whenever script.kofin.lyrics is installed, and otherwise left
-# alone. Kept, never reused, for the reason given at #30744.
+# 30606-30610 — retired: the Jellyfin song lyrics setting. Kept, never
+# reused, for the reason given at #30744.
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
 msgstr ""
@@ -1488,8 +1474,8 @@ msgctxt "#30610"
 msgid "Hand to a lyrics addon"
 msgstr ""
 
-# 30611-30612 — music playlist sync; retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23) (the API sync
-# has no such switch: Jellyfin playlists follow the libraries). Kept, never reused, for the reason given at #30744.
+# 30611-30612 — retired: the playlist sync switch. Kept, never reused, for
+# the reason given at #30744.
 msgctxt "#30611"
 msgid "Sync playlists"
 msgstr ""
@@ -1528,9 +1514,8 @@ msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr ""
 
-# 30620-30621 — chapter images; retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23) (Kodi 23 with
-# kontell/xbmc #11 shows the server's chapter images with no setting; the
-# SQL build's texture-cache route went). Kept, never reused, for the reason given at #30744.
+# 30620-30621 — retired: the chapter images setting. Kept, never reused, for
+# the reason given at #30744.
 msgctxt "#30620"
 msgid "Chapter images from the server"
 msgstr ""
@@ -1609,8 +1594,8 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr ""
 
-# 30650-30665 — Clean databases (the logged-out migration cleaner); retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23).
-# Kept, never reused, for the reason given at #30744.
+# 30650-30665 — retired: Clean databases. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30650"
 msgid "Clean databases"
 msgstr ""
@@ -1684,7 +1669,8 @@ msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
 msgstr ""
 
-# 30668-30673 — actor art pre-cache; retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23). Kept, never reused, for the reason given at #30744.
+# 30668-30673 — retired: the actor art pre-cache. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30668"
 msgid "Pre-cache cast images when idle"
 msgstr ""
@@ -1753,8 +1739,8 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr ""
 
-# 30711 — retired with 0.28.0, which announces download results once per
-# request. Kept, never reused, for the reason given at #30744.
+# 30711 — retired: the queued-downloads toast. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30711"
 msgid "%s download(s) queued"
 msgstr ""
@@ -1775,8 +1761,8 @@ msgctxt "#30715"
 msgid "Not enough free space for %s"
 msgstr ""
 
-# 30716 — retired with 0.13.0 (the container confirmation is #30771).
-# Kept, never reused, for the reason given at #30744.
+# 30716 — retired: a download confirmation (the container confirmation is
+# #30771). Kept, never reused, for the reason given at #30744.
 msgctxt "#30716"
 msgid "Download %s item(s) (%s)?"
 msgstr ""
@@ -1797,9 +1783,7 @@ msgctxt "#30720"
 msgid "Not available offline"
 msgstr ""
 
-# 30721 — the Downloaded episodes node (sync/nodes/video.py), written where Kodi keeps an
-# episode's tags (kontell/xbmc #12). The SQL build's node of that name filtered on a path;
-# the label and its translations carried over unchanged.
+# 30721 — the Downloaded episodes node (sync/nodes/video.py).
 msgctxt "#30721"
 msgid "Downloaded episodes"
 msgstr ""
@@ -1860,9 +1844,8 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr ""
 
-# 30736 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the Downloaded music smart
-# playlist; the API sync lists the downloaded songs in a playlist file of
-# the same name. Kept, never reused, for the reason given at #30744.
+# 30736 — retired: the Downloaded music smart playlist. Kept, never reused,
+# for the reason given at #30744.
 msgctxt "#30736"
 msgid "Downloaded music"
 msgstr ""
@@ -2124,8 +2107,7 @@ msgid "Your Jellyfin account is not allowed to change these settings"
 msgstr ""
 
 # 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
-# the number the whole batch is skipped rather than trimmed: an arbitrary few
-# of hundreds is worse than asking.
+# the number the whole batch is skipped, not trimmed.
 msgctxt "#30798"
 msgid "Skip movie imports larger than"
 msgstr ""
@@ -2153,11 +2135,8 @@ msgstr ""
 # 30810 — the aggregate refusal, before anything is queued. Distinct from
 # #30715, which the manager raises per item once a transfer is under way.
 #
-# Kept short deliberately. A Kodi notification fits about 33 characters and
-# *scrolls* the rest, so a longer line is read a window at a time — measured
-# live, "Not enough free space: 5.7 GB needed, 4.2 GB free" was caught
-# mid-scroll as "enough free space: 5.7 GB needed,", which says the opposite
-# of what it means. The warning glyph and the Kofin heading carry the rest.
+# Kept short: a Kodi notification shows about 33 characters and scrolls the
+# rest. The warning glyph and the Kofin heading carry the context.
 msgctxt "#30810"
 msgid "Needs %s, only %s free"
 msgstr ""
@@ -2211,10 +2190,8 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr ""
 
-# 30815-30816 — the Clean databases downloads prompt, retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23).
-# It had to say what
-# happens if you decline: the clean deletes kofin.db, and the download table
-# lives there, so files kept behind are files nothing will ever manage again.
+# 30815-30816 — retired: the Clean databases downloads prompt. Kept, never
+# reused, for the reason given at #30744.
 msgctxt "#30815"
 msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
 msgstr ""
@@ -2235,12 +2212,9 @@ msgctxt "#30818"
 msgid "A-Z"
 msgstr ""
 
-# 30819-30820 — cast in the add-on's own listings (docs/dynamic-libraries-plan.md
-# W5). Off by default, and the help has to name *which* listings: People costs the
-# server ~25 ms a row, so the whole-library nodes never ask for it however the
-# setting reads, and a viewer who sees cast under Recently added but not under All
-# is otherwise looking at a bug. The four node names are #30031, #30033, #30032 and
-# #30049 — translate them as those ids are translated.
+# 30819-30820 — cast in the add-on's own listings. The help must name which
+# listings; the node names are #30031, #30033, #30032 and #30049, so translate
+# them as those ids are translated.
 msgctxt "#30819"
 msgid "Show cast in add-on listings"
 msgstr ""
@@ -2256,19 +2230,15 @@ msgctxt "#30821"
 msgid "Server error — %s"
 msgstr ""
 
-# Remove download refused: putting the library row back needs the filename
-# captured at repoint time, and a row without one is left as it is rather than
-# deleting the media and pointing the library at nothing. %s is the item name.
+# Remove download refused: the library entry could not be restored, so the
+# download is kept as it is. %s is the item name.
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr ""
 
 # 30823-30824 — a removal answers once, whether it was one item or a
 # container's worth (downloads/manager.py::_flush_removed). #30823 names the
-# item, #30824 counts them, exactly as #30712 and #30711 divide the same work
-# for a download that arrives: the name is the useful answer for one row, and
-# seventeen names is not an answer to one button press. %s is the file's own
-# name (what the user sees in the downloads folder) and the count.
+# item, #30824 counts them; %s is the file's own name and the count.
 msgctxt "#30823"
 msgid "Download deleted: %s"
 msgstr ""
@@ -2278,15 +2248,9 @@ msgid "%s download(s) deleted"
 msgstr ""
 
 # 30825-30831 -- LAN server discovery (core/discovery.py, plugin/serverpicker.py).
-# #30829 names manual entry rather than suggesting another go, and the wording
-# is the protocol's, not politeness: a server answers the broadcast in
-# milliseconds or not at all, so nothing is still on its way when the window
-# closes, and the usual causes -- auto-discovery switched off, Docker bridge
-# networking, another subnet, a host where something already holds UDP 7359 --
-# no number of retries reaches. #30830 marks a row whose address did not
-# answer and reads as a fragment after the address; #30831 is the same fact as
-# a sentence, raised only if the user picks that row anyway. %s is the
-# server's own name.
+# #30829 points to manual entry rather than a retry: a server answers the
+# broadcast at once or not at all. #30830 is a fragment after the address,
+# #30831 the same fact as a sentence; %s is the server's own name.
 msgctxt "#30825"
 msgid "Find servers on local network"
 msgstr ""
@@ -2329,11 +2293,9 @@ msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using."
 msgstr ""
 
-# The row for everything under the downloads folder that kofin did not put
-# there. It is listed rather than left out because the folder may be shared
-# with other media, and a total that quietly ignored those files would not
-# match what the user's own file manager reports. Not simply "Other": beside
-# Movies, TV shows and Music that reads as another kind of media.
+# Everything under the downloads folder kofin did not put there. Not simply
+# "Other": beside Movies, TV shows and Music that reads as another kind of
+# media.
 msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr ""
@@ -2356,8 +2318,8 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr ""
 
-# 30838-30840 — Advanced-tab toggle that rewrote addon.xml's
-# <reuselanguageinvoker>; retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23). Kept, never reused, for the reason given at #30744.
+# 30838-30840 — retired: the reuselanguageinvoker toggle. Kept, never reused,
+# for the reason given at #30744.
 msgctxt "#30838"
 msgid "Reuse language invoker"
 msgstr ""
@@ -2424,7 +2386,7 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr ""
 
-# 30856-30857 — the API build's presentation toggle (settings.xml libraryNodes).
+# 30856-30857 — the presentation toggle (settings.xml libraryNodes).
 msgctxt "#30856"
 msgid "Library nodes and playlists"
 msgstr ""
@@ -2433,15 +2395,14 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr ""
 
-# 30858 — the toast the API build shows once when it turns Kodi's own
-# "Ignore video extras on scan" setting off for the extras import.
+# 30858 — the toast shown once when kofin turns Kodi's own "Ignore video
+# extras on scan" setting off for the extras import.
 msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr ""
 
-# 30859-30868 — the API build's library status dialog (settings.xml
-# libraryStatus, plugin/actions.py library_status) and its help for
-# "Transcode music" (30861, in place of 30136: no path is rewritten there).
+# 30859-30868 — the library status dialog (settings.xml libraryStatus,
+# plugin/actions.py library_status) and the help for "Transcode music" (30861).
 # 30862 follows 30859 in the dialog's heading; 30863-30868 each lead a row
 # and are followed by a colon and a value. 30868 counts what Kodi's scanner
 # has no place for, such as a special with no episode number.
@@ -2473,9 +2434,8 @@ msgctxt "#30865"
 msgid "Last full update"
 msgstr ""
 
-# 30866 — retired on master with the companion add-on, which a Kodi 23 with
-# the kontell/xbmc changes does not need. Kept, never reused, for the reason
-# given at #30744; the api branch still shows it.
+# 30866 — retired: the companion add-on row. Kept, never reused, for the
+# reason given at #30744.
 msgctxt "#30866"
 msgid "Companion add-on"
 msgstr ""
@@ -2513,7 +2473,7 @@ msgid "Re-read every library from the server now."
 msgstr ""
 
 # 30875 — SyncPlay fine sync: a live item in a group without FFmpeg Direct
-# (lib/kofin/syncplay/manager.py). A toast; #30599 held it once.
+# (lib/kofin/syncplay/manager.py). A toast.
 msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr ""
@@ -2574,7 +2534,8 @@ msgctxt "#30887"
 msgid "Available"
 msgstr ""
 
-# 30990 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23). Kept, never reused, for the reason given at #30744.
+# 30990 — retired: the preview notice. Kept, never reused, for the reason
+# given at #30744.
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

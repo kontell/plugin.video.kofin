@@ -6,16 +6,12 @@ starts the next request whether or not the last has answered. Each is an
 invoker thread and an interpreter of its own (Kodi keeps one parked invoker
 for the whole of Python, and a skin's own plugin calls take it), so nothing
 is shared between them and each pays for every import again. When listings
-are slow, a first import on a small device, the same URL is being built
-many times over, each build slower for the others, until Kodi cannot create
-another thread: on a Raspberry Pi 3 it aborted with about thirty requests
-for the add-on's root waiting, three times.
+are slow, the same URL is being built many times over, each build slower
+for the others, until Kodi cannot create another thread.
 
 So ``default.py`` comes here first. A request that is turned away has
 imported this module and Kodi's own built-ins, and none of the rest of
-kofin: turned away after the router's imports it still took forty seconds
-under that load, nearly all of them spent reaching the decision, and Kodi
-aborted all the same.
+kofin.
 
 The slots are window properties, the one thing separate interpreters share
 (``core/state.py`` names them; importing it is what this module exists to
@@ -37,20 +33,18 @@ import xbmcplugin
 
 PROP = "kofin.listing.flight"
 # How many builds of one URL run side by side. Two, so that coming back to
-# Home while the first is still answering is served as it always was.
+# Home while the first is still answering is still served.
 FLIGHTS = 2
-# Longer than a listing takes on a device under load: the slowest seen while
-# Kodi was failing was 176 s, the slowest with the gate 48 s, and the median
-# at rest is seconds. A build that outlives it leaves its slot open to one
-# more, so the bound on a URL is then two builds started per SECONDS, not
-# two in all; a longer lease would instead refuse a URL for that long after
-# two requests died holding it.
+# Longer than a listing takes on a loaded device. A build that outlives it
+# leaves its slot open to one more, so the bound on a URL is then two builds
+# started per SECONDS, not two in all; a longer lease would instead refuse a
+# URL for that long after two requests died holding it.
 SECONDS = 180.0
 # The listing routes a skin puts on its home screen. Not ``play`` or
 # ``check_exists``, which answer for one item and must always answer; not
 # ``search`` or ``lyrics``, which a viewer asked for by hand.
 BOUNDED_MODES = frozenset({"", "browse", "continuewatching", "nextepisodes", "extras"})
-# Every path the API build's scanner provider answers lies under this, and
+# Every path the scanner provider answers lies under this, and
 # none of them is ever turned away: a native listing refused is a directory
 # Kodi takes for empty.
 NATIVE_MARK = "/native/"

@@ -98,12 +98,8 @@ def resume_of(item: JsonDict, offset: Optional[float] = None) -> Tuple[float, fl
 def playcount_of(item: JsonDict) -> int:
     """Kodi playcount for a DTO -- 0 unless the server calls the item played.
 
-    ``Played`` is the watch state and ``PlayCount`` only sizes it. Reading the
-    count as the state instead gets one case wrong, and gets it wrong on a
-    scattered few percent of a real library: Jellyfin *keeps* the count when an
-    item is marked unwatched, so everything ever watched and then unmarked came
-    back as watched. The sync path has always tied the two this way
-    (``sync/fields.get_playcount``); dynamic listings now agree with it.
+    ``Played`` is the watch state and ``PlayCount`` only sizes it: Jellyfin
+    *keeps* the count when an item is marked unwatched.
     """
     userdata = item.get("UserData") or {}
     if not userdata.get("Played"):
@@ -113,11 +109,6 @@ def playcount_of(item: JsonDict) -> int:
 
 def hdr_type(stream: JsonDict) -> str:
     """Kodi's ``hdrtype`` for a Jellyfin video MediaStream; '' for SDR.
-
-    The rules are ``sync/fields.video_streams``', restated rather than
-    imported: that one belongs to the transplant and rewrites the track dict
-    in place, and the writers' proof of equivalence holds only while it stays
-    where it is.
 
     DvProfile is tested first because it is the signal that survives the
     variants -- a Dolby Vision stream can report any of DOVI, DOVIWithHDR10,
@@ -138,14 +129,9 @@ def person_thumb(server: str, person: JsonDict) -> str:
     """A person's portrait URL, '' when the server has none.
 
     A URL, not a cached file: Kodi fetches it when the info dialog draws the
-    cast, and only then, so a listing carrying fifty of these costs nothing
-    until one is looked at. (The sync path pre-caches the same images for
-    library rows — service/artcache.py — because there Kodi's own dialog
-    draws them all at once.) Capped and encoded: the video scanner caches
-    a row's actor thumbs at import (``videolibrary.actorthumbs``, on by
-    default), and a tablet decoded 3,615 full-size portraits beside 3,239
-    capped posters. The cap is its own (``person_query``): a portrait is
-    drawn as a thumb beside a name, never across a screen.
+    cast, and only then. Capped and encoded (``person_query``), because the
+    video scanner caches a row's actor thumbs at import
+    (``videolibrary.actorthumbs``, on by default).
     """
     tag = person.get("PrimaryImageTag")
     person_id = person.get("Id")
@@ -160,17 +146,13 @@ def person_thumb(server: str, person: JsonDict) -> str:
 
 
 # The art query, memoised for a moment. Module state on purpose: a settings
-# read constructs a fresh Addon each time (settings.get_addon), which is
-# 20 ms on a Raspberry Pi, and art_for runs once per item -- two reads an
-# item turned a 14 s listing of 1,788 movies into 80 s. Two seconds of
-# memory survives any restart (it is time, not a handle) and a settings
-# change shows within them.
+# read constructs a fresh Addon each time (settings.get_addon), and art_for
+# runs once per item. Two seconds of memory survives any restart (it is time,
+# not a handle) and a settings change shows within them.
 _ART_QUERY: Tuple[float, str, str] = (0.0, "", "")
 ART_QUERY_TTL = 2.0
-# The longest side of a person's portrait, the SQL build's figure
-# (sync/fields.py). Under the artwork cap alone a portrait came at up to
-# 1080 high, which for most is no cap at all: forty actors of one library
-# were 3.5 MB at that and 1.1 MB at this.
+# The longest side of a person's portrait, which is drawn as a thumb beside a
+# name, never across a screen.
 PERSON_MAX = 400
 
 
@@ -179,11 +161,9 @@ def art_query() -> str:
 
     Kodi decodes and re-encodes every image it caches and caps the result at
     its own fanart and thumb heights, so anything the server sends above the
-    cap is work for nothing -- a 4000x6000 poster decoded on a Raspberry Pi
-    for a 1080-high cache file. ``maxArtResolution`` asks the server for the
+    cap is work for nothing. ``maxArtResolution`` asks the server for the
     capped height (its own resize, cached server-side) and ``compressArt`` for
-    JPEG at quality 90, which only changes bytes once a resize happens
-    (``sync/fields.py`` has the measurement).
+    JPEG at quality 90, which only changes bytes once a resize happens.
     """
     return _queries()[0]
 
@@ -280,9 +260,7 @@ def build(
 
     ``resume_seconds`` replaces the resume point derived from the item's
     UserData, and 0 means no resume point at all. The play route passes the
-    position this playback was resolved to start at: a resume point stamped on
-    a *resolved* item makes Kodi resume whatever the user chose at the prompt,
-    so it has to say exactly what this playback means (see ``plugin.play``).
+    position this playback was resolved to start at (see ``plugin.play``).
 
     ``resume_offset`` is a precomputed ``settings.resume_offset()`` for
     listings that build many rows (see :func:`resume_of`).
@@ -381,11 +359,7 @@ def _fill_video(
     tag.setPlaycount(playcount_of(item))
     position, total = resume_of(item, resume_offset)
     if resume_seconds is not None:
-        # The resolved item. A stamped point, even a zero one, makes Kodi treat
-        # the play as a resume and seek — to the point, or with no time on it
-        # to whatever bookmark MyVideos holds for the path — and there is no
-        # way to unset one once stamped, so 0 has to mean the setter is never
-        # called (plugin.play says why).
+        # The resolved item: 0 means the setter is never called (plugin.play).
         if resume_seconds > 0 and total > 0:
             tag.setResumePoint(resume_seconds, total)
     elif total > 0 and (position > 0 or stamp_zero_resume):
@@ -394,17 +368,14 @@ def _fill_video(
         # the reason it is stamped — keeps Kodi from consulting the bookmark it
         # saved for this plugin path the last time the item was stopped
         # (VideoUtils.cpp GetNonFolderItemResumeInformation falls back to
-        # MyVideos only for an unset point). Without it a row the server calls
-        # finished still advertised the stale local time, and no reset could
-        # make it stop (docs/dynamic-libraries-plan.md §1).
+        # MyVideos only for an unset point).
         #
         # A scanner row is the one exception. CVideoInfoScanner::AddVideo
         # persists any *set* point as a type-1 bookmark, time included, and
         # Kodi's in-progress rule is that row's existence, not its time
-        # (SmartPlayList.cpp FieldInProgress) — so the same zero stamp put
-        # every imported movie in the in-progress widget until the detail
-        # patch cleared it. A native row reads its resume from the bookmark
-        # table itself and needs no mask.
+        # (SmartPlayList.cpp FieldInProgress), so a row the scanner will
+        # persist takes no zero stamp (stamp_zero_resume=False). A native row
+        # reads its resume from the bookmark table itself and needs no mask.
         tag.setResumePoint(position, total)
 
     people = item.get("People") or []

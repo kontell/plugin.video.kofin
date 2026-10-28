@@ -163,11 +163,6 @@ add_reference_pool_obj = [
     "tvshow",
     None,
     "{Checksum}",
-    # A pool row is a placeholder for a series another library owns, not an
-    # attribution: stamped with the pooling library's id it was counted by
-    # that library's prune and divergence probe forever (healing-loops-plan
-    # F2). NULL keeps it out of every media_folder query; the series' own
-    # library re-homes it on first contact (writers/tvshows.py update leg).
     None,
     None,
 ]

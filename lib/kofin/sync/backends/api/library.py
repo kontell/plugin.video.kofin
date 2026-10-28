@@ -44,8 +44,8 @@ SUPPORTED = ("movies", "tvshows", "musicvideos", "mixed", "music")
 # SpecialFeatureCount says which movies have extras to fetch (attach_extras).
 FIELDS = info() + ",MediaStreams,SpecialFeatureCount"
 # Music asks for what its tags and art need and nothing the server has to
-# count: RecursiveItemCount alone made an album page twelve times slower on
-# the SQL branch, and People, trailers and streams have no music setter.
+# count (RecursiveItemCount is slow); People, trailers and streams have no
+# music setter.
 MUSIC_FIELDS = (
     "DateCreated,Genres,ProviderIds,MediaSources,Overview,SortName,Etag,"
     "ParentId,PremiereDate,Tags"
@@ -56,17 +56,12 @@ MUSIC_KINDS = ("MusicArtist", "MusicAlbum", "Audio")
 # alone, so rows filed from a listing that lacked a field would never get
 # it: a library whose record differs is listed again by name, at the first
 # catch-up and then at each one until it has been (stale_listings).
-# OriginalTitle was a field the listing lacked, and every movie's was empty
-# in Kodi.
 LISTING = FIELDS + "|" + MUSIC_FIELDS
 CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
-# Between the websocket and the companion feed the catch-up is a safety net.
-# A full enumeration on a clock is the viewer's choice (fullUpdateInterval,
-# in days, 0 for none): in four days of logs on three devices the daily one
-# found nothing the websocket and the sync queue had not carried but a cast
-# member's new portrait, and its repair pass rewrote rows that had not
-# changed. Without the sync queue the catch-up reads save dates and cannot
-# see a deletion, which is what the setting's help says.
+# Between the websocket and the sync-queue feed the catch-up is a safety
+# net. A full enumeration on a clock is the viewer's choice
+# (fullUpdateInterval, in days, 0 for none). Without the sync queue the
+# catch-up reads save dates and cannot see a deletion.
 CATCHUP_INTERVAL = 1800
 DAY = 86400
 
@@ -78,12 +73,10 @@ def full_interval() -> Optional[float]:
 
 
 PAGE = 200
-# A song's DTO is a tenth of a movie's; 22,000 of them in pages of 200 is
-# 112 round trips for what 45 can carry.
+# A song's DTO is about a tenth of a movie's, so its pages are larger.
 MUSIC_PAGE = 500
-# Pages of one listing asked for at once. The server builds a page of 500
-# songs in half a second; a Raspberry Pi took 1.7 s to 2.5 s over each, and
-# its thread ran at a quarter of a core while it did: the rest was the wire.
+# Pages of one listing in flight at once: a page's wait is the wire, not the
+# server or the client.
 PAGERS = 3
 # How long after a playback stopped the user data held for its item is
 # applied when the server has sent nothing newer. The server's own entry
@@ -198,11 +191,8 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
     the rest of a catalogue pile up behind it in memory.
 
     Every page client answers for the account ``api`` asked the first page
-    as. The factory reads the stored credentials when it is called, and a
-    sign-in changed while the enumeration runs (the service restarts for
-    it, but this thread runs on until it is torn down) made the later
-    clients another user's: the same totals, that user's play state, filed
-    under this account's namespace. Such an enumeration fails as a whole.
+    as. The factory reads the stored credentials when it is called, so a
+    sign-in changed while the enumeration runs fails it as a whole.
     """
     local = threading.local()
     clients: List[Any] = []
@@ -559,7 +549,7 @@ class Library(threading.Thread):
             ):
                 # The first listing of a profile is its first import, and
                 # attended once: a listing that failed is tried again every
-                # half minute, and the bar came back up for each try.
+                # half minute.
                 self._first_attended = True
                 self._bar().attend()
             self.full_sync()
@@ -987,12 +977,6 @@ class Library(threading.Thread):
         """Merge the server's user data into the catalogue, except for the
         item this Kodi is playing.
 
-        The server counts a play when it starts, and reports progress while
-        it runs. Mirrored as they arrive, those wrote the playing row under
-        Kodi's own player: a song's count was set to the server's new count
-        during the song and counted again by Kodi at its end (one play, two
-        counts, and the outbox then took Kodi's number to the server), and a
-        watched episode being watched again lost its mark until it ended.
         Kodi's player owns the row of what it plays. That something came
         for it is kept, and the entry the server sends when the playback
         stops is applied in its place; when none comes, the server is asked
@@ -1025,11 +1009,6 @@ class Library(threading.Thread):
         """Publish full items as the server sent them, all but the user data
         of the item this Kodi is playing, which is held like an entry sent
         for it (apply_userdata) while the item keeps what the catalogue has.
-
-        A listing, a catch-up or a metadata change that arrives during a
-        play carries the server's count for the play in progress as surely
-        as a user data event does, and wrote it to the row Kodi's own player
-        was about to count.
         """
         playing = self._playing()
         if playing:
@@ -1054,10 +1033,8 @@ class Library(threading.Thread):
         """Once an item has stopped and the server has had time to settle
         the play, ask it what the play made of the item.
 
-        The last entry heard is not that. It may be a progress report, and
-        the entry the stop sent may never have arrived: applied as it stood,
-        the progress report of an episode being watched again took its
-        watched mark away after it had ended.
+        The last entry heard may be a progress report, and the entry the
+        stop sent may never arrive.
         """
         if not self._held_userdata:
             return
@@ -1137,13 +1114,11 @@ class Library(threading.Thread):
         again; returns those libraries.
 
         What the format numbers (metadata.SCANNER_FORMAT) has no setter, so
-        a row filed without it gets it only by being filed again, and a
-        refresh of one row is a plugin call of its own: 0.2 s on a desktop
-        and 3 to 10 s on a Raspberry Pi 3, hours for a library there, where
-        removing the rows and scanning the root is a first import. It is the
-        viewer's to ask for, never a pass's: the library is gone from Kodi
-        until the import has run. A music library has no such rows and is
-        repaired by comparison as before.
+        a row filed without it gets it only by being filed again, and
+        removing the rows and scanning the root is a first import, far
+        cheaper than a refresh per row. It is the viewer's to ask for, never
+        a pass's: the library is gone from Kodi until the import has run. A
+        music library has no such rows and is repaired by comparison.
         """
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
@@ -1177,12 +1152,10 @@ class Library(threading.Thread):
             # between the two must not list the library over its old rows.
             for library in rebuild:
                 self.store.set_scanner_format(library, REBUILDING)
-            # And off the whitelist before a row is tombstoned. Stopped
-            # between the tombstones and that write, a library lost its rows
-            # while still on the whitelist, where nothing lists it again
-            # before the next complete enumeration. Stopped after this write
-            # instead, it is selected and not synced: listed again over the
-            # rows it still has, and still asking for its repair.
+            # And off the whitelist before a row is tombstoned: a service
+            # stopped after this write leaves it selected and not synced,
+            # listed again over the rows it still has, and still asking for
+            # its repair.
             state = private.get_sync()
             state["Whitelist"] = [i for i in state["Whitelist"] if i not in rebuild]
             private.save_sync(state)
@@ -1220,8 +1193,7 @@ class Library(threading.Thread):
             if not self.store.watermark()[1]:
                 # Nothing has ever been listed whole, so the refresh that
                 # follows in this tick lists every selected library, this
-                # one among them: listing it here as well made a first
-                # selection enumerate everything twice.
+                # one among them.
                 self._full_due = True
                 return
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
@@ -1329,8 +1301,7 @@ class Library(threading.Thread):
         """Bring the music-library and playlist download subscriptions to the
         server's listing: one playlist's when a request names it, every
         subscription's after a complete enumeration and when the viewer
-        subscribes. The SQL build does this in its music playlist sync; the
-        API build had nothing that did, and a subscription queued nothing."""
+        subscribes."""
         from kofin.downloads import subscriptions
 
         try:
@@ -1368,13 +1339,9 @@ class Library(threading.Thread):
     def flush_local(self):
         """Tell the server what was marked or played in Kodi.
 
-        Each edit on its own. The outbox was flushed in order and stopped at
-        the first that failed, so an edit of an item the server had since
-        deleted (404) failed every tick for ever: every edit behind it never
-        left, the rows waiting on them stayed pending, and a television ran
-        two passes a minute for as long as it was on. An item the server no
-        longer has is nothing to tell it about, and its edit is dropped; any
-        other failure is raised once the rest have been delivered.
+        Each edit on its own: an edit of an item the server does not have
+        (404) is dropped, and any other failure is raised once the rest have
+        been delivered.
         """
         failure: Optional[Exception] = None
         for item_id, values in self.store.local_pending():
@@ -1399,11 +1366,8 @@ class Library(threading.Thread):
     def _deliver_local(self, item_id, values):
         payload: Dict[str, Any] = {}
         if "playcount" in values:
-            # The watched mark and never the number: the server counts
-            # the plays it is told of, Kodi counts its own, and a count
-            # sent from here replaced the server's with Kodi's (a song
-            # played once went up as 2; an episode marked watched took
-            # a count of 8 down to 1).
+            # The watched mark and never the count: the server and Kodi each
+            # count their own plays.
             payload["Played"] = values["playcount"] > 0
         if "position" in values:
             payload["PlaybackPositionTicks"] = int(values["position"] * 10000000)

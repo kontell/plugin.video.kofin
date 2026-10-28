@@ -1,8 +1,7 @@
-"""Automatic download policy: auto-next episodes and newly added movies
-(plan W4.1/W4.4).
+"""Automatic download policy: auto-next episodes and newly added content.
 
 Both triggers end in the same guarded ``DOWNLOAD_ADD`` the context menu
-uses, carrying an ``auto`` origin so W4.2's retention sweep knows what the
+uses, carrying an ``auto`` origin so the retention sweep knows what the
 system fetched on its own; neither ever touches the manager directly. The
 callers own *when* — the player's 80% latch, the library's new-content
 drain — and this module owns *what*: which ids, which gates, which cap.
@@ -18,18 +17,13 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-# The playback fraction that triggers the next-episode lookup (W4.1).
+# The playback fraction that triggers the next-episode lookup.
 NEXT_TRIGGER_RATIO = 0.8
 
 # A sync cycle adding more than this many items queues none of them: a
 # server-side bulk import is almost never "I want all of this offline", and
 # auto-pulling an arbitrary few of hundreds would be worse than asking.
-# Subscribed shows are exempt on purpose — a subscription is a standing
-# order, and a whole season landing at once is exactly what it is for.
-#
-# The numbers are the defaults behind the settings below, kept as constants
-# so an unset value (a profile that predates the sliders) behaves exactly as
-# it always did.
+# Defaults for the settings below.
 NEW_MOVIES_BATCH_LIMIT = 5
 NEW_EPISODES_BATCH_LIMIT = 10
 NEW_ALBUMS_BATCH_LIMIT = 5
@@ -56,7 +50,7 @@ def new_albums_limit() -> int:
 ORIGIN_NEW_MOVIES = "auto:new"
 
 # The comma-separated Jellyfin series ids subscribed to new-episode
-# downloads (W4.6): written by the Series context toggle and the settings
+# downloads: written by the Series context toggle and the settings
 # manage button, read by the drain.
 SHOWS_SETTING = "downloadsEpisodeShows"
 
@@ -91,8 +85,8 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
 
     A paged listing in airing order — ``ParentIndexNumber,IndexNumber``,
     both SortOrders stated (the 10.11 arity rule) — walked forward from the
-    current episode. NextUp was rejected: it is watch-state-driven, and at
-    80% the *current* episode is still its answer.
+    current episode. Not NextUp: at 80% it still answers the current
+    episode.
     """
     if keep <= 0:
         return []
@@ -173,11 +167,11 @@ def trigger_next(api: Any, item: JsonDict) -> bool:
 
 
 def queue_new_content(api: Any, entries: Iterable[Any]) -> None:
-    """The new-content drain hook (W4.4/W4.6): movies, episodes, albums.
+    """The new-content drain hook: movies, episodes, albums.
 
-    Every arm reads the same ``newcontent.Entry`` rows — produced only by
-    the *added* incremental writers, so initial syncs and repairs never
-    reach here — and every arm ends in the guarded ``DOWNLOAD_ADD``.
+    Every arm reads the same ``newcontent.Entry`` rows — the items a
+    catch-up added to the catalogue (``announce.Arrivals``), once the pass
+    has filed them — and every arm ends in the guarded ``DOWNLOAD_ADD``.
     """
     if not settings.get_bool("downloadsEnabled"):
         return
@@ -188,7 +182,7 @@ def queue_new_content(api: Any, entries: Iterable[Any]) -> None:
 
 
 def queue_new_episodes(entries: Iterable[Any]) -> int:
-    """W4.6: newly added episodes — subscribed shows first, then the global
+    """Newly added episodes — subscribed shows first, then the global
     toggle; returns how many were queued.
 
     Origins carry the series (``auto:<seriesId>``, the same label auto-next
@@ -255,7 +249,7 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
 
 
 def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
-    """W4.6: newly added albums expand to their tracks; returns how many
+    """Newly added albums expand to their tracks; returns how many
     tracks were queued. Albums cap by album count — an album is naturally
     bounded, a bulk import of albums is not."""
     if not settings.get_bool("downloadsAutoAlbums"):
@@ -333,12 +327,7 @@ def _bulk_toast(string_id: int, count: int) -> None:
 
 
 def queue_new_movies(entries: Iterable[Any]) -> int:
-    """W4.4: queue this cycle's newly added movies; returns how many.
-
-    ``entries`` are ``newcontent.Entry`` rows from the drain — produced only
-    by the *added* incremental writers, so initial syncs and repairs never
-    reach here, and already-watched additions were dropped at the source.
-    """
+    """Queue this cycle's newly added movies; returns how many."""
     if not settings.get_bool("downloadsEnabled"):
         return 0
     if not settings.get_bool("downloadsAutoMovies"):

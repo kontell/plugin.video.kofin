@@ -1,16 +1,4 @@
-"""Reads of Kodi's own library state over JSON-RPC.
-
-Both processes need these. The play route has to start where Kodi is about to
-seek, and the service has to confirm a resume bookmark really is gone before
-acting on the announcement that says so.
-
-Three of these write. ``drop_cached_texture`` because rewriting a file in place
-leaves Kodi's texture cache serving the bytes it already cached, so the backdrop
-swap has to invalidate the entry itself; ``stop_player`` because
-``xbmc.Player.stop()`` cannot be called from a kofin thread at all (issue #155);
-and ``clear_resume_bookmark`` because the bookmark Kodi keeps for a plugin path
-is reachable through no Python binding.
-"""
+"""JSON-RPC calls into Kodi, shared by both processes."""
 
 import json
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -110,21 +98,13 @@ def drop_cached_texture(needle: str, require: str = "") -> int:
     if given); returns how many went. Best effort — a failure only means a
     stale image.
 
-    Kodi keys its texture cache on the source url, so overwriting a file the
-    cache already holds changes nothing on screen: it re-reads only when its
-    own hash check falls due, which is not on any timescale a user connects to
-    the action that caused the change. Removing the row forces the next draw
-    to re-cache from disk.
-
-    Two-stage matching because the cache runs to thousands of rows on a real
-    install, and Kodi's filter takes exactly one substring. ``needle`` narrows
-    the query server-side; ``require`` then makes the match exact in Python.
-    Both are needed: filtering on the bare filename is not ours to do — a live
-    install had ``plugin.video.jellyfin`` holding its own ``fanart.png``, which
-    a filename-only match would have evicted — and filtering on the addon id
-    alone would take every image the addon ships. The url is percent-encoded
-    by Kodi (``image://%2fhome%2f…%2fplugin.video.kofin%2f…``), so neither
-    substring may span a path separator.
+    Two-stage matching because Kodi's filter takes exactly one substring.
+    ``needle`` narrows the query server-side; ``require`` then makes the match
+    exact in Python. Both are needed: a filename alone could evict another
+    add-on's file of the same name, and the add-on id alone would take every
+    image the add-on ships. The url is percent-encoded by Kodi
+    (``image://%2fhome%2f…%2fplugin.video.kofin%2f…``), so neither substring
+    may span a path separator.
     """
     result = call(
         "Textures.GetTextures",
@@ -169,9 +149,7 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
     both write MyVideos. Kodi's SQLite busy handler sleeps and retries forever,
     so if any kofin thread is holding the MyVideos write lock it can never be
     released — that thread needs the GIL this one is sitting on. Kodi is then
-    wedged on a blank screen with only a force-stop to get out (issue #155;
-    measured on Omega 21.3 and Piers 22.0-beta, evidence under
-    ``tests/live/results/issue-155``).
+    wedged on a blank screen with only a force-stop to get out.
 
     ``executeJSONRPC`` carries the guard Kodi forgot on ``stop()``, and
     ``Player.Stop`` is a ``PostMsg`` on Kodi's side, so this returns in
@@ -182,9 +160,9 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
     thread runs its messages in order, so a ``player.play()`` issued afterwards
     is handled after the stop. ``wait_seconds`` is for callers that must not
     race the teardown from the Python side. Note it can only ever be a
-    courtesy: ``Player.GetActivePlayers`` was measured going empty while
-    ``~CVideoPlayer()`` was still running, so an empty answer means "Kodi has
-    let go of the player", not "the teardown has finished".
+    courtesy: ``Player.GetActivePlayers`` goes empty while ``~CVideoPlayer()``
+    is still running, so an empty answer means "Kodi has let go of the
+    player", not "the teardown has finished".
 
     Returns True when a stop was asked for.
     """
@@ -231,24 +209,15 @@ def resume_player() -> bool:
     ``xbmc.Player.pause()`` is a toggle and it lands asynchronously, so
     "toggle it if it reads paused" is two races stacked: the read can predate a
     pause still in flight, and the toggle then arrives while the player is
-    already moving the other way.
-
-    That is measured, not theoretical. A group Unpause that had to align first
-    left a member paused for good: the align seek resumed the player (Android's
-    VideoPlayer does resume on seek), the settle loop re-paused it because it
-    had been paused going in, and the toggle meant to start it read the
-    not-yet-applied pause as "playing" and did nothing — so the pause landed
-    last and the member sat still while the group played on
-    (``docs/syncplay-drift-shakedown.md`` §11).
-
-    ``Player.PlayPause`` takes an explicit ``play`` flag, which has no state to
-    race: asking for playing while already playing is a no-op.
+    already moving the other way. ``Player.PlayPause`` takes an explicit
+    ``play`` flag, which has no state to race: asking for playing while
+    already playing is a no-op.
 
     This only *asks*. Confirming is the caller's job and cannot be done from
     ``speed``, which reads 1 for a player that is not advancing — the position
-    sampled twice is the only proof (kodi-drive: kodi-jsonrpc). The SyncPlay
-    controller's ``_resume_and_verify`` does that, and re-asks, because the
-    failure being guarded is another thread's pause landing after this call.
+    sampled twice is the only proof. The SyncPlay controller's
+    ``_resume_and_verify`` does that, and re-asks, because the failure being
+    guarded is another thread's pause landing after this call.
 
     Returns True when the request went out (or no player was active).
     """
@@ -293,12 +262,8 @@ def resume_point(kodi_id: int, media: str) -> Optional[Tuple[float, float]]:
 
 
 def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
-    """Kodi's stored resume position for a library row.
-
-    0.0 when the row has no bookmark — which is an answer, not a failure, and
-    the callers rely on telling the two apart. None only when the row cannot
-    be read at all.
-    """
+    """Kodi's stored resume position for a library row: :func:`resume_point`'s
+    position alone."""
     point = resume_point(kodi_id, media)
     return None if point is None else point[0]
 
@@ -342,8 +307,7 @@ def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     """One JSON-RPC call's ``result`` — whatever shape the method answers
     with (``Settings.SetSettingValue`` answers a bare ``true``); None for a
     method-level error reply (Kodi answered, refusing); ``FAILED`` when Kodi
-    could not be asked at all or answered unparseably. Collapsing those last
-    two was the C3 defect — a blip read as "this Kodi lacks the setting"."""
+    could not be asked at all or answered unparseably."""
     request: Dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
     if params is not None:
         request["params"] = params
@@ -365,7 +329,7 @@ def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]
     and ``FAILED`` when Kodi could not be asked at all -- the same three
     answers as :func:`call`. Kodi's dispatcher runs the requests one by one
     and does not wrap them in a transaction, so a mixed batch is partly
-    applied and the caller reads every entry (feasibility report 7.5).
+    applied and the caller reads every entry.
     """
     if not requests:
         return []
@@ -401,13 +365,7 @@ def active_players() -> Any:
 
 def tvshow_title(kodi_id: int) -> Optional[str]:
     """A show's title from Kodi's own library, or None when the row is gone
-    or the call failed.
-
-    JSON-RPC rather than a SELECT on MyVideos: reading the library through
-    Kodi is what every process may do (writing it that way is what the
-    kodi-database-writing rule forbids), and it keeps the plugin process
-    out of Kodi's database files altogether.
-    """
+    or the call failed."""
     result = call(
         "VideoLibrary.GetTVShowDetails",
         {"tvshowid": int(kodi_id), "properties": ["title"]},
@@ -418,14 +376,8 @@ def tvshow_title(kodi_id: int) -> Optional[str]:
 
 
 def kodi_setting(setting_id: str) -> Any:
-    """The value of one of Kodi's own settings; None where the setting does
-    not exist; ``FAILED`` when Kodi could not be asked (C3).
-
-    None is the answer only for a setting this Kodi version lacks — Omega
-    has no ``videoplayer.queuetimesize`` — so a caller can branch on the
-    version without asking for it, and a transient failure no longer reads
-    as "this Kodi lacks the setting".
-    """
+    """The value of one of Kodi's own settings; None where this Kodi lacks
+    the setting; ``FAILED`` when Kodi could not be asked."""
     result = call("Settings.GetSettingValue", {"setting": setting_id})
     if result is FAILED:
         return FAILED
@@ -433,11 +385,7 @@ def kodi_setting(setting_id: str) -> Any:
 
 
 def set_kodi_setting(setting_id: str, value: Any) -> bool:
-    """Set one of Kodi's own settings; True when Kodi accepted the value.
-
-    Measured on 22.0-BETA1: the answer is ``{"result": true}`` — a bare
-    boolean, not an object.
-    """
+    """Set one of Kodi's own settings; True when Kodi accepted the value."""
     result = call("Settings.SetSettingValue", {"setting": setting_id, "value": value})
     return result is True
 
@@ -474,7 +422,7 @@ def clear_resume_bookmark(path: str) -> bool:
     true for any ``plugin://``; a zero position makes it clear the bookmark
     rather than write one (VideoLibrary.cpp ``UpdateResumePoint``). It adds a
     ``files`` row when none exists, which is what Kodi does after any plugin
-    play, so nothing new is left behind. Verified live on Omega 21.3.
+    play, so nothing new is left behind.
 
     False when Kodi refused or could not be reached; the caller has nothing
     to undo either way.
