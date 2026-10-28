@@ -704,30 +704,20 @@ def manage_download_shows(request: Request) -> None:
 
 
 def _show_names(series_ids: List[str]) -> List[str]:
-    """Titles for the picker: the kofin.db id map names the Kodi row, and
-    Kodi names the show. The plugin process opens no Kodi database — the
-    title comes over JSON-RPC (kodirpc.tvshow_title). An unmapped or
-    unanswerable show falls back to its id, so the picker still lists it."""
-    from kofin.sync.private import Database
+    """Titles for the picker, from the shows' catalogue payloads, so the
+    picker answers offline. A show the catalogue does not hold is listed by
+    its id."""
+    from kofin.sync.backends.api.identity import current_store
 
-    names: List[str] = []
     try:
-        with Database("kofin") as kofin_db:
-            for series_id in series_ids:
-                kofin_db.cursor.execute(
-                    "SELECT kodi_id FROM jellyfin "
-                    "WHERE jellyfin_id = ? AND media_type = 'tvshow'",
-                    (series_id,),
-                )
-                mapped = kofin_db.cursor.fetchone()
-                name = None
-                if mapped is not None and mapped[0] is not None:
-                    name = kodirpc.tvshow_title(int(mapped[0]))
-                names.append(str(name or series_id))
+        payloads = current_store().payloads(series_ids)
     except Exception:
         LOG.exception("show names unavailable")
         return list(series_ids)
-    return names
+    return [
+        str((payloads.get(series_id) or {}).get("Name") or series_id)
+        for series_id in series_ids
+    ]
 
 
 def delete_all_downloads(request: Request) -> None:
