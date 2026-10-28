@@ -1,10 +1,8 @@
-"""The Kodi 23 build has no inputstream.tempo route (docs/syncplay-fine-sync.md).
+"""No code routes playback through inputstream.tempo.
 
-Fine sync on master plays through Kodi's own tempo. The add-on route lives on
-the api and sql branches, which share code with this one by cherry-pick, and
-inputstream.tempo has no Kodi 23 build: a port that brought the route back
-would hand Kodi an inputstream it does not have on every group play. Comments
-and docstrings may name the add-on; code may not.
+Fine sync plays through Kodi's own tempo, and inputstream.tempo has no Kodi 23
+build: a route through it would hand Kodi an inputstream it does not have on
+every group play. Comments and docstrings may name the add-on; code may not.
 """
 
 import ast

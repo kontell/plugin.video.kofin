@@ -3,8 +3,7 @@
 A subtitle Kodi already holds switches in place. A text one a transcode did
 not attach is fetched onto the running playback by the service. Only audio and
 an image subtitle still resolve a new stream, because a Jellyfin transcode
-carries one audio track and no subtitles at all
-(docs/transcode-stream-selection-plan.md §2.1).
+carries one audio track and no subtitles at all.
 """
 
 import pytest
@@ -209,12 +208,9 @@ def test_the_burn_in_row_says_so(env):
 
 
 def test_an_unattached_text_subtitle_is_fetched_rather_than_restarted_into(env):
-    """Das Boot, one internal English SRT, transcoded: the extraction had not
-    finished inside the play route's budget, so nothing was attached. Picking
-    it used to restart playback into a stream resolved with the track — which
-    cost a five-second gap *and* re-ran the same doomed fetch on the play
-    route, so the first pick reliably came back with no subtitle at all. It is
-    a file: the service fetches it onto the playback already running."""
+    """A text subtitle a transcode did not attach (its extraction outran the
+    play route's budget) is a file: the service fetches it onto the playback
+    already running, with no restart."""
     publish(method="Transcode", attached=[], media_streams=[AUDIO_1, SUB_3])
     env.answers = [1]  # None, then the text sub
     menu.context_menu()
@@ -223,14 +219,14 @@ def test_an_unattached_text_subtitle_is_fetched_rather_than_restarted_into(env):
 
 
 def test_an_unattached_text_subtitle_is_not_called_burned_in(env):
-    """The reported symptom: a plain SRT offered as "burned in, restarts
-    playback" (#30617), then downloaded and attached rather than burned. It
-    says what it actually costs — a download — and nothing else."""
+    """An unattached SRT is downloaded, not burned in, so its row says
+    "downloaded from the server" (#30775), not "burned in, restarts playback"
+    (#30617)."""
     publish(method="Transcode", attached=[], media_streams=[AUDIO_1, SUB_3, SUB_4])
     env.answers = [-1]
     menu.context_menu()
     _, options = env.selected[0]
-    assert options[1] == "English - SUBRIP (S30775)"  # restarts playback
+    assert options[1] == "English - SUBRIP (S30775)"  # downloaded from the server
     assert options[2] == "English SDH - PGSSUB (S30617)"  # burned in, restarts
 
 
@@ -269,7 +265,7 @@ def test_choosing_another_audio_track_restarts_at_the_position(env):
     # would resolve this straight back to direct play.
     assert params["transcode"] == "1" and params["bitrate"] == "3"
     assert params["mediasourceid"] == "src1"
-    assert env.toasts  # the five-second gap is announced
+    assert env.toasts  # the restart's gap is announced
 
 
 def test_choosing_the_playing_audio_track_changes_nothing(env):
@@ -316,9 +312,8 @@ def burned(**kwargs):
 
 
 def test_a_burned_in_subtitle_is_the_marked_row(env):
-    """It is pixels in the video, so the player reports no subtitle at all --
-    which used to mark "None" as the current one and leave the subtitle
-    actually on screen looking unselected."""
+    """It is pixels in the video, so the player reports no subtitle at all;
+    the menu marks the burned-in row, not "None"."""
     burned()
     env.context_answers = [1]
     env.answers = [-1]
@@ -341,8 +336,8 @@ def test_the_burn_in_warning_is_dropped_once_it_is_burned_in(env):
 
 
 def test_choosing_the_burned_in_subtitle_again_does_nothing(env):
-    """Re-picking it used to re-resolve the stream: a five-second gap to
-    arrive exactly where we already were."""
+    """Re-picking it would re-resolve the stream to arrive where it already
+    is."""
     burned()
     env.context_answers = [1]
     env.answers = [2]
@@ -366,7 +361,7 @@ def test_turning_off_a_burned_in_subtitle_needs_a_new_stream(env):
 
 def test_an_audio_switch_keeps_the_burned_in_subtitle(env):
     """The server resolves what it is not told from the user's profile, so an
-    audio restart that named only the audio came back without the burn-in."""
+    audio restart names the burned-in subtitle too."""
     burned()
     env.context_answers = [0]
     env.answers = [1]
@@ -379,8 +374,8 @@ def test_an_audio_switch_keeps_the_burned_in_subtitle(env):
 
 
 def test_a_burn_in_keeps_the_audio_track(env):
-    """The other direction: burning a subtitle in used to drop back to the
-    profile's audio track."""
+    """The other direction: a burn-in names the audio track, or the profile's
+    comes back."""
     publish(method="Transcode", attached=[3], audio_index=2)
     env.context_answers = [1]
     env.answers = [2]  # the image sub
@@ -405,8 +400,8 @@ def test_a_restart_states_that_no_subtitle_is_wanted(env):
 
 
 def test_audio_on_a_direct_play_switches_in_place(env, monkeypatch):
-    """Kodi holds every track; restarting to reach one would cost five seconds
-    to arrive at what setAudioStream does immediately."""
+    """Kodi holds every track, so setAudioStream reaches one without a
+    restart."""
     publish(method="DirectStream", attached=[])
     monkeypatch.setattr(menu.kodirpc, "current_audio", lambda: 0)
     env.context_answers = [0]

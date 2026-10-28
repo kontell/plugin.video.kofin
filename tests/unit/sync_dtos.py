@@ -1,4 +1,4 @@
-"""Representative Jellyfin DTOs for the L2 writer tests.
+"""Representative Jellyfin DTOs.
 
 Shapes mirror what /Users/{id}/Items returns with the sync Fields set:
 UserData always present, People with roles and image tags, MediaSources
@@ -166,9 +166,6 @@ SEASON_1 = {
     "Id": "season1",
     "Name": "Season 1",
     "Type": "Season",
-    # get_seasons fetches with Fields=info(), which carries Etag -- the DTO
-    # had none, which is how a season write storing no checksum looked
-    # correct here for as long as it did.
     "Etag": "etag-season1-v1",
     "IndexNumber": 1,
     "SeriesId": "series1",
@@ -304,5 +301,5 @@ SONG = {
 
 
 def dto(source):
-    """A fresh copy per write: the writers mutate their input dicts."""
+    """A fresh copy, for a caller that mutates its input."""
     return copy.deepcopy(source)

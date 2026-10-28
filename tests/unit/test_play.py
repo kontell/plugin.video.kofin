@@ -75,8 +75,8 @@ def test_stream_url_unplayable_raises():
 def test_stream_url_live_channel_never_takes_the_static_branch():
     # A live channel's source claims SupportsDirectPlay, but
     # /stream?static=true of an infinite stream hands the demuxer a download
-    # that never begins (pvr sync plan P0b). The opened live stream's
-    # TranscodingUrl is the stream that plays.
+    # that never begins. The opened live stream's TranscodingUrl is the stream
+    # that plays.
     url, method = play.stream_url(
         SERVER,
         {"Type": "TvChannel", "Id": "c1"},
@@ -96,7 +96,7 @@ def test_stream_url_live_channel_never_takes_the_static_branch():
 def test_stream_url_live_channel_plays_the_provider_direct():
     # The server allowed direct play: the source's Path is the provider's
     # own stream, and that is what plays — the one live stream whose clock
-    # every member shares (P4).
+    # every member shares.
     url, method = play.stream_url(
         SERVER,
         {"Type": "TvChannel", "Id": "c1"},
@@ -215,9 +215,7 @@ def test_rewrite_bitrates_replaces_server_values():
 
 
 def test_rewrite_bitrates_small_budget_keeps_video_positive():
-    # The bug a fixed 384k reservation causes: a 0.5 Mbit/s context transcode
-    # would leave VideoBitrate at 116000 with a flat reservation, and the
-    # server rejects anything negative once the budget drops below it.
+    # audio = min(384k, budget/10), so a small budget leaves video most of it.
     out = play.rewrite_bitrates("http://s/x?a=1", 500_000, 384)
     assert "AudioBitrate=50000" in out
     assert "VideoBitrate=450000" in out
@@ -394,7 +392,7 @@ def test_choose_bitrate_source_and_fractional(monkeypatch):
         "kofin.core.settings.localized",
         lambda sid: "Default" if sid == 30206 else "Play with transcoding",
     )
-    # 0 == no override, plus a fractional option; both are valid tokens now.
+    # 0 is no override, and a fractional rate is a valid token.
     assert context.choose_bitrate(["0", "0.5", "10"]) == "0"
     assert captured["labels"] == ["Default", "0.5 Mbit/s", "10 Mbit/s"]
 
@@ -575,8 +573,8 @@ def test_resume_true_starts_at_the_server_position(resume_env):
 
 
 def test_play_from_beginning_builds_the_item_without_a_resume_point(resume_env):
-    # resume:false is Kodi saying "Play from beginning". It landed on the
-    # server resume point anyway, because build() stamps one on everything.
+    # resume:false is Kodi saying "Play from beginning", and build() would
+    # otherwise stamp the server's resume point.
     run_play({"id": "ep1"}, resume=False)
     assert resume_env["api"].start_ticks == [0]
     assert resume_env["built"]["resume_seconds"] == 0.0
@@ -605,8 +603,8 @@ def test_resume_start_carries_the_offset(resume_env):
 
 
 # Kodi seeks a library item to the bookmark in its own database and ignores
-# what the resolved item says, so for a library row that bookmark is the start
-# position — and it already carries the offset, applied when the sync wrote it.
+# what the resolved item says, so for a library row that bookmark, taken
+# verbatim, is the start position.
 
 
 def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
@@ -618,8 +616,8 @@ def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
         "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 200.0
     )
     run_play({"id": "ep1", "dbid": "8956"}, resume=True)
-    # 200, not 590: the server's position is not what Kodi is about to seek to,
-    # and not 190 either -- the offset is already in the bookmark.
+    # 200, not 590 or 190: Kodi seeks to its own bookmark, whatever the
+    # server's position or the offset.
     assert resume_env["api"].start_ticks == [200 * 10_000_000]
     assert resume_env["built"]["resume_seconds"] == 200.0
 
@@ -745,15 +743,15 @@ def _transcoding_source(resume_env, monkeypatch, **overrides):
 
 
 def test_forced_transcode_denies_the_video_stream_copy(resume_env, monkeypatch):
-    """The context item's forced transcode must re-encode the video: sizing it
-    to the source alone let the server copy the video and squeeze the audio."""
+    """The context item's forced transcode must re-encode the video, or the
+    server may copy the video and squeeze the audio."""
     _transcoding_source(resume_env, monkeypatch)
     run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
     assert "allowVideoStreamCopy=false" in resume_env["li"].path
 
 
 def test_force_transcode_setting_denies_it_too(resume_env, monkeypatch):
-    """Same for the Advanced-tab toggle, which is how the copy was observed."""
+    """Same for the Advanced-tab toggle."""
     resume_env["addon"].store["forceTranscode"] = "true"
     _transcoding_source(resume_env, monkeypatch)
     run_play({"id": "ep1"}, resume=False)
@@ -771,9 +769,9 @@ def test_unforced_transcode_leaves_the_copy_decision_alone(resume_env, monkeypat
 def test_forced_transcode_spends_the_bitrate_the_user_picked(resume_env, monkeypatch):
     """The 3 Mbit/s pick is the budget, not a ceiling the source lowers.
 
-    The source here reports 2,231,688 — sizing the transcode down to that was
-    what left the video share above the source's own video bitrate, which is
-    the copy Jellyfin then took.
+    The source here reports 2,231,688: sized down to that, the video share
+    would sit above the source's own video bitrate, and Jellyfin would copy
+    the video.
     """
     _transcoding_source(resume_env, monkeypatch)
     run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
@@ -834,9 +832,9 @@ def test_music_transcode_is_not_touched(resume_env, monkeypatch):
 
 # --- stream selection ---------------------------------------------------------
 #
-# The indices only bind when MediaSourceId travels with them: measured, a
-# PlaybackInfo carrying AudioStreamIndex and no source id came back with the
-# server's own default and no error (plan §2.6).
+# The indices only bind when MediaSourceId travels with them: a PlaybackInfo
+# carrying AudioStreamIndex and no source id answers with the server's own
+# default and no error.
 
 
 def test_stream_indices_travel_with_the_source_id(resume_env):
@@ -899,18 +897,15 @@ def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
     )
     formats = {entry["Format"] for entry in profile["SubtitleProfiles"]}
     # Withdrawing the image formats is what makes the server answer Encode
-    # for a PGS track instead of handing back a 37 MB .sup (plan §2.2).
+    # for a PGS track instead of handing back the .sup.
     assert "pgssub" not in formats and "dvdsub" not in formats
     assert "srt" in formats
 
 
 # --- a download beats the network, online too ---------------------------------
 #
-# The library row of a downloaded item points at the file, so playing one from
-# the library never reaches this route. Everything that plays by *id* does —
-# and a SyncPlay group start has no library row to go through by construction,
-# which is how a follower ended up streaming media the initiator was playing
-# off its own disk.
+# A download leaves the library row on its plugin URL, so every play of a
+# downloaded item reaches this route, a SyncPlay group start included.
 
 
 @pytest.fixture
@@ -982,7 +977,7 @@ def test_a_request_naming_a_stream_still_streams(downloaded_env, params):
     assert downloaded_env["li"].path.startswith("http")
 
 
-# --- offline behaviour (plan W2.2) -------------------------------------------
+# --- offline behaviour --------------------------------------------------------
 
 
 @pytest.fixture
@@ -1010,8 +1005,8 @@ def offline_env(tmp_path, monkeypatch):
 
 
 def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch):
-    """Offline this used to spend the transport's whole budget — ~8 s of
-    spinner — before a generic failure (feasibility V8)."""
+    """Offline, an item that is not downloaded is refused before any
+    transport is built."""
     from kofin.plugin import play as play_module
     from kofin.plugin.router import Request
 
@@ -1035,9 +1030,8 @@ def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch
 
 
 def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
-    """A library row points at its file already; this is the kofin-listing
-    path (Continue watching, a widget), where refusing to play a file on
-    disk would be absurd."""
+    """Offline, a downloaded item plays from its file, whether a library row,
+    a kofin listing or a widget asks."""
     from kofin.downloads import store
     from kofin.plugin import play as play_module
     from kofin.plugin.router import Request
@@ -1121,10 +1115,9 @@ def _stamp_play(play_module, monkeypatch, params, resume=False):
 
 
 def test_offline_resumes_from_kodis_own_bookmark(offline_env, monkeypatch):
-    """audit A2-M7: offline the server has no position to give, so a resume
-    from a kofin listing or a widget restarted from zero while the library
-    row beside it resumed. Kodi's own bookmark is reachable and is the
-    number Kodi acts on, so the resolved item carries it."""
+    """Offline the server has no position to give. Kodi's own bookmark is
+    reachable and is the number Kodi acts on, so the resolved item carries
+    it."""
     from kofin.plugin import play as play_module
 
     _offline_download(offline_env)
@@ -1170,7 +1163,7 @@ def test_offline_zero_bookmark_stamps_nothing(offline_env, monkeypatch):
 
 def test_offline_without_a_kodi_bookmark_stamps_nothing(offline_env, monkeypatch):
     """No row Kodi knows, or a media kind it keeps no resume for: the play
-    starts where it always did rather than at a guessed position."""
+    starts from the beginning rather than at a guessed position."""
     from kofin.downloads import store
     from kofin.plugin import play as play_module
     from kofin.plugin.router import Request
@@ -1237,9 +1230,8 @@ def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
 def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(
     resume_env, monkeypatch
 ):
-    """Three opens of kofin.db were 1.8 s of a 2.6 s resolve on a Raspberry
-    Pi 3, on every track of a queue: the route pools them, as the provider
-    does."""
+    """A kofin.db open is slow on a small device and a queue resolves every
+    track, so the route pools its connections, as the provider does."""
     pooled = []
     monkeypatch.setattr(play.private, "pool_connections", pooled.append)
     run_play({"id": "ep1"}, resume=False)

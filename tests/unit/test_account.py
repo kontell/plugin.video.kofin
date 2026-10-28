@@ -149,10 +149,9 @@ def test_login_wrong_password_leaves_logged_out(kodi_fakes, monkeypatch):
 
 
 def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
-    """A proxy redirecting http to https, or an address missing its path,
-    answers the ping with a 3xx. Both transports refuse it now (audit F4),
-    and the toast carries the Location — "unreachable" would send the user
-    checking cables when the fix is the address they typed."""
+    """A ping answered with a 3xx (a proxy redirecting to https, an address
+    missing its path) fails the login with a toast naming the Location, not
+    "unreachable"."""
 
     def redirect(h, a):
         raise HttpError(
@@ -227,9 +226,8 @@ def _api_raising(error, monkeypatch):
 
 
 def test_connection_reports_a_server_error_instead_of_raising(kodi_fakes, monkeypatch):
-    """A 5xx is neither "unreachable" nor "session rejected": the server
-    answered, badly. Before, it was an uncaught HttpError out of a settings
-    button (assessment P2)."""
+    """A 5xx is a server error, neither "unreachable" nor "session
+    rejected"."""
     _logged_in()
     fake = _api_raising(HttpError(500, "HTTP 500 for /System/Info/Public"), monkeypatch)
 
@@ -251,8 +249,8 @@ def test_connection_still_names_an_unreachable_server(kodi_fakes, monkeypatch):
 
 
 def test_connection_success_names_server_and_version(kodi_fakes, monkeypatch):
-    """P1.11: the happy path — the toast names the server, and the client
-    is closed on the way out like every other outcome."""
+    """The toast names the server and its version, and the client is
+    closed."""
     _logged_in()
 
     class HappyApi:

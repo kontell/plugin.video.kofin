@@ -47,9 +47,8 @@ def test_the_property_is_the_one_state_declares():
 
 def test_a_url_is_built_twice_at_once_and_the_third_request_is_turned_away():
     """Kodi asks for a home widget again at every visit to Home, whether or
-    not the last request has answered. Nothing bounded them, and on a
-    Raspberry Pi 3 thirty requests for the add-on's root were waiting each
-    time Kodi aborted for want of a thread."""
+    not the last request has answered, and unbounded requests pile up until
+    Kodi runs out of threads."""
     url = BASE + "?"
     first, second = gate.claim(url), gate.claim(url)
     assert first and second and first != second
@@ -216,10 +215,9 @@ def test_the_entry_script_gives_the_slot_back_when_the_listing_fails(
 
 
 def test_a_request_turned_away_has_imported_none_of_the_rest_of_kofin():
-    """The point of deciding in default.py: turned away after the router's
-    imports, a request still took forty seconds on a loaded Raspberry Pi 3
-    and Kodi aborted all the same. Checked in a subprocess so this test's
-    own imports cannot mask a regression."""
+    """The gate decides in default.py because a request turned away after
+    the router's imports has already paid for them. Checked in a subprocess
+    so this test's own imports cannot mask a regression."""
     code = (
         "import sys, xbmcgui\n"
         "store = {}\n"

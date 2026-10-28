@@ -100,14 +100,9 @@ def test_dispatch_tolerates_a_trailing_slash_on_the_mode(routed):
 
 
 def test_dispatch_tolerates_a_trailing_slash_on_the_last_parameter(routed):
-    """The slash lands on whichever parameter is last, not on the mode — so
-    answering it on the mode alone only ever covered the routes that take no
-    other parameter. Verified on Omega 21.3: a node whose <path> was
-    ?mode=browse&view=…&type=movies&folder=all/ reached browse with
-    folder="all/", node_query matched no branch, and the listing asked the
-    server for a container with that id. The server answered 400, the route
-    failed the fetch, and the node read as broken while the single-parameter
-    ?mode=continuewatching/ node beside it worked."""
+    """The slash lands on whichever parameter is last, not on the mode:
+    folder="all/" matches no node_query branch, and the listing asks the
+    server for a container with that id."""
     router.dispatch(argv("?mode=browse&view=abc&type=movies&folder=all/"))
 
     mode, request = routed[0]
@@ -168,10 +163,7 @@ def test_an_action_route_has_its_handle_closed(routed, ended):
     """Under reuselanguageinvoker the invoker thread parks instead of exiting,
     and Kodi marks a script done only when the thread exits — so a route that
     leaves its handle open makes CScriptRunner::WaitOnScriptResult wait on
-    IsRunning() forever, on a first loop that has no timeout. Measured live:
-    mode=streams reached as a directory ran in 2 ms and hung its caller
-    indefinitely. Closing the handle restores the fail-fast the IPC routes
-    (syncplay, adduser) were written against."""
+    IsRunning() forever, on a first loop that has no timeout."""
     router.dispatch(argv("?mode=syncplay", handle="7"))
 
     assert ended == [(7, False)]
@@ -204,9 +196,8 @@ def test_a_handleless_invocation_closes_nothing(routed, ended):
 def test_importing_the_router_imports_no_handler_modules():
     """The lazy table is the point: on a cold invocation whatever the router
     pulls in is paid again, and invoker reuse only spares the clicks that
-    happen to keep the thread (docs/perf-hardening-plan.md W1.2, W4.4).
-    Checked in a subprocess so this test's own imports cannot mask a
-    regression."""
+    happen to keep the thread. Checked in a subprocess so this test's own
+    imports cannot mask a regression."""
     lib = str(Path(__file__).resolve().parents[2] / "lib")
     code = (
         "import sys; sys.path.insert(0, %r); "
@@ -238,9 +229,9 @@ def _raising(mode_to_raise):
 
 def test_a_listing_handler_that_raises_still_closes_its_handle(ended, monkeypatch):
     """Every listing route catches only JellyfinError and closes its own
-    handle on that path; anything else escaped with the handle open, and
-    under invoker reuse an open handle is a caller that waits forever
-    (assessment P1). The exception still propagates."""
+    handle on that path; anything else would escape with the handle open,
+    and under invoker reuse an open handle is a caller that waits forever.
+    The exception still propagates."""
     monkeypatch.setattr(router, "_resolve", _raising("browse"))
     with pytest.raises(RuntimeError):
         router.dispatch(argv("?mode=browse", "7"))
@@ -276,10 +267,9 @@ def test_a_listing_handler_that_returns_is_left_to_close_itself(
 
 
 def test_a_listing_that_is_not_native_imports_none_of_the_provider():
-    """Every home widget's request used to import the scanner provider to
-    learn that its path was not the provider's: 3 s of a fresh interpreter
-    on a Raspberry Pi 3 at rest, more under an import, on every request.
-    Checked in a subprocess so this test's own imports cannot mask it."""
+    """Every home widget's request is dispatched, and learning that its path
+    is not the provider's must not import the provider. Checked in a
+    subprocess so this test's own imports cannot mask it."""
     lib = str(Path(__file__).resolve().parents[2] / "lib")
     code = (
         "import sys; sys.path.insert(0, %r); "

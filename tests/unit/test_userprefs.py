@@ -176,10 +176,8 @@ def test_every_field_label_and_option_has_a_string():
 
 def test_the_caveat_names_the_setting_the_way_the_account_tab_labels_it():
     """The caveat row tells the user which switch to go and find, so it has to
-    quote that switch's own label. It shipped saying "Honour Jellyfin default
-    tracks" while the Account tab calls it "Use Jellyfin's default tracks" --
-    caught on a real box, and nothing else would have: both strings resolve,
-    both render, and only a person hunting the settings tree finds out."""
+    quote that switch's own label. Nothing else would catch a mismatch: both
+    strings resolve and both render."""
     with open(
         "resources/language/resource.language.en_gb/strings.po", encoding="utf-8"
     ) as handle:

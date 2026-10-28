@@ -1,4 +1,4 @@
-"""The one deletion primitive under the generated trees (P2.1, nodes/fs.py):
+"""The one deletion primitive under the generated trees (nodes/fs.py):
 gated on the ``kofin`` prefix everywhere, so what the user put beside our
 files survives every reconcile and every teardown."""
 

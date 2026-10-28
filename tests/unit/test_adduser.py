@@ -480,9 +480,8 @@ def test_restore_empty_setting_adds_nobody(monkeypatch):
 
 
 def test_restore_publishes_the_names_for_the_root_label(monkeypatch):
-    """The connect-time restore feeds state.PROP_WHO_NAMES; the root listing
-    renders its label from that property alone, with no /Sessions round trip
-    per render (perf plan W1.4)."""
+    """The connect-time restore feeds state.PROP_WHO_NAMES, which the root
+    listing renders its label from."""
     FakeAddon.store = {"whoIsWatching": "u2"}
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)

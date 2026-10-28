@@ -50,9 +50,7 @@ def test_playcount_follows_played_not_the_count():
     """An item marked unwatched is unwatched, whatever its history.
 
     Jellyfin keeps PlayCount when Played goes false, so the count on its own
-    says "has been watched before", not "is watched" -- on a real library that
-    is a few percent of the items, which is what made the watched flags in
-    dynamic listings look randomly wrong.
+    says "has been watched before", not "is watched".
     """
     unmarked = {"UserData": {"PlayCount": 4, "Played": False}}
     assert listitems.playcount_of(unmarked) == 0
@@ -80,8 +78,7 @@ def test_resume_of_carries_the_resume_offset(fake_addon):
 
 def test_resume_of_with_a_precomputed_offset_never_reads_settings(monkeypatch):
     """Listings pass resume_offset once for the whole page: every read builds
-    a fresh Addon (settings._addon), and at one per row that construction was
-    most of a large listing's build time (perf plan W1.1)."""
+    a fresh Addon (settings.get_addon)."""
 
     def forbidden() -> float:
         raise AssertionError("resume_offset must not be read when one is passed")
@@ -289,9 +286,8 @@ def test_build_stamps_mediatype_on_episodes(recorded):
 @pytest.mark.parametrize(
     "stream, expected",
     [
-        # Every VideoRangeType a real library reports, sampled from the test
-        # server: the DOVI* variants all carry DvProfile, which is why the
-        # profile and not the range type is what decides Dolby Vision.
+        # The DOVI* variants all carry DvProfile, which is why the profile and
+        # not the range type is what decides Dolby Vision.
         ({"VideoRangeType": "DOVIWithHDR10", "DvProfile": 8}, "dolbyvision"),
         ({"VideoRangeType": "DOVIWithHDR10Plus", "DvProfile": 10}, "dolbyvision"),
         ({"VideoRangeType": "DOVIInvalid", "DvProfile": 5}, "dolbyvision"),
@@ -354,8 +350,8 @@ def test_build_for_a_scanner_row_stamps_only_a_real_resume_point(recorded):
 
 
 def test_art_query_is_memoised_for_a_moment(monkeypatch):
-    """Two settings reads an item, each a fresh Addon, made a 1,788-movie
-    listing 80 s on a Raspberry Pi; the query is read once per two seconds."""
+    """Each settings read builds a fresh Addon, so the query is read once per
+    two seconds, not twice per item."""
     from kofin.plugin import listitems
 
     reads = []
@@ -379,10 +375,9 @@ def test_art_query_is_memoised_for_a_moment(monkeypatch):
 
 
 def test_a_persons_portrait_is_capped_at_400_whatever_the_artwork_cap(monkeypatch):
-    """The video scanner caches a row's actor thumbs at import; uncapped they
-    were 3,615 full-size decodes beside 3,239 capped posters on a tablet.
-    Under the artwork cap alone they still came at up to 1080 high, which
-    for most portraits is no cap: a portrait is a thumb beside a name."""
+    """The video scanner caches a row's actor thumbs at import, and a
+    portrait is a thumb beside a name, so the artwork cap alone is too high
+    for it."""
     person = {"Id": "p1", "PrimaryImageTag": "t1"}
     cases = (
         (1080, True, "&MaxHeight=400&MaxWidth=400&Quality=90"),
