@@ -2,14 +2,10 @@
 
 Pure python (no Kodi imports) so the whole network stack is unit-testable.
 
-``requests`` is imported inside the methods that use it, not at module load:
-importing this module must stay free. The requests tree costs ~1 s inside
-Kodi's Python (no bytecode cache), and routes that never talk to the server —
-a node menu, a settings button — import this module through the Api plumbing
-all the same (docs/perf-hardening-plan.md W1.2). Invoker reuse amortises that
-cost when it happens, but it is opportunistic — Kodi keeps one reusable thread
-for the whole system, so anything else running Python between two clicks sends
-the next one back to a cold interpreter.
+``requests`` is imported inside the methods that use it, not at module load,
+so importing this module stays cheap: routes that never talk to the server —
+a node menu, a settings button — import it through the Api plumbing all the
+same.
 """
 
 import random
@@ -33,22 +29,19 @@ BACKOFF_BASE_SECONDS = 0.5
 STREAM_CHUNK_BYTES = 262_144
 
 # Default retry budget per method, applied when the caller passes none. GETs
-# replay safely. A DELETE states an absolute fact (unfavorite, mark unplayed,
-# close this transcode) and gets one replay. POST gets none: the transport
-# cannot tell "never arrived" from "response lost after the server acted", and
-# a replayed POST double-applies — a second SyncPlay group, a queue item added
-# twice, a group advanced two items, a duplicate playback-history row, a
-# second AutoOpenLiveStream transcode session nothing ever closes. A caller
-# whose POST is an absolute-state write may opt back in with an explicit
+# replay safely. A DELETE states an absolute fact and gets one replay. POST
+# gets none: the transport cannot tell "never arrived" from "response lost
+# after the server acted", and a replayed POST double-applies. A caller whose
+# POST is an absolute-state write may opt back in with an explicit
 # ``retries``.
 METHOD_RETRIES = {"GET": RETRIES, "HEAD": RETRIES, "DELETE": 1}
 
 # Answers that mean "not now" rather than "no": a reverse proxy holding the
 # door while Jellyfin restarts (502/504), a server still warming up (503), a
 # rate limiter (429). They ride the same ladder as a transport error, for
-# the methods that carry a budget — POST still gets none (audit F7). Not
-# 500: Jellyfin answers deterministic 500s for broken items, and replaying
-# those would only slow a walk by three backoffs per request.
+# the methods that carry a budget — POST still gets none. Not 500: Jellyfin
+# answers deterministic 500s for broken items, and replaying those would only
+# slow a walk by three backoffs per request.
 RETRY_STATUSES = (429, 502, 503, 504)
 
 
@@ -78,17 +71,11 @@ def run_ladder(
     transport_errors: Tuple[Type[BaseException], ...],
     abort: Optional[Callable[[], bool]] = None,
 ) -> Any:
-    """The one retry ladder both transports ride (P1.9): backoff, the
-    abort check between attempts, the per-request log line, and the
-    status taxonomy.
+    """The one retry ladder both transports ride: backoff, the abort check
+    between attempts, the per-request log line, and the status taxonomy.
 
-    The abort check is measured, not assumed: a black-holed GET rides the
-    full ladder — 4 attempts x (6s connect + 30s read) plus backoff, about
-    147s, none of which would consult the stop flag. Kodi will not finalise
-    a script while a thread it started is alive, so it sits on "waiting on
-    thread <id>" for exactly that long and every later Python invocation
-    queues behind it. Giving up here bounds the damage at the one read
-    already in flight.
+    Abort is checked between attempts because Kodi will not finalise a
+    script while a thread it started is alive.
     """
     last_error: Optional[BaseException] = None
     for attempt_index in range(retries + 1):
@@ -99,8 +86,7 @@ def run_ladder(
                 )
             delay = BACKOFF_BASE_SECONDS * (2 ** (attempt_index - 1))
             time.sleep(delay + random.uniform(0, delay / 2))
-            # sleep() cannot see the flag; a stop that lands during backoff
-            # used to start another full-timeout GET. Check again.
+            # sleep() cannot see the flag; check again.
             if abort is not None and abort():
                 raise ServerUnreachable(
                     "%s %s: abandoned while stopping (%s)" % (method, url, last_error)
@@ -118,11 +104,9 @@ def run_ladder(
             last_error = error
             continue
 
-        # Every request, not just the failures: the scenario gates assert
-        # request *counts* ("zero per-show /Episodes calls", "3067 fetches
-        # to 0"), and those are ungreppable if only errors are logged.
-        # Debug level, and masked like every other line — kofin's auth
-        # rides in headers, so the query string carries no secret.
+        # Every request, not just the failures, so request counts can be read
+        # from the log. Debug level, and masked like every other line; kofin's
+        # auth rides in headers, so the query string carries no secret.
         sent = getattr(response, "request", None)
         LOG.debug(
             "http %s %s -> %d",
@@ -147,13 +131,8 @@ def run_ladder(
             )
             continue
         if 300 <= response.status_code < 400:
-            # A redirect is refused on both transports rather than followed
-            # by one of them (audit F4): requests followed it silently while
-            # the stdlib plugin transport handed the empty 302 body back as
-            # an empty library — a working service beside a plugin listing
-            # nothing. Nobody had a working redirected address, so refusing
-            # costs no one and names the cause at login: the Location is
-            # the address the user should have entered.
+            # A redirect is refused on both transports: the Location is the
+            # address the user should have entered.
             location = (getattr(response, "headers", None) or {}).get("Location")
             raise HttpError(
                 response.status_code,
@@ -173,11 +152,8 @@ def run_ladder(
 def plugin_transport(verify_ssl: bool = True) -> "Http":
     """The transport for the *plugin* process.
 
-    Standard library rather than ``requests``, because a plugin invocation is
-    short-lived and never reuses its interpreter: importing requests costs
-    ~1 s inside Kodi's Python on both test boxes and is paid on every click
-    that talks to the server. The service keeps the requests path
-    (kofin/core/stdhttp.py explains the split).
+    Standard library rather than ``requests``, because the requests import is
+    paid on every cold click (kofin/core/stdhttp.py explains the split).
 
     Imported here rather than at module load so this module stays free of
     both trees until something actually asks for one.
@@ -207,9 +183,8 @@ class StreamedResponse:
     ) -> None:
         self._response = response
         self._abort = abort
-        # The server answered 416 to a resume offset: the range starts at or
-        # past the end, i.e. everything was already fetched (feasibility V1;
-        # jellyfin-android reads the same answer the same way).
+        # The server answered 416 to a resume offset: everything was already
+        # fetched.
         self.already_complete = already_complete
 
     @property
@@ -338,9 +313,8 @@ class Http:
         The download manager owns retry and resume policy: a replayed
         multi-GB body is never the transport's call to make, and the
         manager's resume watermark decides where the next attempt starts.
-        ``start`` resumes with a Range header (server support verified,
-        feasibility V1); a 416 answer comes back as ``already_complete``
-        rather than an error, because for a resume it means exactly that.
+        ``start`` resumes with a Range header; a 416 answer comes back as
+        ``already_complete`` rather than an error.
         """
         import requests
 

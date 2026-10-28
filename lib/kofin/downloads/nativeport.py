@@ -7,8 +7,7 @@ the badge and the tag reach the row through the catalogue's pass, which
 re-plans the item with its download state as an input
 (sync/backends/api/downloaded.py). Kodi's own play state is read back
 through JSON-RPC by the mapped id, so the retention sweep still works
-offline, and the local watched mark of a vanished download is left to the
-server round-trip that already follows it.
+offline.
 """
 
 from datetime import datetime
@@ -70,9 +69,6 @@ _READ = {
 
 
 class NativeApi:
-    """Nothing of Kodi's moves; the catalogue's pass carries the badge and
-    the tag, and the play state is read back by id."""
-
     @staticmethod
     def _store() -> Any:
         from kofin.sync.backends.api.identity import current_store
@@ -80,10 +76,8 @@ class NativeApi:
         return current_store()
 
     def attached(self, row: Any, root: str) -> bool:
-        """The row keeps its plugin URL (the resolver plays the file); the
-        pass is handed the item once, for the badge and the tag. Always
-        true: the startup reconcile re-plans every done file, which is how
-        a finish that died before this call still gets its badge."""
+        """Always true: the startup reconcile re-plans every done file,
+        which is how a finish that died before this call gets its badge."""
         self._replan(row)
         return True
 

@@ -9,8 +9,7 @@ directory an item belonged to from generation ``added`` until generation
 clause rather than a copy of every payload. ``api_native`` is the validated
 cache of Kodi identities with a small summary of what was applied -- the
 keys Kofin owns and the userdata it last wrote -- never a second copy of the
-payload. The 0.90.0 store kept a 38.7 MB JSON blob per generation beside the
-payloads it duplicated; `kofin.db` reached 235 MB on 1,792 movies.
+payload.
 """
 
 import hashlib
@@ -65,10 +64,8 @@ def payload_hash(payload):
     about the item, and the server does not give one answer for it: an album
     whose data was saved under ``<artist>-<album>`` before its MusicBrainz
     release group was known answers with that key or with the release
-    group's, depending on Jellyfin's user data cache (the single-item and
-    list endpoints disagreed, minutes apart). In the digest it moved 30
-    album hashes between one complete enumeration and the next, and the
-    repair pass after each rewrote all 30 with what they already held."""
+    group's, depending on Jellyfin's user data cache, which would move an
+    unchanged album's hash."""
     userdata = payload.get("UserData") if isinstance(payload, dict) else None
     if isinstance(userdata, dict) and "Key" in userdata:
         payload = dict(
@@ -794,8 +791,7 @@ class Store(Catalogue):
 
     def folders(self, kind, library, pinned=True) -> List[str]:
         """The directory keys live items of ``kind`` file under, without
-        loading a payload: a root listing of 22,000 songs needs their
-        1,500 albums, not their text."""
+        loading a payload."""
         with Database() as db:
             self._prepare(db.cursor)
             generation = self._generation(db.cursor, pinned)
@@ -1035,17 +1031,12 @@ class Store(Catalogue):
                 )
             if count and root:
                 # One collection for the batch: the query's "still pending"
-                # subquery scans the item table, and once per item it turned
-                # a whole-library removal into minutes of SQLite.
+                # subquery scans the item table.
                 self._collect(db.cursor, root[1] if root[1] is not None else root[0])
         return count
 
     def invalidate(self, item_ids: Iterable[str]):
-        """Put applied upserts back to pending; their desired state is unchanged.
-
-        Used when Kodi replaced the rows behind them -- a show refresh
-        re-creates every episode -- so identities and userdata need a pass.
-        """
+        """Put applied upserts back to pending; their desired state is unchanged."""
         ids = list(item_ids)
         if not ids:
             return
@@ -1081,7 +1072,7 @@ class Store(Catalogue):
 
     def salt(self, folder) -> int:
         """How many times a music directory's listing has been salted: a
-        directory whose by-name scan left its songs missing is one Kodi
+        directory whose scan left its songs missing is one Kodi
         skips "due to no change" (its hash was stored by a scan stopped
         before the songs were written); salting the dates moves the hash."""
         with Database() as db:
@@ -1093,8 +1084,7 @@ class Store(Catalogue):
         return int(row[0]) if row else 0
 
     def salts(self) -> Dict[str, int]:
-        """Every salted directory with its salt, in one read: a listing of
-        1,557 album directories asked for them one database open at a time."""
+        """Every salted directory with its salt, in one read."""
         with Database() as db:
             self._prepare(db.cursor)
             rows = db.cursor.execute(

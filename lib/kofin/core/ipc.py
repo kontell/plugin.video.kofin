@@ -28,23 +28,16 @@ AUTH_CHANGED = "AuthChanged"
 # Library-manager commands (settings buttons / picker -> RunPlugin ->
 # ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}; an
 # empty UpdateLibrary payload means the whole whitelist. The library's own
-# SyncLibrary command has no message here: its two producers (the whitelist
-# applier and the boxset drift probe) run in the service and enqueue it on
-# the Library directly, and a message nobody sends is a message only a
-# forger would.
+# SyncLibrary command has no message here: its one producer, the whitelist
+# applier, runs in the service and enqueues it on the Library directly, and
+# a message nobody sends is a message only a forger would.
 REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
 
-# SyncPlay (phase 4): the root entry's plugin invocation asks the service —
-# the single owner of all SyncPlay state — to open the group menu on its
-# worker thread. No payload.
-#
-# The *public* SyncPlay provider contract is deliberately not here: its
-# inbound messages are other add-ons' to send (their sender id, no nonce —
-# nothing irreversible crosses that bus), and kofin's one outbound message
-# (SyncSession.State) is declared and sent in core/contract.py, the second,
-# public registry (plan G2.1).
+# SyncPlay: the root entry's plugin invocation asks the service — the single
+# owner of all SyncPlay state — to open the group menu on its worker thread.
+# No payload. The public SyncPlay provider contract is core/contract.py's.
 SYNCPLAY_MENU = "SyncPlayMenu"
 
 # Who's watching?: same shape, and for the same reason. A plugin invocation
@@ -53,14 +46,10 @@ SYNCPLAY_MENU = "SyncPlayMenu"
 # exiting lets the fetch fail out cleanly while the service puts the picker up.
 WHO_IS_WATCHING = "WhoIsWatching"
 
-# Offline downloads (docs/offline-downloads-plan.md W1.5): the context menu
-# runs in the plugin process, the download manager in the service. ADD and
-# REMOVE carry {"Ids": [...]} (the sender expands seasons/series/albums),
-# CANCEL carries {"Id": ...}. REMOVE_ALL carries nothing: the settings button
-# confirmed against the store's own count, and one message beats a NotifyAll
-# per row — which is the same reason REMOVE takes a list: a removal answers
-# once, with one refresh and one toast, and cannot do that if the batch
-# reaches the manager as one message per row.
+# Offline downloads: the context menu runs in the plugin process, the
+# download manager in the service. ADD and REMOVE carry {"Ids": [...]} (the
+# sender expands seasons/series/albums), so a batch answers once. CANCEL
+# carries {"Id": ...}; REMOVE_ALL carries nothing.
 DOWNLOAD_ADD = "DownloadAdd"
 DOWNLOAD_CANCEL = "DownloadCancel"
 DOWNLOAD_REMOVE = "DownloadRemove"
@@ -77,14 +66,12 @@ ATTACH_SUBTITLE = "AttachSubtitle"
 # Payload {"Id": "<playlist>"} applies one; empty reconciles the enabled sides.
 SYNC_PLAYLISTS = "SyncPlaylists"
 # Play all (plugin/playall.py) builds the music queue in the plugin process
-# and asks the service to start it. Kodi resolves the first track with a
-# plugin request of its own, which gets the interpreter Kodi keeps warm only
-# if the script before it has ended; started from the plugin, the first
-# track was always asked for before then and got a cold one. The queue is
-# Kodi's music playlist; the payload {"Count": n, "Owner": token} is how many
-# tracks the plugin is about to add to it, after the request, and which
-# Play all asked (state.take_queue). Not guarded: a forged one starts the
-# queue the viewer already has.
+# and asks the service to start it, so that the first track's plugin request
+# gets the interpreter Kodi keeps warm, which is free only once the script
+# before it has ended. The queue is Kodi's music playlist; the payload
+# {"Count": n, "Owner": token} is how many tracks the plugin is about to add
+# to it, after the request, and which Play all asked (state.take_queue). Not
+# guarded: a forged one starts the queue the viewer already has.
 START_QUEUE = "StartQueue"
 
 _REGISTRY = frozenset(
@@ -163,7 +150,7 @@ def rotate_nonce() -> str:
         # replaced atomically so a reader never sees half a token.
         temporary = path + ".tmp"
         # Created with the mode rather than chmod'ed after: open() takes the
-        # process umask, which left a 0644 window before the chmod (M2).
+        # process umask.
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w") as handle:
             handle.write(value)
@@ -197,7 +184,7 @@ def verify(method: str, data: Dict[str, Any], expected: str) -> bool:
     if not expected:
         return False
     # NotifyAll offers no useful timing channel, but a secret comparison
-    # is spelled as one everywhere else in the tree (audit M2).
+    # is spelled as one everywhere else in the tree.
     return hmac.compare_digest(str(data.get(NONCE_KEY, "")), expected)
 
 
@@ -217,12 +204,8 @@ def notify_now(method: str, data: Optional[Dict[str, Any]] = None) -> bool:
     The builtin is posted to Kodi's application thread, and returns before
     the message is out. This call returns once Kodi has taken the message,
     so one sent before a burst of other announcements arrives before them.
-    That is the measurement it rests on: a message sent after Play all had
-    added 230 tracks, each a ``Playlist.OnAdd`` for every Python monitor in
-    Kodi, reached the service 6.3-6.5 s later on a Raspberry Pi 3, through
-    either transport; sent through this call before the first track, it
-    arrived in about 0.1 s. JSON-RPC takes the payload as a value, so it
-    needs none of the builtin parser's encoding.
+    JSON-RPC takes the payload as a value, so it needs none of the builtin
+    parser's encoding.
     """
     if method not in _REGISTRY:
         raise ValueError("unregistered IPC message: %s" % method)
@@ -237,14 +220,10 @@ def notify_now(method: str, data: Optional[Dict[str, Any]] = None) -> bool:
 
 def _encode(data: Dict[str, Any]) -> str:
     # The builtin parser re-parses its arguments, so the payload is wrapped
-    # in a quoted single-element list (the scheme the old addon and
-    # AddonSignals use — receivers run json.loads(...)[0]). Hex rather than
-    # escaped JSON: CUtil::SplitParams lets only every second character be
-    # escaped, so a value containing a quote — json.dumps writes \" and the
-    # old escaping made it \\" — closed the parameter early and left the
-    # rest to be parsed as builtin syntax (audit M1). Hex has no quotes,
-    # commas or backslashes for the parser to see, and decode() already
-    # accepted it (the Up Next wire format).
+    # in a quoted single-element list (receivers run json.loads(...)[0]).
+    # Hex rather than escaped JSON: CUtil::SplitParams lets only every second
+    # character be escaped, so a quote would close the parameter early. Hex
+    # has no quotes, commas or backslashes for the parser to see.
     hexed = binascii.hexlify(json.dumps(data).encode("utf-8")).decode("ascii")
     return '"[\\"%s\\"]"' % hexed
 
@@ -254,7 +233,7 @@ def decode(data: str) -> Dict[str, Any]:
 
     Never raises: this runs on Kodi's notification thread, where the sender
     is whoever called NotifyAll — including a forger sending deliberate
-    rubbish (audit finding #21).
+    rubbish.
     """
     try:
         payload = json.loads(data)
