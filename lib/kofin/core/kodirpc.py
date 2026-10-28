@@ -363,18 +363,6 @@ def active_players() -> Any:
     return call("Player.GetActivePlayers")
 
 
-def tvshow_title(kodi_id: int) -> Optional[str]:
-    """A show's title from Kodi's own library, or None when the row is gone
-    or the call failed."""
-    result = call(
-        "VideoLibrary.GetTVShowDetails",
-        {"tvshowid": int(kodi_id), "properties": ["title"]},
-    )
-    details = result.get("tvshowdetails") if isinstance(result, dict) else None
-    title = details.get("title") if isinstance(details, dict) else None
-    return str(title) if title else None
-
-
 def kodi_setting(setting_id: str) -> Any:
     """The value of one of Kodi's own settings; None where this Kodi lacks
     the setting; ``FAILED`` when Kodi could not be asked."""
