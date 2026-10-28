@@ -74,7 +74,6 @@ class FakeMapping:
 class FakeState:
     def __init__(self):
         self._rows = {}
-        self._items = {}
 
     def get_playlist_state(self, jellyfin_id):
         return self._rows.get(jellyfin_id)
@@ -84,13 +83,6 @@ class FakeState:
 
     def remove_playlist_state(self, jellyfin_id):
         self._rows.pop(jellyfin_id, None)
-        self._items.pop(jellyfin_id, None)
-
-    def replace_playlist_items(self, playlist_id, item_ids):
-        self._items[playlist_id] = list(item_ids)
-
-    def get_playlist_items(self, playlist_id):
-        return self._items.get(playlist_id, [])
 
     def get_playlist_states(self):
         return [
@@ -299,18 +291,15 @@ def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
         ],
         items_by_id={"good": [{"Id": "a1", "Type": "Audio"}]},
     )
-    memberships = {}
     playlists.reconcile(
         api,
         state,
         {"Audio"},
         music_root=str(root),
-        audio_memberships=memberships,
         resolver=_audio_resolver(),
     )
     assert (root / "Old.m3u8").is_file()
     assert state.get_playlist_state("bad") is not None
-    assert memberships == {"good": ["a1"]}
     assert SONG_LINE in (root / "Gym.m3u8").read_text(encoding="utf-8")
 
 

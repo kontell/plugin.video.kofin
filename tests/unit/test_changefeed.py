@@ -237,11 +237,10 @@ def test_parse_record_absent_library_ids_is_unknown_not_empty():
 # --- checksum spelling --------------------------------------------------------
 
 
-def test_direct_mode_splits_from_plugin_mode_in_one_place():
+def test_a_reference_checksum_is_the_etag_with_the_plugin_suffix():
     from kofin.sync.policy import reference_checksum
 
     assert reference_checksum("abc") == "abc|plugin"
-    assert reference_checksum("abc", direct_path=True) == "abc|direct"
     assert reference_checksum(None) is None
 
 

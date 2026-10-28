@@ -51,3 +51,28 @@ def test_private_connection_refuses_native_kinds_and_arbitrary_paths(name):
     with pytest.raises(ValueError, match="Kofin-owned"):
         with private.Database(name):
             pass
+
+
+def test_the_schema_drops_the_tables_nothing_reads():
+    """A profile an earlier build filed holds playlist_item, boxset_state and
+    version; the schema drops them and keeps the tables it reads."""
+    import sqlite3
+
+    cursor = sqlite3.connect(":memory:").cursor()
+    cursor.execute("CREATE TABLE playlist_item(playlist_id TEXT, jellyfin_id TEXT)")
+    cursor.execute("CREATE INDEX playlist_item_song ON playlist_item(jellyfin_id)")
+    cursor.execute("CREATE TABLE boxset_state(jellyfin_id TEXT)")
+    cursor.execute("CREATE TABLE version(idVersion TEXT)")
+
+    private.kofin_tables(cursor)
+
+    names = {
+        row[0] for row in cursor.execute("SELECT name FROM sqlite_master").fetchall()
+    }
+    assert not names & {
+        "playlist_item",
+        "playlist_item_song",
+        "boxset_state",
+        "version",
+    }
+    assert {"jellyfin", "view", "playlist_state", "download"} <= names

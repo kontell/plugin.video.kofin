@@ -495,7 +495,6 @@ def apply_one(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
-    audio_memberships: Optional[Dict[str, List[str]]] = None,
     resolver: Any = None,
 ) -> bool:
     """Materialize one server playlist. True when a file was written or removed."""
@@ -516,14 +515,6 @@ def apply_one(
             state.remove_playlist_state(playlist_id)
             return True
         return False
-
-    if side == "Audio":
-        audio_ids = _audio_ids(items)
-        state.replace_playlist_items(playlist_id, audio_ids)
-        if audio_memberships is not None:
-            audio_memberships[playlist_id] = audio_ids
-    elif stored and stored[0] == "Audio":
-        state.replace_playlist_items(playlist_id, [])
 
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
@@ -581,7 +572,6 @@ def reconcile(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
-    audio_memberships: Optional[Dict[str, List[str]]] = None,
     resolver: Any = None,
 ) -> Dict[str, int]:
     """Full list + Etag skip + prune for the enabled sides."""
@@ -648,16 +638,9 @@ def reconcile(
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
             continue
-        if side == "Audio":
-            audio_ids = _audio_ids(items)
-            state.replace_playlist_items(playlist_id, audio_ids)
-            if audio_memberships is not None:
-                audio_memberships[playlist_id] = audio_ids
         etag = playlist.get("Etag") or ""
         checksum = reference_checksum(etag) if etag else ""
         stored = state.get_playlist_state(playlist_id)
-        if side != "Audio" and stored and stored[0] == "Audio":
-            state.replace_playlist_items(playlist_id, [])
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video

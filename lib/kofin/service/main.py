@@ -257,15 +257,14 @@ class Service(xbmc.Monitor):
         return self._restart_requested and not self.abortRequested()
 
     def _prepare_api_backend(self) -> None:
-        from kofin.sync.backend import create_backend
-        from kofin.sync.backends.api import capabilities
+        from kofin.sync.backends.api import APIBackend, capabilities
         from kofin.sync.backends.api import status as apistatus
         from kofin.sync.catalogue import BackendMismatch
         from kofin.sync.private import addon_data_path
         import os
 
         self._api_interfaces = False
-        backend = create_backend()
+        backend = APIBackend()
         report = backend.capabilities()
         try:
             backend.initialize()
