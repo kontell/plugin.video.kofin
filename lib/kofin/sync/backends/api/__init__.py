@@ -50,11 +50,7 @@ class APIBackend:
 
 
 def forget_companion():
-    """Delete what the Piers build kept for the companion add-on: its request
-    document, its set journal and its staged chapter images. A companion
-    still installed reads a missing document as one asking nothing, and on
-    Kodi 23 it refuses every database request anyway (its schema gate opens
-    at MyVideos149)."""
+    """Delete the companion/ folder an earlier build left in addon_data."""
     folder = os.path.join(private.addon_data_path(), "companion")
     if os.path.isdir(folder):
         shutil.rmtree(folder, ignore_errors=True)

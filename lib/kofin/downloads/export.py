@@ -1,14 +1,12 @@
-"""NFO and artwork export beside downloaded files (plan W4.3).
+"""NFO and artwork export beside downloaded files.
 
 An escape hatch, not a mirror: written once at download completion when
 ``downloadsExportMetadata`` is on, freshened never, and every piece is
 best-effort — an export failure must never fail the download that carried
-it. The NFOs carry **uniqueids** (the downloader-repo's omission that made
-its NFOs a dead end), episodes get a ``tvshow.nfo`` + show-level art in the
-show directory (a bare-profile TV scan is impossible without the show-level
-file; one series fetch, only when it is absent), and music albums get the
-``folder.jpg`` every scanner understands. Documents are hand-built strings
-with escaped values, the same shape as the Downloaded-music ``.xsp``.
+it. The NFOs carry **uniqueids**, episodes get a ``tvshow.nfo`` + show-level
+art in the show directory (a bare-profile TV scan is impossible without the
+show-level file), and music albums get the ``folder.jpg`` every scanner
+understands. Documents are hand-built strings with escaped values.
 """
 
 import os
@@ -23,10 +21,6 @@ LOG = Logger(__name__)
 JsonDict = Dict[str, Any]
 
 XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-
-# The order that decides which provider id is the default one is the
-# model's (model.unique_ids), so the library row's uniqueid and the .nfo
-# beside a download never default to different providers.
 
 
 def export_item(api: Any, item: JsonDict, media_path: str) -> None:
@@ -138,8 +132,7 @@ def tvshow_nfo(series: JsonDict) -> str:
 # The casing is Kodi's, and it is load-bearing: XMLUtils::GetString matches
 # case-sensitively, and Kodi spells the album's id all lowercase
 # (``musicbrainzalbumid``, Album.cpp) and the artist's in camel case
-# (``musicBrainzArtistID``, Artist.cpp). Verified against the Omega/Piers
-# sources in ref/xbmc, not from memory — a mis-cased tag is silently dropped.
+# (``musicBrainzArtistID``, Artist.cpp); a mis-cased tag is silently dropped.
 def album_nfo(album: JsonDict) -> str:
     return (
         _document(
@@ -295,15 +288,10 @@ def _export_episode(api: Any, item: JsonDict, media_path: str) -> None:
 
 
 def _export_song(api: Any, item: JsonDict, media_path: str) -> None:
-    """Album art, then the album NFO, then the artist level (D5).
+    """Album art, then the album NFO, then the artist level.
 
-    In that order on purpose: the cover is what every scanner and file
-    browser wants and it needs no fetch, so a server that fails the album or
-    artist lookup must not cost the track the one file it could always have
-    had. Each level below is one fetch, made only when its NFO is absent —
-    the same "one series fetch, only when it is absent" rule the show level
-    follows, and what keeps a twelve-track album to one album lookup and one
-    artist lookup rather than twenty-four.
+    Cover first: it needs no fetch, so a failed album or artist lookup still
+    leaves it.
     """
     directory = os.path.dirname(media_path)
     _export_album_art(api, item, directory)
@@ -315,9 +303,7 @@ def _export_song(api: Any, item: JsonDict, media_path: str) -> None:
         if document:
             _write_text(album_nfo_path, document)
 
-    # ``Music/<AlbumArtist>/<Album>`` — the artist level is the album
-    # directory's parent, read off the layout the way the episode leg reads
-    # the show directory off its season's.
+    # The artist directory is the album directory's parent (files.item_dirs).
     _export_artist(api, item, os.path.dirname(directory))
 
 

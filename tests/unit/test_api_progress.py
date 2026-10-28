@@ -1,4 +1,4 @@
-"""The library-update bar of the API build: gated, rate-limited, never per item."""
+"""The library-update bar: gated, rate-limited, never per item."""
 
 import pytest
 
@@ -62,8 +62,8 @@ def test_bar_counts_items_off_and_closes(bar):
 
 
 def test_the_text_counts_the_kind_and_the_bar_the_whole_pass(bar, monkeypatch):
-    """Read off the pass's count, the text was everything done so far against
-    everything to do, under the name of the kind in hand."""
+    """The text counts the kind in hand against its own items; the bar's
+    percentage counts the whole pass."""
     monkeypatch.setattr(progress_module.xbmc, "getLocalizedString", str)
     bar_ = progress_module.Progress()
     bar_.begin(10)
@@ -187,8 +187,8 @@ def test_pass_keeps_kodi_quiet_when_the_setting_is_off(store, backend, kodi, bar
 
 
 def test_an_unreadable_setting_means_no_bar_and_no_failure(bar, monkeypatch):
-    """The API profile once shipped without the progress settings; Kodi then
-    raises TypeError from getSettingBool, and a pass must not fail on it."""
+    """Kodi raises TypeError from getSettingBool for a setting the build does
+    not define, and a pass must not fail on it."""
 
     def broken(_):
         raise TypeError("Invalid setting type")
@@ -251,8 +251,7 @@ def test_a_scan_moves_the_bar_by_kodis_own_count(
 
 def test_the_bars_count_asks_the_audio_library_for_one_row(store, backend, kodi):
     """An end of 0 is a zero-width page to the video library and no limit to
-    the audio library: the count of a music import, read every three
-    seconds, came back with every song the library held."""
+    the audio library, which would answer the count with every song."""
     from kofin.core import kodirpc
     from kofin.sync.backends.api import paths
     from tests.unit.apifixtures import album_bundle
@@ -297,7 +296,6 @@ def test_a_music_walk_is_one_phase_of_the_bar_across_its_parts(
             state["scanning"], state["left"] = True, 3
             return "OK"
         if method == "AudioLibrary.GetSongs" and "properties" not in params:
-            # The bar's count: one row asked for, and no property.
             assert params["limits"] == {"start": 0, "end": 1}
             return {
                 "songs": [],
@@ -347,10 +345,8 @@ def stages(monkeypatch):
 def test_an_attended_bar_is_up_at_once_and_stays_until_the_work_is_finished(
     bar, stages
 ):
-    """A library selected, updated, repaired or taken out. The bar used to
-    be made by the first page of the first listing, only above the
-    threshold, and closed between the listing and the pass: seconds of
-    nothing after the request and again between the stages."""
+    """A library selected, updated, repaired or taken out: the bar is up
+    from the request, whatever the threshold, until the work is finished."""
     SETTINGS["syncProgressThreshold"] = 100
     bar_ = progress_module.Progress()
     bar_.attend()
@@ -372,7 +368,7 @@ def test_an_attended_bar_is_up_at_once_and_stays_until_the_work_is_finished(
     bar_.finish()
     assert dialog.events[-1] == ("close",)
     assert not bar_.attended and len(bar.instances) == 1
-    # Unattended again, the threshold decides as before.
+    # Unattended again, the threshold decides.
     bar_.begin(5)
     assert len(bar.instances) == 1
 
@@ -423,9 +419,8 @@ def test_a_tick_that_failed_takes_the_bar_down(store, bar, stages, monkeypatch):
 
 
 def test_a_retried_command_does_not_bring_the_bar_back(store, bar, stages, monkeypatch):
-    """A request that failed is taken down with its tick. Its retries are
-    not the viewer asking again: the bar came back up for each one, every
-    few seconds for as long as the server was away."""
+    """A request that failed is taken down with its tick, and its retries
+    are not the viewer asking again."""
     from tests.unit.apifixtures import Server, worker
 
     w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
@@ -450,7 +445,7 @@ def test_a_retried_command_does_not_bring_the_bar_back(store, bar, stages, monke
 
 def test_a_first_listing_that_fails_is_attended_once(store, bar, stages, monkeypatch):
     """It is tried again every half minute for as long as the server is
-    away, and the bar came back up for each try."""
+    away; the bar comes up for the first try alone."""
     from tests.unit.apifixtures import Server, worker
 
     w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)

@@ -137,10 +137,9 @@ def test_sync_library_enumerates_only_the_named_library(store, monkeypatch):
 
 
 def test_a_first_selection_is_listed_once(store, monkeypatch):
-    """Nothing has been listed whole on a new profile, so the refresh that
-    follows the command in the same tick lists every selected library. The
-    command listed its library first as well: a first selection enumerated
-    everything twice, a minute of it on a small device."""
+    """Nothing has been listed whole on a new profile, so the command leaves
+    its library to the refresh that follows in the same tick, which lists
+    every selected library."""
     server = Server({LIB: [movie()], LIB2: show_bundle()})
     w = worker(store, server, [LIB, LIB2], monkeypatch)
     listings = []
@@ -299,8 +298,8 @@ def test_the_scheduled_full_update_follows_the_setting(
 
 
 def test_the_listing_asks_for_a_movie_s_original_title(store, monkeypatch):
-    """Jellyfin leaves OriginalTitle out unless asked: without it in the
-    listing every movie was filed with an empty original title."""
+    """Jellyfin leaves OriginalTitle out of a listing unless it is asked
+    for."""
     from kofin.sync.backends.api import library, metadata
 
     assert "OriginalTitle" in library.FIELDS.split(",")
@@ -656,10 +655,10 @@ def test_a_duplicate_across_pages_fails_a_side_by_side_enumeration(monkeypatch):
 
 
 def test_a_page_client_of_another_account_fails_the_enumeration(monkeypatch):
-    """The factory reads the stored credentials when it is called. A sign-in
-    changed mid-enumeration made the later page clients another user's,
-    whose pages have the same totals and that user's play state; they are
-    never filed under the account the first page was asked as."""
+    """The factory reads the stored credentials when it is called, so a
+    sign-in changed mid-enumeration makes the later page clients another
+    user's, whose pages have the same totals and that user's play state;
+    they are never filed under the account the first page was asked as."""
     first, workers, factory, log = paged(monkeypatch, 95)
 
     def other_account():
@@ -804,10 +803,9 @@ def test_a_rebuild_outlives_the_service_and_a_listing_asked_for_by_name(
 def test_a_rebuild_stopped_before_its_tombstones_leaves_the_library_listed(
     store, monkeypatch
 ):
-    """The rows were tombstoned first and the whitelist written after. A
-    service killed between the two removed the rows of a library still on
-    the whitelist, and nothing listed it again before the next complete
-    enumeration: gone from Kodi for up to a day."""
+    """The whitelist is written before the rows are tombstoned, so a service
+    killed between the two leaves the rows in place and the library to be
+    listed again."""
     from kofin.sync.backends.api import metadata
 
     server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
@@ -888,8 +886,8 @@ def test_the_server_user_data_of_the_playing_item_waits_for_its_stop(
     store, monkeypatch
 ):
     """The server counts a play when it starts. Written to Kodi then, the
-    count was added to again by Kodi's own player at the end: one play of a
-    song, two counts."""
+    count would be added to again by Kodi's own player at the end: one play,
+    two counts."""
     from kofin.sync.backends.api import library
 
     store.publish([movie(UserData={}), movie("b", UserData={})], library=LIB)
@@ -936,8 +934,8 @@ def test_what_a_play_made_of_an_item_is_asked_of_the_server_after_the_stop(
     store, monkeypatch
 ):
     """The last entry heard may be a progress report, and the one the stop
-    sent may never arrive. Applied as it stood, the report of an episode
-    being watched again took its watched mark away after it had ended."""
+    sent may never arrive: applied as it stood, the report of an episode
+    being watched again would take its watched mark away after it ended."""
     from kofin.sync.backends.api import library
 
     w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
@@ -995,8 +993,8 @@ def test_a_release_the_server_cannot_answer_is_asked_again(store, monkeypatch):
 
 
 def test_a_release_whose_publish_failed_is_still_held(store, monkeypatch):
-    """A release has no queue behind it; dropped before a publish that
-    failed, what it held was gone for good."""
+    """A release has no queue behind it, so what it holds is dropped only
+    once its publish has succeeded."""
     from kofin.sync.backends.api import library
 
     w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
@@ -1043,9 +1041,8 @@ def test_a_full_item_arriving_mid_play_does_not_carry_its_user_data(store, monke
 
 
 def test_a_watched_mark_goes_to_the_server_without_a_count(store, monkeypatch):
-    """Kodi counts its own plays and the server the ones it is told of. The
-    count sent with the mark replaced the server's: a song played once went
-    up as 2."""
+    """Kodi counts its own plays and the server the ones it is told of, so a
+    count sent with the mark would replace the server's."""
     server = Server({LIB: [movie()]})
     store.publish([movie()], library=LIB)
     w = worker(store, server, [LIB], monkeypatch)
@@ -1079,9 +1076,8 @@ def _refusing(server, monkeypatch, item_id, status):
 def test_an_edit_of_an_item_the_server_deleted_is_dropped_and_the_rest_go(
     store, monkeypatch
 ):
-    """The outbox stopped at the first edit that failed. One for an item the
-    server had deleted failed every tick for ever, the edits behind it never
-    left, and the rows waiting on them had the pass run twice a minute."""
+    """An edit of an item the server deleted would fail on every tick; it is
+    dropped, and the edits behind it still go."""
     server = Server({LIB: [movie(), movie("b")]})
     store.publish([movie(), movie("b")], library=LIB)
     w = worker(store, server, [LIB], monkeypatch)

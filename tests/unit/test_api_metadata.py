@@ -213,10 +213,8 @@ STREAMS = [
 
 
 def test_a_single_source_row_is_filed_with_its_streams(monkeypatch):
-    """compact keeps a single source's streams on the item alone and the
-    shared reader looked in the first source, so every such movie and
-    episode was filed with a stub video stream, no codec, and no audio or
-    subtitle stream (1,787 movies and 4,316 episodes on one profile)."""
+    """compact keeps a single source's streams on the item alone, so the row
+    takes them from the item and not from the source."""
     for build in (movie, lambda **values: episode("e1", **values)):
         item = metadata.compact(
             build(
@@ -358,8 +356,7 @@ def test_timestamps_are_written_in_kodi_local_time():
 def test_no_tag_is_taken_from_a_temporary_listitem():
     """An InfoTag is a pointer into its ListItem (InfoTagVideo(tag, offscreen),
     owned=false; CFileItem's destructor deletes the tag). Taken from a temporary
-    the item is freed at once and the first setter writes freed memory; it
-    segfaulted a 32-bit ARM Kodi in setGenres."""
+    the item is freed at once and the first setter writes freed memory."""
     import re
     from pathlib import Path
 
@@ -392,9 +389,8 @@ def test_show_hash_is_the_same_from_payloads_and_their_rows():
 
 def test_details_have_no_opinion_on_a_date_the_server_lacks():
     """Kodi fills a missing premiere or aired date itself and its setters
-    ignore an empty one, so an empty desired date never matches the row:
-    187 episodes and a show stayed pending on the LibreELEC box, re-patched
-    by every pass. The key is absent instead, as for dateadded."""
+    ignore an empty one, so an empty desired date would never match the
+    row. The key is absent instead, as for dateadded."""
     from kofin.sync.backends.api import metadata
     from tests.unit.apifixtures import LIB, SERVER, episode, movie, series
 
@@ -412,8 +408,7 @@ def test_details_have_no_opinion_on_a_date_the_server_lacks():
 def test_episode_details_leave_inherited_art_to_the_show():
     """tvshow.* and season.* art is read off the show and season rows; an
     episode setter cannot make it true, so it never belongs in the desired
-    state (two episodes looped on the LibreELEC box after the art cap moved
-    every URL but the show's, acknowledged earlier)."""
+    state."""
     from kofin.sync.backends.api import metadata
     from tests.unit.apifixtures import LIB, SERVER, episode
 
@@ -465,8 +460,7 @@ def test_song_tags_are_total_for_numbers_that_do_not_parse():
 
 def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
     """Kodi's UpdateSong stamps the current time on a played song with no
-    date, which put songs marked played years ago at the top of a tablet's
-    recently played albums on import day."""
+    date, which would show a song played years ago as just played."""
     from tests.unit.apifixtures import song
 
     played = song("t1", UserData={"Played": True, "PlayCount": 2})
@@ -485,11 +479,11 @@ def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
         "2026-01-02T03:04:05Z"
     )
     # An unplayed song has no opinion on its stamp: Kodi's song setter
-    # cannot clear one, and wanted empty it failed its readback for good.
+    # cannot clear one, so wanted empty it would never match its readback.
     assert metadata.userdata(song("t1")) == {"playcount": 0}
-    # An unwatched video's is cleared, as before.
+    # An unwatched video's is cleared.
     assert metadata.userdata(movie(UserData={}))["lastplayed"] == ""
-    # The video setters leave a missing date alone: unchanged.
+    # The video setters leave a missing date alone.
     assert "lastplayed" not in metadata.userdata(movie(UserData={"Played": True}))
 
 
@@ -576,8 +570,8 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
 
 def test_a_library_episode_carries_its_own_thumb_and_no_poster():
     """A Kodi episode has no poster of its own. Given its show's as one, a
-    skin that asks for the poster before the thumb showed the show's poster
-    on every episode."""
+    skin that asks for the poster before the thumb would show the show's
+    poster on every episode."""
     pictured = episode(
         "e1",
         ImageTags={"Primary": "still"},

@@ -2,13 +2,7 @@
 
 A skin renders lyrics with a fixedlist so Kodi animates the scroll, and a
 fixedlist needs a directory to fill it. The lines come from the window
-property the service published rather than from Jellyfin, so opening this
-costs nothing and cannot fail on a slow server -- the service already paid
-for them at playback start.
-
-Item labels are the lines themselves. Which line is current is the
-renderer's business (script.kofin.lyrics follows the clock from the timed
-lines in the same property), so nothing here needs to know.
+property the service published, so this never asks the server.
 """
 
 from typing import Any, Dict
@@ -24,11 +18,8 @@ LOG = Logger(__name__)
 JsonDict = Dict[str, Any]
 
 # Blank rows after the last line. A list scrolls no further than its last
-# item, so without a tail the song's final lines can only ever sit at the
-# very bottom of the list's page -- which, when the lyrics addon has resized
-# the overlay shorter than its authored height, is below what is visible at
-# all. Twelve covers the deepest page any known overlay is authored with, so
-# the addon can always drag the last sung line up to the visible middle.
+# item; twelve let the deepest page any known overlay is authored with bring
+# the last line up to the middle.
 TAIL_ROWS = 12
 
 

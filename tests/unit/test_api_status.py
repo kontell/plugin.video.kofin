@@ -1,4 +1,4 @@
-"""The API build's library status: what the settings dialog shows."""
+"""The library status: what the settings dialog shows."""
 
 import time
 
@@ -280,8 +280,8 @@ def test_the_last_complete_listing_is_dated(store, monkeypatch):
 
 
 def test_a_document_of_another_shape_is_read_as_far_as_it_fits(store, monkeypatch):
-    """The dialog's process reads what another wrote. A truthy ``since``
-    that is not a number reached the clock and the report did not open."""
+    """The dialog's process reads what another wrote: a field of the wrong
+    type is dropped, never handed to the clock."""
     import json
 
     _views(monkeypatch, [])
@@ -307,9 +307,8 @@ def test_a_document_of_another_shape_is_read_as_far_as_it_fits(store, monkeypatc
 
 
 def test_two_writers_do_not_share_a_temporary_file(store, monkeypatch):
-    """Two service generations overlap, each with a library thread. On one
-    ".part" path the first rename took the other writer's file, and that
-    writer's status was dropped."""
+    """Two service generations overlap, each with a library thread: on one
+    shared ".part" path, one writer's rename would take the other's file."""
     import os
     import threading
 
@@ -425,8 +424,7 @@ def test_what_this_kodi_cannot_do_is_counted_on_one_row_and_named_behind_it(
     _heading, shown, _preselect = dialog.selects[0]
     assert shown[-1] == "L30876:  2"
     assert dialog.textviewers == []
-    # The names scrolled on the row once a few were off, so the row counts
-    # them: picking it opens the list, one feature a line, and the report
+    # Picking the row opens the list, one feature a line, and the report
     # stays up behind it.
     dialog, _ = _dialog(monkeypatch, store, [len(shown) - 1, -1])
     assert dialog.textviewers == [("L30876", "L30877\nL30884")]

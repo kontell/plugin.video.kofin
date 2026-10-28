@@ -1,4 +1,4 @@
-"""L1 units for the NFO/artwork export (plan W4.3)."""
+"""L1 units for the NFO/artwork export."""
 
 from kofin.downloads import export
 
@@ -198,7 +198,6 @@ def _music_api():
 
 
 def test_song_export_writes_album_and_artist_metadata(tmp_path):
-    """D5: an album download used to leave one file, ``folder.jpg``."""
     album_dir = tmp_path / "Music" / "Ella & Louis" / "Porgy & Bess"
     album_dir.mkdir(parents=True)
     media = album_dir / "01 Track.opus"
@@ -237,7 +236,7 @@ def test_song_export_writes_album_and_artist_metadata(tmp_path):
 
 def test_song_export_looks_each_level_up_once_per_album(tmp_path):
     """One album fetch and one artist fetch for a whole album, not one of
-    each per track — the rule the show level already follows."""
+    each per track."""
     album_dir = tmp_path / "Music" / "Ella & Louis" / "Porgy & Bess"
     album_dir.mkdir(parents=True)
     api = _music_api()

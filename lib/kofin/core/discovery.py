@@ -7,19 +7,14 @@ network.
 The protocol is one plaintext datagram broadcast to 255.255.255.255:7359.
 Every Jellyfin whose ``AutoDiscovery`` is on — the default — replies
 **unicast** to the sender's ephemeral port with a small JSON object naming
-itself: ``Address``, ``Id``, ``Name``, ``EndpointAddress``. Server-side that
-is a background service which receives, serialises three strings and sends;
-no database, no disk.
+itself: ``Address``, ``Id``, ``Name``, ``EndpointAddress``.
 
-Which is why ``SCAN_SECONDS`` is a *retry* budget and not a patience one. A
-reply measured 3 ms against a real server on this LAN (2026-09-01), so one
-not seen within a few tens of milliseconds was lost rather than delayed, and
-waiting longer recovers nothing — another probe does. The half that gets lost
-is ours: an access point sends a broadcast frame at the lowest basic rate,
-unacknowledged, buffered against the DTIM interval for sleeping clients,
-while the server's answer comes back unicast and is comparatively safe. So
-the window is spent re-broadcasting once a second rather than listening
-harder.
+``SCAN_SECONDS`` is a *retry* budget and not a patience one. Replies come in
+milliseconds, so one not seen within a few tens of milliseconds was lost
+rather than delayed. The half that gets lost is ours: an access point sends
+a broadcast frame at the lowest basic rate, unacknowledged, while the
+server's answer comes back unicast. So the window is spent re-broadcasting
+once a second rather than listening harder.
 
 Several classes of server never answer at any timeout, which is what the
 caller's "nothing found" wording has to account for: ``AutoDiscovery`` turned
@@ -98,7 +93,7 @@ def _parse(data: bytes, source_host: str) -> Optional[Found]:
     except (UnicodeDecodeError, ValueError):
         # Something else is sitting on 7359, or the datagram was truncated.
         # Not fatal: the rest of the window still belongs to whatever else
-        # answers, which is how the fork read it too.
+        # answers.
         LOG.warning("discovery: undecodable datagram from %s", source_host)
         return None
     if not isinstance(payload, dict):
@@ -155,11 +150,8 @@ def scan(
             entry = _parse(data, addr[0])
             if entry is None:
                 continue
-            # Keyed on the address as well as the id. Two servers restored
-            # from one data directory share an ``Id``, and upstream's
-            # id-only dedupe silently hides the second
-            # (jellyfin-android#1510) — which reads as discovery being
-            # broken rather than as a duplicate id.
+            # Keyed on the address as well as the id: two servers restored
+            # from one data directory share an ``Id``.
             key = (entry.server_id, entry.address)
             if key in seen:
                 continue
@@ -177,13 +169,9 @@ def fallback_address(found: Found) -> str:
     """``found.address`` re-hosted on the IP the datagram actually came from.
 
     A server answers with the URL it publishes, which is not always one this
-    box can use: a reverse-proxied install answers a LAN client with its
-    external hostname, and an upstream report has exactly that
-    (``https://…:8920`` handed to a client on the same wire). The datagram's
-    source address is the one thing in the exchange known to be reachable,
-    so it is what the second attempt uses. Same idea as the fork's
-    ``_convert_endpoint_address_to_manual_address`` and the Kotlin SDK's
-    client-filled ``endpointAddress``.
+    box can use: a reverse-proxied install may answer a LAN client with its
+    external hostname. The datagram's source address is the one thing in the
+    exchange known to be reachable, so it is what the second attempt uses.
     """
     parts = urlsplit(found.address)
     netloc = found.source_host

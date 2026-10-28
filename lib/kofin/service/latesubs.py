@@ -1,41 +1,21 @@
 """Embedded subtitles that arrive after the picture does.
 
 A transcoded stream carries no subtitles, so a text track reaches Kodi as a
-file the play route fetches from Jellyfin's delivery URL. The first time
-anyone asks for that track the server has to extract it with ffmpeg, and
-measured against 10.11.11 on a real library that takes **28 s** for a 2.4 GB
-MKV, **30 s** for a 2.6 GB one and **146 s** for a 22.7 GB one. The play route
-has nothing like that to spend — every second of it is a second of black
-screen — so it waits only long enough to catch an already-extracted track and
-hands anything slower here (``plugin/subtitles.localize``).
+file the play route fetches from Jellyfin's delivery URL. The first request
+for a track makes the server extract it with ffmpeg, which can take minutes,
+so the play route waits only long enough to catch an already-extracted track
+and hands anything slower here (``plugin/subtitles.localize``).
 
-This worker then does what the play route could not: waits. The extraction
-the play route kicked off is still running, and finishing it caches the result
-server-side (measured: ~25 ms on every later request), so this is a wait on
-work already in flight rather than a second cold start. When the file lands,
-``Player.setSubtitles`` puts it on the running playback — verified on Omega
-21.3 against a live transcode: the track appends to Kodi's subtitle list, is
-selected, and renders in sync with no gap in the video. Note which
-``setSubtitles`` that is: the *Player* one takes a single path and adds it to
-the playback in flight, while the ListItem method of the same name takes a
-list and only applies before the stream is opened. There is no ``addSubtitle``
-on Player, whatever ``Player.AddSubtitle`` over JSON-RPC suggests.
+When the file lands, ``Player.setSubtitles`` puts it on the running playback.
+The *Player* method takes a single path and adds it to the playback in flight;
+the ListItem method of the same name takes a list and applies only before the
+stream is opened. There is no ``addSubtitle`` on Player, whatever
+``Player.AddSubtitle`` over JSON-RPC suggests.
 
-Why it could not simply be waited for in the play route, and why the menu's
-restart was not the answer either: both were the bug. The 8 s the play route
-used to spend missed *every* first play of an unextracted track, and the
-stream menu's restart-into-it resolved a new stream that ran the same doomed
-8 s fetch — so the viewer picked English, watched playback restart, and got
-nothing, twice, until one of the abandoned extractions happened to finish.
-
-Bounded on purpose, in two directions. Each attempt uses the play route's own
-short read budget and the loop sleeps on the cancel event between them, so a
-service teardown or a stopped playback is answered within one attempt rather
-than parking Kodi on ``waiting on thread`` for the length of an extraction
-(CLAUDE.md's sync-thread rule applies to any thread an addon starts, daemon or
-not). And the whole chase gives up at ``DEADLINE_SECONDS``: a track that has
-not appeared by then is one the server cannot produce, and the stream menu
-still offers it.
+Each attempt uses the play route's own short read budget and the loop sleeps
+on the cancel event between them, so a service teardown or a stopped playback
+is answered within one attempt. The whole chase ends at ``DEADLINE_SECONDS``,
+and the stream menu still offers the track.
 """
 
 import threading
@@ -50,13 +30,11 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-# How long to keep asking. Sized off the worst extraction measured (146 s for
-# a 22.7 GB file) with room over it; past this the answer is that the server
-# is not going to produce this track.
+# How long to keep asking: twice the slowest extraction seen. Past this the
+# server is not going to produce the track.
 DEADLINE_SECONDS = 300.0
 
-# Between attempts. The gap is what bounds how long a stop waits, together
-# with the per-attempt read budget — see the module docstring.
+# Between attempts.
 POLL_SECONDS = 8.0
 
 
@@ -97,9 +75,9 @@ def deferred_of(item: JsonDict) -> List[streams.Attachment]:
 class LateSubtitles:
     """One playback's outstanding subtitle fetches.
 
-    Built per claim by the Player, exactly as ``chapters.ChapterThumbs`` is:
-    ``start()`` chases on a worker thread, ``stop()`` abandons the chase at
-    the next step. Nothing here raises into a player callback.
+    Built per claim by the Player: ``start()`` chases on a worker thread,
+    ``stop()`` abandons the chase at the next step. Nothing here raises into a
+    player callback.
 
     ``requested`` says where the chase came from, and it decides only one
     thing: what happens once the file lands. An automatic chase reproduces

@@ -19,9 +19,8 @@ from kofin.plugin.listitems import PLAYABLE_TYPES
 
 LOG = Logger(__name__)
 
-# How long to wait for the outgoing playback to actually stop. Measured, the
-# handover completes in well under 300 ms; the ceiling only stops a wedged
-# player from stranding the context item.
+# How long to wait for the outgoing playback to stop. The ceiling only stops a
+# wedged player from stranding the context item.
 STOP_TIMEOUT_SECONDS = 3.0
 STOP_POLL_SECONDS = 0.05
 
@@ -103,9 +102,8 @@ def choose_bitrate(configured: List[str]) -> Optional[str]:
 
     A token of '0' overrides nothing: ``deviceprofile.build`` falls back to the
     max-streaming-bitrate setting, and only when that is unset too does the
-    server size the transcode itself. It never meant the source bitrate when a
-    cap was configured, and now means it nowhere -- hence the label. With
-    exactly one configured bitrate the dialog is skipped. No valid bitrate
+    server size the transcode itself. With exactly one configured bitrate the
+    dialog is skipped. No valid bitrate
     means no transcode: addon.xml hides the context item in that case, so
     falling back to an invented default would only surface a bitrate the user
     never chose.
@@ -125,13 +123,10 @@ def choose_bitrate(configured: List[str]) -> Optional[str]:
 def _focused_resume() -> Tuple[str, float]:
     """(the ``dbid`` play param, the position that item would resume at).
 
-    The two travel together so the prompt cannot quote one position while the
-    play route starts at another: ``play.resume_start_ticks`` reads a readable
-    library row's bookmark out of Kodi's own database and everything else --
-    a kofin listing, a row kofin cannot read -- off the resolved item, whose
-    resume point ``listitems.resume_of`` already pulled back by the Advanced-tab
-    offset. So the dbid is handed on only where the bookmark is the answer, and
-    the seconds are read from whichever source that leaves in play.
+    The two travel together so the prompt and the start agree: the dbid is
+    handed on only where Kodi's bookmark is the answer
+    (``play.resume_start_ticks``), and the seconds are read from whichever
+    source that leaves in play.
     """
     listitem = _focused_listitem()
     tag = listitem.getVideoInfoTag() if listitem is not None else None
@@ -162,9 +157,8 @@ def _resume_label(seconds: float) -> str:
 def choose_resume(resume_seconds: float) -> Optional[bool]:
     """Whether to resume; None when the user backed out of the question.
 
-    Kodi never asks it on this path. It prompts for the playbacks it starts
-    itself, and the transcode item starts its own, so a partially watched item
-    transcoded from the context menu used to silently restart. Same wording,
+    Kodi never asks it on this path: it prompts only for the playbacks it
+    starts itself, and the transcode item starts its own. Same wording,
     options and order as ``CGUIWindowVideoBase::ShowResumeMenu``; nothing to
     ask means resume=False.
     """
@@ -230,24 +224,20 @@ def stop_current_playback() -> None:
 
     ``PlayMedia`` on a bare ``plugin://`` path handed to Kodi while something
     else is still playing loses a race: the outgoing player's stop is queued to
-    the application thread, and that thread does not get to it until *after* it
-    has opened the new video player -- measured at 103-105 ms past
-    ``VideoPlayer::OpenFile``, on every run. Processing it then closes the
-    player that just opened, and because the demuxer open is still in flight
-    the play dies as "OpenDemuxStream - Error creating demuxer" rather than as
-    a stop, so it reads as a broken stream.
+    the application thread, which gets to it only *after* it has opened the
+    new video player. Processing it then closes the player that just opened,
+    and because the demuxer open is still in flight the play dies as
+    "OpenDemuxStream - Error creating demuxer" rather than as a stop.
 
     Library playback does not go through ``PlayMedia`` -- Kodi opens the
-    ``videodb://`` item and sequences the handover itself -- which is why this
-    context item was the only route that failed, and only while music was
-    playing. Stopping first costs nothing: the outgoing playback was about to
-    be replaced anyway, and doing it here rather than inside Kodi's open lets
-    the service report the stop against the item it actually belongs to.
+    ``videodb://`` item and sequences the handover itself. Stopping here
+    rather than inside Kodi's open also lets the service report the stop
+    against the item it belongs to.
     """
     player = xbmc.Player()
     if not player.isPlaying():
         return
-    kodirpc.stop_player()  # not player.stop() — issue #155
+    kodirpc.stop_player()  # not player.stop()
     monitor = xbmc.Monitor()
     waited = 0.0
     while waited < STOP_TIMEOUT_SECONDS:
@@ -259,8 +249,7 @@ def stop_current_playback() -> None:
     LOG.warning("playback did not stop in %.1fs; starting anyway", waited)
 
 
-# Same reach the listing-level toggle had: anything playable, plus the
-# containers Jellyfin tracks played state for.
+# Anything playable, plus the containers Jellyfin tracks played state for.
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 
 # What a resume point can be reset on: the playable video kinds. Jellyfin
@@ -268,9 +257,8 @@ WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 # resume one (Api.resume says the same).
 RESUMABLE_TYPES = PLAYABLE_TYPES - {"Audio"}
 
-# The containers Play all / Shuffle expand (plugin/playall.py). Music only, by
-# decision: seasons and series keep Kodi's own behaviour. A Playlist joins
-# when it is an audio one (``_plays_all``).
+# The containers Play all / Shuffle expand (plugin/playall.py). A Playlist
+# joins when it is an audio one (``_plays_all``).
 PLAY_ALL_TYPES = frozenset({"MusicAlbum", "MusicArtist", "MusicGenre"})
 
 
@@ -281,8 +269,7 @@ def _plays_all(item: dict) -> bool:
     return item_type == "Playlist" and item.get("MediaType") == "Audio"
 
 
-# Movies/episodes since phase 1; music since phase 3 (W3.2). Containers
-# expand to their downloadable leaves at the route (W1.10).
+# Containers expand to their downloadable leaves at the route.
 DOWNLOADABLE_TYPES = frozenset(
     {
         "Movie",
@@ -314,11 +301,6 @@ def _container_download_options(
     item_id: str, music_scope: str = ""
 ) -> List[Tuple[str, dict]]:
     """What a Season/Series/album/artist/playlist offers, from local state.
-
-    Containers used to offer Download and nothing else, on the reasoning
-    that the route's own filter would drop children already held — which
-    left a fully downloaded show with no way to remove it from the menu that
-    had put it there, and no sign that it was downloaded at all.
 
     Download stays unless everything under the container is already
     finished: a partly downloaded show is still worth completing, and
@@ -405,8 +387,8 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
             [] if subscribed else _container_download_options(item_id, music_scope)
         )
         if item_type == "Series":
-            # The new-episode subscription toggle (W4.6), labeled by the
-            # show's current state.
+            # The new-episode subscription toggle, labeled by the show's
+            # current state.
             from kofin.downloads import auto as downloads_auto
 
             subscribed = item_id in downloads_auto.subscribed_shows()
@@ -445,32 +427,25 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
 
     Every server-side action for an item lives here: a listing's own context
-    entries are pinned to the very top of Kodi's menu
+    entries are pinned to the very top of Kodi's menu, above its Play
     (``CGUIMediaWindow::OnPopupMenu`` builds plugin items, then the global
-    menu, then window buttons, then addon extensions), and up there kofin's
-    watched toggle sat above Kodi's Play wearing the same wording as Kodi's own
-    "Mark as watched" further down. Delete is offered only when the user has
-    opted in on the Advanced tab; the watched and favorite labels reflect the
-    server-reported state queried when the menu opened.
+    menu, then window buttons, then addon extensions). Delete is offered only
+    when the user has opted in on the Advanced tab; the watched and favorite
+    labels reflect the server-reported state queried when the menu opened.
 
     ``dynamic`` says the item came from one of kofin's own listings rather than
-    from a synced library, and only there is the watched toggle the only way to
-    reach the server. A library row already has Kodi's own "Mark as watched",
-    which ``service/kodiuserdata.py`` forwards to Jellyfin — including the
-    per-episode announcements a whole season fires — so offering a second,
-    server-named entry beside it only asked the viewer to tell two identical
-    actions apart.
+    from a synced library, and only there is the watched toggle offered. A
+    library row has Kodi's own "Mark as watched", which
+    ``service/kodiuserdata.py`` forwards to Jellyfin — including the
+    per-episode announcements a whole season fires.
     """
     item_id = item.get("Id", "")
     userdata = item.get("UserData") or {}
     is_favorite = bool(userdata.get("IsFavorite"))
     options: List[Tuple[str, dict]] = []
 
-    # Kodi offers no Play on a plugin folder in either window — its Play,
-    # Queue item and Play next are gated on IsItemPlayable, which stops at
-    # IsPlugin() for folders — so this is the only way an album, artist, genre
-    # or playlist row plays as a whole. First, because it is what the row is
-    # for. Core strings: 22083 "Play all", 191 "Shuffle".
+    # Play all and Shuffle (plugin/playall.py) come first, because playing is
+    # what the row is for. Core strings: 22083 "Play all", 191 "Shuffle".
     if _plays_all(item):
         options.append(
             (xbmc.getLocalizedString(22083), {"mode": "playall", "id": item_id})
@@ -511,29 +486,20 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     fav_mode = "unfavorite" if is_favorite else "favorite"
     options.append((fav_label, {"mode": fav_mode, "id": item_id}))
 
-    # Extras belongs here rather than in its own context item, and that is not
-    # a tidiness argument: a context item's <visible> can only ask Kodi things,
-    # and Kodi has no answer for this. Its own ListItem.HasVideoExtras is
-    # movie-only by construction — hasVideoExtras is computed in movie_view
-    # with media_type = 'movie' hardcoded, and tvshow_view has no such column —
-    # so it reads false for every show whatever the server says, and a library
-    # row carries no addon-settable property to stand in. This menu is built by
-    # us, from an item we already fetched, so it can simply ask.
+    # Extras belongs here rather than in its own context item: a context item's
+    # <visible> can only ask Kodi, and ListItem.HasVideoExtras is movie-only
+    # (hasVideoExtras is computed in movie_view; tvshow_view has no such
+    # column), so it reads false for every show, and a library row carries no
+    # addon-settable property to stand in.
     if item.get("SpecialFeatureCount"):
         options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
 
     if downloads_enabled():
         options.extend(_download_options(item))
 
-    # Two gates, and they answer different questions: the setting is whether
-    # the *user* wants deletion offered at all, CanDelete is whether the
-    # *server* would allow it. Without the second, a viewer whose account has
-    # no EnableContentDeletion got the entry, a "Delete <name>?" confirmation,
-    # and then "Server request failed" — the server answering 403 to something
-    # it was never going to permit. The field rides in on the item manage()
-    # already fetched (verified on 10.11: /Items/{id}?userId= carries it with
-    # no Fields request, False for a normal account and True for an admin), so
-    # asking costs nothing.
+    # Two gates: the setting is whether the *user* wants deletion offered at
+    # all, CanDelete is whether the *server* would allow it. The item manage()
+    # fetched carries CanDelete without a Fields request.
     if settings.get_bool("enableDelete") and item.get("CanDelete"):
         options.append(
             (
@@ -552,8 +518,7 @@ def _offline_menu(item_id: str) -> None:
     Only what does not need the server: removing a download, and the
     settings shortcut. The server-side actions are deliberately absent
     rather than queued — a menu action that silently waits for a
-    reconnection is worse than one that is simply not offered, and phase 2
-    queues *playback* events only.
+    reconnection is worse than one that is simply not offered.
     """
     options: List[Tuple[str, dict]] = []
     if downloads_enabled():
@@ -572,10 +537,8 @@ def _offline_menu(item_id: str) -> None:
                 (settings.localized(30709), {"mode": "canceldownload", "id": item_id})
             )
         else:
-            # No row of its own: it may still be a container holding some.
-            # The store answers that without the server, which is the whole
-            # reason this menu exists — a downloaded season had no offline
-            # entry at all before, because only leaves were consulted.
+            # No row of its own: it may still be a container holding some,
+            # which the store answers without the server.
             options.extend(
                 entry
                 for entry in _container_download_options(item_id)
@@ -662,7 +625,7 @@ def manage() -> None:
     if state.is_offline():
         # Offline the fetch below is a doomed wait, and the actions it
         # unlocks are all server writes. What still works locally is the
-        # download the user already has (plan W2.3).
+        # download the user already has.
         _offline_menu(item_id)
         return
 
@@ -670,8 +633,6 @@ def manage() -> None:
         item = _api().item(item_id)
     except JellyfinError as error:
         LOG.warning("manage: item fetch failed: %s", error)
-        # As with the delete failure: no icon and no sound argument meant
-        # Kodi's defaults showed this failure as info, with a beep.
         toast.show(settings.localized(30507), toast.ERROR)
         return
 

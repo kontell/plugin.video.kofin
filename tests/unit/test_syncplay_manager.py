@@ -1,9 +1,7 @@
 """Protocol behaviour tests for the SyncPlay manager, mirroring the
 client requirements of SYNCPLAY.md (§2 negotiation, §5.1 command gating,
 §5.3 queue idempotency, §5.4 snapshots, §6 versioning, §9 membership
-lifecycle). Ported from the fork with the kofin construction signature,
-dialog/settings fakes, and the kofin.sync.db id mapping; plus the
-kofin-specific kicked-probe, group-flag and Hello-transport tests."""
+lifecycle), plus the kicked probe, the group flag and the Hello transport."""
 
 import pytest
 
@@ -109,8 +107,8 @@ class InertTimer:
 @pytest.fixture
 def timers(monkeypatch):
     """For tests that run the real _start_item: its 45 s load watchdog is
-    recorded instead of armed, so it can be asserted on — and cannot outlive
-    the test and fire into a manager that has been torn down."""
+    recorded, not armed, so it can be asserted on and cannot fire after
+    teardown."""
     InertTimer.armed = []
     monkeypatch.setattr(manager_module.threading, "Timer", InertTimer)
     return InertTimer.armed
@@ -124,7 +122,7 @@ def kodi_fakes(monkeypatch):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
 
 
-# --- teardown must not wait on the server (audit R4, fixes plan H7) ----------
+# --- teardown must not wait on the server ------------------------------------
 
 
 def test_stop_leaves_the_group_when_the_server_is_reachable(manager, monkeypatch):
@@ -138,9 +136,9 @@ def test_stop_leaves_the_group_when_the_server_is_reachable(manager, monkeypatch
 
 
 def test_stop_skips_the_leave_when_the_server_is_away(manager, monkeypatch):
-    """The leave is a courtesy, and against a server that vanished without
-    closing the socket it cost up to 36 s on the service main thread inside
-    Service.stop — past Kodi's five-second grace. Offline, it is not sent."""
+    """The leave is a courtesy: against a server that vanished without
+    closing the socket it holds Service.stop past Kodi's five-second grace,
+    so offline it is not sent."""
     join(manager)
     monkeypatch.setattr(manager_module.state, "is_offline", lambda: True)
 
@@ -182,7 +180,7 @@ def manager():
     m.timesync = None
     m._running = False
     m._inbox.put(None)
-    m._dispatcher.join(timeout=2)  # P1.11: 94 leaked dispatcher threads
+    m._dispatcher.join(timeout=2)
 
 
 def join(manager, protocol_version=2, version=1):
@@ -247,7 +245,7 @@ class TestJoin:
         assert manager.members == ["alice", "bob"]
 
     def test_join_drives_group_flag(self, manager):
-        # The phase-3 stub: Play Next is withheld while the flag is up.
+        # Play Next is withheld while the flag is up.
         assert manager.player.syncplay_group_active is False
         join(manager)
         assert manager.player.syncplay_group_active is True
@@ -388,10 +386,7 @@ class TestPlayQueue:
     def test_stale_last_update_still_applies_an_item_advance(self, manager):
         """A NextItem advance carries the *same* LastUpdate as the update before
         it -- LastUpdate timestamps the queue, and advancing does not change the
-        queue's contents. Dropping it as stale left the member with no item to
-        load: measured three times on 2026-08-31, each time followed by an
-        Unpause deferred to a ready flow that never ran, the 45s watchdog, and a
-        silent departure that also stalled every healthy member for 10-11s.
+        queue's contents -- and still loads the new item.
         """
         join(manager)
         started = []
@@ -657,7 +652,7 @@ class TestLifecycle:
 
 
 class TestKickedProbe:
-    """Reconnect contract on v1 (report R2): after a WS drop assume kicked —
+    """Reconnect contract on v1: after a WS drop assume kicked —
     probe GET /SyncPlay/List, rejoin if the group survives, detach with a
     toast if it is gone, and hold if the list is unavailable."""
 
@@ -797,8 +792,7 @@ class TestGroupWaitToast:
 
 class TestAdoptInProgress:
     """A queue update naming the item already on screen must adopt it, not
-    tear it down and reload (regression: SyncPlay reloaded the in-progress
-    movie when a group was created before playback)."""
+    tear it down and reload."""
 
     def test_adopts_currently_playing_item(self, manager):
         join(manager)
@@ -833,10 +827,8 @@ class TestAdoptInProgress:
 
 
 class TestForeignPlayAdopts:
-    """A foreign play is adopted as it plays. It used to be reloaded through
-    the kofin route when fine sync was armed (the pvr sync plan, P1), since
-    a byte-stream play could carry no inputstream.tempo route; Kodi's own
-    tempo acts on whatever plays, so the reload buys nothing."""
+    """A foreign play is adopted as it plays, fine sync armed or not: Kodi's
+    own tempo acts on whatever plays."""
 
     def _arm(self, manager):
         join(manager)
@@ -916,7 +908,7 @@ class TestForwardLocalPlay:
 
     def test_live_claim_proposes_from_zero(self, manager):
         # A live claim's player position is session time on this member's
-        # own stream — the propose says 0 so the group tunes together (P2).
+        # own stream — the propose says 0 so the group tunes together.
         join(manager)
         manager.player.playing = True
         manager.player.position = 3651.0
@@ -932,7 +924,7 @@ class TestForwardLocalPlay:
 
     def test_live_claim_with_a_live_clock_proposes_an_anchor(self, manager):
         # A live claim whose member reads a live clock anchors the group on
-        # it, a delay behind this member (P4).
+        # it, a delay behind this member.
         join(manager)
         manager.player.playing = True
         manager.player.position = 100.0
@@ -951,8 +943,7 @@ class TestForwardLocalPlay:
     def test_unmapped_pvr_play_waits_for_the_claim(self, manager):
         # A channel's OnPlay carries a Kodi id the provider mapping can
         # never answer, but its owner claims over the bus a moment later —
-        # the fast path must not demote first (the P2 gate measured the
-        # demotion beating the claim by 800 ms).
+        # the fast path must not demote first.
         join(manager)
         manager.player.playing = True
         manager._hold = {"transition": False, "proposed": False, "item_id": None}
@@ -978,9 +969,9 @@ class TestForwardLocalPlay:
 
     def test_stale_claim_dropped_when_a_new_play_starts(self, manager):
         # A seamless zap emits no stop, so the previous channel's claim
-        # survives into the new play and made the zap read as a duplicate
-        # start (the P2 gate). A new OnPlay drops a claim older than the
-        # staleness window; the owner re-claims moments later.
+        # survives into the new play and would make the zap read as a
+        # duplicate start. A new OnPlay drops a claim older than the staleness
+        # window; the owner re-claims moments later.
         import time as time_module
 
         join(manager)
@@ -1308,14 +1299,9 @@ class TestLocalStartHold:
 
 class TestLocalPlayIdentityOnEitherBuild:
     """A library play started in a group is identified from Player.OnPlay
-    through the build's own Kodi-id lookup, with the manager's real provider
-    registry — the same outcomes on the SQL build and the API build.
-
-    The API build's rows are not in the sync database, so the one lookup the
-    provider made answered None for all of them: a movie started from the
-    library in a group was released as unmanaged 70-120 ms after it began
-    and the member became a spectator, before the play route's own claim
-    could be forwarded.
+    through the catalogue's Kodi-id lookup, with the manager's real provider
+    registry: a kofin row stays held for the group, any other row is released
+    as unmanaged.
     """
 
     @pytest.fixture
@@ -1412,9 +1398,8 @@ class TestLocalPlayLookupFailure:
 
 
 class TestTransitionSequence:
-    """The full playlist-advance timeline as seen in the fork's field logs:
-    boundary -> hold -> fast identify -> late onAVStarted -> queue echo
-    adopt -> group Unpause release."""
+    """The full playlist-advance timeline: boundary -> hold -> fast identify
+    -> late onAVStarted -> queue echo adopt -> group Unpause release."""
 
     def test_boundary_holds_then_group_start_releases(
         self, manager, paused_cond, monkeypatch
@@ -1476,8 +1461,7 @@ class TestTransitionSequence:
 class TestSpectatorLocalPlayback:
     """A spectator's own plays stay local: no hold, no forwarding, no
     repeated demotions/toasts, and the group must not tear their
-    playback down (regression: playing a non-jellyfin video as a
-    spectator re-toasted 'spectator mode' on every start)."""
+    playback down."""
 
     def test_spectator_local_play_not_held(self, manager, paused_cond):
         join(manager)
@@ -1708,11 +1692,10 @@ class TestStopPending:
     """Between the user's stop and their answer to the stop prompt, the
     group's messages about that item do not load it again.
 
-    The stop clears the member's current item, so a group command for it read
-    as "another queue item": a v2 member pulled a snapshot, and the snapshot's
-    queue — valid index, member idle — went to ``_start_item``. Measured: a
-    member stopped by hand, the prompt on screen, another member's Pause, and
-    the stopped item playing again underneath the dialog 0.6 s later.
+    The stop clears the member's current item, so a group command for it
+    would read as "another queue item": a v2 member would pull a snapshot,
+    and the snapshot's queue — valid index, member idle — would restart the
+    item underneath the open prompt.
     """
 
     @pytest.fixture(autouse=True)
@@ -1789,7 +1772,7 @@ class TestStopPending:
 
     def test_a_command_for_another_item_still_reconciles(self, manager, monkeypatch):
         # The group moved on while the prompt is open: that is a missed
-        # queue update, exactly as before.
+        # queue update.
         join(manager)
         manager.playback.schedule = lambda command: None
         self._stop(manager, monkeypatch)
@@ -1866,8 +1849,7 @@ class TestStopPending:
     def test_after_the_answer_the_item_is_followed_as_before(
         self, manager, monkeypatch
     ):
-        # Unchanged on purpose: an idle spectator re-attaches on the group's
-        # next update.
+        # An idle spectator re-attaches on the group's next update.
         join(manager)
         started = []
         manager._start_item = lambda i, p, prov=None: started.append((i, p))
@@ -1984,9 +1966,7 @@ class TestLoadAllowance:
 
     A load is not instant and a playing group does not wait for it, so a load
     aimed at the position the group is at *now* starts wherever the group has
-    reached by the first frame. On a transcode that was ~9s, which is what made
-    a member look permanently adrift after a group Seek when it had in fact
-    loaded exactly where it was told.
+    reached by the first frame.
     """
 
     @staticmethod
@@ -2112,10 +2092,8 @@ class TestStartPastTheEnd:
     When the last entry of a queue plays out, the group's clock keeps
     running: a snapshot taken afterwards names the same item at a position
     past its runtime, and a member that has already finished it is idle, so
-    the queue went to ``_start_item``. Measured: on direct play the load
-    ended the instant it began, the 45 s watchdog then failed it, and the
-    member left the group with an error; on a transcode the item started
-    over from 0:00.
+    the queue reaches ``_start_item``. Started there, a direct play ends at
+    once and its load watchdog fails it; a transcode starts over from 0:00.
     """
 
     RUNTIME_S = 1429
@@ -2241,11 +2219,8 @@ class TestStartPastTheEnd:
 class TestLoadWatchdogGeneration:
     """A load's watchdog must only be able to fail *that* load.
 
-    It used to key on the playlist item id, which a transcode-seek reload does
-    not change: the watchdog armed by a load that succeeded 45s earlier found
-    "phase == loading" true again for the reload and declared it failed, and
-    the client left the group mid-seek. Measured live 2026-08-18 — a group
-    start at 12:59:37 killed the reload from a seek at 13:00:19.
+    A transcode-seek reload keeps the playlist item id, so the watchdog of a
+    load that succeeded earlier would find the reload loading and fail it.
     """
 
     @staticmethod
@@ -2285,7 +2260,7 @@ class TestLoadWatchdogGeneration:
         manager._load_failed = lambda reason: failures.append(reason)
 
         first = self._arm(manager)
-        # The same item reloaded — a transcode seek, which is the whole point.
+        # The same item reloaded, as a transcode seek does.
         self._arm(manager)
 
         # The first load's watchdog fires while the second is still loading.
@@ -2311,7 +2286,7 @@ class TestLoadWatchdogGeneration:
 
 
 # ---------------------------------------------------------------------------
-# The three group-update tables (P2.4) hold method names, and these are the
+# The three group-update tables hold method names, and these are the
 # arms no other test sends: the table-name check first, then each arm.
 # ---------------------------------------------------------------------------
 
@@ -2380,7 +2355,7 @@ class TestGroupUpdateTables:
 
 
 # ---------------------------------------------------------------------------
-# The public provider contract (plan G2)
+# The public provider contract
 # ---------------------------------------------------------------------------
 
 
@@ -2489,7 +2464,7 @@ class TestSessionStateMirror:
 
 
 # ---------------------------------------------------------------------------
-# External content (plan G3.6, SYNCPLAY.md §14)
+# External content (SYNCPLAY.md §14)
 # ---------------------------------------------------------------------------
 
 

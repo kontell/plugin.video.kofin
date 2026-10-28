@@ -1,8 +1,8 @@
-"""L1 units for the download manager's transfer machinery (plan W1.5/W1.6).
+"""L1 units for the download manager's transfer machinery.
 
 Everything drives ``_process`` directly — no worker threads — with a fake
-Api and duck-typed streams; the repoint policy is recorded, not executed
-(its own L2 suite owns it)."""
+Api and duck-typed streams; the library side is recorded, not executed
+(test_downloads_native_api covers it)."""
 
 import os
 
@@ -30,20 +30,17 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
-    # special:// lands inside tmp_path, not in the repo: the manager writes
-    # the Downloaded-music playlist and node through translatePath, and a
-    # pass-through left a literal "special:" directory behind.
+    # special:// lands inside tmp_path, so nothing a test writes through
+    # translatePath lands in the working tree.
     monkeypatch.setattr(
         "xbmcvfs.translatePath",
         lambda p: str(p).replace("special://", str(tmp_path / "kodi") + "/"),
     )
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-    # The free-space check runs a real statvfs on tmp_path, with a 2 GiB
-    # reserve: on a host whose /tmp is a small tmpfs the *second* _process in
-    # a test failed "not enough free space" (the first passed only because
-    # the root did not exist yet). The check has its own tests; here it is
-    # always satisfied, and the one test that wants a refusal overrides it.
+    # The free-space check runs a real statvfs with a 2 GiB reserve, which a
+    # small tmpfs fails. The check has its own tests; here it is always
+    # satisfied, and the one test that wants a refusal overrides it.
     monkeypatch.setattr(manager_module.files, "free_space_ok", lambda root, size: True)
     yield
     sync_db.reset_overrides()
@@ -51,8 +48,8 @@ def env(tmp_path, monkeypatch):
 
 class FakeNative:
     """The library side of a download, recording what the manager asked of
-    it: ``attached`` is the old repoint plus its tag and badge stamps,
-    ``detached`` the unstamps, so the assertions read as they always did."""
+    it: ``attached`` as a repoint, a stamp and a badge, ``detached`` as an
+    unstamp and an unbadge."""
 
     def __init__(self, calls):
         self.calls = calls
@@ -392,11 +389,10 @@ def test_cancel_mid_transfer_removes_everything(tmp_path, repoints):
 
     assert store.get("m1") is None
     assert list((tmp_path / "dl").rglob("*.part")) == []
-    # The per-item directory the transfer created goes with it: a cancel used
-    # to leave an empty season folder behind on disk (found live, G6a).
+    # The per-item directory the transfer created goes with it.
     assert list((tmp_path / "dl" / "Movies").iterdir()) == []
-    # ...but the category folder stays, as it does after a delete (D2). A
-    # cancel and a delete must leave the tree in the same shape.
+    # ...but the category folder stays, as it does after a delete. A cancel
+    # and a delete must leave the tree in the same shape.
     assert (tmp_path / "dl" / "Movies").exists()
     assert (tmp_path / "dl").exists()  # never the root
     assert repoints["repoint"] == []
@@ -485,8 +481,8 @@ def test_reconcile_restores_missing_files_and_reasserts_present_ones(
 
     assert ("kept", str(tmp_path / "dl")) in repoints["repoint"]
     assert ("ghost", str(tmp_path / "dl")) in repoints["restore"]
-    # Removed, not left failed: a failed row kept the tag, the badge and the
-    # leftovers, so the item went on advertising itself as downloaded.
+    # Removed, not left failed, so the item stops advertising itself as
+    # downloaded.
     assert store.get("ghost") is None
     assert store.get("kept").state == store.DONE
     assert refreshes == [["video"]]
@@ -512,7 +508,7 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     assert store.get("m1") is None
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned
-    assert (tmp_path / "dl" / "Movies").exists()  # ...but not the category (D2)
+    assert (tmp_path / "dl" / "Movies").exists()  # ...but not the category
     assert (tmp_path / "dl").exists()  # never the root itself
     # Immediate, unlike a completion: the row has to leave the list the user
     # is looking at.
@@ -532,13 +528,9 @@ def _done_row(tmp_path, item_id, rel):
 
 
 def test_the_category_folders_survive_individual_deletes(tmp_path, repoints):
-    """D2: deleting downloads one at a time empties the category folders but
-    does not remove them.
-
-    They used to go with the last item in them, because the prune's floor was
-    the root — so a folder somebody had pointed a Kodi source or a file
-    manager at vanished the moment its last download did. The per-item
-    directories inside them still go, which is what the prune is for.
+    """Deleting downloads one at a time empties the category folders but
+    leaves them, since a Kodi source or a file manager may point at one. The
+    per-item directories inside them go.
     """
     manager, _refreshes = make_manager(repoints)
     movie = _done_row(tmp_path, "m1", "Movies/The Movie (2019)/The Movie (2019).mkv")
@@ -561,9 +553,9 @@ def test_the_category_folders_survive_individual_deletes(tmp_path, repoints):
 
 
 def test_remove_all_takes_the_category_folders(tmp_path, repoints):
-    """The other half of D2: the two paths that mean *everything* leave the
-    root as bare as they found it — but still touch nothing that is not
-    kofin's, because the root may be shared with other media."""
+    """The paths that mean *everything* leave the root as bare as they found
+    it, but touch nothing that is not kofin's, because the root may be
+    shared with other media."""
     manager, _refreshes = make_manager(repoints)
     _done_row(tmp_path, "m1", "Movies/The Movie (2019)/The Movie (2019).mkv")
     _done_row(tmp_path, "s1", "Music/The Band/The Album/01 Track.flac")
@@ -582,9 +574,8 @@ def test_remove_all_takes_the_category_folders(tmp_path, repoints):
 
 
 def test_an_artist_directory_prunes_down_to_its_exported_metadata(tmp_path, repoints):
-    """D2 × D5: the music export writes three files at the artist level, once
-    per artist. Removing the artist's last album must still clear them — and
-    still leave ``Music/`` standing."""
+    """The music export writes three files at the artist level. Removing the
+    artist's last album clears them and leaves ``Music/`` standing."""
     manager, _refreshes = make_manager(repoints)
     rel = "Music/The Band/The Album/01 Track.flac"
     track = _done_row(tmp_path, "s1", rel)
@@ -651,10 +642,8 @@ def _episode_api(item_id, filename):
 
 
 def test_siblings_share_one_season_directory(tmp_path, repoints):
-    """Found live: the collision suffix keyed on the *item*, so every episode
-    of a season saw its siblings' rows as a clash and each landed in a
-    directory of its own — four episodes across three folders. Ownership is
-    the series, not the episode."""
+    """The collision suffix is keyed on the series, not the episode, so
+    siblings never clash with each other's rows."""
     manager, _ = make_manager(repoints)
 
     manager._process(_episode_api("e1", "one.avi"), queue_row("e1"))
@@ -667,9 +656,8 @@ def test_siblings_share_one_season_directory(tmp_path, repoints):
 
 
 def test_a_different_show_with_the_same_name_still_separates(tmp_path, repoints):
-    """The suffix is still there for the case it was written for: two shows
-    whose names sanitize identically get one directory each, keyed on the
-    series id."""
+    """Two shows whose names sanitize identically get one directory each,
+    keyed on the series id."""
     manager, _ = make_manager(repoints)
     manager._process(_episode_api("e1", "one.avi"), queue_row("e1"))
 
@@ -694,9 +682,7 @@ def test_a_different_show_with_the_same_name_still_separates(tmp_path, repoints)
 
 def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
     """A stop is not a failure: the row must stay active so the next start's
-    recover_interrupted re-queues it and the .part resumes with a Range.
-    Found live (G6b) — quitting Kodi mid-download settled the row as failed
-    and nothing ever picked it up again."""
+    recover_interrupted re-queues it and the .part resumes with a Range."""
     from kofin.core.http import ServerUnreachable
 
     manager, _ = make_manager(repoints)
@@ -721,11 +707,9 @@ def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
 
 
 def test_an_outage_releases_the_row_back_to_queued(tmp_path, repoints):
-    """Claiming while offline would spend each item's three attempts and
-    settle it failed, so a season queued offline came back as a list of
-    failures instead of a list of downloads. Released to *queued*, not left
-    active: recover_interrupted runs only at manager start, so an active row
-    would sit stuck until the next service restart (the phase-3 fix)."""
+    """An outage spends no attempt, or a season queued offline would settle
+    failed. The row goes back to *queued*, not left active, because
+    recover_interrupted runs only at manager start."""
     from tests.unit.fakes import FakeWindow
 
     manager, _ = make_manager(repoints)
@@ -759,7 +743,7 @@ def test_an_outage_mid_transfer_is_not_a_failure(tmp_path, repoints):
     assert row.bytes_done == 4
 
 
-# -- the transcode path (plan W3.1) -------------------------------------------
+# -- the transcode path -------------------------------------------------------
 
 TRANSCODE_MOVIE = dict(
     MOVIE_DTO,
@@ -993,7 +977,7 @@ def test_a_transcode_sidecars_embedded_text_subtitles(tmp_path, repoints, monkey
     assert any("/3.srt" in url for url in api.downloaded_urls)
 
 
-# -- music (plan W3.2) --------------------------------------------------------
+# -- music --------------------------------------------------------------------
 
 SONG_DTO = {
     "Id": "a1",
@@ -1037,7 +1021,7 @@ def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypat
     assert repoints.get("music_view") == [False]
 
 
-# -- the progress bar (plan W3.4) ---------------------------------------------
+# -- the progress bar ---------------------------------------------------------
 
 
 class RecordingProgress:
@@ -1133,7 +1117,7 @@ def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatc
     assert begins == [("begin", "m1", "The Movie", 800_000 * 100 // 8)]
 
 
-# -- retention (plan W4.2) and exported-metadata pruning (W4.3) ---------------
+# -- retention and exported-metadata pruning ----------------------------------
 
 
 def seed_done(item_id, origin, queued_at=100):
@@ -1151,9 +1135,7 @@ def test_retention_sweeps_every_watched_download_in_the_silent_mode(
     repoints, monkeypatch
 ):
     """The sweep is the backstop for what the end-of-playback offer misses,
-    and it no longer cares who queued the item — the origin split meant a
-    download the user asked for was never collected here at all, however
-    long ago they had watched it."""
+    and takes a watched download whoever queued it."""
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
@@ -1209,7 +1191,7 @@ def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
     assert removed == []
 
 
-# -- the stale sweep (plan W4.8) ---------------------------------------------
+# -- the stale sweep ---------------------------------------------------------
 
 
 DAY = manager_module.SECONDS_PER_DAY
@@ -1264,9 +1246,8 @@ def test_stale_sweep_removes_what_nobody_has_touched(repoints, monkeypatch):
 
 
 def test_stale_sweep_keeps_anything_with_a_resume_point(repoints, monkeypatch):
-    """The exemption the feature is sold on: a film you are part-way through
-    is in progress, not abandoned, however long it has sat — and it is
-    exactly what a pure age clock would take first."""
+    """A film part-way through is in progress, not abandoned, however long
+    it has sat."""
     enable_stale(days=30)
     manager, _ = make_manager(repoints)
     seed_stale("halfway", days_ago=400)
@@ -1367,8 +1348,8 @@ def test_stale_sweep_collects_watched_downloads_too(repoints, monkeypatch):
 
 
 def test_as_epoch_reads_both_spellings_that_reach_the_column():
-    """Kodi's own space-separated stamp and the ISO form the sync writers
-    hand it (shims.date_played) are the same local time."""
+    """Kodi's own space-separated stamp and the ISO form are the same local
+    time."""
     assert manager_module._as_epoch("2026-01-02 03:04:05") == manager_module._as_epoch(
         "2026-01-02T03:04:05"
     )
@@ -1392,7 +1373,7 @@ def test_remove_sweeps_exported_metadata_with_the_directory(tmp_path, repoints):
     assert not directory.exists()  # the escape hatch left with its media
 
 
-# -- the offline segment cache (plan W4.7) ------------------------------------
+# -- the offline segment cache ------------------------------------------------
 
 
 def test_completion_captures_the_raw_segments(tmp_path, repoints):
@@ -1497,9 +1478,8 @@ def test_start_backfills_missing_segment_caches(tmp_path, repoints, monkeypatch)
 def test_notifications_opt_out_silences_progress_but_never_failures(
     tmp_path, repoints, monkeypatch
 ):
-    """A per-item "Download complete" toast is the noisy one, and an album
-    fires a dozen. Failures stay: an opt-out that swallowed them would turn
-    "my download did nothing" into an unanswerable question — the same line
+    """The opt-out silences "Download complete" and never a failure, which
+    is the only answer to "my download did nothing" — the same line
     syncPlayNotifications draws."""
     manager, _ = make_manager(repoints)
     shown = []
@@ -1523,10 +1503,8 @@ def test_notifications_opt_out_silences_progress_but_never_failures(
 def test_a_bulk_removal_refreshes_and_toasts_once_not_per_row(
     tmp_path, repoints, monkeypatch
 ):
-    """Removing an album is one menu press and seventeen rows. Each row
-    answering on its own meant seventeen widget passes — and would mean
-    seventeen toasts — for one answer, which is why the whole batch travels
-    as a single op."""
+    """Removing an album is one menu press and many rows, so the whole batch
+    travels as a single op: one refresh and one toast."""
     manager, refreshes = make_manager(repoints)
     shown = []
     monkeypatch.setattr(
@@ -1557,8 +1535,8 @@ def test_a_bulk_removal_refreshes_and_toasts_once_not_per_row(
     assert store.rows() == []
     # One refresh for the batch, against the music database, not video.
     assert refreshes == [["music"]]
-    # One playlist refresh with the removed songs: in the API build it is what
-    # rewrites the Downloaded-music list.
+    # One playlist refresh with the removed songs, which rewrites the
+    # Downloaded-music list.
     assert playlist_refreshes == [{"s0", "s1", "s2"}]
     # ...and one toast, naming the count rather than three file names.
     assert shown == ["L30824 3"]
@@ -1608,9 +1586,8 @@ def test_a_removal_that_was_refused_is_not_announced(tmp_path, repoints, monkeyp
 
 
 def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypatch):
-    """Twelve tracks landing in a burst were twelve notifications naming
-    songs nobody chose individually. The album is what was asked for, so
-    the worker that finishes the last of it is the one that says so."""
+    """The album is what was asked for, so the worker that finishes the last
+    of its tracks announces it, by the album's name."""
     manager, _ = make_manager(repoints)
     shown = []
     monkeypatch.setattr(
@@ -1654,12 +1631,9 @@ def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypa
 def test_a_playlist_announces_once_for_the_whole_request(
     tmp_path, repoints, monkeypatch
 ):
-    """D6: the bug the album grouping could not reach.
-
-    A playlist's tracks come off different albums, so grouping by the
-    item's own ``AlbumId`` made every track its own complete album — ten
-    tracks, ten toasts, for one thing chosen once. The request is what the
-    user picked, and it is announced under the playlist's name.
+    """A playlist's tracks come off different albums, each of which a track
+    completes alone. The request is what the user picked, and it is
+    announced once, under the playlist's name.
     """
     manager, _ = make_manager(repoints)
     shown = []
@@ -1675,7 +1649,7 @@ def test_a_playlist_announces_once_for_the_whole_request(
         request_name="Road Trip",
     )
     manager._drain_ops()
-    # One album each — the shape that used to produce a toast per track.
+    # One album each, so every track completes an album of its own.
     for index in range(3):
         store.record_details("t%d" % index, "song", "album%d" % index, 0, "")
 
@@ -1841,9 +1815,7 @@ def test_remove_all_clears_finished_and_unfinished_alike(tmp_path, repoints):
 
 
 def test_remove_all_refreshes_once_for_the_whole_request(tmp_path, repoints):
-    """_apply_remove refreshes as soon as the ops queue runs dry, and during
-    this walk it is dry from the first row on — so without the suppression a
-    single button press became one widget pass per download."""
+    """One button press is one refresh, however many downloads it removes."""
     manager, refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     for index in range(4):
@@ -1980,8 +1952,7 @@ def test_wake_lets_every_worker_recheck_immediately(tmp_path, repoints):
 @pytest.fixture
 def vanished(monkeypatch):
     """The two halves of "mark it watched", recorded rather than performed:
-    the local leg needs a real MyVideos (covered in the repoint L2 suite),
-    and the push needs a server."""
+    the local leg is the port's, and the push needs a server."""
     seen = {"local": [], "pushed": []}
     monkeypatch.setattr(
         DownloadManager,
@@ -1997,9 +1968,9 @@ def vanished(monkeypatch):
 
 
 def test_a_vanished_file_is_cleaned_up_not_just_restored(tmp_path, repoints, vanished):
-    """It used to restore the library row and leave a failed store row, so
-    the leftovers stayed — sidecars, the empty directory, the tag and the
-    badge — and the item went on advertising itself as downloaded."""
+    """A vanished file goes through the removal path: the sidecars, the
+    empty directory, the tag and the badge go with the row, or the item
+    would go on advertising itself as downloaded."""
     manager, _refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     rel = "Shows/The Show/Season 01/S01E01.mkv"
@@ -2040,10 +2011,8 @@ def test_a_vanished_song_is_cleaned_up_but_not_marked_watched(
 def test_the_sweep_notices_a_file_deleted_after_the_service_started(
     tmp_path, repoints, vanished
 ):
-    """_reconcile_once runs once per generation, so a mid-session deletion
-    used to go unnoticed until the next restart — the item stayed in the
-    Downloaded nodes and playing it failed in Kodi rather than falling back
-    to the server."""
+    """_reconcile_once runs once per generation, so the maintenance sweep is
+    what notices a deletion mid-session."""
     manager, refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
@@ -2093,14 +2062,9 @@ def test_an_offline_played_push_is_parked_for_replay(tmp_path, repoints, monkeyp
 
 
 def test_a_music_worker_cannot_swallow_a_video_workers_wake(tmp_path, repoints):
-    """The claim-latency bug, pinned.
-
-    One Event shared by the pool meant the first worker to notice cleared it
-    for everybody. When that was a music worker and the row was an episode,
-    it drained the op, found nothing it could claim, and went back to sleep —
-    leaving the video workers, which *could* have taken the row, in a 30 s
-    wait with the Event already clear. Measured on the Omega box as 31-32 s
-    before a user-initiated download started.
+    """Each worker has a wake of its own, so a music worker that drains an
+    episode's op and finds nothing to claim leaves the video workers' wakes
+    set.
     """
     manager, _refreshes = make_manager(repoints)
     music_wake = manager._new_wake()
@@ -2120,8 +2084,7 @@ def test_a_music_worker_cannot_swallow_a_video_workers_wake(tmp_path, repoints):
 
 
 def test_every_op_kind_reaches_every_worker(tmp_path, repoints):
-    """submit/cancel/remove/remove_all all have to fan out — a cancel that
-    only reached one worker is the same bug wearing a different hat."""
+    """submit/cancel/remove/remove_all all fan out to every worker."""
     manager, _refreshes = make_manager(repoints)
     wakes = [manager._new_wake() for _ in range(3)]
 
@@ -2147,14 +2110,11 @@ def test_stop_releases_every_worker(tmp_path, repoints):
 
 
 def test_draining_an_add_renotifies_the_other_workers(tmp_path, repoints):
-    """The actual claim-latency bug, pinned.
-
-    ``submit`` wakes the pool when it *enqueues*, but the row does not exist
-    until a worker gets to ``_drain_ops`` and store.queue returns. The worker
-    able to claim it has usually spent its wake by then — it drained nothing
-    (another pool got the op first), claimed nothing (no row yet), found the
-    queue empty and slept. Measured live: queued 1.6 s after the request,
-    claimed 31 s after that.
+    """``submit`` wakes the pool when it *enqueues*, but the row exists only
+    once a worker has run ``_drain_ops``. The worker able to claim it may
+    have spent its wake by then — drained nothing (another pool got the op
+    first), claimed nothing (no row yet) and slept — so the drain wakes the
+    others again.
     """
     manager, _refreshes = make_manager(repoints)
     drainer = manager._new_wake()
@@ -2194,7 +2154,7 @@ def test_a_drain_that_queues_nothing_notifies_nobody(tmp_path, repoints):
     assert not other.is_set()
 
 
-# --- a late cancel neither leaks nor poisons (assessment D1) -----------------
+# --- a late cancel neither leaks nor poisons ---------------------------------
 
 
 def _one_movie_api():
@@ -2212,8 +2172,7 @@ def _one_movie_api():
 
 def test_a_cancel_on_the_last_chunk_still_cancels(tmp_path, repoints):
     """The chunk loop consults the flag before each chunk, so a cancel that
-    lands while the last chunk is written is one it never sees; the item
-    completed DONE with the flag left set. Asked once more after the body:
+    lands while the last chunk is written is asked once more after the body:
     the user asked first."""
     manager, _ = make_manager(repoints)
     api = _one_movie_api()
@@ -2230,9 +2189,8 @@ def test_a_cancel_during_the_sidecars_is_superseded_and_cleared(
     tmp_path, repoints, monkeypatch
 ):
     """Past the post-body check the item is done: a cancel arriving during
-    the sidecar fetch is overtaken by completion. What must not happen is
-    the flag surviving — it cancelled the *next* download of the same id at
-    its first chunk."""
+    the sidecar fetch is overtaken by completion, and the flag is cleared,
+    or it would cancel the *next* download of the same id."""
     manager, _ = make_manager(repoints)
     original = manager._download_subtitles
 
@@ -2255,15 +2213,14 @@ def test_a_cancel_during_the_sidecars_is_superseded_and_cleared(
     assert store.get("m1").state == store.DONE
 
 
-# --- a refused restore keeps the download (assessment D5) --------------------
+# --- a refused restore keeps the download ------------------------------------
 
 
 def test_remove_is_refused_when_the_library_row_cannot_be_restored(
     tmp_path, repoints, monkeypatch
 ):
-    """Deleting the media after a refused restore left MyVideos pointing at
-    a file that no longer existed. The download stays — file, row, tag,
-    badge — and the user is told."""
+    """When the port refuses the restore the download stays — file, row,
+    tag, badge — and the user is told."""
     manager, refreshes = make_manager(repoints)
     repoints["native"].restore_answer = False
     shown = []
@@ -2290,7 +2247,7 @@ def test_a_vanished_file_is_cleaned_up_even_when_restore_is_refused(
 ):
     """Nothing to keep: the file is already gone, and a row left behind
     would be found by every sweep. The library row heals on the item's
-    next writer pass."""
+    next pass."""
     manager, _refreshes = make_manager(repoints)
     repoints["native"].restore_answer = False
     root = tmp_path / "dl"

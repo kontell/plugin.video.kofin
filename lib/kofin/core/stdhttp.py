@@ -1,28 +1,20 @@
 """The same HTTP contract as :mod:`kofin.core.http`, over the standard library.
 
-Why this exists is one measurement. Inside Kodi's Python, on both test boxes::
-
-    import requests    1.11 s (Omega/Debian)   0.93 s (Kodi 22/Android)
-    http.client + ssl  0.00 s                  0.00 s   (already loaded)
-
-The plugin process is short-lived, so that second is paid on every cold click
-that talks to the server — a browse listing, the play resolve, a context
-action. Kodi 22's own bytecode caching does not help: the cost is executing the
-package's module bodies, not compiling them. Invoker reuse (W4.4) removes the
-import from a *warm* click, but it cannot be relied on: Kodi keeps a single
-reusable invoker thread for the whole system, so any other addon's script
-between two clicks discards ours and the next click pays full price again.
+Importing ``requests`` costs about a second inside Kodi's Python, and the
+plugin process pays it on every cold click that talks to the server — a
+browse listing, the play resolve, a context action. Invoker reuse cannot be
+relied on to keep a click warm: Kodi keeps a single reusable invoker thread
+for the whole system, so any other addon's script between two clicks
+discards ours.
 
 So the plugin process asks over the standard library, and the service keeps
-``requests``: a long-lived process pays the import once, its sync stack is
-proven against it, and none of this is worth a second transport there.
+``requests``: a long-lived process pays the import once.
 
 What this is not: a general HTTP client. It implements exactly the surface
 :class:`kofin.core.api.Api` uses, with the same error taxonomy and the same
-per-method retry budget, and is tested against the same contract. Anything
-subtler than that — redirects, streamed bodies, content decoding — is either
-unused on kofin's API paths or deliberately out of scope (see the notes on
-``Accept-Encoding`` and redirects below).
+per-method retry budget. Anything subtler than that — redirects, streamed
+bodies, content decoding — is either unused on kofin's API paths or
+deliberately out of scope (see the note on ``Accept-Encoding`` below).
 """
 
 import http.client
@@ -80,15 +72,11 @@ class StdlibHttp(Http):
     route makes three or four, and paying a TLS handshake for each would give
     back a good part of what the cheap import saves.
 
-    Per *thread*, not per instance, and that is not a detail. ``requests``
-    hands each thread its own pooled connection, so callers were free to share
-    one transport across threads — and the play route does exactly that: the
-    media-segments prefetch runs beside the resolve, and the sidecar subtitle
-    fetches run four at a time, all on the transport the route was handed.
-    A single ``http.client`` connection cannot serve that: two threads writing
-    requests onto one socket interleave, and the reply the other one reads is
-    not its own. Seen live as ``[Errno 9] Bad file descriptor`` out of a
-    PlaybackInfo POST.
+    Per *thread*, not per instance: callers share one transport across
+    threads — the play route's media-segments prefetch runs beside the
+    resolve, and the sidecar subtitle fetches run four at a time — and two
+    threads writing requests onto one ``http.client`` connection interleave,
+    so the reply one reads is not its own.
     """
 
     def __init__(self, verify_ssl: bool = True) -> None:
@@ -205,9 +193,7 @@ class StdlibHttp(Http):
                 url,
             )
 
-        # run_ladder gives this transport the abort check it used to lack —
-        # None in the plugin process (short-lived, nothing wires one in), so
-        # the two transports are honestly identical (P1.9).
+        # The abort check is None in the plugin process: nothing wires one in.
         result: Response = run_ladder(
             method, url, retries, attempt, _TRANSPORT_ERRORS, abort=self._abort
         )
@@ -290,9 +276,7 @@ def _body(
         send_headers["Content-Type"] = "application/json"
         send_headers["Content-Length"] = str(len(body))
     # Identity, and stated rather than left to chance: http.client does not
-    # decode content, so a server that decided to gzip would hand back bytes
-    # nothing here would unpack. Jellyfin does not compress these responses
-    # (measured: an Accept-Encoding request returned identical byte counts),
-    # so nothing is being given up.
+    # decode content, and Jellyfin does not compress these responses, so
+    # nothing is being given up.
     send_headers.setdefault("Accept-Encoding", "identity")
     return body, send_headers

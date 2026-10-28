@@ -1,4 +1,4 @@
-"""L1 units for the transcode completion probes (plan W3.1/W3.2).
+"""L1 units for the transcode completion probes.
 
 The fixtures are hand-built boxes/pages, byte-exact per ISO 14496-12 and RFC
 3533 — no ffmpeg dependency, and the truncation cases are cut at chosen
