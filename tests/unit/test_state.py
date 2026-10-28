@@ -43,7 +43,7 @@ def test_claim_by_path_match():
 
 
 def test_unrelated_play_does_not_claim_a_failed_resolve():
-    """A movie resolve can fail while Kodi starts a song (Bravia, 2026-09-28)."""
+    """A movie resolve can fail while Kodi starts a song."""
     state.push_play_item({"Path": "http://s/Videos/movie/stream", "Id": "movie"})
     song = "http://s/Audio/song/stream.flac"
 
@@ -54,8 +54,8 @@ def test_unrelated_play_does_not_claim_a_failed_resolve():
 def test_claim_on_empty_and_garbage(tmp_path, monkeypatch):
     assert state.claim_play_item("x") is None
 
-    # A half-written or corrupt entry is skipped, not fatal: the queue is a
-    # directory of files now, and one bad file must not cost the others.
+    # A half-written or corrupt entry is skipped, not fatal: one bad file
+    # must not cost the others.
     import os
 
     directory = state._queue_dir()
@@ -67,8 +67,7 @@ def test_claim_on_empty_and_garbage(tmp_path, monkeypatch):
 
 def test_a_claimed_entry_cannot_be_claimed_twice():
     """os.remove is the claim: the filesystem guarantees exactly one caller
-    wins, which is the mutual exclusion a window property could not give
-    across processes (audit finding #12)."""
+    wins, across processes."""
     state.push_play_item({"Path": "http://a", "Id": "1"})
 
     first = state.claim_play_item("http://a")
@@ -79,8 +78,8 @@ def test_a_claimed_entry_cannot_be_claimed_twice():
 
 
 def test_concurrent_claims_hand_out_each_entry_once():
-    """The race the property lost: two claimers must never both get the same
-    entry, and nothing queued may be resurrected."""
+    """Two claimers must never both get the same entry, and nothing queued
+    may be resurrected."""
     import threading
 
     for index in range(20):
@@ -107,9 +106,8 @@ def test_concurrent_claims_hand_out_each_entry_once():
 
 
 def test_a_push_during_a_claim_is_never_lost():
-    """The other half of the race: an entry pushed while a claim runs must
-    still be claimable — under the property it vanished with the writeback,
-    and its playback was never reported."""
+    """An entry pushed while a claim runs must still be claimable, or its
+    playback is never reported."""
     state.push_play_item({"Path": "http://old", "Id": "old"})
     claimed = state.claim_play_item("http://old")
     state.push_play_item({"Path": "http://new", "Id": "new"})

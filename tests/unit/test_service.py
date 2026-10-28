@@ -31,14 +31,12 @@ def kodi_fakes(monkeypatch):
 def _refuse_stray_post_connect():
     """Fail the test that leaves a post-connect worker running.
 
-    ``_on_ws_connected`` spawns the pass on a thread and returns — that is the
-    behaviour under test at ``test_the_connect_callback_does_not_block_on_the_pass``
-    — so a test that neither joins it (``_join_post_connect``) nor stubs
-    ``_run_post_connect`` hands the next test a live thread. Those workers
+    ``_on_ws_connected`` spawns the pass on a thread and returns (see
+    ``test_on_ws_connected_returns_while_the_slow_work_runs``), so a test that
+    neither joins it (``_join_post_connect``) nor stubs ``_run_post_connect``
+    hands the next test a live thread. Those workers
     carry a real ``Api`` whose server address is never set in this file, and
-    they raise toasts and read settings into whichever test runs next; three
-    of the four tests that *do* join went red together in one loaded run,
-    which is what sent us looking.
+    they raise toasts and read settings into whichever test runs next.
 
     Named on the thread rather than tracked per service: the leak is only
     visible process-wide, and the teardown that catches it is the one
@@ -72,7 +70,7 @@ def test_backoff_due_and_reset():
 
 
 def _piers_capture():
-    """What the approved Piers flatpak answered the phase 0 probe."""
+    """What a Piers build answers the capability probe."""
     import json
     from pathlib import Path
 
@@ -188,7 +186,8 @@ def test_piers_runs_the_baseline_with_every_kodi23_feature_off(monkeypatch):
 def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
     tmp_path, monkeypatch
 ):
-    """Use the real capability probe; scanner-only fixtures missed this gate."""
+    """The start runs the real capability probe, a gate a scanner-only
+    fixture bypasses."""
     import json
 
     from kofin.sync import private
@@ -267,9 +266,9 @@ def test_a_dead_manager_is_rebuilt_immediately_the_first_time(monkeypatch):
 
 
 def test_consecutive_failures_wait_out_the_backoff(monkeypatch):
-    """The schema-gate case: startup fails within a second, forever. Unpaced,
-    that was a rebuild every tick — databases opened, error toast raised, and
-    toasts queue, so the wall outlives the loop."""
+    """A startup that fails within a second, forever, would otherwise be
+    rebuilt every tick with an error toast each time, and toasts queue, so
+    the wall would outlive the loop."""
     clock = [1000.0]
     service, starts = _paced_service(monkeypatch, clock)
     service.library = FakeLibrary(stop_thread=True)
@@ -359,8 +358,7 @@ def test_restart_and_auth_notifications_set_flag(monkeypatch, tmp_path):
 def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
     """Kodi passes the sender string through from whoever called NotifyAll —
     the builtin and the JSON-RPC method both — so kofin's own name proves
-    nothing. Without the secret the destructive commands do not run
-    (audit finding #20)."""
+    nothing. Without the secret the destructive commands do not run."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -392,9 +390,8 @@ def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_pat
 
 def test_a_forged_update_or_sync_never_reaches_the_manager(monkeypatch, tmp_path):
     """UpdateLibrary with an empty payload plans a prune over the whole
-    whitelist, and SyncLibrary used to be an unguarded, never-sent message
-    that walked a library on anyone's say-so. Neither runs without the
-    secret; the real Update button, which carries it, still does."""
+    whitelist, and SyncLibrary is no message at all. Neither runs without
+    the secret; the real Update button, which carries it, does."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -414,9 +411,8 @@ def test_a_forged_update_or_sync_never_reaches_the_manager(monkeypatch, tmp_path
 
 def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
     """A verified guarded command reaches the manager without its nonce.
-    The library thread logs every command it dequeues, so the secret left
-    in the payload was printed into kodi.log on every Repair and removal
-    (phase-1 finding, P2.5a)."""
+    The library thread logs every command it dequeues, so a secret left in
+    the payload would be printed into kodi.log."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -445,8 +441,8 @@ def test_ssl_change_triggers_restart():
 
 def test_settings_change_ignored_before_ready():
     """Kodi's startup settings-load fires onSettingsChanged with transient
-    reads; the service must not act until the applier is ready (S2 regression:
-    a plain restart once prompted a library removal)."""
+    reads; the service must not act until the applier is ready, or a plain
+    restart could prompt a library removal."""
     FakeAddon.store["sslVerify"] = "true"
     service = Service()  # applier not ready
     FakeAddon.store["sslVerify"] = "false"
@@ -456,8 +452,8 @@ def test_settings_change_ignored_before_ready():
 
 def test_a_stopped_generation_ignores_kodi_callbacks(monkeypatch):
     """Kodi calls a Monitor until the object is freed, and a stopped
-    generation is not freed: on the Bravia (2026-10-17) the one a sign-in
-    restart stopped applied the library selection beside the live one."""
+    generation is not freed, so one a sign-in restart stopped would apply the
+    library selection beside the live one."""
     handled = []
     monkeypatch.setattr(
         Service, "_kodi_screensaver_deactivated", lambda self, data: handled.append(1)
@@ -475,7 +471,7 @@ def test_a_stopped_generation_ignores_kodi_callbacks(monkeypatch):
     assert handled == []
 
 
-# --- SyncPlay wiring (phase 4) -----------------------------------------------
+# --- SyncPlay wiring ---------------------------------------------------------
 
 
 class RecordingSyncPlay:
@@ -618,7 +614,7 @@ def test_player_onplay_forwarded_decoded():
 
 
 def test_broken_syncplay_never_suppresses_the_sync_kick():
-    """Screensaver fan-out (plan §7): the library catch-up and the SyncPlay
+    """Screensaver fan-out: the library catch-up and the SyncPlay
     wake hook are independent — a broken manager can't eat the kick."""
 
     class ExplodingSyncPlay:
@@ -701,7 +697,7 @@ def test_a_lost_connection_is_announced_after_the_grace(toasts, monkeypatch):
     """The disconnect edge stamps the drop rather than toasting: one that
     heals inside the grace is not news. On an Android TV in standby it is
     routine — the socket recycles for hours and Kodi replays every queued
-    toast at wake (kodi-drive: kodi-android-standby)."""
+    toast at wake."""
     service = _connected_service(monkeypatch)
 
     service._on_ws_disconnected()
@@ -805,12 +801,10 @@ def test_a_server_notice_stands_in_for_the_lost_toast(toasts, monkeypatch):
 
 
 def test_a_reconnect_racing_the_lost_toast_queues_behind_it(toasts, monkeypatch):
-    """Review of #187: deciding under the lock and toasting outside it left a
-    gap in which a reconnect on the websocket thread could announce
-    "Connected" before "Lost" was queued, leaving the last notice wrong.
-    The toast is now raised under the same lock, so a connect that lands
-    mid-toast waits for it — this test parks one there and checks the
-    order the user sees."""
+    """The lost toast is raised under the lock that decides it, so a
+    reconnect on the websocket thread that lands mid-toast waits for it
+    rather than announcing "Connected" before "Lost". This test parks one
+    there and checks the order the user sees."""
     import xbmcgui
 
     service = _connected_service(monkeypatch)
@@ -877,8 +871,6 @@ def test_connect_names_the_server(toasts, monkeypatch):
     FakeAddon.store["serverName"] = "minipie"
     service = Service()
 
-    # See test_a_live_socket_raises_the_flag: an unstubbed worker outlives the
-    # test and goes on talking to a server that is not there.
     monkeypatch.setattr(service, "_run_post_connect", lambda: None)
 
     service._on_ws_connected()
@@ -895,7 +887,7 @@ class _NoWaitMonitor:
 
 
 def _join_post_connect(service):
-    """The connect callback spawns its work (W2.5); tests that assert on the
+    """The connect callback spawns its work; tests that assert on the
     outcome wait for the pass to finish first."""
     assert service._post_connect is not None
     service._post_connect.join(timeout=10)
@@ -905,9 +897,9 @@ def _join_post_connect(service):
 def test_uncached_string_does_not_break_the_connect_callback(monkeypatch):
     """Kodi caches addon strings for the process lifetime, so an id added in
     this release renders without its placeholder until the next full restart.
-    Formatting it then raised TypeError straight out of _on_ws_connected —
-    taking capabilities registration and the SyncPlay rejoin down with a
-    *notification*. Seen live, not theorised."""
+    Formatting it must not raise out of _on_ws_connected and take
+    capabilities registration and the SyncPlay rejoin down with a
+    *notification*."""
     import xbmcgui
 
     RecordingDialog.raised = []
@@ -947,9 +939,8 @@ def test_a_broken_dialog_does_not_break_the_connect_callback(monkeypatch):
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
 
     service._on_ws_connected()
-    # registered is filled on the worker, so asserting straight after the
-    # callback raced it — the callback's whole point is that it returns before
-    # the pass runs (see test_the_connect_callback_does_not_block_on_the_pass).
+    # registered is filled on the worker, and the callback returns before the
+    # pass runs (see test_on_ws_connected_returns_while_the_slow_work_runs).
     _join_post_connect(service)
 
     assert registered == [True]
@@ -1055,10 +1046,8 @@ def test_our_own_userdata_is_applied():
 def test_a_co_watchers_userdata_is_not_applied():
     """Who's watching? attaches a co-watcher to this device's session, and
     Jellyfin then sends this client every userdata change of theirs — from
-    their phone, a browser, another Kodi box. Live regression: the local box
-    (kofin-test) played Fallen Angels, and the Bravia, logged in as conor with
-    kofin-test attached, wrote a 3084 s resume point and that lastplayed into
-    conor's library. Conor's userdata on the server never moved."""
+    their phone, a browser, another Kodi box — which must not land in this
+    user's library."""
     service = _userdata_service(CONOR)
 
     service._on_ws_event("UserDataChanged", _message(COWATCHER))
@@ -1098,10 +1087,7 @@ def _connected(service, monkeypatch):
 
 def test_reconnect_catches_up_on_missed_changes(monkeypatch):
     """LibraryChanged is fire-and-forget: anything the server sends while the
-    socket is down is gone, and the socket reconnects silently. Seen on the
-    Piers box — a re-encoded film was announced at 14:38:45 while that client
-    was disconnected, the socket returned at 14:39:51, and the film stayed
-    missing while a client with a live socket applied it in seconds."""
+    socket is down is gone, and the socket reconnects silently."""
     service = Service()
     service.library = FakeLibrary()
 
@@ -1242,7 +1228,7 @@ def test_library_update_ignored_while_logged_out():
     assert submitted == []
 
 
-# --- websocket post-connect worker (perf plan W2.5, audit finding #5) --------
+# --- websocket post-connect worker -------------------------------------------
 
 
 def test_on_ws_connected_returns_while_the_slow_work_runs(monkeypatch):
@@ -1318,8 +1304,7 @@ def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
 
 def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
     """The flag is what every worker's @stop guard reads. Clearing it while
-    the thread lives un-pauses it against an already-rebuilt service (audit
-    finding #10); the deadline must not reintroduce that."""
+    the thread lives would un-pause it against an already-rebuilt service."""
     import kofin.service.main as main_module
 
     monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 0.0)
@@ -1392,7 +1377,7 @@ def _teardown_service(monkeypatch, tmp_path):
 
 def test_a_teardown_clears_the_state_it_still_owns(monkeypatch, tmp_path):
     """The control for the superseded case below: a teardown that is still the
-    current generation clears the lot, as it always did."""
+    current generation clears the lot."""
     service = _teardown_service(monkeypatch, tmp_path)
     state.set_online(True)
 
@@ -1408,13 +1393,10 @@ def test_a_superseded_teardown_leaves_the_live_generation_its_state(
     """Kodi starts the replacement service before the old one has exited, and
     core.state is one set of window properties with no room for a generation.
 
-    Measured on a Piers box across an 0.14.0 -> 0.15.0 update: the successor
-    connected at 18:31:17 and raised PROP_ONLINE, the predecessor's teardown
-    cleared it at 18:31:27, and nothing ever put it back — _connect is the
-    only other publisher and it runs on the offline->online edge alone. Every
-    library thread then died at its first @stop guard (357 rebuilds in 90
-    minutes) and both the SyncPlay menu and the who's-watching picker refused,
-    because both routes gate on state.is_online().
+    A predecessor's teardown that cleared PROP_ONLINE or raised PROP_SYNC_STOP
+    after the successor connected would stop the successor's library threads
+    at their first @stop guard and refuse every route gated on
+    state.is_online().
     """
     service = _teardown_service(monkeypatch, tmp_path)
     # What the successor's Service.__init__ does: mint its own nonce, connect,
@@ -1457,9 +1439,8 @@ def test_a_clean_teardown_clears_everything(monkeypatch):
 
 def test_a_new_generation_never_inherits_the_stop_flag(monkeypatch):
     """A teardown that could not join its library thread leaves PROP_SYNC_STOP
-    raised on purpose, and nothing else ever lowers it. Measured on Omega:
-    one stuck teardown then disabled syncing until Kodi restarted — every
-    later library thread exited at its first @stop guard, on one warning."""
+    raised on purpose, and nothing else lowers it: inherited, it would stop
+    every later library thread at its first @stop guard."""
     import kofin.service.main as main_module
 
     state.set_should_stop(True)
@@ -1479,11 +1460,10 @@ def test_a_new_generation_never_inherits_the_stop_flag(monkeypatch):
 
 
 def test_the_transports_abort_survives_the_next_generation(monkeypatch):
-    """Measured: with the abort reading PROP_SYNC_STOP, the replacement
-    service lowered the flag on its way up and the thread orphaned by the
-    previous teardown went straight back to riding the full retry ladder —
-    125s of a thread that had been told to stop. The signal has to belong to
-    the generation that raised it."""
+    """The replacement service lowers PROP_SYNC_STOP on its way up, so an
+    abort that read it would send a thread the previous teardown orphaned
+    back onto the full retry ladder. The signal belongs to the generation
+    that raised it."""
     service = Service()
     abort = service.http._abort
     assert abort is not None and abort() is False
@@ -1502,9 +1482,8 @@ def test_the_transports_abort_hears_kodis_script_stop():
     """abortRequested() is the stop signal _stopping cannot cover: Kodi
     raises it and waits — an addon bounce, a profile switch, Kodi exiting —
     while _shutdown has not run yet, so the Event is still down. A ladder
-    consulting only the Event rode out the full budget, blew Kodi's
-    five-second stop grace on a profile switch, and left the profile with no
-    kofin service and a dead webserver (measured 2026-08-08)."""
+    consulting only the Event would ride out its full budget past Kodi's
+    five-second stop grace."""
     service = Service()
     assert service.http._abort() is False
 
@@ -1519,7 +1498,7 @@ def test_connect_probes_on_the_probe_budget():
     """_connect runs on the service loop — the thread whose 1 s tick is also
     what notices stop requests — so its reachability check must be the
     single-attempt probe, never a default-budget call that holds the loop
-    for the transport's full ladder (~29 s per offline probe, measured)."""
+    for the transport's full ladder."""
     from kofin.core.http import JellyfinError
 
     service = Service()
@@ -1687,13 +1666,13 @@ def test_shutdown_stops_the_download_manager(monkeypatch, tmp_path):
     assert manager.stopped == 1 and service.downloads is None
 
 
-# --- honest online flag and offline replay (plan W2.1 / W2.4) ---------------
+# --- honest online flag and offline replay -----------------------------------
 
 
 def test_a_dropped_socket_asks_a_question_not_a_verdict(monkeypatch, tmp_path):
-    """The flag gates real behaviour once honest — sync.shims.stop raises
-    out of an in-flight writer — so a blinking socket must not abandon a
-    running sync. The probe decides."""
+    """The flag gates real behaviour — the play route, downloads and SyncPlay
+    read it — so a blinking socket is a question for the probe, not a
+    verdict."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -1753,11 +1732,9 @@ def test_a_live_socket_raises_the_flag(monkeypatch, tmp_path):
 
 
 def test_a_lowered_flag_is_raised_again_under_a_live_connection(monkeypatch, tmp_path):
-    """The other half of the split brain above: _connect publishes the flag on
-    the offline->online edge only, so once something else clears it while this
-    generation stays online, nothing here ever writes it again. The tick
-    re-asserts it instead — which is what heals a box whose clobberer is an
-    *older* build's teardown, unreachable by any fix in that file.
+    """_connect publishes the flag on the offline->online edge only, so when
+    something else clears it while this generation stays online (an older
+    build's teardown, say), the tick re-asserts it.
     """
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
@@ -1817,9 +1794,9 @@ def test_reconnecting_does_not_build_a_second_websocket(monkeypatch, tmp_path):
 
 
 def test_reconnecting_rebuilds_a_websocket_whose_thread_died(monkeypatch, tmp_path):
-    """The companion case, and the one that broke: a client whose thread has
-    ended still fills the slot, so the reconnect read it as "one is already
-    running" and came back with no websocket at all."""
+    """A client whose thread has ended still fills the slot; read as "one is
+    already running", the reconnect would come back with no websocket at
+    all."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -1896,10 +1873,10 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
 
 
 def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):
-    """The common case is a device booted away from home: nothing was ever
-    online, so _go_offline never runs and the flag would stay absent —
-    which every user-facing refusal reads as "not known yet" and answers by
-    waiting for the transport (found live)."""
+    """A device booted away from the server was never online, so _go_offline
+    never runs and the flag would stay absent — which every user-facing
+    refusal reads as "not known yet" and answers by waiting for the
+    transport."""
     from kofin.core.http import ServerUnreachable
 
     monkeypatch.setattr(
@@ -1949,10 +1926,8 @@ def test_a_live_library_is_left_alone():
 
 
 def test_a_dead_library_slot_is_cleared_for_a_rebuild():
-    """The slot outlives the thread. Guarding the restart on the slot rather
-    than the thread is what left a reconnect with no sync manager at all —
-    the manager exits itself on any LibraryException, most routinely the
-    offline one."""
+    """The slot outlives the thread: a restart guarded on the slot rather
+    than the thread would leave a reconnect with no sync manager at all."""
     service = Service()
     service.library = FakeLibrary(alive=False)
 
@@ -1962,9 +1937,7 @@ def test_a_dead_library_slot_is_cleared_for_a_rebuild():
 
 
 def test_a_dead_library_with_workers_in_flight_is_not_rebuilt_yet():
-    """A Library owns its own database_lock, so a second graph built over one
-    that still has writers running puts two independent locks in front of the
-    same SQLite files. The slot stays until the workers are done."""
+    """The slot stays until the workers are done; _reap_library says why."""
     service = Service()
     corpse = FakeLibrary(alive=False, workers=True)
     service.library = corpse
@@ -2001,9 +1974,9 @@ def test_a_live_websocket_is_left_alone():
 
 
 def test_threads_that_die_while_online_are_rebuilt(monkeypatch):
-    """Nothing else looks: _connect is the only other rebuild path and it runs
-    only on the offline→online edge, so a thread that dies while the server
-    stays reachable stays dead until Kodi restarts."""
+    """_connect is the only other rebuild path and it runs only on the
+    offline→online edge, so a thread that dies while the server stays
+    reachable would otherwise stay dead until Kodi restarts."""
     service = Service()
     service._online = True
     service.ws = _FakeWs(alive=False)
@@ -2034,7 +2007,7 @@ def test_recovery_does_nothing_while_both_threads_live(monkeypatch):
     assert built == []
 
 
-# --- the service loop itself (P1.11: run/_join_workers previously undriven) ---
+# --- the service loop itself -------------------------------------------------
 
 
 def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
@@ -2068,7 +2041,7 @@ def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
 
 
 # ---------------------------------------------------------------------------
-# The two dispatch tables (P2.4). Their values are method *names* — a string
+# The two dispatch tables. Their values are method *names* — a string
 # mypy cannot check — so the first test is the one that turns a typo in a
 # rarely-hit arm into a unit failure instead of an AttributeError the day
 # that message arrives. The rest drive every arm no other test names.
@@ -2130,7 +2103,7 @@ def test_download_remove_all_ipc_routes_to_the_manager(monkeypatch, tmp_path):
     assert manager.removed_all == 1
 
 
-# --- the public provider contract routing (plan G2.1) ------------------------
+# --- the public provider contract routing ------------------------------------
 
 
 class ContractRecorder:

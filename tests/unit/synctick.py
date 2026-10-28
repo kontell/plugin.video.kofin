@@ -1,5 +1,5 @@
 """Scaffolding for driving ``Library.service()`` -- the sync tick -- one
-call at a time (P2.0c, the harness P2.3 refactors against).
+call at a time.
 
 Everything the tick touches that would otherwise reach Kodi, the network or
 a thread is replaced here: the worker classes record construction instead
@@ -46,8 +46,8 @@ class RecordingWorker:
         self.is_done = False
         self.started = False
         self.server = FakeSession()
-        # What the real workers take as constructor arguments (P2.3):
-        # the source tag, and the database name among the positionals.
+        # What the real workers take as constructor arguments: the source
+        # tag, and the database name among the positionals.
         self.source = kwargs.get("source")
         self.db_file = next((a for a in args if a in ("video", "music")), None)
         RecordingWorker.instances.append(self)

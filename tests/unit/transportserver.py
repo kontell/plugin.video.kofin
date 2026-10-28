@@ -1,12 +1,5 @@
 """A scripted loopback HTTP server, for holding both transports to one contract.
 
-``test_http.py`` and ``test_stdhttp.py`` fake the library underneath each
-transport; that is right for the retry ladder and the timeout split, and
-blind to everything the real wire does — a redirect the library follows on
-its own, a body that is not JSON, a status the ladder never sees. The
-transport contract test (audit fixes plan H0) runs the two real transports
-against this server and asserts the *same* answer from both.
-
 Usage::
 
     with ScriptedServer() as server:

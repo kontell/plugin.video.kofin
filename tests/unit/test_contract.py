@@ -1,4 +1,4 @@
-"""The public provider contract (plan G2.1): validation and conversion.
+"""The public provider contract: validation and conversion.
 
 The decoder runs on Kodi's notification thread against payloads written by
 arbitrary add-ons — every test here is a promise about what cannot crash it

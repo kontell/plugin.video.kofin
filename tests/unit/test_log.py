@@ -32,10 +32,9 @@ def test_json_credential_fields_masked():
 
 def test_a_secret_registered_mid_mask_does_not_break_the_line():
     """register_secret can run on any thread — a login, a token change —
-    while sync threads are logging, and iterating the live dict raised
-    RuntimeError out of a logging call (audit M4). Modelled without a
-    race: the text being masked registers a new secret the first time it
-    is searched, exactly when the old loop was mid-iteration."""
+    while sync threads are logging, so mask never iterates the live dict.
+    Modelled without a race: the text being masked registers a new secret
+    the first time it is searched, mid-iteration."""
     from kofin.core import log
 
     class Registering(str):

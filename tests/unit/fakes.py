@@ -52,7 +52,7 @@ class FakeWindow:
 
 
 class FakeApi:
-    """Answers Api methods from canned values (shell refactor P1.4).
+    """Answers Api methods from canned values.
 
     ``FakeApi(item=DTO, users=USERS)`` — a plain value is returned as-is, a
     callable is called with the arguments, an Exception instance is raised.
@@ -97,9 +97,9 @@ class FakeApi:
 
 
 class FakeDialog:
-    """Records every dialog raised; answers from constructor knobs
-    (shell refactor P1.4). ``select()`` pops from ``select_answers``;
-    ``multiselect()``/``yesno()`` return their fixed results."""
+    """Records every dialog raised; answers from constructor knobs.
+    ``select()`` pops from ``select_answers``; ``multiselect()``/``yesno()``
+    return their fixed results."""
 
     def __init__(self, multiselect=None, yesno=True, selects=()):
         self.multiselect_result = multiselect
@@ -140,7 +140,7 @@ class FakeLibrary:
     """The one service-side Library stand-in (service/ports.py LibraryPort).
 
     Lifecycle flags are constructor knobs; everything the service asks of it
-    is recorded. Collapsed from seven per-test fakes (shell refactor P1.3).
+    is recorded.
     """
 
     ident = None  # a real Thread carries one; the teardown dump follows it
@@ -197,12 +197,9 @@ def _time_object(ms):
 def player_ops_rpc(get_player):
     """A stand-in for ``xbmc.executeJSONRPC`` that drives a fake player.
 
-    kofin routes the privileged player operations through JSON-RPC rather than
-    the Python bindings -- the stop because ``xbmc.Player.stop()`` deadlocks
-    (issue #155), the resume because ``pause()`` is a toggle whose effect lands
-    asynchronously (kodirpc.resume_player). Both seams moved out of the player
-    object, so the fakes have to follow them or the tests assert against a
-    player nothing is talking to.
+    kofin stops and resumes the player through JSON-RPC rather than the Python
+    bindings (``xbmc.Player.stop()`` can deadlock, and ``pause()`` is a toggle
+    whose effect lands asynchronously), so a fake player is driven from here.
 
     ``get_player`` is a callable returning the fake player, so a fixture can
     hand over one that is created later.
@@ -227,8 +224,8 @@ def player_ops_rpc(get_player):
             result = {"speed": 0 if paused else 1}
             wanted = params.get("properties") or []
             if "time" in wanted or "presentationtime" in wanted:
-                # The player's time, and the stream's own clock when the fake
-                # has one (kontell/xbmc #19's presentationtime; null without).
+                # The player's time, and the stream's own clock
+                # (presentationtime) when the fake has one; null without.
                 ms = int(round(float(getattr(player, "position", 0.0) or 0.0) * 1000))
                 offset = getattr(player, "presentation_offset_ms", None)
                 result["time"] = _time_object(ms)

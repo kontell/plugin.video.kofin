@@ -56,8 +56,7 @@ _players = []
 
 @pytest.fixture(autouse=True)
 def _stop_player_threads():
-    """P1.11: join the _Reporter/ticker threads every constructed Player
-    starts — ~130 leaked daemon threads per run before this."""
+    """Join the _Reporter/ticker threads every constructed Player starts."""
     yield
     while _players:
         try:
@@ -77,7 +76,7 @@ def make_player(monkeypatch, url="http://s/stream"):
 
 
 def drain(player):
-    """Reports post on the reporter's own thread (W2.2); tests that assert on
+    """Reports post on the reporter's own thread; tests that assert on
     api.calls wait for the pipe to run dry first."""
     assert player._reporter.flush(5)
 
@@ -132,10 +131,9 @@ def test_claim_and_report_lifecycle(monkeypatch):
 
 
 def test_callbacks_return_while_the_post_is_still_in_flight(monkeypatch):
-    """The reporter's whole point (audit finding #2): Kodi delivers player
-    callbacks on the announcement thread every addon shares, so the callback
-    must hand the network off and return — a server that answers slowly may
-    hold the *report*, never the thread."""
+    """Kodi delivers player callbacks on the announcement thread every addon
+    shares, so the callback hands the network off and returns — a server that
+    answers slowly may hold the *report*, never the thread."""
     import threading
 
     player, api = make_player(monkeypatch)
@@ -173,8 +171,8 @@ def test_foreign_playback_is_ignored(monkeypatch):
 
 def test_a_stopped_player_leaves_the_claim_to_the_live_one(monkeypatch):
     """Kodi calls a Player until the object is freed, and a stopped service
-    generation outlives its run: its Player raced the live one for every
-    claim (Bravia, 2026-10-17)."""
+    generation outlives its run, so its Player must not race the live one
+    for a claim."""
     stopped, _ = make_player(monkeypatch)
     stopped.stop_threads()
     live, api = make_player(monkeypatch)
@@ -235,7 +233,7 @@ def test_resume_without_a_manager_settles_an_owed_tempo(monkeypatch):
     drain(player)
 
 
-# --- SyncPlay forwarding (phase 4) -------------------------------------------
+# --- SyncPlay forwarding -----------------------------------------------------
 
 
 class RecordingSyncPlay:
@@ -333,10 +331,9 @@ def test_current_item_exposes_claim(monkeypatch):
 
 
 def test_the_claim_wait_is_logged_with_its_outcome(monkeypatch):
-    """The measurement audit F6 asked for before any restructuring: one
-    line per start with the outcome, the seconds waited and the kind of
-    playback, so an album on the Bravia says whether the backfill grace is
-    the GET's latency or dead time (fixes plan H11)."""
+    """One line per start with the outcome, the seconds waited and the kind
+    of playback, so the log says whether the backfill grace is the GET's
+    latency or dead time."""
     from kofin.service import player as player_mod
 
     player, api = make_player(monkeypatch)
@@ -556,8 +553,8 @@ def test_a_failed_delete_notifies_and_does_not_raise(monkeypatch):
 # --- Jellyfin default tracks and the stream menu -------------------------------
 #
 # The server resolves both defaults from the viewer's Jellyfin profile and
-# returns them on every MediaSource; nothing had ever applied them, so Kodi
-# picked from its own language settings instead (plan §2.9).
+# returns them on every MediaSource; the player applies them over whatever
+# Kodi picked from its own language settings.
 
 
 AUDIO_1 = {"Index": 1, "Type": "Audio", "Codec": "ac3"}
@@ -750,9 +747,8 @@ def test_the_published_payload_carries_both_indices(monkeypatch):
 
 
 def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
-    """Without this the prompt came up after every single episode for an
-    account with no EnableContentDeletion, and every yes answered
-    "Server request failed"."""
+    """An account without EnableContentDeletion would see the prompt after
+    every episode, and every yes would fail on the server."""
     player, _api = make_player(monkeypatch)
     enable_delete()
 
@@ -762,7 +758,7 @@ def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
     assert prompted == []
 
 
-# -- auto-next (plan W4.1) and the remove-after-watching offer (W4.5) ---------
+# -- auto-next and the remove-after-watching offer ----------------------------
 
 
 def test_auto_next_fires_once_at_eighty_percent(monkeypatch):
@@ -882,13 +878,7 @@ def test_remove_offer_modes(monkeypatch):
 
 
 def test_remove_offer_covers_automatic_downloads_too(monkeypatch):
-    """One answer per watched download, whoever queued it.
-
-    This path used to refuse anything auto-origin and leave it to the
-    retention sweep, while the sweep refused anything the user had queued —
-    so the same watched episode was handled two different ways depending on
-    how it had arrived, under two settings that did not mention each other.
-    """
+    """One answer per watched download, whoever queued it."""
     from kofin.downloads import store as downloads_store
     from kofin.service import player as player_module
 
@@ -916,14 +906,11 @@ def test_remove_offer_covers_automatic_downloads_too(monkeypatch):
 
 
 def test_a_finished_song_is_never_offered_for_removal(monkeypatch):
-    """D3: video only, the same rule ``offer_delete`` has always had.
+    """Video only, like ``offer_delete``.
 
-    A downloaded track played to its end raised "Remove download?" every
-    time — this path was the one of the three watched-download rules that
-    never got the type gate (the retention sweep and ``_mark_watched`` both
-    skip a song). Both modes are asserted: the silent one must not notify,
-    and the prompting one must not raise a dialog. An episode in exactly
-    the same state still goes through, or the gate would be a mute button.
+    Both modes are asserted: the silent one must not notify, and the
+    prompting one must not raise a dialog. An episode in exactly the same
+    state still goes through, or the gate would be a mute button.
     """
     from kofin.downloads import store as downloads_store
     from kofin.service import player as player_module
@@ -980,7 +967,7 @@ def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):
     assert offered == [1]
 
 
-# -- the offline segment cache and offline claims (plan W4.7) -----------------
+# -- the offline segment cache and offline claims -----------------------------
 
 
 def test_prepare_segment_state_offline_asks_nothing(monkeypatch):
@@ -1056,8 +1043,8 @@ def test_a_track_kodi_queued_ahead_is_claimed_by_its_item(monkeypatch):
     """PAPlayer asks for the next track of an album a few seconds before
     the current one ends, and when it starts Kodi names it by the plugin URL
     it was listed under, not by the stream the play route resolved. Matched
-    on the path alone, every track after the first went unclaimed: played
-    and counted in Kodi, never reported to the server."""
+    on the path alone, every track after the first would go unclaimed:
+    played and counted in Kodi, never reported to the server."""
     player, api = make_player(monkeypatch, url=NATIVE_SONG)
     # An entry an earlier, unclaimed play of the same song left behind, and
     # one for another song that is not this playback's.

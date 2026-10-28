@@ -1,4 +1,4 @@
-"""L1 units for the websocket client's connection edges.
+"""The websocket client's connection edges.
 
 Only the callback bookkeeping is exercised — the socket itself is never
 opened. What matters here is that one real drop produces exactly one
@@ -31,11 +31,8 @@ def client():
 
 
 def test_importing_the_client_does_not_poison_numpy():
-    """The module used to set sys.modules['numpy'] = None at import — a
-    workaround for a websocket-client code path that no longer exists (zero
-    numpy references in the pinned 1.6.4), and a module-level mutation of
-    shared interpreter state in a tree whose rule is that such state argues
-    its way in (audit M3). ``import numpy`` must not be made to fail."""
+    """Importing the client leaves shared interpreter state alone: ``import
+    numpy`` must not be made to fail."""
     import importlib
     import sys
 
@@ -127,12 +124,11 @@ def test_disconnect_callback_is_optional():
 
 
 def test_run_forever_keeps_pings_but_never_a_pong_deadline(monkeypatch):
-    """Two settings are poison here, both measured live (perf plan W2.5 rev):
-    ping_timeout tears healthy connections down ~120 s in — the server's own
-    2-minute keepalive ping corrupts websocket-client's pong bookkeeping, and
-    both test boxes flapped on an exact 130 s cycle — and reconnect= swallows
-    the close/error callbacks, so drops were invisible. The run loop owns
-    reconnection; half-open detection is app-level (half_open)."""
+    """Two settings are poison here: ping_timeout tears healthy connections
+    down, because the server's own keepalive ping corrupts websocket-client's
+    pong bookkeeping, and reconnect= swallows the close/error callbacks, so
+    drops go unseen. The run loop owns reconnection; half-open detection is
+    app-level (half_open)."""
     from kofin.core import ws as ws_module
 
     captured = {}
@@ -217,8 +213,8 @@ def test_no_monitor_is_alive_while_the_socket_runs(monkeypatch):
 
 
 def test_wss_honours_ssl_verify(monkeypatch):
-    """HTTP honours sslVerify; WSS used to inherit websocket-client's
-    CERT_REQUIRED even when the setting was off."""
+    """WSS honours sslVerify as HTTP does; websocket-client injects
+    CERT_REQUIRED when sslopt is omitted."""
     import ssl
 
     from kofin.core import ws as ws_module
@@ -304,9 +300,7 @@ def test_half_open_recycles_only_a_silent_live_connection():
 def test_a_stopped_client_dispatches_nothing():
     """Events arriving after stop() must be dropped, not handed over: the
     owner is mid-teardown, and the objects the callback reaches — the
-    Library, the kofin database — may already be gone. Observed before the
-    gate existed: a LibraryChanged dispatched a minute after the service
-    exited was applied against a torn-down Library (2026-08-07 quit wedge)."""
+    Library, the kofin database — may already be gone."""
     events = []
     client = _liveness_client(events)
 
@@ -379,8 +373,8 @@ class _EscalationHarness:
 def test_stop_severs_the_socket_when_the_graceful_close_fails():
     """A close handshake that raises leaves the descriptor open, and a thread
     still in recv() then outlives every deadline and blocks Kodi's script
-    finalisation ("waiting on thread") — the observed quit wedge needed
-    SIGKILL. stop() must escalate to a raw-socket shutdown()."""
+    finalisation ("waiting on thread"). stop() must escalate to a raw-socket
+    shutdown()."""
     harness = _EscalationHarness(dies_on_close=False)
 
     harness.client.stop()
@@ -424,8 +418,8 @@ def test_each_attempt_builds_a_fresh_app(monkeypatch):
     run_forever). So a reused app that saw a *failed connect* — setSock()
     assigns ``sock`` before connect() raises — keeps the dead socket, and the
     next run_forever raises "socket is already opened" straight out of this
-    thread. Live consequence: one connect failure after a healthy session
-    killed the websocket for the life of the Kodi process.
+    thread, so one connect failure would kill the websocket for the life of
+    the Kodi process.
     """
     from kofin.core import ws as ws_mod
 

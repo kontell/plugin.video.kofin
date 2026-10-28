@@ -1,8 +1,7 @@
-"""L1: Kodi-side watched / resume changes pushed back to Jellyfin.
+"""Kodi-side watched / resume changes pushed back to Jellyfin.
 
-The two announcement shapes here were captured off a running Kodi 21 — the
-nested one from "Mark as watched", the flat one from "Reset resume position" —
-so the parser is pinned to what Kodi actually sends, not to a guess.
+The two announcement shapes are the ones Kodi sends: the nested one from
+"Mark as watched", the flat one from "Reset resume position".
 """
 
 import json
@@ -38,8 +37,7 @@ class RecordingApi:
 
 @pytest.fixture(autouse=True)
 def online(monkeypatch, tmp_path):
-    """These tests describe a connected service; the offline path parks
-    instead of pushing and has its own tests below."""
+    """A connected service, with kofin.db in the test's directory."""
     from tests.unit.fakes import FakeAddon, FakeWindow
 
     FakeAddon.store = {}
@@ -129,9 +127,6 @@ def test_resume_query_covers_every_watched_media_type():
     from kofin.core import kodirpc
 
     assert set(kodirpc.RESUME_QUERY) == set(kodiuserdata.WATCHED_MEDIA)
-
-
-# --- parking when the server is unreachable (plan W2.4) ----------------------
 
 
 # --- the edits go to the catalogue's outbox, never to the server directly ----

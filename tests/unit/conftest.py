@@ -13,10 +13,8 @@ sys.path.insert(0, os.path.abspath(_LIB))
 def play_queue_dir(tmp_path, monkeypatch):
     """Point the play queue at a per-test directory.
 
-    The queue is a directory of claimable files rather than a window property
-    (core/state.py), so every test that resolves or claims a playback needs a
-    real place to put them — and needs it isolated, since claiming is a
-    filesystem operation and entries left by one test would affect the next.
+    The queue is a directory of claimable files, so entries one test leaves
+    behind would be claimed by the next.
     """
     from kofin.core import state
 
