@@ -1,10 +1,8 @@
 """The kofin overlay: Skip <segment> / Play Next / Close.
 
-The only custom window in kofin (plan §2), generalized from the fork's
-``dialogs/skip.py`` to N buttons. Non-modal: ``show()`` returns immediately
-and the segment tick owns the lifetime (auto-close past the segment end,
-autoplay countdown). Button actions run on Kodi's GUI thread via the injected
-callbacks — there is no monitor loop.
+Non-modal: ``show()`` returns immediately and the segment tick owns the
+lifetime (auto-close past the segment end, autoplay countdown). Button actions
+run through the injected callbacks — there is no monitor loop.
 
 Buttons appear when their label property is non-empty; the skin binds
 visibility to the properties, so one XML serves every overlay variant.

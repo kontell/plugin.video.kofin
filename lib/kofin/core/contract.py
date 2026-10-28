@@ -1,4 +1,4 @@
-"""The public SyncPlay provider contract (plan G2.1).
+"""The public SyncPlay provider contract.
 
 ``core/ipc.py`` is kofin's closed world: every message *kofin* sends, one
 sender, a nonce where a message is destructive. This module is the opposite
@@ -218,7 +218,7 @@ def publish_start(provider: str, key: str, position_ticks: int) -> None:
 
 
 def publish_state() -> None:
-    """Ping every listener that ``syncsession.state`` changed (G2.2).
+    """Ping every listener that ``syncsession.state`` changed.
 
     The property carries the state; this message carries nothing but the
     version, so a listener re-reads rather than trusts a payload that may

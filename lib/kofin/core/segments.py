@@ -1,9 +1,8 @@
 """Media-segment parsing: /MediaSegments body -> [{Type, Start, End}].
 
-Split out of ``service/segments.py`` (P1.5) because the plugin play route
-prefetches segments too (``plugin/play.py::prefetch_segments``), and a pure
-parser has no business living behind the service package. The checker that
-*acts* on segments stays there.
+A pure parser, shared by the plugin play route's prefetch
+(``plugin/play.py::prefetch_segments``) and the service's checker
+(``service/segments.py``), which acts on segments.
 """
 
 from typing import Any, Dict, List, Optional
@@ -18,7 +17,7 @@ LOG = Logger(__name__)
 OVERLAP_TOLERANCE = 1.0
 
 # Jellyfin MediaSegmentType -> the per-type identity used by settings and
-# labels (fork naming kept: Introduction/Credits/Recap/Preview/Commercial).
+# labels (Introduction/Credits/Recap/Preview/Commercial).
 SEGMENT_TYPES = {
     "Intro": "Introduction",
     "Outro": "Credits",
@@ -46,23 +45,17 @@ def parse_segments(response: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def deconflict(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One segment per overlapping run within a type — the two-provider fix.
+    """One segment per overlapping run within a type.
 
-    Two segment providers analysing the same library (Intro Skipper and the
-    Chapter Segments plugin is the classic pair) each write their own rows and
-    the server hands back the union: ``MediaSegmentManager.GetSegmentsAsync``
-    filters by item, type and enabled-provider, then orders by start and stops
-    there. ``MediaSegmentProviderOrder`` cannot help — the server consults it
-    only at *analysis* time, to order which provider runs first, and
-    ``MediaSegmentDto`` drops ``SegmentProviderId`` on the way out, so no
-    client can attribute a segment to a provider or rank one over another.
-    De-confliction is therefore on the times alone.
+    Two segment providers analysing the same library each write their own
+    rows and the server hands back the union, and ``MediaSegmentDto`` drops
+    ``SegmentProviderId``, so no client can attribute a segment to a
+    provider. De-confliction is therefore on the times alone.
 
     First-by-start wins its run, rather than the union of it: over-skipping
-    into content the viewer wanted is the worse failure, and the
-    earliest-starting candidate is also the conservative one on the end.
-    Within-type only, and only on real overlap, so three commercial breaks all
-    survive and an abutting Recap/Intro pair is left alone.
+    into content the viewer wanted is the worse failure. Within-type only,
+    and only on real overlap, so three commercial breaks all survive and an
+    abutting Recap/Intro pair is left alone.
 
     ``segments`` must already be sorted by start.
     """

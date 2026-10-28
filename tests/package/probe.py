@@ -13,8 +13,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(package / "lib"))
 sys.path.append(str(repository))
 
-# Modules of the retired SQL build: a tree that grew one back would reach
-# Kodi's databases again, which this probe exists to refuse.
+# The SQL build's modules, which reach Kodi's databases: none may ship.
 denied = (
     "kofin.core.addonxml",
     "kofin.sync.db",
@@ -167,8 +166,8 @@ with patch.object(service, "_prepare_api_backend", side_effect=OSError("fixture"
     assert service.run() is False
 
 # The SQL build's settings URLs (clean databases, refresh boxsets, pre-cache
-# art) are unregistered modes now, and an unregistered mode still releases
-# its directory handle.
+# art) are unregistered modes, and an unregistered mode still releases its
+# directory handle.
 with patch("xbmcplugin.endOfDirectory") as ended, patch("kofin.core.toast.show"):
     for route in ("cleandatabases", "refreshboxsets", "precacheart"):
         router.dispatch(["plugin://plugin.video.kofin/", "71", "?mode=" + route])

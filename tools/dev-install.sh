@@ -7,10 +7,9 @@
 #   --flatpak   the flatpak Kodi (tv.kodi.Kodi) under ~/.var/app/tv.kodi.Kodi/data
 #
 # The JSON-RPC port, its credentials and the EventServer port are read from the
-# target's own userdata/guisettings.xml, so the two generations can sit on
-# different ports (the flatpak is on 8081/9778 so both can run at once). The
-# credentials are parsed inside this script and passed to curl through a
-# variable; they are never printed.
+# target's own userdata/guisettings.xml, so the native and flatpak Kodis can
+# sit on different ports and run at once. The credentials are parsed inside
+# this script and passed to curl through a variable; they are never printed.
 set -euo pipefail
 
 # KOFIN_SRC deploys a checkout other than the working tree (a `git archive`
@@ -47,7 +46,7 @@ PY
 KODI_RPC="http://localhost:${RPC_PORT}/jsonrpc"
 
 # The staged distribution is byte-identical to build.py's ZIP. --delete also
-# removes modules a newer tree no longer ships.
+# removes files the tree does not ship.
 KOFIN_STAGE=$(mktemp -d)
 trap 'rm -rf "$KOFIN_STAGE"' EXIT
 python3 "$SRC/tools/build.py" --stage "$KOFIN_STAGE"

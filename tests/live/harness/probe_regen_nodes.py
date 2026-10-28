@@ -1,9 +1,8 @@
-"""S1-P1.5/S1-P1.12 live lever: force a full node regeneration.
+"""Live lever: force a full node regeneration, so a before/after
+byte-comparison of the generated tree is about the builder, not about
+whether it ran.
 
-RunScript(<file>). Clears the viewsHash fingerprint and runs the same
-serverless regeneration the settings apply uses, so the generated tree is
-rewritten by the installed build — the before/after byte-comparison is
-then about the builder, not about whether it ran.
+RunScript(<file>).
 """
 
 import sys

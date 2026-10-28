@@ -8,7 +8,7 @@
 #   mode   none      Kodi makes its databases at this start (rollback journal)
 #          delete    the same, after a first boot that creates them
 #          wal       first boot, then every Kodi database switched to WAL
-#          wal-idx   wal, and the companion's name indexes made beforehand
+#          wal-idx   wal, and NOCASE name indexes made beforehand
 #          delete-idx
 #   kind   songs | movies | episodes   (what <rows-expected> counts)
 #
@@ -30,7 +30,6 @@ R=$N/runs/$LABEL
 mkdir -p $R
 systemctl stop kodi
 while pgrep -x kodi.bin >/dev/null; do sleep 1; done
-# the build
 rm -rf $A; mkdir -p $A; tar xzf $N/stage.tgz -C $A
 # the profile: empty Kodi databases, no kofin store, the login kept
 rm -f $U/Database/MyMusic*.db* $U/Database/MyVideos*.db* $U/Database/Textures*.db*
@@ -69,7 +68,7 @@ if [ "$MODE" != "none" ]; then
   while pgrep -x kodi.bin >/dev/null; do sleep 1; done
   python3 - "$MODE" <<'PY' > $R/journal.txt 2>&1
 import glob, sqlite3, sys
-# <journal mode>[-idx]: -idx also makes the companion's actor index.
+# <journal mode>[-idx]: -idx also makes NOCASE indexes on actor, tag and studio.
 mode, _, index = sys.argv[1].partition("-")
 for path in sorted(glob.glob("/storage/.kodi/userdata/Database/My*.db") + glob.glob("/storage/.kodi/userdata/Database/Textures*.db")):
     c = sqlite3.connect(path)
@@ -111,7 +110,7 @@ while true; do
   CPU=$(awk '{print $14+$15}' /proc/$P/stat 2>/dev/null)
   S=$(songs); PD=$(pending)
   echo "$E songs=$S pending/total=$PD rss=$RSS avail=$AV cpu=$CPU load=$(cut -d' ' -f1 /proc/loadavg) $(vcgencmd measure_temp 2>/dev/null) $(vcgencmd get_throttled 2>/dev/null)" >> $R/samples.txt
-  # the four busiest threads since the last sample, by name
+  # threads that used more than 20 ticks since the last sample, by name
   for t in /proc/$P/task/*; do echo "$(awk '{print $14+$15}' $t/stat 2>/dev/null) ${t##*/} $(cat $t/comm 2>/dev/null)"; done > $R/threads.new 2>/dev/null
   if [ -f $R/threads.old ]; then
     echo "$E $(awk 'NR==FNR{old[$2]=$1; next} {d=$1-old[$2]; if (d>20) printf "%s:%d ", $3, d}' $R/threads.old $R/threads.new)" >> $R/threads.txt

@@ -1,4 +1,4 @@
-"""SyncPlay protocol math (ported fork suite) and the timesync window."""
+"""SyncPlay protocol math and the timesync window."""
 
 import json
 
@@ -156,7 +156,7 @@ class TestTimesyncWindow:
         sync = TimeSync(Manager())
         clock["t"] += 0  # t0 = 1000
         sync._measure()
-        # RTT ~= 40ms wall (t3-t0) minus 1ms server hold; offset ~= +100ms.
+        # The 20ms trip is all outbound, so the offset reads ~10ms over +100ms.
         assert sync.rtt_ms is not None
         assert abs(sync.offset_ms - 100.0) < 25.0
 
@@ -260,10 +260,7 @@ class TestTimesyncWebSocket:
 
     def test_an_incomplete_reply_falls_back_to_http(self, monkeypatch):
         """A reply that echoes T0 and omits T1/T2 — a partial server-side
-        implementation — raised KeyError out of _measure, and the HTTP
-        fallback that exists for a socket that is not working was never
-        reached that cycle (audit R9). The clock offset then stayed at 0.0
-        on a fresh join, the worst moment for it."""
+        implementation — is no sample: the same cycle measures over HTTP."""
 
         class Partial(FakeTimesyncSocket):
             def recv(self):

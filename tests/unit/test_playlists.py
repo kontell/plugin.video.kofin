@@ -183,7 +183,7 @@ def test_playlist_line_uses_musicdb_for_direct_rows():
 
 def test_playlist_line_falls_back_without_an_extension():
     """No extension means musicdb:// would be refused, so the row keeps the
-    path it has: no worse than before, and it still opens."""
+    path it has, which still opens."""
     assert (
         playlists.playlist_line(10, "https://s/Audio/id/", "stream?static=true")
         == "https://s/Audio/id/stream?static=true"
@@ -300,7 +300,7 @@ def test_cleanup_takes_the_icon_with_the_folder(tmp_path):
     assert not root.exists()
 
 
-# -- the Downloaded-music view (plan W3.3) -------------------------------------
+# -- the Downloaded-music view -------------------------------------------------
 
 
 def test_cleanup_without_the_view_still_takes_everything(tmp_path):
@@ -313,9 +313,9 @@ def test_cleanup_without_the_view_still_takes_everything(tmp_path):
 
 
 def test_the_downloaded_music_list_keeps_its_name_and_survives_the_cleanup(tmp_path):
-    """The API build's Downloaded-music list sits beside the server's
-    playlists: a server playlist of the same title takes "(2)", even one that
-    held the name before, and the cleanup and the prune leave it."""
+    """The Downloaded-music list sits beside the server's playlists: a server
+    playlist of the same title takes "(2)", even one that held the name
+    before, and the cleanup and the prune leave it."""
     from kofin.sync import playlists as pl
 
     assert (

@@ -66,31 +66,11 @@ DOWNLOAD_COMMANDS = frozenset(
 # edit within this window; a real change always lands well after it.
 SETTINGS_READY_DELAY = 5.0
 
-# How long the teardown waits for the library thread before giving up on it.
-# Long enough to cover a page fetch and a writer batch — the reason the fork's
-# 15 s was too short — and bounded, which the first version of this was not:
-# waiting on `abortRequested` alone never ends on an addon disable (that flag
-# is Kodi shutting down, not the addon being bounced), so the service script
-# never returned. Kodi gives a stopping script five seconds, then logs
-# "script didn't stop"; measured after that, *every* later Python invocation
-# in Kodi hung — plugin listings and plays included — until Kodi restarted.
-# A thread that outlives this deadline keeps PROP_SYNC_STOP raised instead
-# (see state.clear_all), so it stays paused rather than resuming into the
-# replacement Library.
-#
-# What the deadline is actually for, measured on Omega rather than assumed: on
-# an addon *bounce* it is never reached. Kodi's "let's kill it" at five seconds
-# is not a kill — it raises abortRequested, the loop below sees it on its first
-# tick and gives up there. This number therefore governs only a soft restart
-# (kofin's own restart IPC), where Kodi is not stopping the script and nothing
-# else bounds the wait.
-#
-# Which means the teardown returning promptly buys less than it looks like it
-# does: Kodi will not finalise a script while a thread that script started is
-# still alive, so it goes on to log "waiting on thread <id>" and blocks there
-# regardless of how tidily the service exited. The only thing that shortens
-# that is the stuck thread itself returning sooner, which is why the retry
-# ladder had to learn about the stop flag (core/http.Http, ``abort``).
+# How long the teardown waits for the library thread on a soft restart (kofin's
+# own restart IPC), where nothing else bounds the wait. On an add-on bounce Kodi
+# raises abortRequested and the join gives up on its first tick. Kodi will not
+# finalise a script while a thread it started is still alive, so only the
+# thread returning sooner shortens a stop (core/http.Http, ``abort``).
 LIBRARY_JOIN_SECONDS = 30.0
 
 # Server lifecycle websocket messages -> the string announcing them. These are
@@ -101,24 +81,15 @@ SERVER_LIFECYCLE_MESSAGES = {
     "ServerShuttingDown": 30418,
 }
 
-# How long a dropped websocket may stay down before the user hears about it.
-# The disconnect callback stamps the drop instead of toasting, and the service
-# tick announces it once the grace has run out with the socket still down: a
-# drop that heals inside the grace was never something the user could act
-# on, and on an Android TV in standby it is routine — one Bravia recycled its
-# socket 16 times across a fourteen-hour standby (reconnects took 16-81 s),
-# and Kodi queued every lost/connected pair for a back-to-back replay at wake,
-# because the GUI does not run without a rendering surface (kodi-drive:
-# kodi-android-standby, observed 2026-08-22). 90 s clears every self-healing
-# reconnect seen there while still announcing a real outage well before
-# anyone goes looking for server logs.
+# How long a dropped websocket may stay down before the user hears about it. A
+# drop that heals inside the grace is not announced: Android TV standby
+# recycles the socket routinely, and Kodi replays every queued toast at wake.
 LOST_TOAST_GRACE_SECONDS = 90.0
 
 # How long after Play all's queue is full the service starts it
-# (_ipc_start_queue). The script that filled it ends a few milliseconds
-# later; the delay covers that on a busy Raspberry Pi 3, where the end was
-# seen up to 117 ms after the first track had been asked for. The queue is
-# waited for QUEUE_FILL_TIMEOUT at most: 230 tracks took 0.4 s on the Pi.
+# (_ipc_start_queue): the script that filled it can end over 100 ms after the
+# first track was asked for. The wait for the queue to fill is capped at
+# QUEUE_FILL_TIMEOUT.
 QUEUE_START_DELAY = 0.3
 QUEUE_FILL_TIMEOUT = 10.0
 
@@ -163,8 +134,8 @@ class Backoff:
 
 
 class Service(xbmc.Monitor):
-    # The two notification tables (P2.4): Kodi's bus by method, kofin's IPC
-    # by message name — one small handler per arm, the guards inside the
+    # The two notification tables: Kodi's bus by method, kofin's IPC by
+    # message name — one small handler per arm, the guards inside the
     # handlers. Method names rather than bound methods, on the class rather
     # than built in __init__, because the unit suite legitimately builds a
     # Service with __new__ and no __init__ to drive onNotification alone.
@@ -189,10 +160,10 @@ class Service(xbmc.Monitor):
         ipc.DOWNLOAD_REMOVE_ALL: "_ipc_download_remove_all",
         **{command: "_ipc_library_command" for command in LIBRARY_COMMANDS},
     }
-    # The public provider contract (plan G2.1): messages any add-on may
-    # send, validated in core/contract.py. Routed by name for every sender
-    # that is neither xbmc nor kofin — the sender IS the provider's own id,
-    # which is exactly why these cannot live in the kofin-sender IPC table.
+    # The public provider contract: messages any add-on may send, validated
+    # in core/contract.py. Routed by name for every sender that is neither
+    # xbmc nor kofin — the sender IS the provider's own id, which is exactly
+    # why these cannot live in the kofin-sender IPC table.
     _CONTRACT_HANDLERS: Dict[str, str] = {
         contract.REGISTER: "_contract_register",
         contract.CLAIM: "_contract_claim",
@@ -203,13 +174,9 @@ class Service(xbmc.Monitor):
     def __init__(self) -> None:
         super().__init__()
         self._restart_requested = False
-        # This generation is tearing down. Instance state, not PROP_SYNC_STOP,
-        # and the difference is measurable: the next generation lowers that
-        # property on the way up (see run_forever), which handed a thread
-        # orphaned by *this* teardown a transport whose abort had gone quiet
-        # again — it went straight back to riding the full retry ladder. An
-        # Event owned by the generation that raised it cannot be un-raised by
-        # its successor.
+        # This generation is tearing down: an Event owned by this generation,
+        # which its successor cannot lower as it lowers PROP_SYNC_STOP (see
+        # run_forever).
         self._stopping = threading.Event()
         self.credentials = Credentials.load()
         self.http = Http(settings.get_bool("sslVerify"), abort=self._abort_transport)
@@ -234,11 +201,8 @@ class Service(xbmc.Monitor):
         # server gone (see _verify_connection).
         self._verify_online = False
         self._backoff = Backoff()
-        # Paces _recover_threads' rebuilds of a sync manager that keeps dying;
-        # a manager that gets past startup resets it. Without this, a
-        # persistent startup failure — the schema gate, most plainly — meant
-        # a rebuild on every tick, each opening the databases and raising the
-        # same error toast again.
+        # Paces _recover_threads' rebuilds of a library thread that keeps
+        # dying; one that gets past startup resets it.
         self._library_backoff = Backoff()
         # When the websocket last (re)connected (monotonic). The reconnect
         # catch-up stamps its FastSync with this edge rather than with the
@@ -261,17 +225,11 @@ class Service(xbmc.Monitor):
         """Whether a transport retry ladder should give up rather than replay.
 
         Two signals, deliberately both. ``self._stopping`` is this generation
-        tearing itself down — an Event owned by the generation, which its
-        replacement cannot lower (see __init__). ``abortRequested()`` is Kodi
+        tearing itself down (see __init__). ``abortRequested()`` is Kodi
         stopping this *script* — an addon bounce, a profile switch, Kodi
-        exiting — and it is the signal the Event cannot cover: Kodi raises it
-        and waits, ``_shutdown`` has not run yet (the run loop is the thing
-        that notices the flag), so a thread already inside a ladder read the
-        Event as "carry on" and rode out the full budget. Measured on a
-        profile switch with the server unreachable: the service blew Kodi's
-        five-second stop grace ("script didn't stop in 5 seconds"), the
-        interrupted profile login never restarted the webserver, and the
-        profile came up with no kofin service at all (2026-08-08).
+        exiting — and Kodi raises it before ``_shutdown`` runs (the run loop
+        is the thing that notices the flag), so a thread already inside a
+        ladder would read the Event alone as "carry on".
         """
         return self._stopping.is_set() or self.abortRequested()
 
@@ -295,10 +253,6 @@ class Service(xbmc.Monitor):
             while not self.abortRequested():
                 if self._restart_requested:
                     break
-                # Kodi's startup settings-load fires spurious onSettingsChanged
-                # events with transient reads; the applier ignores changes until
-                # this readiness point, then re-baselines against the settled
-                # store. A real user edit only happens long after startup.
                 if (
                     not self.settings_apply.ready
                     and time.time() - started >= SETTINGS_READY_DELAY
@@ -342,9 +296,8 @@ class Service(xbmc.Monitor):
             report["interfaces_passed"],
             report["private_state"],
         )
-        # Once, here: a feature this Kodi lacks is off by name from now on,
-        # never an error per item or per pass (CLAUDE.md, the capability
-        # profile).
+        # Once, here: a feature this Kodi lacks is off by name, never an error
+        # per item or per pass.
         LOG.info("Kodi features %s", capabilities.summary(report))
         state.set_feature_tempo((report.get("features") or {}).get("tempo") is True)
         if report["private_state"] != "ready":
@@ -381,24 +334,10 @@ class Service(xbmc.Monitor):
     def _republish_online(self) -> None:
         """Re-raise the online flag when something else lowered it.
 
-        ``self._online`` and ``PROP_ONLINE`` are meant to say the same thing,
-        and only this generation writes both — but the property is one set of
-        window properties shared by every generation, and a *superseded*
-        service clears them on its way out (see ``_superseded``). Ten seconds
-        after a live generation connected, an older one's teardown cleared the
-        flag it had just raised, and nothing ever put it back: ``_connect`` is
-        the only other publisher and it runs only on the offline→online edge,
-        which had already passed. The result was a permanent split brain on an
-        entirely healthy connection — every library thread died on its first
-        ``sync.shims.stop`` guard and was rebuilt by ``_recover_threads`` a
-        second later (357 times in 90 minutes), while SyncPlay's menu and the
-        who's-watching picker refused with "server unavailable" because both
-        routes gate on ``state.is_online()`` (observed on a Piers box,
-        2026-08-12, across an 0.14.0 → 0.15.0 update).
-
-        So the flag is re-asserted rather than only written on the edge. This
-        is the half that heals a box whose clobberer is an *older* build's
-        teardown, which no fix in this file can reach retroactively.
+        ``PROP_ONLINE`` is one window property shared by every generation, and
+        a *superseded* service clears it on its way out (see ``_superseded``),
+        so it is re-asserted on every tick while online rather than only
+        written on the offline→online edge.
         """
         if state.is_online():
             return
@@ -409,19 +348,14 @@ class Service(xbmc.Monitor):
         """Rebuild the websocket and the sync manager if either has died.
 
         Silent death is the failure this answers. Both own a thread that ends
-        on its own — the library on any ``LibraryException``, the websocket on
-        an upstream raise — while the object stays in its slot, and every
-        restart path guards on the slot rather than the thread.
+        on its own — the library on any exception, the websocket on an
+        upstream raise — while the object stays in its slot, and every restart
+        path guards on the slot rather than the thread.
 
-        Library rebuilds are paced by ``_library_backoff``, because this runs
-        every tick and a manager that dies *in* startup dies within a second
-        or two: a persistent failure there — an ungated Kodi database, most
-        plainly — otherwise becomes a rebuild per tick, each lap opening the
-        databases and raising the same error toast, and toasts queue. The
-        first rebuild after a healthy run stays immediate; only consecutive
-        failures wait, 5 s doubling to the 120 s ceiling. The offline→online
-        edge (``_connect``) and the settings paths are deliberately not paced
-        — those are real events, not this loop finding the same corpse again.
+        Library rebuilds are paced by ``_library_backoff``: the first rebuild
+        after a healthy run is immediate, and only consecutive failures wait,
+        5 s doubling to the 120 s ceiling. The offline→online edge
+        (``_connect``) and the settings paths are not paced.
         """
         if self.ws is not None and not self.ws.is_alive():
             self._reap_websocket()
@@ -452,15 +386,10 @@ class Service(xbmc.Monitor):
         self._start_library()
 
     def _verify_connection(self) -> None:
-        """Answer a dropped socket with a probe, not a verdict (plan W2.1).
+        """Answer a dropped socket with a probe, not a verdict.
 
-        The online flag gates real behaviour once it is honest — most
-        sharply ``sync.shims.stop``, which raises ``LibraryExitException``
-        out of an in-flight writer — so lowering it on a bare disconnect
-        would abandon a running sync every time a socket blinked. A
-        websocket drop is therefore only a *question*; the probe answers it,
-        on the same one-attempt budget the connect loop uses (~3 s on the
-        service thread, and only when a drop was reported).
+        A drop is a question the probe answers; lowering the online flag on
+        every blink would act on it.
         """
         self._verify_online = False
         if not self._online:
@@ -487,7 +416,7 @@ class Service(xbmc.Monitor):
         # The probe budget, not the transport default: this runs on the
         # service loop, whose 1 s tick is also what notices stop requests,
         # and the backoff schedule is already the retry policy (see
-        # api.PROBE_TIMEOUT for the measured cost of forgetting that).
+        # api.PROBE_TIMEOUT).
         try:
             info = self.api.probe_info()
         except JellyfinError as error:
@@ -497,7 +426,7 @@ class Service(xbmc.Monitor):
             # on a cold boot away from the server nothing else ever states the
             # outage, and the flag would sit absent forever — which reads as
             # "nobody has said yet" and leaves every refusal waiting for the
-            # transport instead of answering (found live, phase-2 gates).
+            # transport instead of answering.
             state.set_online(False)
             return
 
@@ -511,8 +440,7 @@ class Service(xbmc.Monitor):
         # second one would double every event the server pushes. Liveness, not
         # presence: the slot outlives the thread, so a client whose thread has
         # ended reads as "one is already running" and the reconnect silently
-        # brings back no websocket at all (observed 2026-08-09, after the
-        # thread died on an upstream raise — see core/ws.WSClient.run).
+        # brings back no websocket at all.
         self._reap_websocket()
         if self.ws is None:
             self._start_websocket()
@@ -549,11 +477,8 @@ class Service(xbmc.Monitor):
     def _reap_library(self) -> None:
         """Empty the library slot when the manager thread has ended.
 
-        Held back while any worker it spawned is still running: a Library owns
-        its own ``database_lock``, so rebuilding over a graph still in flight
-        puts two independent locks in front of the same databases. The slot
-        stays occupied and the next caller tries again — the manager thread is
-        already gone, so nothing is lost by waiting for its workers.
+        Held back while any worker it spawned is still running; the slot stays
+        occupied and the next caller tries again.
         """
         library = self.library
 
@@ -570,9 +495,9 @@ class Service(xbmc.Monitor):
         self.library = None
 
     def _start_library(self) -> None:
-        """Start the sync manager once online, when there is anything to sync
-        or resume. Import and failures are contained: playback and remote
-        control must survive a broken sync stack (degrade, don't die)."""
+        """Start the sync manager when there is anything to sync or resume.
+        Import and failures are contained: playback and remote control must
+        survive a broken sync stack (degrade, don't die)."""
         if not getattr(self, "_api_interfaces", False):
             return
         self._reap_library()
@@ -628,14 +553,8 @@ class Service(xbmc.Monitor):
 
     def _refresh_downloads(self, databases: List[str]) -> None:
         """The downloads manager's way onto screens: through the library
-        manager's own refresh (never a bare builtin — the widget-refresh
-        doctrine). No library manager means nothing native is rendering the
-        rows anyway.
-
-        The manager names the databases because it knows which it moved: a
-        finished track has nothing to say to the video library, and asking
-        anyway costs that library's whole widget fingerprint pass.
-        """
+        manager, which queues a FastSync, never a bare builtin. No library
+        manager means nothing native is rendering the rows anyway."""
         library = self.library
         if library is not None and databases:
             library.refresh_libraries(databases)
@@ -643,16 +562,17 @@ class Service(xbmc.Monitor):
     def _new_api(self) -> Api:
         """A fresh Api with its own HTTP session (one per sync worker).
 
-        ``abort`` matters most here: these are the sessions the download pool
-        and the writers use, and a page fetch still riding its retry ladder is
-        what keeps the library thread alive past the teardown.
+        ``abort`` matters most here: these are the sessions of the download
+        pool and of the library thread's page fetches, and a page fetch still
+        riding its retry ladder is what keeps the library thread alive past
+        the teardown.
         """
         return Api.from_credentials(
             Http(settings.get_bool("sslVerify"), abort=self._abort_transport),
             Credentials.load(),
         )
 
-    # -- syncplay (phase 4) ----------------------------------------------------
+    # -- syncplay --------------------------------------------------------------
 
     def _settle_left_tempo(self) -> None:
         """A SyncPlay pulse's rate outlives the service generation that asked
@@ -686,7 +606,7 @@ class Service(xbmc.Monitor):
             self.player.syncplay = manager
             self.remote.syncplay = manager
             # The announce is what tells provider add-ons to (re)register
-            # with this service generation (plan G2.4) — no persistence.
+            # with this service generation — no persistence.
             manager.publish_session_state(announce=True)
             LOG.info("SyncPlay manager started")
         except Exception:
@@ -757,11 +677,9 @@ class Service(xbmc.Monitor):
     def _start_backdrop(self, force: bool = False) -> None:
         """Refresh the addon fanart from the server's splashscreen.
 
-        On its own thread because it downloads a couple of megabytes and
-        nothing waits on the result — a backdrop that lands a few seconds into
-        the session is indistinguishable from one that was always there.
-        Restarted rather than joined: the previous run is idempotent and its
-        own worst case is a redundant write.
+        On its own thread because it downloads an image and nothing waits on
+        the result — a backdrop that lands a few seconds into the session is
+        indistinguishable from one that was always there.
         """
         spawned = spawn_once(
             self._backdrop, self._run_backdrop, "kofin-backdrop", force
@@ -796,31 +714,21 @@ class Service(xbmc.Monitor):
     ) -> None:
         """Tell the user the server came, went or is restarting.
 
-        The websocket is the honest source for this: it is the connection
-        the user perceives, and it reports its own open and close. But its
-        edges are noisier than the state the user cares about — an Android TV
-        in standby drops and remakes the socket for hours, and Kodi replays
-        every queued pair when the screen comes back (kodi-drive:
-        kodi-android-standby) — so the edges are coalesced into states, on
-        the service tick rather than a clock of their own: a drop is stamped
-        (``_down_since``) and announced only once it has outlived
-        LOST_TOAST_GRACE_SECONDS, and a connect is announced only when
-        ``_announce_next_connect`` says the last thing the user heard was bad
-        news — true at start, after a shown loss, and after a restart or
-        shutdown notice. Opt-out lives in the advanced sync settings for
-        anyone who does not want even that.
+        The websocket's edges are coalesced into states on the service tick:
+        a drop is stamped (``_down_since``) and announced only once it has
+        outlived LOST_TOAST_GRACE_SECONDS, and a connect is announced only
+        when ``_announce_next_connect`` says the last thing the user heard was
+        bad news — true at start, after a shown loss, and after a restart or
+        shutdown notice.
 
-        Connecting is the only good news here; losing the connection, and a
-        server restarting or shutting down, are all adverse and carry Kodi's
-        warning glyph rather than kofin's icon.
+        Losing the connection, and a server restarting or shutting down, carry
+        Kodi's warning glyph rather than kofin's icon.
 
-        Nothing in here may raise. It is called first thing from
+        Nothing in here may raise: it is called first thing from
         ``_on_ws_connected``, which goes on to register capabilities and
-        rejoin SyncPlay — losing those because a *notification* failed would
-        be a poor trade. That is not hypothetical: Kodi caches addon strings
-        for the process lifetime, so a newly added id renders without its
-        placeholder until the next full restart, and formatting it then
-        raised TypeError straight out of the callback.
+        rejoin SyncPlay, and Kodi caches addon strings for the process
+        lifetime, so a newly added id renders without its placeholder until
+        the next full restart.
         """
         if not settings.get_bool("notifyConnection"):
             return
@@ -884,8 +792,7 @@ class Service(xbmc.Monitor):
                 # Lost, Connected an edge pair again.
                 return
             self._announce_next_connect = True
-            # Toasts leave no trace in kodi.log; this line is what a standby
-            # soak reads to tell a coalesced blip from an announced loss.
+            # Toasts leave no trace in kodi.log; this line does.
             LOG.info("websocket down for %.0f s; announcing the loss", down_for)
             self._connection_toast(30416, level=toast.WARNING)
 
@@ -896,11 +803,11 @@ class Service(xbmc.Monitor):
         capabilities registration, the who's-watching restore, the catch-up
         enqueue), and for as long as on_open runs nothing is read off the
         socket — inbound Play/SyncPlay commands and pongs stall at exactly
-        the moment the server pushes state at a fresh session (audit finding
-        #5). So the work moves to a worker; the pending flag makes a connect
-        that lands mid-run schedule one more pass rather than pile up threads
-        or be skipped — each pass re-reads current state, so the last one
-        always serves the live session.
+        the moment the server pushes state at a fresh session. So the work
+        moves to a worker; the pending flag makes a connect that lands mid-run
+        schedule one more pass rather than pile up threads or be skipped —
+        each pass re-reads current state, so the last one always serves the
+        live session.
         """
         # The edge, stamped before anything else runs: everything the server
         # pushed while the socket was down predates this moment, which is
@@ -941,13 +848,12 @@ class Service(xbmc.Monitor):
             # device did offline, and the FastSync that follows pulls the
             # server's answer back down. The other order would apply the
             # server's stale view first and then overwrite it, so every
-            # replayed item would flicker through the wrong state (plan W2.4).
+            # replayed item would flicker through the wrong state.
             self._replay_pending_userdata()
             self._catch_up_after_reconnect()
             if self.syncplay is not None:
-                # Reconnect contract (plan §2): after any WS drop assume
-                # kicked; the manager probes /SyncPlay/List and rejoins on
-                # its own thread.
+                # After any WS drop assume kicked; the manager probes
+                # /SyncPlay/List and rejoins on its own thread.
                 self.syncplay.on_notification("WebSocketConnected", {})
 
     def _restore_additional_users(self) -> None:
@@ -1006,19 +912,10 @@ class Service(xbmc.Monitor):
         """Replay what the library missed while the socket was down.
 
         LibraryChanged is fire-and-forget: a message sent while the websocket
-        is disconnected is gone, and the socket reconnects itself silently, so
-        nothing ever noticed the hole. Observed on the Piers box — the server
-        emitted LibraryChanged for a re-encoded film at 14:38:45, that client's
-        socket was down and came back at 14:39:51, and the film stayed missing
-        indefinitely while a second client with a live socket applied it in
-        seconds.
-
-        The incremental catch-up already covers exactly this: it asks the
-        change feed for everything since the sync watermark, which is only
-        advanced once a drain completes. Skipped on the first connect of a
-        session, where startup() runs the same pass a moment later. The
-        thread also forgets which change-feed companion it found: a plugin
-        installed on the server is a server restart, which is this reconnect.
+        is disconnected is gone, and the socket reconnects itself silently.
+        The incremental catch-up asks the change feed for everything since the
+        sync watermark, which advances only once a drain completes. Skipped
+        until the library thread's startup has run.
         """
         library = self.library
 
@@ -1032,9 +929,8 @@ class Service(xbmc.Monitor):
         if self.remote.handle(message_type, data):
             return
 
-        # Announced by the server before it goes, so the drop that follows is
-        # explained rather than mysterious. Handled ahead of the library
-        # events: neither carries a payload the sync cares about.
+        # Handled ahead of the library events: neither carries a payload the
+        # sync cares about.
         if message_type in SERVER_LIFECYCLE_MESSAGES:
             LOG.info("[ %s ]", message_type)
             with self._conn_toast_lock:
@@ -1070,18 +966,15 @@ class Service(xbmc.Monitor):
     # -- kodi callbacks --------------------------------------------------------
 
     def onNotification(self, sender: str, method: str, data: str) -> None:
-        """Two tables, one per bus (P2.4): Kodi's own announcements by method,
-        kofin's IPC by message name. The guard order is unchanged — a Kodi
-        method not in the table is ignored; an IPC message is verified at the
-        door and its secret spent before any handler runs."""
+        """Three tables, one per bus: Kodi's own announcements by method,
+        the public provider contract by name, and kofin's IPC by message
+        name. A Kodi method not in the table is ignored; an IPC message is
+        verified at the door and its secret spent before any handler runs."""
         if self._stopping.is_set():
             # A stopped generation still hears every callback. Kodi
             # unregisters a Monitor only in its destructor, and run_forever
             # dropping the generation does not run it: the settings applier
-            # refers back to the service. Left to act, the generation a
-            # sign-in restart stopped applied the library selection made a
-            # minute later beside the live one, and ran a second library
-            # thread on its signed-out Api (Bravia, 2026-10-17).
+            # refers back to the service.
             return
         if sender == "xbmc":
             kodi_handler = self._KODI_HANDLERS.get(method)
@@ -1106,10 +999,8 @@ class Service(xbmc.Monitor):
             # ever a real kofin message, this line is the only trace.
             LOG.warning("dropped unauthenticated %s", name)
             return
-        # Verified, and now spent. The secret is not part of the command, and
-        # the library thread logs every command it dequeues (process_commands)
-        # -- so left in, the guard was printed into kodi.log on every Repair,
-        # and a pasted log is exactly the kind of channel it exists to close.
+        # Verified, and spent here: the library thread logs every command it
+        # dequeues, and the secret must not reach kodi.log.
         payload.pop(ipc.NONCE_KEY, None)
         ipc_handler = self._IPC_HANDLERS.get(name)
         if ipc_handler is None:
@@ -1130,12 +1021,12 @@ class Service(xbmc.Monitor):
             # socket that never reported closing delivers nothing, and
             # the reconnect catch-up only fires on *detected* drops). An
             # empty catch-up costs one request. The screensaver itself
-            # never pauses sync — verified live, docs/widget-refresh-plan.md
-            # F9 — so there is nothing to "resume" here, only to re-check.
+            # never pauses sync, so there is nothing to "resume" here, only
+            # to re-check.
             LOG.info("screensaver deactivated; catching up")
             self.library.enqueue_command("FastSync")
-        # Independent of the sync kick above (plan §7): a broken manager
-        # must never suppress the library catch-up, and vice versa.
+        # Independent of the sync kick above: a broken manager must never
+        # suppress the library catch-up, and vice versa.
         self._syncplay_forward("on_wake")
 
     def _kodi_wake(self, data: str) -> None:
@@ -1160,9 +1051,6 @@ class Service(xbmc.Monitor):
     def _kodi_library_update(self, data: str) -> None:
         if not self.credentials.is_logged_in:
             return
-        # Kodi's own "Mark as watched" / "Reset resume position" only
-        # touch MyVideos; without this they never reach the server and
-        # the next userdata sync undoes them.
         self.kodi_userdata.submit(_decode_kodi_data(data))
 
     # -- kofin's IPC, one handler per message ----------------------------------
@@ -1247,7 +1135,7 @@ class Service(xbmc.Monitor):
     def _downloads_for(self, name: str) -> Optional[DownloadsPort]:
         """The download manager a download command goes to, started on
         demand. Notification thread: the manager's surface only enqueues
-        onto its ops queue — no database, no socket (audit finding #3)."""
+        onto its ops queue — no database, no socket."""
         self._start_downloads()
         if self.downloads is None:
             LOG.warning("download command %s ignored: manager not running", name)
@@ -1310,51 +1198,33 @@ class Service(xbmc.Monitor):
         """Whether a newer service generation has taken over the shared state.
 
         Kodi does not wait for a stopping service script to exit before
-        starting its replacement: an addon update raises ``abortRequested`` on
-        this instance and launches the next one, which connects and publishes
-        its own state while this teardown is still joining threads. Everything
-        in ``core.state`` is one set of window properties with no room for a
-        generation, so a teardown that writes them at that point writes over
-        the *live* service's — measured at ten seconds of overlap on an
-        0.14.0 → 0.15.0 update, which is long enough for the successor to have
-        connected and raised every flag this teardown then cleared.
-
-        The IPC nonce is what tells the two apart: every generation mints one
-        at startup (``ipc.rotate_nonce``), so a value on disk that is no
-        longer ours means a successor exists and the shared state is its. Our
-        own threads stop regardless — the ``_stopping`` Event and
-        ``Library.stop_client`` are instance-scoped, and it is those, not the
-        properties, that actually end them.
+        starting its replacement, and everything in ``core.state`` is one set
+        of window properties with no room for a generation, so a teardown
+        that writes them while the successor runs writes over the *live*
+        service's. Every generation mints an IPC nonce at startup
+        (``ipc.rotate_nonce``), so a value on disk that is not ours means a
+        successor exists and the shared state is its. Our own threads stop
+        regardless: the ``_stopping`` Event and ``Library.stop_client`` are
+        instance-scoped.
         """
         current = ipc.nonce()
         return bool(current) and current != self._ipc_nonce
 
     def _shutdown(self) -> None:
-        # Both, and they are not redundant: the property is what the sync
-        # workers' @stop guards read across the process, the Event is what
-        # this generation's HTTP transports check between retries and is the
-        # only one of the two that survives the next generation starting.
-        # Which is also why the property is skipped once a successor is live:
-        # surviving the next generation means landing *on* it, and a stop flag
-        # raised under a running service pauses its sync workers for good
-        # (the failure ``run_forever`` lowers the flag to undo).
+        # The Event is what this generation's HTTP transports check between
+        # retries. PROP_SYNC_STOP is shared with the next generation, so it is
+        # raised only while no successor is live.
         self._stopping.set()
         if not self._superseded():
             state.set_should_stop(True)
         self._stop_syncplay()
         # The websocket goes down before the library, not after: every event
         # it dispatches lands in the Library's queues — or, for UserDataChanged,
-        # opens the kofin database — on the websocket thread, so a message
-        # arriving mid-join raced the very teardown the join was waiting on
-        # (observed: a LibraryChanged applied against a torn-down Library a
-        # minute after the service exited, 2026-08-07). SyncPlay is stopped
-        # above because it is the only other websocket consumer.
+        # opens the kofin database — on the websocket thread. SyncPlay is
+        # stopped above because it is the only other websocket consumer.
         if self.ws is not None:
             self.ws.stop()
             self.ws = None
-        # Downloads before the library join: the workers write MyVideos (the
-        # repoint) and would contend with the join's own drain; their chunk
-        # loops hear the stop within one read timeout.
         self._stop_downloads()
         library_stuck = False
         if self.library is not None:
@@ -1365,17 +1235,10 @@ class Service(xbmc.Monitor):
         self.kodi_userdata.stop()
         self._join_workers()
         self.http.close()
-        # Last, and only once nothing of ours is still running: clear_all drops
-        # PROP_SYNC_STOP, which is the flag every sync worker's @stop guard
-        # reads. Clearing it while a thread survives un-pauses that thread
-        # against a service that has already been rebuilt — two Library object
-        # graphs, each with its own database locks, writing the same files. A
-        # thread that outlived the join keeps the flag raised for exactly that
-        # reason.
-        #
-        # Re-asked rather than reused from the top of the teardown: the join
-        # above can take LIBRARY_JOIN_SECONDS, which is ample time for the
-        # successor to have started, and by here the properties would be its.
+        # Last, once nothing of ours is still running. Re-asked rather than
+        # reused from the top of the teardown: the join above can take
+        # LIBRARY_JOIN_SECONDS, which is ample time for the successor to have
+        # started, and by here the properties would be its.
         if self._superseded():
             LOG.warning("a newer service generation is live; leaving it its state")
             return
@@ -1384,22 +1247,12 @@ class Service(xbmc.Monitor):
     def _join_library(self) -> bool:
         """Wait for the library thread to die; True when it did.
 
-        Two failures to avoid, and they pull in opposite directions. Giving up
-        after 15 seconds and carrying on let the thread outlive the teardown
-        while the next line cleared the stop flag it was waiting on (audit
-        finding #10). Waiting on `abortRequested` alone never ends on an addon
-        bounce, and a service script that does not return wedges every later
-        Python invocation in Kodi (see LIBRARY_JOIN_SECONDS).
+        A deadline generous enough for a page fetch, and a truthful answer
+        when it passes.
 
-        So: a deadline generous enough for a page fetch, and a truthful answer
-        when it passes — the caller keeps the flag raised rather than pretending
-        the thread is gone.
-
-        A wait that goes long also dumps every thread's stack (core/diag.py).
-        The deadline makes a stuck thread survivable without saying what stuck
-        it, and the event is too rare to catch by asking for it again: the
-        first slow tick and the last one are both written down, so the log says
-        what the thread was doing and whether it moved between the two.
+        A wait that goes long also dumps every thread's stack (core/diag.py):
+        the first slow tick and the last one are both written down, so the log
+        says what the thread was doing and whether it moved between the two.
         """
         library = self.library
         if library is None:
@@ -1438,8 +1291,7 @@ class Service(xbmc.Monitor):
         """Join the named one-shot workers this service started.
 
         Unjoined, they outlive the rebuild and race their replacements against
-        the same resources — the backdrop worker rewrites a file in the
-        profile (audit finding #13).
+        the same resources — the backdrop worker rewrites a file in the profile.
         """
         workers = (
             ("backdrop", self._backdrop),
@@ -1465,20 +1317,11 @@ def _guid(value: Any) -> str:
 def own_userdata(data: Dict[str, Any], user_id: str) -> bool:
     """Whether a UserDataChanged payload is about the user this client mirrors.
 
-    The message names its subject, and on a device running "Who's watching?"
-    that is regularly somebody else. Jellyfin delivers UserDataChanged to
-    every session that *contains* the subject user, and a session contains
-    its additional users as well as its owner (``SessionInfo.ContainsUser``),
-    so attaching a co-watcher subscribes this device to everything they watch
-    **anywhere** — their phone, a browser, another Kodi box. Applied
-    unfiltered, that wrote a stranger's watched flag and resume point into
-    this Kodi's library, while the server-side userdata of the logged-in user
-    stayed correct: a purely local corruption, and a durable one, since the
-    server has no reason to ever send our real value for that item again.
-
-    Who's watching? is meant to work one way — playing *here* credits the
-    co-watchers, which the server does on its own from the session. Nothing
-    they do elsewhere belongs in this library.
+    Jellyfin delivers UserDataChanged to every session that *contains* the
+    subject user, and a session contains its additional users as well as its
+    owner (``SessionInfo.ContainsUser``), so attaching a co-watcher subscribes
+    this device to everything they watch **anywhere**. Nothing they do
+    elsewhere belongs in this library.
 
     An unstated subject is treated as ours: the field is Jellyfin's to send,
     and dropping messages without it would silently stop userdata sync
@@ -1499,20 +1342,7 @@ def _decode_kodi_data(data: str) -> Dict[str, Any]:
 
 def run_forever() -> None:
     while True:
-        # A generation never inherits the previous one's stop flag. A teardown
-        # that could not join its library thread leaves PROP_SYNC_STOP raised
-        # on purpose (see _shutdown), and nothing else ever lowers it — so
-        # without this line one stuck teardown disabled syncing until Kodi was
-        # restarted, and said so in a single warning: every later library
-        # thread started, ran until its first @stop guard, and exited with
-        # "Should stop flag raised". Measured on Omega, and silent enough that
-        # it looked like sync had simply stopped working.
-        #
-        # The orphan it was protecting is not left unguarded: what actually
-        # ends that thread is ``Library.stop_thread``, an instance flag the
-        # replacement cannot touch, which bounds it to the tick it is already
-        # in. The raised property only ever covered the gap before a
-        # replacement existed, and this is the moment that gap closes.
+        # A generation never inherits the previous one's stop flag.
         state.set_should_stop(False)
         service = Service()
         if not service.run():

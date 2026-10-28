@@ -1,8 +1,8 @@
 """Playback resolve: PlaybackInfo -> stream URL -> setResolvedUrl.
 
 No interactive dialogs in this path — the device profile decides everything.
-The resolved play's state is queued on kofin.play.json for the service-side
-player to claim and report.
+The resolved play's state is queued for the service-side player to claim and
+report (state.push_play_item).
 """
 
 import os
@@ -35,7 +35,7 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-# Jellyfin types with a native row in the API build, and Kodi's name for it.
+# Jellyfin types with a native row, and Kodi's name for it.
 NATIVE_MEDIA = {
     "Movie": "movie",
     "Episode": "episode",
@@ -81,8 +81,9 @@ def chapter_art(
     api: Api, item: JsonDict, source: JsonDict, method: str
 ) -> Dict[str, str]:
     """The server's chapter images as the resolved item's ``chapter<n>``
-    art, which Kodi 23's chapters dialog shows in place of the frames it
-    would extract (kontell/xbmc #11); its extractor refuses an http source.
+    art, which a Kodi that reads ``chapter<n>`` art shows in its chapters
+    dialog in place of the frames it would extract; the extractor refuses an
+    http source.
 
     A direct play only, since a transcode's stream carries no chapters, and
     the item's own file only: the server extracts chapter images from the
@@ -139,14 +140,12 @@ def stream_url(
     """
     # A live channel never takes the static branch, whatever the source
     # claims to support: /stream?static=true of an infinite stream hands
-    # Kodi's demuxer a download that never begins (measured, P0b of the pvr
-    # sync plan — "OpenDemuxStream - Error creating demuxer" after ~30 s).
-    # When the server allows direct play the source's Path is the provider's
-    # own stream, played straight from the provider as pvr.kofin does — the
-    # one live stream whose clock every member shares (P4: the server's
-    # transcode jobs restamp each session from zero). Otherwise the
-    # session's live.m3u8 (AutoOpenLiveStream is already in every
-    # PlaybackInfo this module makes) is the stream that plays.
+    # Kodi's demuxer a download that never begins. When the server allows
+    # direct play the source's Path is the provider's own stream, played
+    # straight from the provider as pvr.kofin does — the one live stream
+    # whose clock every member shares. Otherwise the session's live.m3u8
+    # (AutoOpenLiveStream is already in every PlaybackInfo this module makes)
+    # is the stream that plays.
     live = bool(source.get("IsInfiniteStream")) or item.get("Type") == "TvChannel"
     path = source.get("Path") or ""
     if (
@@ -188,7 +187,7 @@ def live_timeshift(source: JsonDict, play_method: str) -> Optional[Dict[str, str
     timeshift buffer — the ones pvr.kofin plays the same server streams with.
 
     Kodi plays a live stream at a tempo only when it has a time range to move
-    in (kontell/xbmc #25), and a live URL played by Kodi's own demuxer has
+    in, and a live URL played by Kodi's own demuxer has
     none: no buffer, no pause, no skip. Timeshift gives it one, and gives a
     member the pause a live hold needs. A playlist stream also carries its
     manifest type, so the ffmpeg open path does not guess at a URL with no
@@ -266,15 +265,9 @@ def deny_video_stream_copy(url: str) -> str:
     No bitrate can do this. Jellyfin allows the copy whenever the requested
     VideoBitrate is at or above the source's, so a budget high enough to be
     worth asking for is a budget that permits a copy -- and any budget low
-    enough to forbid one is a quality choice the user did not make. Measured
-    before this call existed, on an HEVC 2,000,962 + AAC 224,000 source sized
-    to its own 2,231,688 total: kofin asked for 2,008,520 video, the server
-    answered ``-codec:v:0 copy`` and re-encoded the audio instead, which had
-    missed its share by 832 bits. Which stream got re-encoded turned on the
-    source's audio share rather than on anything the user asked for.
-
-    So the intent is stated instead of implied: ``allowVideoStreamCopy=false``
-    makes ``CanStreamCopyVideo`` answer no whatever the bitrates say.
+    enough to forbid one is a quality choice the user did not make.
+    ``allowVideoStreamCopy=false`` makes ``CanStreamCopyVideo`` answer no
+    whatever the bitrates say.
     """
     return _deny_stream_copy(url, "allowVideoStreamCopy")
 
@@ -328,7 +321,7 @@ def play_state(
         # Same reason, and it has to travel: the dialog in question is the
         # delete offer, and the queue entry is all the service gets. The
         # server answers this per account on the fetch above, with no Fields
-        # request needed (verified on 10.11).
+        # request needed.
         "CanDelete": bool(item.get("CanDelete")),
         "SeriesId": item.get("SeriesId", ""),
         "Path": url,
@@ -342,16 +335,11 @@ def play_state(
         "CurrentPosition": start_seconds,
     }
     if streams_menu:
-        # Everything the stream menu needs, resolved here because the
-        # PlaybackInfo that answers it has just been made — the menu costs no
-        # round trip and is complete before the first frame. The service
-        # moves this to a window property when it claims the playback, since
-        # by then the queue entry is gone and the context item runs in a
-        # third process.
+        # Everything the stream menu needs. The service moves this to a window
+        # property when it claims the playback, since by then the queue entry
+        # is gone and the context item runs in a third process.
         play_item["Streams"] = {
             "MediaStreams": streams.summarize(source),
-            # The setSubtitles order, which is what makes a Jellyfin index
-            # translatable to a Kodi subtitle number at all.
             "Attached": list(attached or []),
             # Every embedded text track the server can hand over as a file,
             # whether or not this play asked for one. Whole attachments rather
@@ -372,7 +360,7 @@ def play_state(
 
 
 def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
-    """Warm the media-segments fetch on the play path (plan §2d): the parsed
+    """Warm the media-segments fetch on the play path: the parsed
     segments ride the play-state queue so the service-side checker is armed
     before the first frame, killing the t≈0 Intro race. None on failure —
     the service then falls back to its own bounded-retry fetch."""
@@ -394,12 +382,8 @@ def resume_start_ticks(item: JsonDict, dbid: str) -> int:
 
     For a library row that is the bookmark in Kodi's own database, taken
     verbatim. Kodi seeks a library item to that bookmark and ignores what the
-    resolved item says — measured: with the bookmark at 200s and the resolved
-    item stating 895s, playback landed at 200s — so any other answer is a
-    number nothing acts on. It is also the time Kodi's resume prompt just
-    quoted at the user, and the sync writes it from the server's position with
-    the resume offset already applied, so applying the offset again here would
-    double it.
+    resolved item says, so any other answer is a number nothing acts on. It
+    is also the time Kodi's resume prompt just quoted at the user.
 
     Everything else — a plugin listing, a row kofin cannot read — has no Kodi
     bookmark to seek to. There the resolved item's resume point is the only one
@@ -460,7 +444,7 @@ def stream_requested(request: Request) -> bool:
     can answer — it streams even when a download exists. This is also what
     keeps the stream menu's restart (plugin/streams.py) resolving back to
     the server it was picked from. The names live in core/urls.py beside
-    the builder (P2.2).
+    the builder.
     """
     return any(request.params.get(name) for name in STREAM_REQUEST_PARAMS)
 
@@ -468,7 +452,7 @@ def stream_requested(request: Request) -> bool:
 def _resolve_to(request: Request, listitem: xbmcgui.ListItem, path: str) -> None:
     """Hand the resolved item back — to the directory handle that asked, or,
     when there is none (a RunPlugin play, a SyncPlay group start), to the
-    player directly. The one tail every resolve ends in (P2.2)."""
+    player directly. The one tail every resolve ends in."""
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, True, listitem)
     else:
@@ -478,13 +462,10 @@ def _resolve_to(request: Request, listitem: xbmcgui.ListItem, path: str) -> None
 def offline_answer(request: Request, item_id: str) -> bool:
     """Handle the play entirely locally when the server is unreachable.
 
-    A downloaded item reached through a *library* row never arrives here —
-    its row points at the file (V4) — but one reached from a kofin listing
-    (Continue watching, a widget) or from a SyncPlay group start does, and
-    refusing to play a file sitting on disk would be absurd. Anything not
-    downloaded is answered at once instead of after the transport's budget:
-    measured offline, the resolve spent ~8 s before a generic failure
-    (feasibility V8).
+    A downloaded item plays its file however it is reached: a library row,
+    a kofin listing (Continue watching, a widget) or a SyncPlay group start.
+    Anything not downloaded is answered at once instead of after the
+    transport's budget.
 
     Online the same preference is applied further down, once the item DTO is
     in hand to claim the playback with — see :func:`resolve_downloaded`.
@@ -551,26 +532,12 @@ def resolve_downloaded(
 ) -> None:
     """Resolve a play to the item's own download while the server is up.
 
-    A downloaded item's *library* row points at the file, so playing one from
-    the library never reaches this route. Everything that plays by **id**
-    does — a kofin listing, a widget, and above all a SyncPlay group start,
-    which by construction has no library row to go through — and every one of
-    them used to resolve a server stream with the file already on disk. That
-    is what left a SyncPlay follower streaming media the initiator was
-    playing locally: the initiator adopts the queue for the playback it is
-    already running (syncplay/manager.py), so only the follower reloads, and
-    the reload came back here.
-
-    The claim is pushed here rather than left to the service's back-fill.
-    ``backfill_library_claim`` needs a Kodi database id off the
-    ``Player.OnPlay`` announcement, and a group start carries none, so the
-    playback would run unclaimed — no session, no reporting, no segment
-    engine, no watched-to-end offer.
+    Everything that plays by id — a library row, a kofin listing, a widget,
+    a SyncPlay group start — resolves to the download here.
 
     No stream menu travels with it. The download is one file whose tracks are
     its own (a transcode has exactly the ones it was made with), so the
-    server's MediaStreams would describe something else; a downloaded play
-    from the library has no stream menu either, and this matches it.
+    server's MediaStreams would describe something else.
     """
     li = listitems.build(item, server, resume_seconds=start_ticks / 10_000_000)
     if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
@@ -582,13 +549,9 @@ def resolve_downloaded(
 
     LOG.info("play %s via Download", item.get("Id", ""))
     sources = item.get("MediaSources") or [{}]
-    # The same claim shape the streamed play pushes, with the downloaded
-    # play's deviations stated rather than restated key by key (P2.2): the
-    # file is on disk and Kodi opens it directly, which is what DirectPlay
-    # means — the same method ``_offline_claim`` reports for the same file;
-    # the "source" is the id alone, so the runtime is the item's and no
-    # server-side default track index rides along (a download has the
-    # tracks it was made with); and no stream menu travels with it.
+    # The claim shape the streamed play pushes: DirectPlay, since Kodi opens
+    # the file; the "source" is the id alone, so the runtime is the item's
+    # and no server-side default track index rides along.
     play_item = play_state(
         item,
         {"Id": sources[0].get("Id") or item.get("Id", "")},
@@ -608,9 +571,7 @@ def resolve_downloaded(
 
 def play(request: Request) -> None:
     # One connection to kofin.db for the life of this interpreter, as the
-    # provider keeps: a resolve opened it three times (the offline answer,
-    # the native identity, the downloaded file), and on a Raspberry Pi 3
-    # each open was 0.6 s of a 2.6 s resolve, on every track of a queue.
+    # provider keeps.
     private.pool_connections(True)
     item_id = request.params.get("id", "")
     creds = Credentials.load()
@@ -641,7 +602,7 @@ def play(request: Request) -> None:
     http = api.http
     # The media-segments prefetch shares nothing with PlaybackInfo or the
     # subtitle fetches, so it runs beside them instead of after them and its
-    # round trip leaves the resolve's critical path (perf plan W2.6). The
+    # round trip leaves the resolve's critical path. The
     # item fetch stays ahead of PlaybackInfo on the main thread: StartTimeTicks
     # needs the resume position, which in the server-resume case only the item
     # DTO knows. prefetch_segments catches its own failures (None), so the
@@ -678,20 +639,18 @@ def play(request: Request) -> None:
         if request.resume and not from_start:
             start_ticks = resume_start_ticks(item, dbid)
         # An explicit start position wins over resume/fromstart: SyncPlay
-        # group starts say exactly where the group timeline is (plan §2).
+        # group starts say exactly where the group timeline is.
         try:
             start_ticks = int(request.params.get("startticks") or start_ticks)
         except ValueError:
             pass
         if item.get("Type") == "TvChannel":
             # Live has no position to start at: the opened live stream
-            # begins at its edge, and a group position on a live item is on
-            # the source clock (P4) or a member's session time (P2) — a
-            # stream offset it never is.
+            # begins at its edge, and a group position on a live item is a
+            # live-clock anchor, never a stream offset.
             start_ticks = 0
 
-        # A download the user already has beats the network, exactly as the
-        # repointed library row does for the same item. Here rather than
+        # A download the user already has beats the network. Here rather than
         # beside the offline check because the claim needs the item DTO, and
         # after the start position because the resolved item carries it.
         local_path = None if stream_requested(request) else downloaded_file(item_id)
@@ -715,9 +674,8 @@ def play(request: Request) -> None:
             force_transcode=transcode,
             burn_subtitles=request.params.get(PARAM_BURN_SUBS) == "1",
         )
-        # The stream indices only bind when MediaSourceId travels with them:
-        # measured, a PlaybackInfo carrying AudioStreamIndex=3 and no source id
-        # came back with the server's own default and no complaint. The first
+        # The stream indices only bind when MediaSourceId travels with them;
+        # without it the server silently answers its own default. The first
         # call cannot name a source it has not seen yet, so a request that
         # selects streams states which source it is selecting them on.
         wanted_source = request.params.get(PARAM_MEDIA_SOURCE) or ""
@@ -748,9 +706,7 @@ def play(request: Request) -> None:
             # the context item or the setting: the server reserves its own audio
             # share off that cap, so the split is recomputed to keep audio
             # proportional to the budget rather than to the source. Nothing caps
-            # this against the source bitrate — sizing a transcode down to the
-            # source was only ever a way to provoke a re-encode, which
-            # ``deny_video_stream_copy`` now states outright.
+            # this against the source bitrate.
             #
             # Music is exempt: its transcode is already sized by
             # MusicStreamingTranscodingBitrate, and the video audio share would
@@ -793,13 +749,11 @@ def play(request: Request) -> None:
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
     # a resume regardless of the resume:true|false it just passed us, and then
     # seeks — to the item's own point, or, when that point has no time on it,
-    # to the bookmark in Kodi's database. Either way "Play from beginning"
-    # landed back on the resume position, because build() stamps the server's
-    # position on everything it builds. Nor can the point be cleared once
+    # to the bookmark in Kodi's database. Nor can the point be cleared once
     # stamped, so the play route states its start position up front and 0
     # means the item is built without one.
     li = listitems.build(item, api.server, resume_seconds=start_ticks / 10_000_000)
-    # Library-item paths carry the Kodi database id (plan §2 path identity);
+    # Library-item paths carry the Kodi database id;
     # stamping it on the tag links the playback to the library row for
     # widgets invoked outside a library window.
     if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
@@ -819,18 +773,9 @@ def play(request: Request) -> None:
     li.setContentLookup(False)
     for key, value in (timeshift or {}).items():
         li.setProperty(key, value)
-    # Free: measured identical time to first frame with 0, 2 and 20 subtitles
-    # attached (4.0 s each), because Kodi fetches them only when one is
-    # selected. On a transcode this is the *only* way any subtitle reaches the
-    # screen — the transcoded stream carries none.
-    #
-    # Sidecar ones are fetched here rather than linked, because Kodi reads a
-    # subtitle's language out of its filename and Jellyfin's route cannot carry
-    # one (plugin/subtitles.py). That is the one place this route pays for
-    # anything, which is why it is capped, short-timeout and falls back to the
-    # URL.
-    # Only the tracks that actually landed are attached, and only those count
-    # for the ordinal mapping the stream menu reads (subtitles.localize).
+    # On a transcode this is the *only* way any subtitle reaches the screen —
+    # the transcoded stream carries none. The attached order is what the
+    # stream menu's ordinals map through (subtitles.localize).
     attached = streams.attached_subtitles(
         api.server, source, method, kodirpc.preferred_subtitle_language()
     )

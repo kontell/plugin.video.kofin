@@ -35,13 +35,8 @@ LOG = Logger(__name__)
 # ways of browsing the library rather than splitting them up.
 MUSIC_NODE_ROOT_ORDER = 55
 
-# The Downloaded-music folder inside the music tree. Named with the prefix
-# so the pruner claims it like everything else kofin writes.
 MUSIC_DOWNLOADED_FOLDER = fs.PREFIX + "_Downloaded"
 
-# The flat Downloaded-music node this replaced. The pruner sweeps it by
-# prefix like any other stale file; the name survives only for the tests
-# that plant one.
 MUSIC_DOWNLOADED_FILE = fs.PREFIX + "_DownloadedMusic.xml"
 
 # (file stem, label, content, group) for the sub-nodes inside a music folder.
@@ -114,10 +109,9 @@ def write_music_nodes(libraries):
             _write_music_library_folder(root, view, index)
             keep.add(music_node_folder(view))
 
-        # Reconcile: a library that left the whitelist, and the loose
-        # kofin_DownloadedMusic.xml from before the Downloaded folder
-        # existed -- that sweep is the migration. index.xml carries no
-        # prefix and survives; it is creation-only and the user's to reorder.
+        # Reconcile: a library that left the whitelist goes. index.xml
+        # carries no prefix and survives; it is creation-only and the user's
+        # to reorder.
         fs.remove_managed_entries(root, keep=keep)
     except Exception:
         LOG.exception("music node generation failed")
@@ -181,12 +175,7 @@ def _write_music_filter_node(folder, order, stem, label, content, group, rule):
 
 
 def _delete_music_nodes(root):
-    """Take the whole music tree back out when nothing wants it.
-
-    Prefix-gated like the reconcile, plus the parent ``index.xml`` -- this
-    is the teardown. The folder itself only goes when nothing is left in it,
-    so a hand-made node keeps it alive.
-    """
+    """Take the whole music tree back out when nothing wants it."""
     if not os.path.isdir(root):
         return
     try:

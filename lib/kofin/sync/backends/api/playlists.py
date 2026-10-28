@@ -1,12 +1,10 @@
 """Jellyfin playlists as Kodi playlist files, resolved through the catalogue.
 
-The SQL build resolves a playlist's entries through its mapping table and
-Kodi's databases. This build resolves them through the store: an entry is an
-item the pass has acknowledged, its line the resolver URL Kodi filed the row
-under (a song's file in its album directory, a video's query URL) and its
-label the server's own playlist listing. Order and duplicates are the
-server's; the managed folders, the file naming, the state tables and the
-prune rules are the shared module's (sync/playlists.py).
+An entry is an item the pass has acknowledged, its line the resolver URL Kodi
+filed the row under (a song's file in its album directory, a video's query
+URL) and its label the server's own playlist listing. Order and duplicates
+are the server's; the managed folders, the file naming, the state tables and
+the prune rules are the shared module's (sync/playlists.py).
 """
 
 import re
@@ -104,9 +102,9 @@ def song_entry(
 def write_downloaded_music(store: Store, root: Optional[str] = None) -> bool:
     """The Downloaded-music view: a playlist of the finished song downloads
     the catalogue places, in album artist, album, disc and track order. A
-    download keeps its row's plugin URL in this build, so the view is read
-    from the download store, the catalogue's entries and payloads read once
-    each however many songs there are."""
+    download keeps its row's plugin URL, so the view is read from the
+    download store, the catalogue's entries and payloads read once each
+    however many songs there are."""
     from kofin.downloads import store as downloads
 
     done = [

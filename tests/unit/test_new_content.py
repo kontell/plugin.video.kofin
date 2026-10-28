@@ -139,7 +139,7 @@ def album(item_id="album1", name="Inner Song", played=False):
 
 
 def summarize(*items):
-    """The messages for these items, entries built the way a writer does."""
+    """The messages for these items, entries built as announce.Arrivals does."""
     entries = [newcontent.entry_for(item) for item in items]
     return newcontent.summarize([entry for entry in entries if entry is not None])
 
@@ -288,8 +288,8 @@ def test_nothing_at_all_says_nothing():
 
 
 def test_an_id_offered_twice_counts_once():
-    """The change feed and a repair prune can both offer the same item inside
-    one cycle; "2 movies added" for one movie is worse than silence."""
+    """One item offered twice in a cycle is one addition; "2 movies added" for
+    one movie is worse than silence."""
     assert summarize(movie("movie1"), movie("movie1")) == [
         "Blade Runner movie added to library"
     ]

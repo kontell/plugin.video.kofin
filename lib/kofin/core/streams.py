@@ -6,7 +6,7 @@ Kodi numbers each *kind* separately, and counts only what is in the stream it
 actually opened. Translating between the two is this module's whole job, and
 it is pure so the mapping can be tested without a player.
 
-Three facts shape it, all measured (docs/transcode-stream-selection-plan.md §2):
+Three facts shape it:
 
 * A Jellyfin transcode carries exactly one audio track. The chosen
   ``AudioStreamIndex`` is baked into the HLS URL and no alternate renditions
@@ -64,8 +64,7 @@ _SUMMARY_FIELDS = (
     "DeliveryMethod",
 )
 
-# What the context item's <visible> tests to pick its label. Published as a
-# window property because a boolean expression cannot read anything else.
+# What the context item's <visible> tests to pick its label.
 OFFER_NONE = ""
 OFFER_AUDIO = "audio"
 OFFER_SUBTITLE = "subtitle"
@@ -95,17 +94,12 @@ def preferred_embedded(
 ) -> Optional[int]:
     """Which embedded text track to attach on a transcode.
 
-    The server's own choice when it made one. When it made none — common, and
-    what a film with twenty tracks and no default looks like — the viewer
-    still expects the subtitle they always get, so: a forced track first
-    (that is what forced means), then the first track in their configured
-    subtitle language. Failing both, none: attaching an arbitrary one would
-    be guessing, and the menu is right there.
+    The server's own choice when it made one. When it made none, a forced
+    track first (that is what forced means), then the first track in the
+    viewer's configured subtitle language. Failing both, none: attaching an
+    arbitrary one would be guessing, and the menu is right there.
 
-    Text only, and not by omission — an image subtitle cannot be attached at
-    all. Kodi will not render a standalone PGS/DVDSUB, and the server hands
-    one over as a raw dump (measured at 37 MB and 67 s for a single track);
-    those reach the screen only by being burned in.
+    Text tracks only.
     """
     text_tracks = [
         stream
@@ -136,9 +130,8 @@ def attached_subtitles(
     Two disjoint groups, and which apply turns on the play method:
 
     * **Sidecar** subtitles (``IsExternal``) are files beside the media, in no
-      container. They are attached whatever the play method — this is the set
-      kofin has always attached. They cost the server nothing to serve: the
-      file already exists.
+      container. They are attached whatever the play method, and cost the
+      server nothing to serve: the file already exists.
     * **Embedded** text subtitles are missing from a transcoded stream, so one
       is attached for it — *the one this playback was resolved with*, and no
       others. Attaching them on direct play would list every track twice: once
@@ -147,21 +140,17 @@ def attached_subtitles(
     Only one, because each embedded track is extracted on demand by the
     server, and Kodi opens every attached subtitle when it builds the demuxer
     rather than when one is picked. A track the server cannot produce costs
-    Kodi a 20-second timeout before it moves to the next, so a film with
-    several of them stalls for a minute or more before the picture settles —
-    measured on a real library, where one track ground for 48 s and then
-    answered 400. The rest stay reachable through the stream menu, which
-    restarts into them (``needs_restart``), the same way an image subtitle
-    has always worked on a transcode.
+    Kodi a 20-second timeout before it moves to the next. The rest are
+    fetched onto the running playback when chosen from the stream menu
+    (:func:`needs_fetch`, :func:`fetchable_subtitles`).
 
     Which one is :func:`preferred_embedded`'s answer; ``language`` is the
     viewer's configured subtitle language, passed in rather than read here so
     this module stays free of Kodi imports and testable without a player.
 
-    Embedded *image* subtitles (PGS/DVDSUB) are never attached. The server
-    serves them as a raw ``.sup`` — measured at 37 MB and 67 s of extraction
-    for one track — and Kodi cannot render a standalone one anyway. On a
-    transcode they are reachable only by burning them in (see
+    Embedded *image* subtitles (PGS/DVDSUB) are never attached: the server
+    serves them as a raw ``.sup``, and Kodi cannot render a standalone one.
+    On a transcode they are reachable only by burning them in (see
     ``deviceprofile.build(burn_subtitles=True)``); on direct play they are
     already in the container.
 
@@ -170,7 +159,6 @@ def attached_subtitles(
     """
     attached: List[Attachment] = []
     direct = is_direct(play_method)
-    # The one embedded track worth extracting up front, if any.
     wanted = (
         None
         if direct
@@ -212,15 +200,10 @@ def fetchable_subtitles(server: str, source: JsonDict) -> List[Attachment]:
 
     A superset of what :func:`attached_subtitles` attaches — that one picks the
     single track worth extracting before the first frame, this one describes
-    all of them, so a track chosen later can be fetched without resolving a
-    new stream. It is what makes the stream menu's text rows free: the service
-    fetches the chosen index and adds it to the running playback rather than
-    restarting into it (``service/latesubs.py``).
+    all of them, so a track chosen later can be fetched onto the running
+    playback (``service/latesubs.py``).
 
-    Sidecars are absent because they are never missing: they cost the server
-    nothing and are attached on every play. Image subtitles are absent because
-    a file is no use for one — Kodi cannot render a standalone PGS/DVDSUB, and
-    a transcode can only put it on screen by burning it in.
+    No sidecars, which are attached on every play, and no image subtitles.
     """
     fetchable: List[Attachment] = []
     for stream in source.get("MediaStreams") or []:
@@ -262,13 +245,7 @@ def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int
 
 
 def audio_index_at(streams: List[JsonDict], ordinal: Optional[int]) -> Optional[int]:
-    """``audio_ordinal`` inverted: the Jellyfin index of Kodi's nth track.
-
-    What the player answers has to be translatable back, because on a direct
-    play Kodi's own audio menu can change the track without kofin hearing of
-    it, and the published index is then the one the playback *started* on
-    rather than the one being heard.
-    """
+    """``audio_ordinal`` inverted: the Jellyfin index of Kodi's nth track."""
     tracks = of_type(streams, "Audio")
     if ordinal is None or ordinal < 0 or ordinal >= len(tracks):
         return None
@@ -281,16 +258,13 @@ def burned_subtitle(
     """Whether the subtitle this playback was resolved with is in the picture.
 
     A burned-in subtitle is not a track. It is pixels in the video, so no
-    question put to the player reports it — ``currentsubtitle`` answers with
-    whatever else is loaded, or nothing — and the only record of it is the
+    question put to the player reports it, and the only record of it is the
     server's own answer: on a transcode whose profile withdrew the image
     formats, the stream comes back ``DeliveryMethod: Encode``.
 
-    ``selected`` is therefore load-bearing, not a convenience. Measured against
-    10.11: a burn profile flips *every* image subtitle to ``Encode``, not only
-    the one requested — twenty of them on one film — so the delivery method
-    alone identifies a set of candidates, and only the index the playback was
-    resolved with says which of them is the one on screen.
+    A burn profile flips *every* image subtitle to ``Encode``, not only the
+    one requested, so only ``selected``, the index the playback was resolved
+    with, says which of them is the one on screen.
     """
     if selected is None or is_direct(play_method):
         return False
@@ -370,13 +344,9 @@ def is_image_subtitle(stream: JsonDict) -> bool:
 def burns_in(stream: JsonDict, play_method: str) -> bool:
     """Whether selecting this subtitle can only be answered by burning it in.
 
-    An image subtitle on a transcode, and nothing else. The distinction is not
-    cosmetic: a *text* subtitle that is not among the attached ones costs a
-    restart too (:func:`needs_restart`), but that restart fetches it as a file
-    — so treating the two alike labelled a plain SRT "burned in" and, worse,
-    made the restart ask the server for a burn-in it never wanted
-    (``deviceprofile.build(burn_subtitles=True)``, reached through the play
-    route's ``burnsubs`` param).
+    An image subtitle on a transcode, and nothing else: a *text* subtitle
+    that is not among the attached ones is fetched as a file
+    (:func:`needs_fetch`), not burned in.
     """
     return not is_direct(play_method) and is_image_subtitle(stream)
 
@@ -392,9 +362,8 @@ def needs_fetch(
     the rest arrive as files on demand — which the service does against the
     running playback, with no new stream and no gap.
 
-    Never on a direct play: the container holds every track. Never for an
-    image subtitle either: a file is no use for one, and
-    :func:`burns_in` is that case.
+    Never on a direct play: the container holds every track. An image
+    subtitle is :func:`burns_in`'s case.
 
     ``attached`` is optional so a caller that only cares about the burn-in
     case can leave it out; omitting it treats every text subtitle as already

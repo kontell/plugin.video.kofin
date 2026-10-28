@@ -193,7 +193,7 @@ def test_a_set_stands_for_a_collection_acknowledged_against_it(
     kodi.rows["Movie"][9000] = {"movieid": 9000, "file": "/films/x.mkv", "set": "Solo"}
     solo_id = kodi._set_row("Solo")["setid"]
     assert identity.mapped_item(solo_id, "set") is None
-    # A collection that left the catalogue no longer stands for the set.
+    # A collection that leaves the catalogue gives the set to the next one.
     store.publish([], removed=["box"])
     assert identity.mapped_item(set_id, "set") == "box2"
 
@@ -201,9 +201,7 @@ def test_a_set_stands_for_a_collection_acknowledged_against_it(
 def test_syncplay_resolves_a_native_row_through_the_identity_lookup(
     store, backend, kodi, monkeypatch
 ):
-    """SyncPlay identifies a library play from Player.OnPlay's Kodi id. On
-    this build that is this lookup and nothing else: there is no table of
-    Kodi ids to ask."""
+    """SyncPlay identifies a library play from Player.OnPlay's Kodi id."""
     from kofin.syncplay import providers
 
     monkeypatch.setattr(identity, "current_store", lambda: store)

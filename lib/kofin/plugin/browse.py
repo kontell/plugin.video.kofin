@@ -32,13 +32,9 @@ BROWSE_FIELDS = (
     "ProviderIds,SortName"
 )
 
-# MediaStreams is the field that prices a listing: measured on a 1,766-movie
-# library, the whole-library query is 12.7 MB and 1.4 s of server time with it
-# against 3.5 MB and 0.47 s without (docs/perf-hardening-plan.md W2.1). So
-# bounded listings keep it — 25 rows of codec/HDR flags and stream details are
-# worth 25 rows of payload — and whole-library nodes drop it. Music drops it
-# unconditionally: _fill_music never reads stream details. The rows that lose
-# it render without codec/resolution flags, which is the stated trade.
+# MediaStreams is the field that prices a listing. Bounded listings keep it,
+# and whole-library nodes drop it and render without codec/resolution flags.
+# Music never asks: _fill_music never reads stream details.
 BROWSE_FIELDS_STREAMS = BROWSE_FIELDS + ",MediaStreams"
 
 # How many rows a "recent" node shows. Also what makes those nodes bounded,
@@ -52,23 +48,16 @@ def bounded_fields() -> str:
     MediaStreams always (BROWSE_FIELDS_STREAMS). People only when the viewer
     asked for cast in the add-on's listings (browseCast, off by default).
 
-    The gate is boundedness, and it is not a preference: People costs the
-    *server* about 25 ms per row on 10.11, linear in the result set. Measured
-    on one library: 25 recently-added films 0.12 s -> 0.71 s, 61 favourites
-    0.10 s -> 1.6 s, a 417-film genre 0.28 s -> 10.4 s, 901 unwatched 0.39 s
-    -> 21.9 s, and the whole 1,778-film library 0.66 s -> 44.0 s. A listing
-    that takes 44 seconds to open is a broken listing, so the whole-library
-    and filter nodes (all, unwatched, favorites, sets, genres, years, tags,
-    the alphabet) never ask for it, whatever the setting says — and neither
-    does music, which reads no people at all.
+    The gate is boundedness, and it is not a preference: People's cost to the
+    *server* is linear in the result set, so the whole-library and filter
+    nodes (all, unwatched, favorites, sets, genres, years, tags, the
+    alphabet) never ask for it, whatever the setting says — and neither does
+    music, which reads no people at all.
 
     Every caller is a listing something already bounds: a node with a Limit,
     Next up, Continue watching, a season's episodes, search results and a
     person's filmography (both SEARCH_LIMIT). Extras are the one bounded
     listing without it — /Items/{id}/SpecialFeatures takes no Fields.
-
-    Closing the gap for the big nodes needs paging, not a bigger field list
-    (docs/dynamic-libraries-plan.md §2 and W7).
     """
     fields = BROWSE_FIELDS_STREAMS
     if settings.get_bool("browseCast"):
@@ -78,12 +67,10 @@ def bounded_fields() -> str:
 
 # Node menus per collection type: (folder key, label string id).
 #
-# A label id under 30000 or over 30999 is Kodi's own — :func:`node_label`
-# resolves it through xbmc rather than the addon, so a node whose wording Kodi
-# already ships costs nothing in the 27 generated locales. Years, Tags, Album
-# artists, Last played and Top 100 songs are all lifted from Kodi's own library
-# nodes (system/library/{video,music}), which is also where their icons come
-# from.
+# A label id outside 30000-30999 is Kodi's own (:func:`node_label`). Years,
+# Tags, Album artists, Last played and Top 100 songs are lifted from Kodi's own
+# library nodes (system/library/{video,music}), which is also where their icons
+# come from.
 NODES: Dict[str, List[Tuple[str, int]]] = {
     "movies": [
         ("all", 30030),
@@ -155,33 +142,23 @@ TV_FAVORITE_LEGS: Tuple[Tuple[str, int, str], ...] = (
 # on those would stack the same word twice.
 _STRUCTURAL_FOLDERS = frozenset({"alpha", "years", "tags", "genres"})
 
-# The alphabet menu's rows. "#" is everything sorting before A, which Jellyfin
-# answers with NameLessThan rather than a NameStartsWith it has no character
-# for (verified: 26 films on this server, against 99 for D).
+# The alphabet menu's rows. "#" is everything sorting before A, which
+# Jellyfin answers with NameLessThan rather than a NameStartsWith it has no
+# character for.
 ALPHABET = ("#",) + tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 # Play history is song-level. Filters=IsPlayed against MusicAlbum returns zero,
 # and sorting albums by DatePlayed with no filter puts unplayed ones first, so
-# both history nodes list songs (verified against a 20,802-song library: 7,176
-# played).
+# both history nodes list songs.
 PLAY_HISTORY_LIMIT = 100
-
-# "Recently added albums" is not a SortBy either: an album's DateCreated is
-# when the scanner last created its row, and a rescan re-creates rows in folder
-# order, so sorting albums by it listed a scan rather than arrivals — 25
-# A-artists stamped within one second, on the test library. The node goes
-# through /Items/Latest (Api.latest), which sorts the songs and groups them by
-# album, exactly as the web client does.
 
 # Past this many tags the menu shows initials first. Under it, a flat list is
 # friendlier than a letter you have to guess.
 TAG_MENU_MAX = 200
 
 # What search offers, as {type key: (Kodi core string id, IncludeItemTypes,
-# Kodi content type)}. Core string ids throughout — a feature whose every
-# label already exists in Kodi costs nothing in the 27 generated locales.
-# Order is the menu order. Actors (string 344) sit directly under episodes;
-# artists sit directly under songs.
+# Kodi content type)}. Order is the menu order. Actors (string 344) sit
+# directly under episodes; artists sit directly under songs.
 SEARCH_KINDS: Dict[str, Tuple[int, str, str]] = {
     "movies": (20342, "Movie", "movies"),
     "tvshows": (20343, "Series", "tvshows"),
@@ -203,10 +180,7 @@ SEARCH_ICONS = {
 }
 
 # Search results are bounded on purpose: the caller is waiting on this fetch,
-# and a hundred rows is already past what anyone reads. Plain BROWSE_FIELDS
-# rather than the streams set — a hundred rows of codec detail is the payload
-# BROWSE_FIELDS_STREAMS is measured against, and a search row is picked by
-# name, not by codec.
+# and a hundred rows is already past what anyone reads.
 SEARCH_LIMIT = 100
 
 CONTENT_TYPES = {
@@ -217,8 +191,7 @@ CONTENT_TYPES = {
 }
 
 # The Jellyfin item type one collection type is made of: the genre listing,
-# the year/tag filter menus and the tag pages all ask by it, and each used to
-# carry its own copy of this map (P2.1).
+# the year/tag filter menus and the tag pages ask by it.
 ITEM_TYPES = {
     "movies": "Movie",
     "tvshows": "Series",
@@ -268,7 +241,7 @@ NODE_ICONS: Dict[str, Any] = {
     "albums": "DefaultMusicAlbums.png",
     # Kodi's own nodes for the same things: video/movies/years.xml says
     # DefaultYear, music/years.xml says DefaultMusicYears, and both tags.xml
-    # files say DefaultTags. Verified present in the skin's media folder.
+    # files say DefaultTags.
     "years": {
         "movies": "DefaultYear.png",
         "tvshows": "DefaultYear.png",
@@ -284,10 +257,7 @@ NODE_ICONS: Dict[str, Any] = {
 # Rows that stand for a piece of media rather than for a place to go. The
 # addon backdrop never fills one (:func:`apply_backdrop` is called only for
 # the others): it is the *addon's* artwork, and drawn behind a media item it
-# reads as that item's own. Recordings are where that showed — a DVR library's
-# items carry a Primary thumbnail and no backdrop at all, so every row in it
-# was backed by kofin's fanart. An empty background is the honest answer for an
-# item the server has no artwork for; filling it is the skin's call, not ours.
+# reads as that item's own.
 #
 # Everything else a listing holds — genres, folders, playlists, library rows,
 # the Extras link — stands for a query or a container and keeps the backdrop.
@@ -330,9 +300,9 @@ def node_label(label_id: int) -> str:
     """A node's label, from whichever string table owns the id.
 
     The addon's own ids are 30000-30999; everything else in NODES is a Kodi
-    core id, lifted from the shipped node that means the same thing. Asking
-    the addon for a core id returns an empty string, which renders as a
-    nameless row.
+    core id, lifted from the shipped node that means the same thing, so its
+    wording needs no translation of the add-on's. Asking the addon for a core
+    id returns an empty string, which renders as a nameless row.
     """
     if 30000 <= label_id <= 30999:
         return settings.localized(label_id)
@@ -350,15 +320,10 @@ def structural_art(icon: str) -> Dict[str, str]:
     and the listing that holds these rows has to leave its content type empty
     for the same reason the root does: with "files" the skin switches to
     ListWatchedIconVar (folder and status overlays) and ignores setArt(icon)
-    outright. The two rules only work together, which is why they are
-    described in one place.
+    outright. The two rules only work together.
 
     Server artwork never comes through here. These rows stand for a query, not
     for a thing that has a poster.
-
-    The addon backdrop comes from :func:`with_backdrop`, not from here: a
-    structural row is only one of the kinds of row that has no fanart of its
-    own.
     """
     return with_backdrop({"icon": icon, "thumb": icon})
 
@@ -372,19 +337,14 @@ def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
 
     Two kinds of row need this, which is why it is not folded into
     :func:`structural_art`. Structural rows stand for a query and have no art
-    at all. Library rows *look* like they should be covered — they carry a
-    Primary image, which is what the skin's side panel shows — but a Jellyfin
-    UserView has no ``BackdropImageTags``, so ``art_for`` never sets fanart
-    for one and the background stayed empty on exactly the rows the addon
-    root is mostly made of.
+    at all. Library rows carry a Primary image, but a Jellyfin UserView has
+    no ``BackdropImageTags``, so ``art_for`` never sets fanart for one.
 
-    It goes on the *item* because that is the only mechanism that works:
-    ``setPluginFanart`` and ``setProperty(handle, "fanart_image")`` were both
-    measured live on Kodi 21 and left ``Container.Art(fanart)`` empty with
-    nothing drawn. Being per-item, the backdrop tracks focus, and Kodi's
-    synthesised ".." row carries no art and takes none, so the background
-    still blanks while the parent row is focused. Fixing that needs a
-    skin-side fallback; there is no addon-side hook for it.
+    It goes on the *item* because ``setPluginFanart`` and
+    ``setProperty(handle, "fanart_image")`` leave ``Container.Art(fanart)``
+    empty. Being per-item, the backdrop tracks focus, and Kodi's synthesised
+    ".." row carries no art and takes none, so the background blanks while
+    the parent row is focused; there is no addon-side hook for it.
     """
     if not art.get("fanart"):
         from kofin.service.backdrop import profile_path
@@ -396,13 +356,7 @@ def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
 
 
 def apply_backdrop(li: xbmcgui.ListItem) -> None:
-    """:func:`with_backdrop` for a row whose art is already on the ListItem.
-
-    For the structural rows a listing holds — a genre, a folder, a playlist —
-    which carry no server artwork of their own and would otherwise leave the
-    background empty. Media rows are the caller's to exclude
-    (:func:`is_media_row`).
-    """
+    """:func:`with_backdrop` for a row whose art is already on the ListItem."""
     if not li.getArt("fanart"):
         li.setArt(with_backdrop({}))
 
@@ -621,13 +575,11 @@ def _item_category(media: str, items: List[JsonDict]) -> str:
 
 
 def listing(request: Request, build: Builder, what: str) -> None:
-    """The opening every listing route shares (P2.1): nothing for a
-    handle-less invocation, a failed directory for a logged-out one, and a
-    failed directory — rather than a Kodi error dialog — when the server
-    refuses the fetch. ``build`` does the route's own work with the Api;
-    phase 0's router ``finally`` already guarantees the handle closes on
-    any other exception, so this is the same shape the six routes spelled
-    one by one, spelled once.
+    """The opening every listing route shares: nothing for a handle-less
+    invocation, a failed directory for a logged-out one, and a failed
+    directory — rather than a Kodi error dialog — when the server refuses the
+    fetch. ``build`` does the route's own work with the Api; the router's
+    ``finally`` closes the handle on any other exception.
 
     The root listing is not one of them on purpose: it tolerates a
     logged-out state (Settings must stay reachable) and treats an
@@ -666,7 +618,7 @@ def structural_rows(
     """A whole structural menu — the search kinds, the alphabet, a
     library's nodes, its years or tags — from ``(label, icon, params)``
     triples, closed with the empty content type the skins need to draw
-    ``setArt(icon)`` instead of watched-status overlays (P2.1)."""
+    ``setArt(icon)`` instead of watched-status overlays."""
     entries = [structural_row(label, icon, params) for label, icon, params in rows]
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, content)
@@ -679,11 +631,9 @@ def _who_is_watching_label() -> str:
 
     Read from the window property the service publishes (state.PROP_WHO_NAMES)
     rather than from /Sessions: the service owns every change to the set (the
-    picker worker, the connect-time restore) and publishes as it goes, while
-    the round trip here priced every root render — and, against an unreachable
-    server, hung the root for the call's whole retry ladder. An empty or stale
-    property degrades to the base label, which is also what the round trip's
-    error path answered."""
+    picker worker, the connect-time restore) and publishes as it goes, so a
+    root render never asks the server. An empty or stale property degrades to
+    the base label."""
     names = state.watching_names()
     if not names:
         return settings.localized(30041)
@@ -703,8 +653,7 @@ def root(request: Request) -> None:
         # about what the viewer was in the middle of rather than about where it
         # is filed. Offered without asking the server whether it has anything —
         # every root render would pay for that question, and the answer changes
-        # with every playback. Stock art on icon and thumb: Contuary list
-        # glyphs bind ListItem.Icon, which prefers thumb over Art(icon).
+        # with every playback.
         entries.append(
             structural_row(
                 settings.localized(30049),
@@ -744,10 +693,9 @@ def root(request: Request) -> None:
                 continue  # live TV is pvr.kofin's job
             collection = _collection_type(view)
             li = listitems.build(view, api.server)
-            # Contuary binds the list glyph to ListItem.Icon, which prefers
-            # thumb over Art(icon). Put stock Default*.png on icon *and*
-            # thumb so the list shows themed icons; keep server Primary on
-            # poster for the focus pane (InfoWallThumbVar prefers poster).
+            # Stock Default*.png on icon and thumb (structural_art); server
+            # Primary stays on poster for the focus pane (InfoWallThumbVar
+            # prefers poster).
             art = listitems.art_for(view, api.server)
             icon = node_icon(collection)
             primary = art.get("thumb") or art.get("poster")
@@ -775,8 +723,8 @@ def root(request: Request) -> None:
             )
         )
 
-    # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
-    # each listing, and hidden when an external player is configured.
+    # SyncPlay root entry: gated on the master toggle, read fresh each
+    # listing, and hidden when an external player is configured.
     from kofin.syncplay import offer
 
     if api is not None and offer.available():
@@ -798,10 +746,7 @@ def root(request: Request) -> None:
     )
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    # Empty content (not "files"): Contuary/Estuary WideList only binds
-    # $INFO[ListItem.Icon] when Container.Content() is empty — with "files"
-    # it uses ListWatchedIconVar (folder/dot status overlays) and ignores
-    # setArt(icon=…). Library focus art stays on poster (see above).
+    # Empty content, not "files" (structural_art).
     xbmcplugin.setContent(request.handle, "")
     xbmcplugin.endOfDirectory(request.handle)
 
@@ -904,16 +849,13 @@ def search(request: Request) -> None:
       is safe as a library node, a widget or a favourite.
     * ``type`` with no ``query`` — asks for the term, then lists the results.
       The keyboard is a modal, and a modal fights a directory fetch, so *this*
-      shape is the one that must not be a node (kodi-plugin-handles).
+      shape is the one that must not be a node.
     * ``type`` and ``query`` — lists results with nothing to answer. This is
       what lets a skin's own search box address kofin directly, and it is why
       the term is a parameter rather than only a prompt.
 
     ``person`` replaces both and lists everything one person appears in, which
     is where a result from the Actors leg leads.
-
-    Every label here is a Kodi core string, so search adds no translatable id
-    to the 27 locales.
     """
     listing(request, _search, "search")
 
@@ -1043,7 +985,7 @@ def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None
 
 def extras(request: Request) -> None:
     """Special features of a series/season (mode=extras) — a live listing
-    over the SpecialFeatures endpoint, no DB writes (plan §2 TV extras)."""
+    over the SpecialFeatures endpoint."""
 
     def build(request: Request, api: Api) -> None:
         items = api.special_features(request.params.get("id", ""))
@@ -1116,11 +1058,8 @@ def _filter_menu(
         # to page to the end of.
         values = sorted(values, reverse=True)
     elif len(values) > TAG_MENU_MAX:
-        # A tag list is only as disciplined as the server's metadata agent.
-        # Measured on a real library: 7,794 tags, most of them scraped keywords
-        # ("12th century bc"). A flat menu of that is not a menu, and it costs
-        # a ListItem per row in the plugin process — so past the threshold the
-        # letters come first and the tags sit under them.
+        # Every row is a ListItem in the plugin process, so past the threshold
+        # the letters come first and the tags sit under them.
         _tag_letters(request, media, view_id, values)
         return
     icon = node_icon(media, kind)
@@ -1198,12 +1137,9 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
 def specials_only(items: List[JsonDict]) -> List[JsonDict]:
     """The items that actually carry special features.
 
-    Filtered here rather than by the server. ``HasSpecialFeature=true`` does
-    not work for series on 10.11: a show with two extras in its folder, which
-    /Items/{id}/SpecialFeatures happily returns and whose SpecialFeatureCount
-    reads 2, is matched by that filter zero times — before and after a full
-    library rescan. Asking for the count and filtering here agrees with the
-    listing the entry opens, which is the property that matters.
+    Filtered here rather than by the server: ``HasSpecialFeature=true``
+    matches no series on 10.11. SpecialFeatureCount agrees with the listing
+    the entry opens.
     """
     return [item for item in items if item.get("SpecialFeatureCount")]
 
@@ -1261,8 +1197,7 @@ def _view_has_specials(api: Api, view_id: str) -> bool:
                 "ParentId": view_id,
                 "IncludeItemTypes": "Series",
                 "Recursive": True,
-                # Just the counts: no artwork, no userdata. Measured against a
-                # 78-series view at 36 KB and 38 ms.
+                # Just the counts: no artwork, no userdata.
                 "Fields": "SpecialFeatureCount",
                 "EnableImages": False,
                 "EnableUserData": False,
@@ -1297,12 +1232,12 @@ def _list_items(
         result = api.next_up(view_id, bounded_fields())
         return result.get("Items", []), "episodes"
     if folder == "recentalbums":
-        # Latest, not a sort: see the note above PLAY_HISTORY_LIMIT.
+        # Latest, not a sort: an album's DateCreated is when the server's
+        # scanner last created its row, so the node asks /Items/Latest, which
+        # sorts the songs and groups them by album, as the web client does.
         return api.latest(view_id, "Audio", BROWSE_FIELDS, RECENT_LIMIT), "albums"
     if folder == "genres":
-        # Empty content, like the node menu above it: genres are structural
-        # rows carrying a stock glyph, and "files" is what hides it
-        # (structural_art).
+        # Empty content, like the node menu above it (structural_art).
         result = api.genres(view_id, _genre_types(media))
         return result.get("Items", []), ""
     if folder == "artists":
@@ -1362,9 +1297,7 @@ def _add_items(
     request: Request, api: Api, items: List[JsonDict], view_id: str, media: str
 ) -> None:
     entries = []
-    # One settings read for the whole listing: resume_of per row would build a
-    # fresh Addon per item (settings.adjusted_resume), which at library scale
-    # was most of the build time.
+    # One settings read for the whole listing (resume_of).
     resume_offset = settings.resume_offset()
     for item in items:
         li = listitems.build(item, api.server, resume_offset=resume_offset)
@@ -1387,13 +1320,9 @@ def _add_items(
             continue
 
         if item_type == "Playlist":
-            # A playlist is a place, not a piece of media, so it gets the same
-            # treatment as a library row on the root: the stock glyph on icon
-            # *and* thumb for the list, the server's own art kept on poster for
-            # the focus pane. Without it the row falls through to Kodi's
-            # watched-status square, which is what a playlist listing looked
-            # like — thirteen identical dots (Contuary binds the list glyph to
-            # ListItem.Icon, which prefers thumb; see structural_art).
+            # A playlist is a place, not a piece of media: the stock glyph on
+            # icon and thumb for the list (structural_art), the server's own
+            # art kept on poster for the focus pane.
             art = listitems.art_for(item, api.server)
             primary = art.get("thumb") or art.get("poster")
             icon = (
@@ -1425,11 +1354,8 @@ def _add_items(
                     "series": item.get("SeriesId", ""),
                 }
             )
-        # No addContextMenuItems here: Kodi pins a listing's own entries to the
-        # very top of the context menu, above its Play, and the two kofin used
-        # to add there duplicated the wording of Kodi's own "Mark as watched"
-        # and "Add to favourites" lower down. Both now live in the Jellyfin
-        # actions menu (plugin/context.py), which owns server-side actions.
+        # No addContextMenuItems: Kodi pins a listing's own entries above its
+        # Play, so server-side actions live in plugin/context.py.
         entries.append((path, li, listitems.is_folder(item)))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -1468,11 +1394,9 @@ def _guess_content(items: List[JsonDict]) -> str:
         }.get(item.get("Type", ""))
         if content:
             return content
-    # Playlists are structural rows, and empty content is what lets their
-    # glyph through: with a media content type the skin draws watched-status
-    # overlays instead of setArt(icon) (structural_art says the same for the
-    # node menus). Checked after the loop so a listing that merely *holds* a
-    # playlist beside real media still describes the media.
+    # Playlists alone take empty content (structural_art). Checked after the
+    # loop so a listing that merely *holds* a playlist beside real media still
+    # describes the media.
     if items and all(item.get("Type") == "Playlist" for item in items):
         return ""
     return "videos"

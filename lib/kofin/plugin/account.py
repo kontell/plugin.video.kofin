@@ -54,10 +54,9 @@ def login(request: Request) -> None:
     try:
         info = auth.public_info(transport, address)
     except HttpError as error:
-        # A server that answered, badly — the same wording test_connection
-        # uses, because the description matters here: a redirect names the
-        # address the user should have typed (audit F4), and "unreachable"
-        # would send them checking cables.
+        # A server that answered, badly. The description matters: a redirect
+        # names the address the user should have typed, and "unreachable"
+        # would mislead.
         LOG.warning("server ping answered badly for %s: %s", address, error)
         _notification(_text(30821) % error, toast.ERROR)
         return
@@ -201,9 +200,8 @@ def test_connection(request: Request) -> None:
         _notification(_text(30018), toast.ERROR)
         return
     except JellyfinError as error:
-        # A server that answered, badly (a 5xx, an unparseable body): not
-        # unreachable, not a session problem. Said as what it is, with the
-        # transport's own description of the status.
+        # A server that answered, badly: not unreachable, not a session
+        # problem.
         _notification(_text(30821) % error, toast.ERROR)
         return
     finally:

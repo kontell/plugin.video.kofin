@@ -1,20 +1,16 @@
-"""The library-update bar for the API build.
+"""The library-update bar.
 
 One background dialog for a whole update -- the enumeration, the scanner's
-imports and the pass -- gated like the SQL build's on
-``showLibraryUpdateProgress`` and ``syncProgressThreshold``. It paints at
-most once a second and never per item: ``DialogProgressBG.update`` waits on
-Kodi's app thread, and a pass that painted from every write froze the GUI
-(``kodi-performance``). Kodi's own scanning dialog is shown beside it by
-passing ``showdialogs`` to the scan calls, which this module also decides.
+imports and the pass -- gated on ``showLibraryUpdateProgress`` and
+``syncProgressThreshold``. It paints at most once a second and never per
+item: ``DialogProgressBG.update`` waits on Kodi's app thread. Kodi's own
+scanning dialog is shown beside it by passing ``showdialogs`` to the scan
+calls, which this module also decides.
 
 What a viewer asked for -- a library selected, updated, repaired or taken
 out -- is *attended*: the bar is up from the request to the end of the work,
 whatever the threshold, and every stretch that counts nothing says what it
-is doing. Unattended, the bar was made by the first page of the first
-listing and closed between the listing and the pass, so a selection was
-followed by seconds of nothing, the pass by more, and a removal by nothing
-at all for as long as it took.
+is doing.
 """
 
 import time
@@ -86,9 +82,7 @@ class Progress:
     """A bar over ``total`` items of work; ``step`` counts them off.
 
     The pass's bar measures the whole pass, every kind of every library,
-    and its text counts the kind being applied (``applying``): read off the
-    pass's count, "Seasons 2274 / 31187" was everything done so far against
-    everything to do.
+    and its text counts the kind being applied (``applying``).
     """
 
     INTERVAL = 1.0
@@ -167,8 +161,7 @@ class Progress:
 
     def asking(self, kind: str):
         """The kind whose first page is being asked for: named at once, with
-        nothing counted. Until that page came back the bar went on showing
-        the finished count of the kind before."""
+        nothing counted."""
         self.total = self.done = 0
         self._paint(label(kind), True)
 

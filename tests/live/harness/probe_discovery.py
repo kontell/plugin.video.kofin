@@ -5,15 +5,13 @@ Usage (EventServer builtin):
 
 Answers the one thing a desktop run cannot: whether a UDP broadcast sent by
 Kodi's own Python on *this* device reaches the LAN and gets its reply back.
-On Android that is the open question -- the reply is unicast to our own
-ephemeral port, so no MulticastLock should be needed, but that is an
-inference until a device says otherwise.
+On Android the reply is unicast to the sender's ephemeral port, so no
+MulticastLock should be needed.
 
-Runs the real ``discovery.scan`` and the real ``auth.probe_public_info``, so
-a pass here is the route's substance without its dialogs; it deliberately
-touches no setting and no login state. Results go to ``kodi.log`` under the
-``kofin-harness:`` prefix and to the output file (default
-``/sdcard/kofin-probe-discovery.txt``), which adb can read back.
+Runs the real ``discovery.scan`` and ``auth.probe_public_info``, the route's
+substance without its dialogs, and touches no setting and no login state.
+Results go to ``kodi.log`` under the ``kofin-harness:`` prefix and to the
+output file, which adb can read back.
 """
 
 import sys
@@ -75,8 +73,8 @@ for entry in found:
     finally:
         transport.close()
 
-# Context-managed: a bare close() still left the File object for Kodi to
-# complain about ("left several classes in memory") at script teardown.
+# Closed with close() alone, the File object outlives the script and Kodi
+# logs "left several classes in memory" at teardown.
 with xbmcvfs.File(OUT, "w") as handle:
     handle.write("\n".join(lines) + "\n")
 xbmc.log("kofin-harness: wrote %s" % OUT, xbmc.LOGINFO)

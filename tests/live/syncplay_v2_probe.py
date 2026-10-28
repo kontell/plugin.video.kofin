@@ -1,4 +1,4 @@
-"""Live M3 gate: kofin's real v2 client code against a SyncPlay v2 server.
+"""Live check: kofin's real v2 client code against a SyncPlay v2 server.
 
 Drives the actual ``SyncPlayManager`` / ``TimeSync`` / ``Api`` classes
 (Kodistubs standing in for Kodi; ``play_item``/``schedule`` stubbed so no

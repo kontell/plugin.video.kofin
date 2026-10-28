@@ -40,8 +40,7 @@ def socket_url(server_address: str) -> str:
 def sslopt(verify: bool) -> Dict[str, Any]:
     """websocket-client options for a ``wss://`` connect.
 
-    1.6.4 injects CERT_REQUIRED when sslopt is omitted, so a self-signed
-    server with sslVerify off listed fine and the socket never came up.
+    websocket-client 1.6.4 injects CERT_REQUIRED when sslopt is omitted.
     """
     if verify:
         return {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
@@ -92,23 +91,18 @@ class WSClient(threading.Thread):
             # ``sock``, but a later *failed connect* — setSock() assigns
             # ``sock`` before connect() raises — reaches an already-done
             # teardown that returns immediately and leaves the dead socket
-            # in place. The next run_forever then raises "socket is already
-            # opened" out of this thread and the client is gone for the life
-            # of the process (observed 2026-08-09: one connect failure after
-            # a healthy session killed the websocket permanently).
+            # in place, and the next run_forever raises "socket is already
+            # opened".
             self._app = self._build_app()
             if self._stop:
                 break
-            # No ping_timeout and no reconnect=, both deliberately, both
-            # measured. ping_timeout tears healthy connections down ~120 s in:
-            # the server's own 2-minute keepalive ping corrupts
-            # websocket-client's pong bookkeeping, and every connection died
-            # on an exact 130 s cycle on both test boxes. reconnect= swallows
-            # the edges — its internal retry invokes neither on_error nor
-            # on_close, so the disconnect callback was dead code. This loop
-            # owns reconnection instead, which makes the close edge honest,
-            # and half-open detection is app-level: half_open() recycles the
-            # socket when the server's KeepAlive echoes stop arriving.
+            # No ping_timeout and no reconnect=. ping_timeout tears healthy
+            # connections down: the server's own 2-minute keepalive ping
+            # corrupts websocket-client's pong bookkeeping. reconnect='s
+            # internal retry invokes neither on_error nor on_close. This loop
+            # owns reconnection instead, and half-open detection is
+            # app-level: half_open() recycles the socket when the server's
+            # KeepAlive echoes stop arriving.
             try:
                 kwargs: Dict[str, Any] = {"ping_interval": 10}
                 if self._url.startswith("wss://"):
@@ -119,18 +113,14 @@ class WSClient(threading.Thread):
                 # Reconnection is this loop's job and it cannot do it from
                 # inside a traceback.
                 LOG.exception("websocket attempt failed")
-            # A Monitor for this wait and no longer. Kodi queues a callback
-            # per announcement for every Monitor object alive, in one queue
-            # for the whole process, and only the thread that made the
-            # object can take its callbacks off it -- which it does inside
-            # waitForAbort and nowhere else. This thread sits in run_forever
-            # for as long as the socket is up, so a Monitor held across it
-            # collected every announcement Kodi made and never let one go,
-            # and every Python thread in Kodi walks that queue on each of
-            # its own waits (RetardedAsyncCallbackHandler::makePendingCalls).
-            # A music scan announces every song: importing 22,381 on a
-            # Raspberry Pi fell from 60 songs a second to 14 and was still
-            # falling, where it now holds 90.
+            # A Monitor for this wait only. Kodi queues a callback per
+            # announcement for every Monitor object alive, in one queue for
+            # the whole process, and only the thread that made the object can
+            # take its callbacks off it -- which it does inside waitForAbort
+            # and nowhere else. This thread sits in run_forever for as long as
+            # the socket is up, and every Python thread in Kodi walks that
+            # queue on each of its own waits
+            # (RetardedAsyncCallbackHandler::makePendingCalls).
             if self._stop or xbmc.Monitor().waitForAbort(RECONNECT_SECONDS):
                 break
         LOG.debug("websocket thread exit")
@@ -170,9 +160,7 @@ class WSClient(threading.Thread):
         # recv() keeps delivering, and the thread outlives every deadline —
         # which blocks Kodi's script finalisation outright ("waiting on
         # thread"), because Kodi will not finalise a script while a thread it
-        # started is alive. Observed on a quit: the socket kept receiving for
-        # over a minute after the service exited, and Kodi needed SIGKILL
-        # (2026-08-07). WebSocket.shutdown() closes the raw socket with no
+        # started is alive. WebSocket.shutdown() closes the raw socket with no
         # handshake, which fails the pending recv immediately.
         try:
             if sock is not None:
@@ -258,10 +246,7 @@ class WSClient(threading.Thread):
         if self._stop:
             # A stopped client hands its owner nothing: the service is
             # mid-teardown and the objects the callback reaches — the
-            # Library, the kofin database — may already be gone. Observed
-            # before this gate: a LibraryChanged dispatched a minute after
-            # the service exited, applied against a torn-down Library while
-            # Kodi sat in "waiting on thread" (2026-08-07 quit wedge).
+            # Library, the kofin database — may already be gone.
             return
         # Every inbound frame is liveness, including the KeepAlive echoes the
         # event filter below discards and frames that fail to parse.

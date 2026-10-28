@@ -1,5 +1,5 @@
-"""New content in the API build: what a catch-up brings is announced once the
-pass has filed it, and nothing else is."""
+"""New content: what a catch-up brings is announced once the pass has filed
+it, and nothing else is."""
 
 import time
 from types import SimpleNamespace
@@ -266,8 +266,6 @@ def test_a_new_song_is_claimed_for_its_library_once_filed_and_never_announced(
 
 
 def test_the_playlists_pass_reconciles_the_download_subscriptions(store, monkeypatch):
-    """The API build had nothing that did: a subscribed music library or
-    playlist queued nothing."""
     from kofin.downloads import subscriptions
     from kofin.sync.backends.api import library
 

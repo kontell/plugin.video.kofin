@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sample-accurate per-instance audio capture (docs/syncplay-music-shakedown.md §6.1).
+"""Sample-accurate per-instance audio capture.
 
 Runs **on the host that has both Kodi instances**. Gives each its own PipeWire
 null sink, plays the asset on both, records each sink's monitor, and puts every
@@ -7,21 +7,17 @@ setting back.
 
 Routing is done by setting each instance's ``audiooutput.audiodevice`` to its own
 null sink, which Kodi enumerates as an ordinary device
-(``PIPEWIRE:kodi_a|kodi_a Audio/Sink sink``). An earlier version moved the
-PulseAudio streams instead, on the theory that moving is less invasive than
-writing a setting. On this stack that was wrong twice over, and both failures are
-why this file exists:
+(``PIPEWIRE:kodi_a|kodi_a Audio/Sink sink``), not by moving the PulseAudio
+streams:
 
 * **The streams cannot be told apart.** PipeWire's Pulse compatibility reports
   every Kodi stream as application name "Kodi" with no PID, the client index a
   sink-input names does not resolve, an idle Kodi keeps its stream open and
-  uncorked, and a stop/open cycle renames the index. Appearance order, cork state
-  and PID all fail; measured on P1D 2026-08-31, the index that sorted first was
-  an idle stream and the sink it was moved to stayed silent.
+  uncorked, and a stop/open cycle renames the index.
 * **Getting it wrong wedges Kodi.** Unloading a null sink that still has a stream
   attached destroys that stream's sink underneath Kodi, and its AudioEngine does
   not recover: the player reports a position that never advances and no audio
-  reaches any device. It took a restart of both instances to clear.
+  reaches any device until Kodi restarts.
 
 A setting names its target unambiguously, is read back to confirm, and is
 restored in a finally block before any module is unloaded.
