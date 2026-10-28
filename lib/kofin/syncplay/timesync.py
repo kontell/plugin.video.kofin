@@ -1,15 +1,9 @@
-"""NTP-style clock sync against the server, ported from the fork verbatim
-(``LazyLogger`` -> ``Logger``, ``manager.get_utc_time()`` now backed by the
-kofin ``Api``).
+"""NTP-style clock sync against the server.
 
-One deliberate deviation from the reference client (jellyfin-kodi
-``feat/syncplay-protocol-v2``): the websocket TimeSync exchange runs on the
-**dedicated socket the server's Hello advertises** (SYNCPLAY.md §3.1, the
-plugin binding) instead of riding the main ``/socket``. A plugin cannot answer
-TimeSync there — and on unfixed servers an unknown message type kills the
-shared socket — so the exchange is a plain synchronous round trip on its own
-connection, which also stamps t3 right at ``recv()`` with no notification bus
-in the path."""
+The websocket TimeSync exchange runs on the **dedicated socket the server's
+Hello advertises** (SYNCPLAY.md §3.1, the plugin binding), not on the main
+``/socket``: a plugin cannot answer TimeSync there, and on unfixed servers an
+unknown message type kills the shared socket."""
 
 import json
 import threading
@@ -128,10 +122,8 @@ class TimeSync(threading.Thread):
 
         t1, t2 = data.get("T1"), data.get("T2")
         if t1 is None or t2 is None:
-            # A reply that echoes T0 and omits the server's own stamps is a
-            # partial implementation, not a sample; falling through lets the
-            # HTTP measurement — the fallback that exists for exactly a
-            # socket that is not working — take this cycle (audit R9).
+            # A reply that echoes T0 and omits the server's own stamps is not
+            # a sample; the HTTP measurement takes this cycle.
             LOG.debug("Incomplete TimeSync response: %s", data)
             return False
 
