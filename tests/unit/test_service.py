@@ -222,6 +222,29 @@ def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
         private.reset_overrides()
 
 
+@pytest.mark.parametrize(
+    "capture, published", [(_piers_capture, None), (_kodi23_capture, "true")]
+)
+def test_the_start_publishes_whether_this_kodi_has_fine_sync(
+    tmp_path, monkeypatch, capture, published
+):
+    """settings.xml greys the fine-sync settings on this property: cleared on
+    Piers and set on a Kodi 23 with the changes, whatever an earlier start
+    left."""
+    from kofin.sync import private
+
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    FakeWindow.store = {} if published else {state.PROP_FEATURE_TEMPO: "true"}
+    monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
+    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    _probe_answers(monkeypatch, capture(), flags=published is not None)
+    try:
+        Service()._prepare_api_backend()
+    finally:
+        private.reset_overrides()
+    assert FakeWindow.store.get(state.PROP_FEATURE_TEMPO) == published
+
+
 # --- pacing rebuilds of a sync manager that keeps dying -----------------------
 
 
@@ -1084,7 +1107,7 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
 
     _connected(service, monkeypatch)
 
-    assert service.library.commands == ["FastSync"]
+    assert service.library.commands == ["Reconnected"]
 
 
 # --- Who's watching? restore on session attach -------------------------------

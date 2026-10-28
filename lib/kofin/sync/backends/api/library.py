@@ -100,9 +100,10 @@ HAS_CONTENT = {
 }
 
 
-def status(value, listing=()):
-    """What the sync is doing, for the status dialog (status.py)."""
-    apistatus.write(value, listing)
+def status(value, listing=(), namespace=""):
+    """What the sync is doing, for the status dialog (status.py), under the
+    account whose thread says so."""
+    apistatus.write(value, listing, namespace)
 
 
 def collection_kinds(view):
@@ -381,6 +382,7 @@ class Library(threading.Thread):
     def enqueue_command(self, command, data=None):
         if command in (
             "FastSync",
+            "Reconnected",
             "SyncLibrary",
             "UpdateLibrary",
             "RepairLibrary",
@@ -417,7 +419,7 @@ class Library(threading.Thread):
             with private.hold_connections():
                 self._run(monitor)
         except BackendMismatch as error:
-            status(settings.localized(30420) % str(error))
+            self._status(settings.localized(30420) % str(error))
             LOG.warning("API sync blocked: %s", error)
         except Exception:
             LOG.exception("API video worker stopped")
@@ -476,7 +478,7 @@ class Library(threading.Thread):
                     return
                 except Exception:
                     LOG.exception("API video sync will retry")
-                    status(settings.localized(30403))
+                    self._status(settings.localized(30403))
                     self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
                     failed = True
             self.settle_progress(failed)
@@ -607,6 +609,9 @@ class Library(threading.Thread):
             if v.get("Id") and (v.get("CollectionType") or "mixed") in SUPPORTED
         }
 
+    def _status(self, value, listing=()):
+        status(value, listing, self.store.namespace)
+
     def _changefeed(self):
         if self.changefeed is None:
             try:
@@ -614,6 +619,14 @@ class Library(threading.Thread):
             except Exception as error:
                 LOG.info("no change-feed companion detected (%s)", error)
                 self.changefeed = None
+            # For the status dialog: a found feed is kept for the thread's
+            # life, a missing one is looked for again on every call, and the
+            # record moves with the answer.
+            feed = self.changefeed
+            apistatus.record_feed(
+                feed.tier if feed is not None else changefeed.TIER_NONE,
+                self.store.namespace,
+            )
         return self.changefeed
 
     def _server_now(self):
@@ -645,9 +658,9 @@ class Library(threading.Thread):
         # left it nothing to do ends here. One that failed is the tick's to
         # report.
         if not (self.store.has_pending() or self._repair):
-            status(xbmc.getLocalizedString(20177))
+            self._status(xbmc.getLocalizedString(20177))
         else:
-            status(settings.localized(30401))
+            self._status(settings.localized(30401))
 
     def _full_sync(self, libraries, bar):
         # Until the first page of the first kind arrives nothing is counted:
@@ -668,7 +681,7 @@ class Library(threading.Thread):
         # A listing is minutes of a first import, and until it is published
         # the catalogue has no row of a library selected for the first time.
         whitelist = private.get_sync()["Whitelist"]
-        status(
+        self._status(
             settings.localized(30401),
             listing=[
                 supported[library].get("Name", library)
@@ -1236,6 +1249,14 @@ class Library(threading.Thread):
         if command == "FastSync":
             self._catchup_due = 0
             return
+        if command == "Reconnected":
+            # The server that came back may have gained or lost a companion
+            # (a plugin install is a server restart), and a found feed is
+            # otherwise kept for the thread's life: the catch-up that runs
+            # now detects it again, and the status row moves with it.
+            self.changefeed = None
+            self._catchup_due = 0
+            return
         rebuilt = (
             self.rebuild_stale([i for i in (data or {}).get("Id", "").split(",") if i])
             if command == "RepairLibrary"
@@ -1250,7 +1271,7 @@ class Library(threading.Thread):
 
     def apply(self, native):
         if self.store.has_pending() or self._repair:
-            status(settings.localized(30401))
+            self._status(settings.localized(30401))
             populated = {kind: self.store.populated(kind) for kind in HAS_CONTENT}
             began = time.monotonic()
             try:
@@ -1266,7 +1287,7 @@ class Library(threading.Thread):
                     if not before and self.store.populated(kind):
                         self._reload_owed.add(kind)
             self._repair = False
-            status(xbmc.getLocalizedString(20177))
+            self._status(xbmc.getLocalizedString(20177))
             # The playlists and the skin's reload follow, counting nothing.
             self._bar().working(progress.WAITING)
             self.flush_pending_reload()

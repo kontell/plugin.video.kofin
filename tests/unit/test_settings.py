@@ -233,29 +233,70 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
     assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
 
 
-def test_library_update_progress_leads_the_sync_tab():
-    """The toggle is first and on by default. The item threshold is visible
-    only while it is on, and the tab is one group — a second drew a separator
-    under Download threads."""
+def test_the_library_tab_holds_the_sync_settings_in_reading_order():
+    """The Sync tab merged into Library: what to sync, then the progress
+    toggle with its item threshold (visible only while the toggle is on),
+    then the status and the actions, then the node toggle, the artwork
+    cap above the compression it gates, and the critic rating last. One
+    group — a second draws a separator."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    assert "sync" not in [element.get("id") for element in root.iter("category")]
     category = next(
-        element for element in root.iter("category") if element.get("id") == "sync"
+        element for element in root.iter("category") if element.get("id") == "library"
     )
     assert len(list(category.iter("group"))) == 1
-    settings_in_tab = list(category.iter("setting"))
-    assert settings_in_tab[0].get("id") == "showLibraryUpdateProgress"
-    assert settings_in_tab[0].findtext("default") == "true"
-    assert settings_in_tab[1].get("id") == "syncProgressThreshold"
+    shown = [element for element in category.iter("setting") if element.get("label")]
+    assert [element.get("id") for element in shown] == [
+        "selectLibraries",
+        "showLibraryUpdateProgress",
+        "syncProgressThreshold",
+        "libraryStatus",
+        "notifyNewContent",
+        "updateLibraries",
+        "repairLibraries",
+        "fullUpdateInterval",
+        "libraryNodes",
+        "maxArtResolution",
+        "compressArt",
+        "preferCriticRating",
+    ]
+    assert shown[1].findtext("default") == "true"
     visible = [
         condition.get("setting")
-        for dependency in settings_in_tab[1].iter("dependency")
+        for dependency in shown[2].iter("dependency")
         if dependency.get("type") == "visible"
         for condition in dependency.iter("condition")
         if (condition.text or "").strip() == "true"
     ]
     assert visible == ["showLibraryUpdateProgress"]
+
+
+def test_the_fine_sync_settings_are_greyed_out_without_the_tempo_feature():
+    """The toggle and both sliders are enabled only while the property the
+    service publishes from its probe says this Kodi has the feature."""
+    import xml.etree.ElementTree as etree
+
+    from kofin.core import state
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    wanted = "String.IsEqual(Window(Home).Property(%s),true)" % (
+        state.PROP_FEATURE_TEMPO
+    )
+    for setting_id in ("syncPlayTempo", "syncPlayPulseBudget", "syncPlayMaxRate"):
+        setting = next(
+            element
+            for element in root.iter("setting")
+            if element.get("id") == setting_id
+        )
+        enable = [
+            (condition.get("on"), condition.get("name"), condition.text)
+            for dependency in setting.iter("dependency")
+            if dependency.get("type") == "enable"
+            for condition in dependency.iter("condition")
+        ]
+        assert enable == [("property", "InfoBool", wanted)], setting_id
 
 
 def test_the_downloads_category_stays_a_single_group():

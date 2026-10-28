@@ -400,9 +400,11 @@ def test_a_fact_that_is_picked_does_nothing_and_back_closes_the_report(
     assert dialog.selects[0][1] == dialog.selects[1][1] == dialog.selects[2][1]
 
 
-def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
+def test_what_this_kodi_cannot_do_is_counted_on_one_row_and_named_behind_it(
+    store, monkeypatch
+):
     """A feature the capability probe found missing is told to the viewer
-    here and nowhere else: one row, every missing feature by its label, and
+    here and nowhere else: one row counting them, the names behind it, and
     no row at all on a Kodi that has them all."""
     from kofin.sync.backends.api import capabilities
 
@@ -416,15 +418,16 @@ def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
     table["season_plot"] = False
     table["tempo"] = False
     rows = status.rows({}, found, text, LABELS.__getitem__, features=table)
-    assert rows[-1] == "L30876:  L30877, L30884"
+    assert rows[-1] == "L30876:  2"
     # The dialog reads the table off the report the service wrote.
     monkeypatch.setattr(capabilities, "table", lambda: table)
     dialog, _ = _dialog(monkeypatch, store, [-1])
     _heading, shown, _preselect = dialog.selects[0]
-    assert shown[-1] == "L30876:  L30877, L30884"
+    assert shown[-1] == "L30876:  2"
     assert dialog.textviewers == []
-    # The row is cut short by the skin once a few are off: picking it opens
-    # the list, one feature a line, and the report stays up behind it.
+    # The names scrolled on the row once a few were off, so the row counts
+    # them: picking it opens the list, one feature a line, and the report
+    # stays up behind it.
     dialog, _ = _dialog(monkeypatch, store, [len(shown) - 1, -1])
     assert dialog.textviewers == [("L30876", "L30877\nL30884")]
     assert len(dialog.selects) == 2
@@ -452,3 +455,96 @@ def test_picking_what_kodi_cannot_import_lists_it(store, monkeypatch):
     assert heading == "L30868"
     assert text.startswith("L30885\n\n[B]Anime[/B]\nOther \u2014 Pilot")
     assert [preselect for _, _, preselect in dialog.selects] == [0, row, row - 1]
+
+
+def test_the_sync_queue_companion_is_reported_once_known(store, monkeypatch):
+    """Whether the server has KofinSyncQueue: the row shows what the library
+    thread last recorded, and not at all before it has asked (a fresh
+    install). The official KodiSyncQueue and no companion read alike, as
+    Kodi's own "Not available"; the log names which."""
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    text = lambda i: TEXT.get(i, "L%d" % i)  # noqa: E731
+    found = status.snapshot(store, 2)
+
+    def row():
+        rows = status.rows(status.read(), found, text, LABELS.__getitem__)
+        return [line for line in rows if line.startswith("L30886")]
+
+    assert row() == []
+    status.record_feed("kofin")
+    assert status.read()["feed"] == "kofin"
+    assert row() == ["L30886:  L30887"]
+    # The sync's own writes carry the record along.
+    status.write("Updating library", ["Films"])
+    assert status.read()["feed"] == "kofin"
+    for tier in ("official", "none"):
+        status.record_feed(tier)
+        assert row() == ["L30886:  L10005"]
+
+
+def test_the_library_thread_records_what_its_detection_answered(store, monkeypatch):
+    """A found feed is kept for the thread's life; a missing one is looked
+    for again on every call, and the record moves with the answer."""
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Feed, Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    assert w._changefeed() is None
+    assert status.read(store.namespace)["feed"] == "none"
+    monkeypatch.setattr(library.changefeed, "detect", lambda api: Feed([]))
+    assert w._changefeed() is not None
+    assert status.read(store.namespace)["feed"] == "kofin"
+    assert status.read("another-account") == {}
+
+
+def test_a_reconnect_has_the_thread_detect_the_feed_again(store, monkeypatch):
+    """A found feed is kept for the thread's life, so a plugin installed on
+    the server (a server restart, which is a websocket reconnect) would go
+    unnoticed: the reconnect command forgets it and makes the catch-up due,
+    and the record follows the new answer."""
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Feed, Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    monkeypatch.setattr(library.changefeed, "detect", lambda api: Feed([]))
+    w.changefeed = Feed([])
+    w.changefeed.tier = "official"
+    w._changefeed()
+    status.record_feed("official", store.namespace)
+    w._catchup_due = 10**9
+    w.enqueue_command("Reconnected")
+    w.commands()
+    assert w.changefeed is None and w._catchup_due == 0
+    assert w._changefeed() is not None
+    assert status.read(store.namespace)["feed"] == "kofin"
+
+
+def test_the_document_is_read_for_the_account_that_wrote_it(store, monkeypatch):
+    """A login to another server with nothing selected starts no thread, so
+    the previous server's document would stand: the dialog reads what its
+    own account's thread wrote, the service's unstamped lines are anyone's,
+    and the next account's first write replaces the lot."""
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    status.write("Updating library", ["Films"], namespace="other")
+    status.record_feed("kofin", namespace="other")
+    assert status.read("other")["feed"] == "kofin"
+    assert status.read(store.namespace) == {}
+    dialog, _ = _dialog(monkeypatch, store, [-1])
+    _heading, shown, _preselect = dialog.selects[0]
+    assert shown[1] == "L30262:  K20177"
+    assert not any(row.startswith("L30886") for row in shown)
+    # The service's own line, written before there is an account.
+    status.write("Library sync is off")
+    assert status.read(store.namespace)["state"] == "Library sync is off"
+    # This account's thread writes over whatever stood there.
+    status.write("Updating library", namespace=store.namespace)
+    status.record_feed("official", namespace=store.namespace)
+    assert status.read(store.namespace) == {
+        "state": "Updating library",
+        "since": status.read(store.namespace)["since"],
+        "listing": [],
+        "feed": "official",
+    }
+    assert status.read("other") == {}

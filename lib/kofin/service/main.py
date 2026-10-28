@@ -346,6 +346,7 @@ class Service(xbmc.Monitor):
         # never an error per item or per pass (CLAUDE.md, the capability
         # profile).
         LOG.info("Kodi features %s", capabilities.summary(report))
+        state.set_feature_tempo((report.get("features") or {}).get("tempo") is True)
         if report["private_state"] != "ready":
             apistatus.write(
                 settings.localized(30420)
@@ -1015,7 +1016,9 @@ class Service(xbmc.Monitor):
         The incremental catch-up already covers exactly this: it asks the
         change feed for everything since the sync watermark, which is only
         advanced once a drain completes. Skipped on the first connect of a
-        session, where startup() runs the same pass a moment later.
+        session, where startup() runs the same pass a moment later. The
+        thread also forgets which change-feed companion it found: a plugin
+        installed on the server is a server restart, which is this reconnect.
         """
         library = self.library
 
@@ -1023,7 +1026,7 @@ class Service(xbmc.Monitor):
             return
 
         LOG.info("websocket reconnected; catching up on missed changes")
-        library.enqueue_command("FastSync")
+        library.enqueue_command("Reconnected")
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):

@@ -1,11 +1,18 @@
 """What the sync has done and is doing, for the status dialog in the settings.
 
 The library thread writes one small document when its state changes: what it
-is doing, since when, and the names of the libraries it is listing for the
-first time, which the catalogue has no row of yet. Everything else the dialog
-shows is read from the catalogue at the moment it is opened, by the plugin
-process that draws it, so nothing is kept up to date for a dialog nobody has
-open.
+is doing, since when, the names of the libraries it is listing for the first
+time, which the catalogue has no row of yet, and which change-feed companion
+the server answered for (``record_feed``). Everything else the dialog shows is
+read from the catalogue at the moment it is opened, by the plugin process that
+draws it, so nothing is kept up to date for a dialog nobody has open.
+
+The thread stamps what it writes with its account's namespace, and the dialog
+reads the document for the account that is logged in: a login to another
+server with nothing selected starts no thread, and the previous server's
+state, listing and feed would otherwise stand for as long as nothing wrote.
+What the service writes before there is an account (a Kodi this build cannot
+sync on) carries no stamp and is read by any account.
 
 The document replaces two settings the service used to write, "Synced
 libraries" and "Sync status". A setting write rewrites settings.xml and
@@ -25,7 +32,7 @@ import xbmcgui
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import private
+from kofin.sync import changefeed, private
 from . import capabilities, metadata, progress
 
 LOG = Logger(__name__)
@@ -45,16 +52,21 @@ def path() -> str:
     return os.path.join(private.addon_data_path(), DOCUMENT)
 
 
-def read() -> Dict[str, Any]:
+def read(namespace: str = "") -> Dict[str, Any]:
     """The document, as far as it has the shape ``write`` gives it. It is
     read by another process than the one that wrote it, and a field of
-    another type (a hand edit, a later build's) is left out, not shown."""
+    another type (a hand edit, a later build's) is left out, not shown. A
+    document another account's thread stamped reads as nothing for
+    ``namespace``; one without a stamp is anyone's."""
     try:
         with open(path(), "r", encoding="utf-8") as handle:
             document = json.load(handle)
     except (OSError, ValueError):
         return {}
     if not isinstance(document, dict):
+        return {}
+    stamped = document.get("namespace")
+    if namespace and isinstance(stamped, str) and stamped and stamped != namespace:
         return {}
     found: Dict[str, Any] = {}
     state = document.get("state")
@@ -66,20 +78,50 @@ def read() -> Dict[str, Any]:
     listing = document.get("listing")
     if isinstance(listing, list):
         found["listing"] = [name for name in listing if isinstance(name, str)]
+    feed = document.get("feed")
+    if isinstance(feed, str):
+        found["feed"] = feed
     return found
 
 
-def write(state: str, listing=()) -> None:
+def write(state: str, listing=(), namespace: str = "") -> None:
     """Record what the sync is doing, in the words the dialog shows, and the
-    names of the libraries whose first listing is under way. Written only
-    when either changes; ``since`` is when the state began."""
-    current = read()
+    names of the libraries whose first listing is under way, for the account
+    ``namespace`` (the library thread's store). Written only when either
+    changes; ``since`` is when the state began. The feed the library thread
+    last detected rides along unchanged, and another account's document is
+    replaced whole."""
+    current = read(namespace)
     listing = list(listing)
     same = current.get("state") == state
     if same and (current.get("listing") or []) == listing:
         return
     since = current.get("since") if same else None
-    document = {"state": state, "since": since or time.time(), "listing": listing}
+    document: Dict[str, Any] = {
+        "state": state,
+        "since": since or time.time(),
+        "listing": listing,
+    }
+    if "feed" in current:
+        document["feed"] = current["feed"]
+    _store(document, namespace)
+
+
+def record_feed(tier: str, namespace: str = "") -> None:
+    """Record which change-feed companion the server answered for
+    (``changefeed.detect``: its ``TIER_*``), so the dialog can say whether
+    KofinSyncQueue is there. Written only when the answer moved."""
+    current = read(namespace)
+    if current.get("feed") == tier:
+        return
+    document: Dict[str, Any] = dict(current)
+    document["feed"] = tier
+    _store(document, namespace)
+
+
+def _store(document: Dict[str, Any], namespace: str = "") -> None:
+    if namespace:
+        document["namespace"] = namespace
     target = path()
     # A path of this thread's own. Two service generations run side by side
     # for a moment, each with a library thread: on one shared ".part" the
@@ -216,12 +258,22 @@ def rows(
     enumerated = _moment(found.enumerated, clock)
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
+    feed = document.get("feed")
+    if feed is not None:
+        # Whether the server has the companion the catch-up is built for.
+        # Kodi's own "Not available" (10005) covers the official KodiSyncQueue
+        # and no companion alike; the log names which.
+        available = feed == changefeed.TIER_KOFIN
+        lines.append(
+            "%s:  %s" % (text(30886), text(30887) if available else text(10005))
+        )
     if features is not None:
-        # What this Kodi cannot do, by name: the one place a viewer is told,
-        # since nothing logs it per item (the capability profile, CLAUDE.md).
+        # What this Kodi cannot do, counted here and named in the viewer the
+        # row opens (``show``): the one place a viewer is told, since nothing
+        # logs it per item (the capability profile, CLAUDE.md).
         off = off_features(features, text)
         if off:
-            lines.append("%s:  %s" % (text(30876), ", ".join(off)))
+            lines.append("%s:  %s" % (text(30876), _number(len(off))))
     return [line.rstrip() for line in lines]
 
 
@@ -293,11 +345,12 @@ def show(store) -> None:
     ones that do anything. A select dialog closes on whichever row is
     picked, so a fact that was picked is shown again as it was, the cursor
     on it: picking one used to close the report, which read as the report
-    having gone wrong. Back is what closes it. The row naming what this
-    Kodi lacks is cut short by the skin once a few features are off (eight
-    on a Piers), so picking it opens the list, one feature a line, in a
-    text viewer; picking the count of what Kodi cannot import opens what
-    it counts. Both lists are read with the rows they explain, so a pass
+    having gone wrong. Back is what closes it. The row for what this Kodi
+    lacks carries a count, and picking it opens the names, one feature a
+    line, in a text viewer: named on the row, they were cut short by the
+    skin and scrolled once a few features were off (eight on a Piers).
+    Picking the count of what Kodi cannot import opens what it counts the
+    same way. Both lists are read with the rows they explain, so a pass
     that moves either while the report is open cannot make the text
     disagree with the row.
     """
@@ -314,7 +367,13 @@ def show(store) -> None:
             found = snapshot(
                 store, metadata.scanner_format({n for n, on in table.items() if on})
             )
-            lines = rows(read(), found, progress.stage, progress.label, features=table)
+            lines = rows(
+                read(store.namespace),
+                found,
+                progress.stage,
+                progress.label,
+                features=table,
+            )
             unfiled = unfiled_row(found, progress.stage)
             entries = store.unfiled(counted(found)) if unfiled else []
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]

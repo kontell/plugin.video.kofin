@@ -73,6 +73,14 @@ PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
 # lets the next resume, or the next generation, put 1.0 back. Not cleared by
 # clear_all for exactly that reason.
 PROP_SYNCPLAY_PULSE = "kofin.syncplay.pulse"
+# Whether this Kodi has the tempo feature (capabilities, "tempo"). Earns its
+# place because settings.xml greys the fine-sync settings on a Kodi without
+# it, and a setting's dependency can read another setting or an InfoBool,
+# which reads a window property; the service publishes it from each start's
+# probe. A Kodi's features last as long as its process, so clear_all leaves
+# it, and a bounce does not grey the settings while the next generation
+# starts.
+PROP_FEATURE_TEMPO = "kofin.feature.tempo"
 # The public sync-session mirror (plan G2.2): what a provider add-on or a
 # skin needs to offer "watch together" affordances — in-group, group name,
 # member names, phase, the current item's provider:key. Cross-process shared
@@ -485,6 +493,14 @@ def syncplay_pulse() -> Dict[str, Any]:
 
 def clear_syncplay_pulse() -> None:
     _window().clearProperty(PROP_SYNCPLAY_PULSE)
+
+
+def set_feature_tempo(on: bool) -> None:
+    """Whether the fine-sync settings are offered (PROP_FEATURE_TEMPO)."""
+    if on:
+        _window().setProperty(PROP_FEATURE_TEMPO, "true")
+    else:
+        _window().clearProperty(PROP_FEATURE_TEMPO)
 
 
 def publish_syncsession(payload: Dict[str, Any]) -> None:

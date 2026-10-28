@@ -179,7 +179,7 @@
       </group>
     </category>
 
-    <!-- Library -->
+    <!-- Library. One group on purpose: a second draws a separator. -->
     <category id="library" label="30250" help="30251">
       <group id="1">
         <!-- Hidden state: written by the service and the library picker only. -->
@@ -221,82 +221,6 @@
             <close>true</close>
           </control>
         </setting>
-        <!-- The API build's report of what is synced and what the sync is
-             doing (plugin/actions.py library_status). No <close>: it is a
-             sub-dialog of this page, read and returned from. It stands where
-             that build has neither of the two read-only lines below, which
-             its service no longer writes (tools/package_manifest.py). -->
-        <setting id="libraryStatus" type="action" label="30859" help="30860">
-          <level>0</level>
-          <dependencies>
-            <dependency type="enable">
-              <condition operator="is" setting="isLoggedIn">true</condition>
-            </dependency>
-          </dependencies>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=librarystatus)</data>
-          </control>
-        </setting>
-        <setting id="updateLibraries" type="string" label="30256" help="30874">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <dependencies>
-            <dependency type="enable">
-              <condition operator="is" setting="isLoggedIn">true</condition>
-            </dependency>
-          </dependencies>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=updatelibs)</data>
-            <close>true</close>
-          </control>
-        </setting>
-        <!-- Days between the API build's complete enumerations, 0 for none
-             (sync/backends/api/library.py). The SQL build has no such pass
-             and does not ship the setting (tools/package_manifest.py). -->
-        <setting id="fullUpdateInterval" type="integer" label="30869" help="30870">
-          <level>0</level>
-          <default>0</default>
-          <constraints>
-            <options>
-              <option label="30465">0</option>
-              <option label="30871">1</option>
-              <option label="30872">7</option>
-            </options>
-          </constraints>
-          <control type="spinner" format="string"/>
-        </setting>
-        <setting id="repairLibraries" type="string" label="30258" help="30259">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <dependencies>
-            <dependency type="enable">
-              <condition operator="is" setting="isLoggedIn">true</condition>
-            </dependency>
-          </dependencies>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=repairlibs)</data>
-            <close>true</close>
-          </control>
-        </setting>
-        <setting id="notifyNewContent" type="boolean" label="30622" help="30623">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="preferCriticRating" type="boolean" label="30666" help="30667">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-      </group>
-    </category>
-
-    <!-- Sync. One group on purpose: a second group drew a separator under
-         Download threads. -->
-    <category id="sync" label="30300" help="30301">
-      <group id="1">
         <setting id="showLibraryUpdateProgress" type="boolean" label="30845" help="30846">
           <level>0</level>
           <default>true</default>
@@ -317,15 +241,89 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-        <!-- The API build's one presentation toggle (sync/dynamic.py): the
-             node tree, the smart playlists and the Jellyfin playlists
-             together. Each profile ships one of the two: the API profile
-             drops syncMusicPlaylists and the SQL profile drops this one
-             (tools/package_manifest.py). -->
+        <!-- The API build's report of what is synced and what the sync is
+             doing (plugin/actions.py library_status). No <close>: it is a
+             sub-dialog of this page, read and returned from. It stands where
+             that build has neither of the two read-only lines below, which
+             its service no longer writes (tools/package_manifest.py). -->
+        <setting id="libraryStatus" type="action" label="30859" help="30860">
+          <level>0</level>
+          <dependencies>
+            <dependency type="enable">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=librarystatus)</data>
+          </control>
+        </setting>
+        <setting id="notifyNewContent" type="boolean" label="30622" help="30623">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="updateLibraries" type="string" label="30256" help="30874">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="enable">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=updatelibs)</data>
+            <close>true</close>
+          </control>
+        </setting>
+        <setting id="repairLibraries" type="string" label="30258" help="30259">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="enable">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=repairlibs)</data>
+            <close>true</close>
+          </control>
+        </setting>
+        <!-- Days between the API build's complete enumerations, 0 for none
+             (sync/backends/api/library.py). The SQL build has no such pass
+             and does not ship the setting (tools/package_manifest.py). -->
+        <setting id="fullUpdateInterval" type="integer" label="30869" help="30870">
+          <level>0</level>
+          <default>0</default>
+          <constraints>
+            <options>
+              <option label="30465">0</option>
+              <option label="30871">1</option>
+              <option label="30872">7</option>
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
+        </setting>
+        <!-- The one presentation toggle (sync/dynamic.py): the node tree,
+             the smart playlists and the Jellyfin playlists together. -->
         <setting id="libraryNodes" type="boolean" label="30856" help="30857">
           <level>0</level>
           <default>true</default>
           <control type="toggle"/>
+        </setting>
+        <setting id="maxArtResolution" type="integer" label="30320" help="30321">
+          <level>0</level>
+          <default>1080</default>
+          <constraints>
+            <options>
+              <option label="30322">0</option>
+              <option label="30323">720</option>
+              <option label="30324">1080</option>
+              <option label="30325">2160</option>
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
         </setting>
         <!-- Only offered alongside a resolution cap. Measured against 10.11:
              Quality=90 returns the original bytes for every artwork tested,
@@ -343,23 +341,11 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="maxArtResolution" type="integer" label="30320" help="30321">
+        <setting id="preferCriticRating" type="boolean" label="30666" help="30667">
           <level>0</level>
-          <default>1080</default>
-          <constraints>
-            <options>
-              <option label="30322">0</option>
-              <option label="30323">720</option>
-              <option label="30324">1080</option>
-              <option label="30325">2160</option>
-            </options>
-          </constraints>
-          <control type="spinner" format="string"/>
+          <default>false</default>
+          <control type="toggle"/>
         </setting>
-        <!-- Artwork that arrives outside the sync walk but is still artwork
-             the library shows: both were filed under Playback because that
-             is *when* they are fetched, which put them nowhere anybody
-             looking for an artwork setting would look. -->
       </group>
     </category>
 
@@ -541,13 +527,18 @@
         </setting>
         <!-- Fine sync between group commands, through Kodi's own tempo
              (syncplay/tempo.py). An item Kodi cannot play at a tempo is left
-             to the commands. -->
+             to the commands. This setting and the two sliders are greyed out
+             on a Kodi without the tempo feature, which the service publishes
+             from its probe (core/state.py, PROP_FEATURE_TEMPO). -->
         <setting id="syncPlayTempo" type="boolean" label="30586" help="30587">
           <level>0</level>
           <default>true</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
             </dependency>
           </dependencies>
           <control type="toggle"/>
@@ -569,6 +560,9 @@
                 <condition operator="is" setting="syncPlayTempo">true</condition>
               </and>
             </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
+            </dependency>
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
@@ -586,6 +580,9 @@
                 <condition operator="is" setting="syncPlayEnabled">true</condition>
                 <condition operator="is" setting="syncPlayTempo">true</condition>
               </and>
+            </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
             </dependency>
           </dependencies>
           <control type="slider" format="integer"/>

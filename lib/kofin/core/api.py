@@ -264,9 +264,7 @@ class Api:
 
         It has to stay the server's *lossy* WebP. A lossless one is ARGB in
         the bitstream whatever the picture, so Kodi reads an alpha channel and
-        the whole thing lands back on the PNG path — the bundled fallback is
-        lossless and caches as a 65KB PNG, which is the same trap in miniature
-        and harmless only because it is 17KB to begin with.
+        the whole thing lands back on the PNG path.
 
         One lossy generation is spent here and a second by Kodi's cache pass
         (measured at q00=8, 4:2:0). End to end that is 29.98 dB against the

@@ -132,8 +132,10 @@ What remains is kofin's own:
 - Reference checksums have exactly one spelling: `policy.reference_checksum`. Never inline
   `"|plugin"`; the playlist state and the change feed both compare through it, and two
   comparators once agreed with each other while both being wrong.
-- The backdrop is `fanart.webp` and **every part of that name is load-bearing**
-  (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
+- The bundled backdrop is `resources/media/fanart.jpeg`, named in `addon.xml` and
+  `plugin/browse.py` (`BACKDROP_IMAGE`), and nothing rewrites it. The server's splashscreen
+  is fetched as WebP and written content-addressed into addon_data (`service/backdrop.py`,
+  `core/api.py::splashscreen`); `profile_path` is what a listing shows while the setting is on.
 - **`sslVerify` is one setting for every TLS socket**, HTTP and WSS. websocket-client 1.6.4 injects
   `CERT_REQUIRED` when `sslopt` is omitted, so a self-signed server with verify off listed fine and
   the websocket never came up. `WSClient` and the SyncPlay time-sync socket pass `sslopt` on `wss://`.
