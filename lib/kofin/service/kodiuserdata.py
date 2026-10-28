@@ -2,11 +2,7 @@
 
 Kodi's own context items — "Mark as watched", "Mark as unwatched", "Reset
 resume position" — write straight into MyVideos and announce
-``VideoLibrary.OnUpdate``. Nothing in kofin listened, so those actions stayed
-local: the server kept the old played flag and the old resume point, and the
-next userdata sync wrote the server's version back over the user's change.
-
-Two announcement shapes carry the two actions (confirmed live on Kodi 21)::
+``VideoLibrary.OnUpdate`` in one of two shapes::
 
     play count   {"item": {"id": 5910, "type": "episode"}, "playcount": 1}
     resume reset {"id": 5910, "type": "episode"}
@@ -15,8 +11,8 @@ The flat one carries identity and nothing else — Kodi only ever emits it from
 its resume-bookmark delete — so the position is read back out of Kodi rather
 than inferred from the shape.
 
-SQL sync bypasses announcements. API movie sync suppresses matching expected
-values for the current operation generation and durably queues real user edits.
+Kofin's own writes announce too: ``Store.is_echo`` filters them out, and the
+user's edits are queued durably in kofin.db for the server.
 """
 
 import queue
@@ -67,9 +63,9 @@ def parse_update(data: JsonDict) -> Optional[Tuple[str, int, str, int]]:
 class KodiUserData:
     """Applies Kodi-side watched/resume changes to the Jellyfin server.
 
-    Work runs on one worker thread. The announcements arrive on Kodi's
-    notification thread, which must not block on HTTP, and marking a whole
-    season watched fires one announcement per episode.
+    Work runs on one worker thread, so the JSON-RPC read and the kofin.db
+    write stay off Kodi's notification thread, where the announcements
+    arrive; marking a whole season watched fires one announcement per episode.
     """
 
     def __init__(self, api: Api) -> None:
@@ -112,17 +108,12 @@ class KodiUserData:
             try:
                 self._apply(*job)
             except JellyfinError as error:
-                # The event is Kodi's, and it is already applied locally —
-                # losing it because the server is unreachable is how watching
-                # a download offline used to vanish (plan W2.4). Park it.
                 LOG.info("userdata push failed (%s); parking it for replay", error)
                 self._park(*job)
             except Exception:
                 LOG.exception("kodi userdata push failed")
 
     def _park(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
-        """Queue a failed push for the next connect. Never raises: a parking
-        failure must not lose the log line explaining the original one."""
         try:
             from kofin.downloads import pending
             from kofin.service.libraryclaim import mapped_jellyfin_id
