@@ -346,6 +346,7 @@ class Service(xbmc.Monitor):
         # never an error per item or per pass (CLAUDE.md, the capability
         # profile).
         LOG.info("Kodi features %s", capabilities.summary(report))
+        state.set_feature_tempo((report.get("features") or {}).get("tempo") is True)
         if report["private_state"] != "ready":
             apistatus.write(
                 settings.localized(30420)

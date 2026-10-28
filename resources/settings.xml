@@ -527,13 +527,18 @@
         </setting>
         <!-- Fine sync between group commands, through Kodi's own tempo
              (syncplay/tempo.py). An item Kodi cannot play at a tempo is left
-             to the commands. -->
+             to the commands. This setting and the two sliders are greyed out
+             on a Kodi without the tempo feature, which the service publishes
+             from its probe (core/state.py, PROP_FEATURE_TEMPO). -->
         <setting id="syncPlayTempo" type="boolean" label="30586" help="30587">
           <level>0</level>
           <default>true</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
             </dependency>
           </dependencies>
           <control type="toggle"/>
@@ -555,6 +560,9 @@
                 <condition operator="is" setting="syncPlayTempo">true</condition>
               </and>
             </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
+            </dependency>
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
@@ -572,6 +580,9 @@
                 <condition operator="is" setting="syncPlayEnabled">true</condition>
                 <condition operator="is" setting="syncPlayTempo">true</condition>
               </and>
+            </dependency>
+            <dependency type="enable">
+              <condition on="property" name="InfoBool">String.IsEqual(Window(Home).Property(kofin.feature.tempo),true)</condition>
             </dependency>
           </dependencies>
           <control type="slider" format="integer"/>

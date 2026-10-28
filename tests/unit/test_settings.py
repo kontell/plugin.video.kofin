@@ -273,6 +273,32 @@ def test_the_library_tab_holds_the_sync_settings_in_reading_order():
     assert visible == ["showLibraryUpdateProgress"]
 
 
+def test_the_fine_sync_settings_are_greyed_out_without_the_tempo_feature():
+    """The toggle and both sliders are enabled only while the property the
+    service publishes from its probe says this Kodi has the feature."""
+    import xml.etree.ElementTree as etree
+
+    from kofin.core import state
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    wanted = "String.IsEqual(Window(Home).Property(%s),true)" % (
+        state.PROP_FEATURE_TEMPO
+    )
+    for setting_id in ("syncPlayTempo", "syncPlayPulseBudget", "syncPlayMaxRate"):
+        setting = next(
+            element
+            for element in root.iter("setting")
+            if element.get("id") == setting_id
+        )
+        enable = [
+            (condition.get("on"), condition.get("name"), condition.text)
+            for dependency in setting.iter("dependency")
+            if dependency.get("type") == "enable"
+            for condition in dependency.iter("condition")
+        ]
+        assert enable == [("property", "InfoBool", wanted)], setting_id
+
+
 def test_the_downloads_category_stays_a_single_group():
     """Every control there bar the master toggle is gated visible on
     downloadsEnabled, and Kodi does not recompute a *group's* visibility
