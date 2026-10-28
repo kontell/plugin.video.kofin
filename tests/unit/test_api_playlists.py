@@ -1,4 +1,4 @@
-"""Jellyfin playlists as Kodi playlist files in the API build."""
+"""Jellyfin playlists as Kodi playlist files."""
 
 from kofin.sync import private
 from kofin.sync.backends.api import paths
@@ -245,7 +245,7 @@ def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
     stats = api_playlists.reconcile(api, store, music_root=str(root))
     assert (stats["tracks"], stats["skipped"]) == (2, 0)
     assert (root / "Gym.m3u8").read_text(encoding="utf-8").count("#EXTINF") == 2
-    # Complete, the Etag now skips it.
+    # Complete, the Etag skips it.
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0
 
 

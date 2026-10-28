@@ -173,9 +173,8 @@ def test_episode_refresh_changes_id_and_restores_userdata(store, backend, kodi):
 
 def test_a_show_cast_change_refreshes_the_show_alone(store, backend, kodi, monkeypatch):
     """Asked to refresh the episodes as well, Kodi deletes the show and
-    every episode and imports them again under new ids: a recast show lost
-    its play counts to whatever the catalogue held, and every widget was
-    told of each row."""
+    every episode and imports them again under new ids, and a play count
+    set in Kodi is lost."""
     store.publish(show_bundle(episodes=3), library=LIB)
     backend.reconcile()
     show = store.mapping(SHOW).kodi_id
@@ -287,9 +286,7 @@ def test_a_show_library_leaving_rereads_only_the_shows_kodi_could_have_merged(
 ):
     """Kodi files a show onto an existing row of the same title and
     premiere, or the same default id, whatever library it came from, so
-    such a copy may have gone with the library. Every show of every other
-    library used to be read again for it: 79 shows and 4,316 episodes when
-    a library of one show left."""
+    such a copy may have gone with the library."""
     third = "c" * 32
     membership = {}
     items = []
@@ -340,7 +337,7 @@ def pictured_show():
 def test_season_art_is_filed_with_the_show_and_costs_no_setter(store, backend, kodi):
     """The show's listing offers each season's art under its number and the
     scanner files it with the show, so a first import sends a season
-    nothing. An art change afterwards is the setter's, as before."""
+    nothing. An art change afterwards is the setter's."""
     store.publish(pictured_show(), library=LIB)
     backend.reconcile()
     assert not store.pending()
@@ -471,9 +468,8 @@ def test_a_library_filed_with_its_tag_loses_it_at_the_next_pass(store, backend, 
 
 
 def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
-    """A first import compares every row. A show below the prefetch floor
-    used to be read a row at a time: a dozen details calls where one
-    listing of the show answers."""
+    """A first import compares every row, and a show below the prefetch
+    floor is read in one listing, not a details call a row."""
     store.publish(show_bundle(episodes=6, seasons=(1, 2)), library=LIB)
     backend.reconcile()
     assert not store.pending()
@@ -497,7 +493,7 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
     store.publish([], removed=["ea13"])
     backend.reconcile()
     assert len(methods(kodi, "VideoLibrary.RemoveEpisode")) == 1
-    # One scoped listing finds the row by the id it has now, one confirms
+    # One scoped listing finds the row by its current id, one confirms
     # the removal; no details read by a stored id.
     assert len(methods(kodi, "VideoLibrary.GetEpisodes")) == 2
     assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
@@ -545,7 +541,7 @@ def test_a_shows_episodes_are_read_once_for_all_its_seasons(
 ):
     """Whether a season has an importable episode is asked per season and
     answered from the show's episodes; they are read once a show, not once
-    a season (347 seasons were 349 s of a pass on a Raspberry Pi)."""
+    a season."""
     from kofin.sync.backends.api.patch import Applier
 
     items = show_bundle(episodes=2, seasons=(1, 2, 3, 0)) + [
@@ -704,9 +700,9 @@ def test_a_setting_held_by_a_scan_that_never_ended_is_given_back(
 
 def test_a_hold_kodi_refused_leaves_no_record_behind(store, backend, kodi, monkeypatch):
     """The record is written before the setter, so a Kodi stopped between
-    the two still gets its value back. When the setter is refused Kodi kept
-    its value and nothing is held: a record left there was given back at a
-    later start, over a change the user had made in between."""
+    the two still gets its value back. When the setter is refused Kodi keeps
+    its value and nothing is held, so a later start gives nothing back over
+    a change the user made in between."""
     kodi.settings[native.ACTOR_THUMBS_SETTING] = True
     backend.setup()
     real = native.rpc
@@ -887,7 +883,7 @@ def test_stale_native_id_never_removes_foreign_content(store, backend, kodi):
     native_id = store.mapping("a").kodi_id
     kodi.rows["Movie"][native_id].update(file="/foreign.mkv", uniqueid={})
     store.publish([], removed=["a"])
-    # The id now names someone else's row: our item is gone from the scope,
+    # The id names someone else's row: our item is gone from the scope,
     # so the removal is acknowledged and the foreign row is never touched.
     backend.reconcile()
     assert native_id in kodi.rows["Movie"]
@@ -1119,9 +1115,6 @@ def test_acknowledgements_and_expectations_are_written_in_batches(
     assert len(opens) < 40
 
 
-# -- review regressions ------------------------------------------------------------
-
-
 def test_whole_library_clear_survives_a_movie_that_never_imported(store, backend, kodi):
     """A member with no native row (never scanned, never acknowledged) must not
     wedge the removal of its library."""
@@ -1251,9 +1244,7 @@ def test_a_library_imported_again_gets_its_sets_details_again(store, backend, ko
     """A set is Kodi's to make and to drop. It goes with the last movie that
     names it and a scan makes it again from the movie's set name alone,
     under the number it had, while the collection's payload has not moved:
-    nothing but its movies brings it into the pass that imports them. 54
-    sets on a television and 54 on a desktop had no art and no plot after
-    their library was imported again."""
+    nothing but its movies brings it into the pass that imports them."""
     before = _reimported_pair(store, backend, kodi)
     backend.reconcile()
     assert not store.pending()
@@ -1477,9 +1468,8 @@ def test_a_collection_removal_waits_while_a_member_still_files_it(store, backend
 def test_a_movie_refresh_is_confirmed_by_its_folder_at_most_once_a_second(
     store, backend, kodi, monkeypatch
 ):
-    """Confirmed by listing the library, every refresh on a 32-bit Android
-    TV was two listings of 1,791 movies at 2.1 s each, for a second of
-    Kodi's own work."""
+    """A refresh is confirmed by polling the movie's folder, not by listing
+    the library."""
     from kofin.sync.backends.api import patch
 
     clock = [0.0]
@@ -1570,7 +1560,7 @@ def test_a_movie_folder_read_keeps_the_version_rows_kodi_filed_apart(
     row, versions = readback.item("Movie", LIB, "a")
     assert row["movieid"] == own
     assert [r["movieid"] for r in versions] == [apart]
-    # Grouped by the user since: the cached scope loses the row with the read.
+    # Grouped by the user later: the cached scope loses the row with the read.
     del kodi.rows["Movie"][apart]
     row, versions = readback.item("Movie", LIB, "a")
     readback.refreshed("Movie", LIB, "", "a", own, row, versions)
@@ -1623,8 +1613,7 @@ def test_a_vanished_show_takes_its_pending_episodes_with_it(store, backend, kodi
 def test_scans_are_issued_one_at_a_time(store, backend, kodi, monkeypatch):
     """Kodi's UpdateLibrary builtin, which VideoLibrary.Scan and
     AudioLibrary.Scan both go through, stops a running scan instead of
-    queuing a second one; a pass that selected two libraries at once lost
-    one scan on every retry on 22.0b2. Each scan waits for the one before."""
+    queuing a second one, so each scan waits for the one before."""
     from kofin.sync.backends.api import native as native_module
 
     issued = []
@@ -1661,8 +1650,7 @@ def test_scans_are_issued_one_at_a_time(store, backend, kodi, monkeypatch):
 
 def test_a_first_import_under_repair_acknowledges_without_a_write(store, backend, kodi):
     """The pass after every complete enumeration runs as a repair; a row the
-    scanner just filed from this listing has nothing stale behind it. A
-    tablet re-wrote all 6,200 rows of its first import before this."""
+    scanner just filed from this listing has nothing stale behind it."""
     store.publish([movie()], library=LIB)
     backend.reconcile(repair=True)
     assert store.mapping("a") is not None
@@ -1860,8 +1848,8 @@ def test_a_failed_lift_of_noupdate_still_restores_the_folders_bound_so_far(
 
 def test_a_count_that_differs_only_in_size_is_not_a_viewers_edit():
     """A viewer's edit is the watched mark going on or off. Kodi and the
-    server having counted differently is not one, and read as one it sent
-    Kodi's count up to the server after every play."""
+    server having counted differently is not one: read as one, Kodi's count
+    would go up to the server after every play."""
     edits = patch.local_edits
     # Kodi counted the play it made, the server counted it too: 2 against 1.
     assert edits({"playcount": 2}, {"playcount": 1}, {"playcount": 1}) == {}
@@ -1896,13 +1884,12 @@ def test_a_count_kodi_ran_ahead_on_is_brought_back_to_the_servers(store, backend
 
 
 def test_a_later_stamp_of_kodis_own_is_the_same_play():
-    """The server stamps a play when it starts and Kodi when it ends.
-    Written back to the server's earlier stamp, every song played here cost
-    a setter twenty seconds after it ended."""
+    """The server stamps a play when it starts and Kodi when it ends, so a
+    later stamp of Kodi's is no difference to write back."""
     same = metadata.same_play
     assert same("2026-10-12 14:24:33", "2026-10-12 14:24:08")
     assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
-    # The server's is the later one: played somewhere else since.
+    # The server's is the later one: played somewhere else afterwards.
     assert not same("2026-10-12 14:24:08", "2026-10-12 14:24:33")
     # Later by the stop report alone: Kodi stamps the end of a song and the
     # server the stop kofin sends after it.

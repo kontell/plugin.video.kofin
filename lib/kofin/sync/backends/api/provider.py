@@ -76,7 +76,8 @@ def exists(store, location, item_id, source="", features=frozenset()):
     of deletion. Only an explicit committed tombstone says an item is gone,
     and only a movie's own payload says a version file or an extra is: the
     scan that lists the folder adds and never removes, so Clean, which asks
-    this per file, is how a row the listing no longer names leaves."""
+    this per file, is the only way a row the listing no longer names can
+    leave."""
     if location.probe:
         # A disc-structure folder Kodi probes for: never a row.
         return False
