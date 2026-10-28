@@ -1,9 +1,7 @@
 """Kofin-owned SQLite and sync state, independent of Kodi's native databases.
 
-The private schema is shared by the SQL and API distributions. Native database
-paths, versions and creation-time seed data belong exclusively to the SQL
-adapter. Test overrides and the per-path schema guard are restart-safe: their
-keys are complete private paths, and reset_overrides clears both.
+Test overrides and the per-path schema guard are restart-safe: their keys are
+complete private paths, and reset_overrides clears both.
 """
 
 import datetime
@@ -26,11 +24,8 @@ _tables_ensured: set = set()
 # Connections kept open for the plugin process, per path and thread. Module
 # state, deliberately: it lives in a plugin interpreter Kodi recycles, never
 # in the service (``pool_connections`` is called from the provider and the
-# play route only). A scanner that reuses the interpreter between two
-# listings then reuses the connection too, and the first statement of a
-# fresh connection -- which read the schema and the WAL index off a
-# thrashing SD card for 12-24 s per album listing on the LibreELEC box -- is
-# paid once per interpreter.
+# play route only), so a reused interpreter reuses its connection and pays a
+# fresh connection's first statement once.
 _pooling = False
 _pool: Dict[Tuple[str, int], "sqlite3.Connection"] = {}
 
@@ -60,12 +55,9 @@ def hold_connections() -> Iterator[None]:
     """Keep this thread's private-database connection open across every
     ``Database`` block inside the ``with``.
 
-    A block opens a connection and closes it, and in WAL mode with nobody
-    else connected that is the WAL and its index created and torn down each
-    time: 26 ms to open and 15 ms to close on a Raspberry Pi's card, against
-    0.04 ms for a statement on a connection already open. The library thread
-    makes four such blocks on every half-second tick, and ran at a third of a
-    core doing nothing; a playlist reconcile makes three for every track.
+    In WAL mode with nobody else connected, every open and close creates and
+    tears down the WAL and its index; holding the connection turns a block
+    into a statement.
     """
     depth = getattr(_held, "depth", 0)
     if depth == 0:
@@ -125,9 +117,6 @@ class Database(object):
         self.commit_close = commit_close
 
     def __enter__(self) -> "Database":
-        """Open the connection and return the Database class.
-        This is to allow for the cursor, conn and others to be accessible.
-        """
         self.path = self._resolve_path()
         key = (self.path, threading.get_ident())
         held = _held.connections if getattr(_held, "depth", 0) else None
@@ -173,12 +162,7 @@ class Database(object):
         """Close the connection and cursor.
 
         The exception path rolls back to the last commit rather than
-        committing: the fork committed unconditionally, which persisted the
-        half of a multi-table write that had executed before a mid-item
-        failure (audit finding #15). The writer passes commit per page /
-        per COMMIT_INTERVAL and their restore points name the page being
-        processed, so a rollback re-runs at most one page of idempotent
-        writes on resume.
+        committing.
 
         A block leaves the connection idle whether or not it changed a row.
         ``total_changes`` counts since the connection opened, so on a
@@ -190,7 +174,7 @@ class Database(object):
         try:
             changes = self.conn.total_changes - getattr(self, "_changes_at_enter", 0)
 
-            if exc_type is not None:  # errors raised
+            if exc_type is not None:
                 LOG.error("type: %s value: %s", exc_type, exc_val)
                 self.conn.rollback()
             elif self.commit_close and (changes or self.conn.in_transaction):
@@ -205,13 +189,7 @@ class Database(object):
 
 
 def kofin_tables(cursor: "sqlite3.Cursor") -> None:
-    """Create the mapping tables: jellyfin, view, version, boxset_state.
-
-    jellyfin/view/version are byte-identical to the fork's jellyfin.db
-    schema, fork indexes included (plan §2). The fork's jellyfin_parent_id
-    column migration is dropped — kofin has no pre-existing installs.
-    boxset_state is a kofin addition (docs/boxsets-robustness-plan.md).
-    """
+    """Create every kofin.db table."""
     cursor.execute("""CREATE TABLE IF NOT EXISTS jellyfin(
         jellyfin_id TEXT UNIQUE, media_folder TEXT, jellyfin_type TEXT, media_type TEXT,
         kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
@@ -219,13 +197,6 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     cursor.execute("""CREATE TABLE IF NOT EXISTS view(
         view_id TEXT UNIQUE, view_name TEXT, media_type TEXT)""")
     cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
-    # Each set's MyVideos link count measured at its last successful
-    # membership pass. Drift detection compares against it, so a set heals
-    # even when its server Etag never moves (a member removed and re-added
-    # comes back as a fresh movie row with no idSet and no Etag movement).
-    # No timestamps: the L2 suite diffs whole database dumps byte-for-byte.
-    # Absent rows read as "unknown" and force one relink per set — the
-    # upgrade migration.
     cursor.execute("""CREATE TABLE IF NOT EXISTS boxset_state(
         jellyfin_id TEXT PRIMARY KEY, linked_count INTEGER NOT NULL)""")
     # Jellyfin playlists are Kodi files, not MyVideos/MyMusic rows, so they
@@ -234,8 +205,7 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_state(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT NOT NULL,
         filename TEXT NOT NULL, checksum TEXT NOT NULL)""")
-    # Ordered Audio membership lets a download repoint rewrite just the
-    # affected managed playlists without asking Jellyfin while offline.
+    # Ordered Audio membership of each managed playlist.
     cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_item(
         playlist_id TEXT NOT NULL, jellyfin_id TEXT NOT NULL,
         position INTEGER NOT NULL, PRIMARY KEY(playlist_id, position))""")
@@ -246,15 +216,11 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         PRIMARY KEY(owner, jellyfin_id))""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS download_subscription_item
         ON download_subscription(jellyfin_id)""")
-    # Offline downloads (docs/offline-downloads-plan.md, storage decisions).
-    # Rows leave only on remove; ``state`` walks queued|active|done|failed.
-    # ``series_id`` is denormalized so the tvshow tag injection is one
-    # indexed lookup; ``rel_path`` is relative to the downloads root, which
-    # is a setting and may move; ``quality`` records the request that
-    # produced the file (nothing acts on it yet — it exists so a later
-    # needs-redownload feature is a diff, not a guess); ``userdata_json``
-    # snapshots the server's UserData at queue time for the phase-2
-    # replay-conflict rule.
+    # Offline downloads. Rows leave only on remove; ``state`` walks
+    # queued|active|done|failed. ``rel_path`` is relative to the downloads
+    # root, which is a setting and may move; ``quality`` records the request
+    # that produced the file and ``userdata_json`` the server's UserData, both
+    # at queue time.
     cursor.execute("""CREATE TABLE IF NOT EXISTS download(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT, series_id TEXT,
         state TEXT, origin TEXT, rel_path TEXT, container TEXT,
@@ -263,9 +229,8 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         queued_at INTEGER, done_at INTEGER, error TEXT,
         restore_filename TEXT, segments_json TEXT, restore_path TEXT,
         request_id TEXT, request_name TEXT)""")
-    # CREATE IF NOT EXISTS never revisits an existing table, and the download
-    # table can materialize on a dev box between stacked PRs; additive columns
-    # keep that cheap. A new column goes in the CREATE above *and* here.
+    # CREATE IF NOT EXISTS never revisits an existing table: a new column goes
+    # in the CREATE above *and* here.
     _ensure_columns(
         cursor,
         "download",
@@ -287,8 +252,8 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_parent_id
         ON jellyfin(jellyfin_parent_id)""")
     # Userdata a playback produced while the server was unreachable, replayed
-    # on the next connect (docs/offline-downloads-plan.md W2.4). One row per
-    # item — a later event coalesces onto it — and NULL means "unchanged".
+    # on the next connect. One row per item — a later event coalesces onto
+    # it — and NULL means "unchanged".
     cursor.execute("""CREATE TABLE IF NOT EXISTS pending_userdata(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT, played INTEGER,
         position_ticks INTEGER, event_at INTEGER, attempts INTEGER,
@@ -322,8 +287,7 @@ def _ensure_columns(
             # Two connections race this at service start (the main thread
             # and a download worker both open kofin.db): each reads the
             # PRAGMA before the other's ALTER commits, and the loser's
-            # "duplicate column name" is the winner's success — seen live
-            # the moment a second column joined this list.
+            # "duplicate column name" is the winner's success.
             if "duplicate column" not in str(error).lower():
                 raise
 
@@ -331,11 +295,8 @@ def _ensure_columns(
 class SyncStateCorrupt(Exception):
     """sync.json exists but cannot be parsed.
 
-    Raised rather than defaulted: an empty whitelist born from a bad read
-    makes ``fields.find_library`` answer {} and the writers skip their items
-    with the watermark moving past them — silent loss, the "film added on the
-    22nd still missing on the 25th" shape. Raising instead lands each item in
-    the workers' unapplied/recovery path, which is loud and heals.
+    Raised rather than defaulted: a bad read would otherwise answer an empty
+    whitelist.
     """
 
 
@@ -383,12 +344,9 @@ def get_sync() -> Dict[str, Any]:
 def save_sync(sync: Dict[str, Any]) -> None:
     """Write the record atomically: temp file, fsync, ``os.replace``.
 
-    Writer threads call :func:`get_sync` per item while the library thread
-    saves; the fork's in-place truncate-and-write let a reader land inside
-    the window, parse half a file, and carry on with an empty whitelist.
-    With the rename a reader sees the old record or the new one, never a
-    mixture. The fsync keeps a power loss from replacing the record with an
-    empty file on filesystems that defer allocation.
+    A reader sees the old record or the new one, never a mixture, and the
+    fsync keeps a power loss from replacing the record with an empty file on
+    filesystems that defer allocation.
     """
     if not xbmcvfs.exists(ADDON_DATA):
         xbmcvfs.mkdirs(ADDON_DATA)

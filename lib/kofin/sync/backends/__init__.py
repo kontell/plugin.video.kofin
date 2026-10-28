@@ -1,1 +1,1 @@
-"""Build-selected native library adapters."""
+"""The native library adapter (``backends.api``)."""
