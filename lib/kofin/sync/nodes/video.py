@@ -1,12 +1,9 @@
 """The generated video node tree: a ``Kofin`` folder in Kodi's video
 library holding one folder per synced library and a few single nodes.
 
-Every file is written whole on every pass (the music tree's shape). The
-fork parsed and amended what was there, and that is what left a renamed
-library with its old tag rule beside the new one -- under ``match=all`` a
-node that matches nothing, silently. Nothing under the tree is the user's
-to keep except the parent's own ``index.xml`` (its order and label), which
-stays creation-only; the per-library ``index.xml`` restates what the
+Every file is written whole on every pass. Nothing under the tree is the
+user's to keep except the parent's own ``index.xml`` (its order and label),
+which stays creation-only; the per-library ``index.xml`` restates what the
 server says about the library and is rewritten like the rest.
 
 Structural entries carry Kodi's stock icon names (Default*.png) so every
@@ -33,26 +30,11 @@ LOG = Logger(__name__)
 # folder name is the prefix every managed name carries.
 NODE_ROOT = fs.PREFIX
 
-# Shape/label revision of the generated tree, folded into views_hash() so a
-# change here regenerates on upgrade even when the view set is untouched.
-# 3: the playlists moved into the managed playlist folder.
-# 7: the Downloaded singles carry the addon's downloaded icon.
-# 8: the music tree gained a folder per library, and Downloaded music became
-#    a folder of its own rather than one flat node.
-# 9: node files are written whole (P2.1), so every install gets one pass
-#    that replaces whatever parse-and-amend had accumulated.
-# 10: Continue watching and Next up sit in the Kofin folder itself.
-# 11: those two left the tree — they wrap plugin paths the add-on root
-#     already offers, and per-library Next up was the same wrapper.
-# 12: Favorite episodes is a native filter (writer rule), not a plugin
-#     folder whose browse path was never implemented.
-# 13: that filter's XML field is Kodi's "writers", not "writer"
-#     (SmartPlayList.cpp TranslateField); 12's node failed to open.
 NODE_LAYOUT = 13
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
-# of one kind sit together; see Views.node_order.
+# of one kind sit together (dynamic.node_entries).
 MEDIA_RANK = {
     "movies": 0,
     "tvshows": 1,
@@ -62,23 +44,19 @@ MEDIA_RANK = {
 }
 
 # Order of the "Kofin" parent among Kodi's own top-level video nodes (movies
-# 10, tvshows 20, musicvideos 30). Written once, on creation only -- the
-# user's own ordering is never overwritten (plan §3).
+# 10, tvshows 20, musicvideos 30).
 NODE_ROOT_ORDER = 15
 
 # The one structural entry that is allowed addon art: this node *is* the
 # addon, so a skin has nothing of its own to substitute. Kodi resolves
 # special:// for textures (URIUtils::IsHD translates it), so the path stays
-# valid wherever the addon is installed -- unlike an absolute one baked into
-# the XML.
+# valid wherever the addon is installed.
 NODE_ROOT_ICON = (
     "special://home/addons/plugin.video.kofin/resources/media/kofin-node.png"
 )
 
 # The other allowed exception, for the same reason: a Downloaded node has no
-# Kodi-native counterpart for a skin to substitute artwork for, and
-# DefaultFavourites.png -- what it inherited from the favourites singles it
-# shares code with -- said "favourite", which is a different idea entirely.
+# Kodi-native counterpart for a skin to substitute artwork for.
 NODE_DOWNLOADS_ICON = (
     "special://home/addons/plugin.video.kofin/resources/media/downloaded.png"
 )
@@ -114,7 +92,7 @@ NODES = {
     ],
 }
 
-# What each filter node carries after its tag rule, in the order the file
+# What each filter node carries after its path rule, in the order the file
 # is written. ("order", by, direction) / ("limit",) / ("group", name) /
 # ("rule", field, operator, value-or-None). The two episode-level nodes of a
 # show library list episodes rather than shows.
@@ -152,7 +130,7 @@ EPISODE_CONTENT = ("recentepisodes", "inprogressepisodes")
 LIMIT = 25
 
 # Stock Kodi icon per media type (structural entries never carry addon or
-# server art -- plan §2).
+# server art).
 MEDIA_ICONS = {
     "movies": "DefaultMovies.png",
     "tvshows": "DefaultTVShows.png",
@@ -269,8 +247,8 @@ def browse_url(view, node=None):
 def single_nodes(episode_tags=True):
     """The tag-filtered singles beside the library nodes: the favorites
     for movies and shows always, for episodes while this Kodi keeps an
-    episode's tags (``episode_tags``, kontell/xbmc #12: a tag rule lists
-    nothing on a Kodi without it), the Downloads set while the feature is
+    episode's tags (``episode_tags``: a tag rule lists nothing on a Kodi
+    without it), the Downloads set while the feature is
     on, its episodes on the same condition as the favorites. One list for
     both the node files and the window properties, so the two surfaces
     cannot disagree."""
@@ -285,9 +263,7 @@ def single_nodes(episode_tags=True):
     try:
         downloads = settings.get_bool("downloadsEnabled")
     except TypeError:
-        # A build whose settings have no downloads section (the API profile
-        # until the feature lands there): getSettingBool raises on a
-        # setting the build does not define.
+        # getSettingBool raises TypeError on a setting it cannot find.
         downloads = False
     if downloads:
         from kofin.downloads import EPISODE_TAG, TAG as DOWNLOADS_TAG
@@ -400,9 +376,7 @@ def build_node(view, key, label, order):
 
 
 def build_single(single, order):
-    """A single node: a favourites or a Downloads listing, by its tag. An
-    episodes single exists only on a Kodi 23 with kontell/xbmc #12, which
-    keeps an episode's own tags (see single_nodes)."""
+    """A single node: a favourites or a Downloads listing, by its tag."""
     icon = single.get("Icon") or node_icon(single["Media"], "favorites")
     xml = _node("filter", order, icon)
     etree.SubElement(xml, "label").text = single["Name"]
@@ -419,8 +393,7 @@ def build_single(single, order):
 
 def write_parent(root):
     """The ``Kofin`` folder node itself. Written on creation only: ``order``
-    and ``label`` are the user's to change afterwards (the fork pinned its
-    own layout; kofin does not)."""
+    and ``label`` are the user's to change afterwards."""
     file = os.path.join(root, "index.xml")
     if not os.path.isfile(file):
         write_xml(file, build_parent())
@@ -443,10 +416,8 @@ def write_library(root, view, mixed, order):
             build_node(view, key, label, position),
         )
 
-    # A layout bump can drop a node (nextepisodes left in 11) and the
-    # folder is ours, so a leftover file would still list in Videos →
-    # Kofin. The prefix gate does not apply inside the folder: these
-    # names are all.xml, not kofin_*.xml.
+    # The folder is ours and its file names carry no prefix, so anything not
+    # written this pass goes.
     _, files = fs.listdir(folder)
     for name in files:
         if name not in keep_files:
@@ -466,8 +437,8 @@ def write_tree(entries, singles):
     node, and numbering it anyway leaves holes that the singles then start
     after. Ends by reconciling the tree against what was written -- a
     library can leave the whitelist by a route that never called
-    remove_library (server-side deletion, a settings diff, an install that
-    leaked before this pass existed), and a single can go with its feature.
+    remove_library (server-side deletion, a settings diff), and a single can
+    go with its feature.
     """
     root = node_root_path()
     if not os.path.isdir(root):
@@ -479,12 +450,9 @@ def write_tree(entries, singles):
 
     for view, mixed in entries:
         if view["Media"] not in NODES:
-            # A music library is whitelisted like the rest and has no video
-            # node; the same is true of any kind the table does not know
-            # (a boxsets view that reached the whitelist through update
-            # mode, live on 2026-08-27). Skipping is the only answer that
-            # keeps the rest of the tree -- raising here killed the library
-            # thread at startup, and with it every sync until a restart.
+            # A music library, or a kind the table does not know, has no
+            # video node: skip it, since raising here stops the library
+            # thread.
             if view["Media"] != "music":
                 LOG.warning(
                     "--[ nodes ] no node kind for %s (%s); skipped",
@@ -509,12 +477,7 @@ def write_tree(entries, singles):
 
 
 def delete_tree():
-    """Remove the whole generated tree.
-
-    Name-gated throughout: only ``kofin``-prefixed entries and the parent's
-    own index.xml go, so hand-made node files living beside them survive
-    (they are the user's, not ours), and the parent stays while they do.
-    """
+    """Remove the whole generated tree."""
     root = node_root_path()
     fs.remove_managed_entries(root, also=("index.xml",))
     fs.remove_empty(root)

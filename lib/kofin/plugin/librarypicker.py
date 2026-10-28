@@ -19,12 +19,12 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-# Library types the sync writers understand (plan §4).
+# The library types the sync files.
 SYNCABLE_TYPES = ("movies", "tvshows", "music", "musicvideos", "mixed")
 
 
 def syncable_views(views: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    """(Id, Name, CollectionType) of the views the writers can sync."""
+    """(Id, Name, Media) of the views the sync can file."""
     result = []
 
     supported = SYNCABLE_TYPES
@@ -51,9 +51,8 @@ def select_libraries(request: Request) -> None:
         views = api.views().get("Items", [])
     except JellyfinError as error:
         LOG.warning("library picker: views unavailable: %s", error)
-        # Not "No libraries available" (30269), which is what this said while
-        # meaning the opposite: the server could not be reached, so whether it
-        # has libraries is exactly what we failed to learn.
+        # Not "No libraries available" (30269): the server could not be
+        # reached, so whether it has libraries is unknown.
         toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
         return
 

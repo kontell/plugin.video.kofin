@@ -11,25 +11,17 @@ from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from kofin.core import kodirpc
 
-# Independent setters travel 25 to a JSON-RPC array: the feasibility report's
-# fastest measured shape (7.4), and small enough that one failed call costs
-# little to retry.
+# Independent setters go 25 to a JSON-RPC array; a failed call is cheap to
+# retry.
 BATCH = 25
 
-# Application order: a season or episode patch needs its show's row first
-# and a set needs its movies. An album or artist is found through the rows
-# of its songs, which the scan has filed before any music kind is planned,
-# so the three music kinds are free to go in any order -- and songs go
-# last: a song's patch is its play count, one setter per played song at
-# 230 ms each on a Raspberry Pi's card, which for a library with 7,900
-# played songs is half an hour every album cover would wait behind.
-# The two music kinds whose patch is their artwork and text. They are
-# applied as soon as the music scans are done, before any video scan
-# starts: left in their place in the order, every album cover waited for
-# every movie and show selected with it to be scanned first, half an hour
-# and more on a small device (native.reconcile).
+# The two music kinds whose patch is their artwork and text, applied right
+# after the music scans, before any video scan starts (native.reconcile).
 MUSIC_FIRST = ("MusicAlbum", "MusicArtist")
 
+# Application order: a season or episode patch needs its show's row first
+# and a set needs its movies. Songs go last: each played song is a setter,
+# and every album cover would wait behind them.
 ORDER = (
     "Series",
     "Season",
@@ -42,9 +34,7 @@ ORDER = (
     "Audio",
 )
 
-# Kinds whose rows carry a resolver URL and a namespaced unique id. A song
-# has the URL but no unique id: Kodi keeps none for music, so its ownership
-# is the URL alone.
+# Kinds whose rows carry a resolver URL and a namespaced unique id.
 FILED = ("Movie", "Series", "Episode", "MusicVideo")
 
 # Kodi's media type for a playable kind, for playback and userdata lookups.
@@ -89,12 +79,9 @@ class Kind(NamedTuple):
     setter: str
     refresh: Optional[str]
     remove: Optional[str]
-    # How a tombstone of this kind leaves Kodi: "row" through its own remove
-    # call, "parent" with the show it belongs to (no call of its own),
-    # "members" once the movies that filed it have let go and Kodi's clean
-    # has dropped the empty set, or "rescan" through the complete listing
-    # of its directory -- the audio API has no remove call at all, and a
-    # music scan replaces a directory's songs with whatever is listed.
+    # How a tombstone of this kind leaves Kodi (removal.py): "row" by its own
+    # remove call, "parent" with its show, "members" with the movies that
+    # filed it, "rescan" through the complete listing of its directory.
     removal: str
 
 
@@ -206,8 +193,7 @@ SCANNER = {"Audio": "music", "MusicAlbum": "music", "MusicArtist": "music"}
 # What a scope readback carries: enough to find a row, own it and see the
 # userdata a viewer may have changed, never the whole row. The full row is
 # read by id (or as one listing when most of a scope needs it) only for the
-# items whose desired state moved. A full readback of 1,788 movies with 27
-# properties was the largest reply Kodi built for a pass that patched one.
+# items whose desired state moved.
 MINIMAL: Dict[str, List[str]] = {
     "Movie": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
     "Series": ["file", "uniqueid"],

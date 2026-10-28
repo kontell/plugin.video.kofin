@@ -4,22 +4,18 @@ Broadcasts Jellyfin's UDP discovery probe (kofin.core.discovery), verifies
 each answer over HTTP, and writes the chosen address into ``serverAddress``
 so the Log in button below it has something to work with.
 
-Two things about the shape are load-bearing.
-
 The settings button carries ``<close>true</close>``, so Kodi has committed
-and closed the settings dialog before this route runs. That is not house
-style: a setting written from here into a dialog that is still open is
-reverted when the user backs out of it (the hazard ``service/backdrop.py``
-records). Having closed it, the route reopens it — same builtin as
-``actions.open_settings`` — so the filled field is the confirmation and Log
-in is the next press.
+and closed the settings dialog before this route runs: a setting written
+from here into a dialog that is still open is reverted when the user backs
+out of it (``service/backdrop.py``). The route then reopens it — same
+builtin as ``actions.open_settings`` — so the filled field is the
+confirmation and Log in is the next press.
 
-The verification is not a liveness check. The server answered the broadcast
-milliseconds ago, so it is plainly alive; what is in question is the address
-it published, which Jellyfin derives per caller and which can name a host
-this box cannot resolve or route to. When it cannot be reached, the datagram's
-own source address is tried, that being the one endpoint in the exchange
-known to work.
+The verification is not a liveness check: what is in question is the
+address the server published, which Jellyfin derives per caller and which
+can name a host this box cannot resolve or route to. When it cannot be
+reached, the datagram's own source address is tried, that being the one
+endpoint in the exchange known to work.
 """
 
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -161,10 +157,6 @@ def find_servers(request: Request) -> None:
     if candidates is None:
         return
     if not candidates:
-        # Deliberately not "try again": nothing that answers slowly exists on
-        # this protocol, so a repeat is only worth it against a lost frame,
-        # and the usual causes (auto-discovery off, bridge networking,
-        # another subnet) no retry reaches. See kofin.core.discovery.
         toast.show(_text(30829), toast.WARNING, time_ms=6000)
         return
 
@@ -173,8 +165,6 @@ def find_servers(request: Request) -> None:
     # does, but it should not be the obvious pick.
     candidates.sort(key=lambda entry: (not entry.reachable, entry.found.name.lower()))
 
-    # Typed wide for the same reason actions.py does: Dialog.select takes
-    # a list of either, and a list of ListItem alone is not that list.
     items: List[Union[str, "xbmcgui.ListItem"]] = []
     for candidate in candidates:
         label, detail = discovery.label_for(
@@ -193,6 +183,4 @@ def find_servers(request: Request) -> None:
     LOG.info("discovery: server address set to %s", picked.address)
     if not picked.reachable:
         toast.show(_text(30831) % picked.found.name, toast.WARNING, time_ms=6000)
-    # No success toast: the reopened field is the confirmation, and Log in is
-    # directly below it.
     xbmc.executebuiltin("Addon.OpenSettings(plugin.video.kofin)")

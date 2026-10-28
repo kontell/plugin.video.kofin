@@ -1,13 +1,10 @@
-"""New content in the API build: the toasts, and the downloads that follow it.
+"""New content: the toasts, and the downloads that follow it.
 
-The SQL build announces what its *added* writers wrote (sync/library.py,
-notify_new_content). This build has no writer. An item is new when a
-catch-up publishes it and the catalogue places no item of its id, and it has
-arrived when the pass has filed it, which is when its catalogue row is
-applied: the toast comes with the row, as the SQL build's waits for its
-writers. A complete enumeration (a first listing, Update libraries, the
-schedule) and a repair announce nothing, as the SQL build's full sync does
-not, and a played item is never announced (newcontent.entry_for).
+An item is new when a catch-up publishes it and the catalogue places no item
+of its id, and it is announced when the pass has filed it, which is when its
+catalogue row is applied. A complete enumeration (a first listing, Update
+libraries, the schedule) and a repair announce nothing, and a played item is
+never announced (newcontent.entry_for).
 """
 
 from typing import Any, Collection, Dict, Iterable, List, Optional
@@ -21,11 +18,9 @@ from kofin.sync import newcontent
 
 LOG = Logger(__name__)
 
-# The SQL build's numbers (sync/library.py NEW_CONTENT_LIMIT and
-# NEW_CONTENT_TIME): how many filed items wait for a toast at most, the
-# oldest dropped first, and how long a toast stays up. Nothing caps what is
-# not filed yet: an item dropped there would never reach the downloads, and
-# the next catch-up finds it in the catalogue and does not offer it again.
+# How many filed items wait for a toast at most, the oldest dropped first,
+# and how long a toast stays up. Nothing caps what is not filed yet: an item
+# dropped there would never reach the downloads.
 LIMIT = 500
 TOAST_MS = 5000
 
@@ -41,9 +36,8 @@ class Arrivals:
         self.backlog: List[newcontent.Entry] = []
         # New songs, not filed or not claimed yet: item id -> library. Never
         # announced (an album says it arrived) but claimed for a subscribed
-        # music library. Not capped, as the SQL build's new_song_entries is
-        # not: a song dropped here is in the catalogue and never offered
-        # again.
+        # music library. Not capped: a song dropped here is in the catalogue
+        # and never offered again.
         self.songs: Dict[str, str] = {}
 
     def published(
@@ -53,8 +47,7 @@ class Arrivals:
         membership: Optional[Dict[str, str]] = None,
     ):
         """Note what a catch-up publishes that ``known``, the ids the
-        catalogue placed before the publish, did not hold. A song is not
-        announced: its album says it arrived."""
+        catalogue placed before the publish, did not hold."""
         for item in items:
             if item.get("Id") in known:
                 continue

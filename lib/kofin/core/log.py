@@ -44,8 +44,7 @@ def register_secret(value: str, keep: int = 0) -> None:
 
 def mask(text: str) -> str:
     # A snapshot: register_secret can add a key from any thread (a login,
-    # a token change) while sync threads log, and iterating the live dict
-    # then raised RuntimeError out of a logging call (audit M4).
+    # a token change) while other threads log.
     for secret, replacement in list(_secrets.items()):
         if secret in text:
             text = text.replace(secret, replacement)
@@ -76,8 +75,7 @@ class Logger:
     def _write(
         self, level: int, msg: object, args: Tuple[Any, ...], trailer: str = ""
     ) -> None:
-        # The ported sync code logs exception objects directly
-        # (LOG.exception(error)); accept anything stringable.
+        # Accept anything stringable (LOG.exception(error)).
         if not isinstance(msg, str):
             msg = str(msg)
         if args:
