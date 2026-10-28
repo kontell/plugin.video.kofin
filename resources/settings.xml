@@ -2,7 +2,6 @@
 <settings version="1">
   <section id="plugin.video.kofin">
 
-    <!-- Account -->
     <category id="account" label="30050" help="30051">
       <group id="1">
         <!-- Hidden state written by kofin.core.settings.Credentials only. -->
@@ -174,8 +173,6 @@
             <close>true</close>
           </control>
         </setting>
-        <!-- Device name is no longer a setting: kofin reports Kodi's own
-             friendly name (System.FriendlyName), matching pvr.kofin. -->
       </group>
     </category>
 
@@ -241,11 +238,8 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-        <!-- The API build's report of what is synced and what the sync is
-             doing (plugin/actions.py library_status). No <close>: it is a
-             sub-dialog of this page, read and returned from. It stands where
-             that build has neither of the two read-only lines below, which
-             its service no longer writes (tools/package_manifest.py). -->
+        <!-- The Library status report (plugin/actions.py library_status).
+             No <close>: a sub-dialog of this page. -->
         <setting id="libraryStatus" type="action" label="30859" help="30860">
           <level>0</level>
           <dependencies>
@@ -290,9 +284,8 @@
             <close>true</close>
           </control>
         </setting>
-        <!-- Days between the API build's complete enumerations, 0 for none
-             (sync/backends/api/library.py). The SQL build has no such pass
-             and does not ship the setting (tools/package_manifest.py). -->
+        <!-- Days between complete enumerations, 0 for none
+             (sync/backends/api/library.py). -->
         <setting id="fullUpdateInterval" type="integer" label="30869" help="30870">
           <level>0</level>
           <default>0</default>
@@ -325,12 +318,9 @@
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
-        <!-- Only offered alongside a resolution cap. Measured against 10.11:
-             Quality=90 returns the original bytes for every artwork tested,
-             because the server keeps the source when the requested quality is
-             no lower than it already is. The saving is real once the image is
-             being re-encoded to fit the cap anyway (141 KB -> 55 KB on a
-             1400x2100 poster at 480p), and nil without one. -->
+        <!-- Only offered alongside a resolution cap: the server keeps the
+             source bytes when the requested quality is no lower than the
+             image's, so compression saves nothing without a re-encode. -->
         <setting id="compressArt" type="boolean" label="30318" help="30319">
           <level>0</level>
           <default>true</default>
@@ -396,17 +386,8 @@
           </dependencies>
           <control type="spinner" format="string"/>
         </setting>
-        <!-- Recap, Preview and Commercial are all Off by default, leaving only
-             Intro and Credits acting out of the box. That is every sibling
-             Jellyfin client's default set (jellyfin-web's DEFAULT_ACTIONS,
-             jellyfin-androidtv's mediaSegmentActions, Findroid, jellyfin-kodi)
-             and what jellyfin-meta#30 asked for — "most if not all of the
-             default user settings should probably be Do Nothing". Each has its
-             own reason: a recap is narratively load-bearing for anyone who took
-             a week off between episodes, which an intro never is; a preview is
-             content some viewers want; and Commercial was the odd one out at
-             Auto, silently moving the picture on segments a chapter- or
-             EDL-derived provider can place wrongly. -->
+        <!-- Recap, Preview and Commercial default Off; only Intro and
+             Credits act out of the box. -->
         <setting id="skipRecapMode" type="integer" label="30459" help="30460">
           <level>0</level>
           <default>0</default>
@@ -506,8 +487,6 @@
       </group>
     </category>
 
-    <!-- SyncPlay. Was a group on Playback; enough settings now to earn the
-         tab the original plan asked for. -->
     <category id="syncplay" label="30550" help="30837">
       <group id="1">
         <setting id="syncPlayEnabled" type="boolean" label="30551" help="30552">
@@ -590,7 +569,6 @@
       </group>
     </category>
 
-    <!-- Transcoding -->
     <category id="transcoding" label="30100" help="30101">
       <group id="1">
         <setting id="forceDirectPlay" type="boolean" label="30102" help="30103">
@@ -621,16 +599,6 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <!-- The list[string] settings below carry no forceDirectPlay
-             visibility dependency: on Omega, a <dependencies> block attached
-             to a list[string] setting silently unregisters the setting it
-             references, so forceDirectPlay vanished from the manager and every
-             lookup of it warned (Kodi settings-manager bug, verified
-             empirically on 21.3). They therefore stay visible even under force
-             direct play — a native multiselect that closed the settings window
-             (the only way to hide them) was not worth the trade. The API
-             profile, whose floor is Kodi 22, adds the rule when it is built
-             (tools/package_manifest.py, VISIBLE_WHILE). -->
         <setting id="directPlayVideoCodecs" type="list[string]" label="30108" help="30109">
           <level>0</level>
           <default>h264,h264_10bit,hevc,hevc_rext,av1,mpeg2video,vp9,vc1</default>
@@ -739,14 +707,10 @@
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
-        <!-- Always visible, no forceDirectPlay dependency: the ceiling
-             describes the device, not the transcoder, and force direct play is
-             now the default — the dependency hid it in the shipped
-             configuration. Caveat for whoever reads this next: the value only
-             reaches TranscodingProfiles.MaxAudioChannels (deviceprofile.py).
-             Capping *direct-played* audio needs an AudioChannels
-             codec-profile condition, which force direct play deliberately
-             suppresses along with every other video-side constraint. -->
+        <!-- Always visible: the ceiling describes the device. It reaches
+             only TranscodingProfiles.MaxAudioChannels (deviceprofile.py);
+             direct-played audio is not capped, since force direct play
+             suppresses codec-profile conditions. -->
         <setting id="maxAudioChannels" type="integer" label="30118" help="30119">
           <level>0</level>
           <default>8</default>
@@ -860,9 +824,6 @@
           <default>false</default>
           <control type="toggle"/>
         </setting>
-        <!-- The three settings below are spinners, not list[string]: a
-             <dependencies> block is safe here (see the musicTranscode note
-             and the contextBitrates comment above). -->
         <setting id="musicMaxBitrate" type="integer" label="30129" help="30130">
           <level>0</level>
           <default>0</default>
@@ -921,19 +882,10 @@
       </group>
     </category>
 
-    <!-- Downloads (docs/offline-downloads-plan.md W1.1). Plain bool/path/int
-         settings only, so the visible-dependencies below are safe — the
-         Omega unregister bug bites list[string] settings, and none live
-         here.
-
-         ONE group on purpose. Every setting bar the master toggle is gated
-         `visible` on downloadsEnabled, so a group that did not also contain
-         downloadsEnabled had no visible member at all while the feature was
-         off — and Kodi does not recompute a *group's* visibility when a
-         member's changes, so those groups stayed hidden until the dialog was
-         rebuilt. Enabling downloads showed the path and the sliders (this
-         group) and nothing else until you backed out and came in again.
-         Splitting this category up again re-creates that. -->
+    <!-- Downloads. One group: every setting but the master toggle is
+         visible only with downloadsEnabled, and Kodi does not recompute a
+         group's visibility when a member's changes, so a group without the
+         toggle stays hidden until the dialog is rebuilt. -->
     <category id="downloads" label="30700" help="30701">
       <group id="1">
         <setting id="downloadsEnabled" type="boolean" label="30702" help="30703">
@@ -999,7 +951,7 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-        <!-- Conditional download transcoding (plan W3.1). The device
+        <!-- Conditional download transcoding. The device
              codec/HDR compatibility lists are deliberately *not* duplicated
              here — the downloads profile reads the transcode tab's
              directPlayVideoCodecs/directPlayAudioCodecs/allowedHdrTypes,
@@ -1015,10 +967,8 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <!-- `string`, not `integer`: the sub-1 Mbit/s options cannot be
-             expressed as integers. Read with settings.get_float; the value
-             set matches contextBitrates above, which has always been
-             fractional. -->
+        <!-- A string like maxStreamingBitrate, for the sub-1 Mbit/s
+             options. Read with settings.get_float. -->
         <setting id="downloadsMaxBitrate" type="string" label="30724" help="30725">
           <level>0</level>
           <default>0</default>
@@ -1075,7 +1025,7 @@
           </dependencies>
           <control type="spinner" format="string"/>
         </setting>
-        <!-- Music downloads (plan W3.2), same conditional shape: lossless
+        <!-- Music downloads, same conditional shape: lossless
              tracks and anything over the cap transcode; compliant tracks
              download as the original file. -->
         <setting id="downloadsMusicTranscode" type="boolean" label="30728" help="30729">
@@ -1204,8 +1154,7 @@
           <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
           <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=library)</data></control>
         </setting>
-        <!-- Automatic downloads and lifecycle (plan W4.1/W4.2/W4.4/W4.5) plus
-             the metadata export (W4.3). -->
+        <!-- Automatic downloads and lifecycle, plus the metadata export. -->
         <setting id="downloadsAutoNext" type="boolean" label="30738" help="30739">
           <level>0</level>
           <default>false</default>
@@ -1315,15 +1264,10 @@
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadshows)</data>
           </control>
         </setting>
-        <!-- One lifecycle answer for every download, whoever queued it: the
-             pair below replaced downloadsDeleteAfterPlay (a three-way
-             spinner over user-queued items) and downloadsAutoCleanup (a
-             silent sweep over automatic ones), which between them meant the
-             same watched episode was treated differently depending on how it
-             arrived. New ids rather than a retype: an upgraded profile still
-             holds "off"/"ask"/"always" under the old id, which no boolean
-             read could make sense of. Both default off — the old sweep
-             defaulted on, so an upgrade stops deleting until asked. -->
+        <!-- One lifecycle answer for every download, whoever queued it.
+             New ids: upgraded profiles hold old-format values under
+             downloadsDeleteAfterPlay and downloadsAutoCleanup, so neither may
+             be reused. Both default off. -->
         <setting id="downloadsDeleteAfterWatching" type="boolean" label="30746" help="30747">
           <level>0</level>
           <default>false</default>
@@ -1347,13 +1291,12 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <!-- The other half of the lifecycle question (plan W4.8): the pair
-             above answers "you finished it", this one answers "you never got
-             to it". Deliberately *not* dependent on downloadsDeleteAfterWatching
-             — nesting it there would make the case it exists for (downloaded,
-             never watched) unreachable. Silent like the automatic mode of the
-             watched sweep: there is nobody to ask about something last
-             touched a month ago, so turning it on is the consent. -->
+        <!-- The other half of the lifecycle question: the pair above
+             answers "you finished it", this one answers "you never got to
+             it". Not dependent on downloadsDeleteAfterWatching, which would
+             make the never-watched case unreachable. Silent: there is nobody
+             to ask about something last touched a month ago, so turning it on
+             is the consent. -->
         <setting id="downloadsDeleteStale" type="boolean" label="30811" help="30812">
           <level>0</level>
           <default>false</default>
@@ -1405,11 +1348,8 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <!-- Where the downloads are and what they weigh (D1). Sits directly
-             above "Delete all downloads" because it is the question anybody
-             asks before pressing that, and carries no <close> for the same
-             reason it does not: the report is a sub-dialog of this page, so
-             reading it returns here. -->
+        <!-- Where the downloads are and what they weigh. No <close>: the
+             report is a sub-dialog of this page. -->
         <setting id="downloadsShowSize" type="action" label="30832" help="30833">
           <level>0</level>
           <dependencies>
@@ -1438,7 +1378,6 @@
       </group>
     </category>
 
-    <!-- Advanced -->
     <category id="advanced" label="30071" help="30072">
       <group id="1">
         <!-- Hidden state written by the who's-watching shortlist picker only.
@@ -1477,10 +1416,9 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
-        <!-- Cast for kofin's own listings. Off by default on measured cost:
-             People is 7-25 ms of server time and ~7 KB per row on 10.11
-             (0.6 s on a 25-row listing), and even when on only the bounded
-             listings ask for it — plugin/browse.py bounded_fields. -->
+        <!-- Cast for kofin's own listings. Off by default for its server
+             cost; even when on, only the bounded listings ask for People
+             (plugin/browse.py bounded_fields). -->
         <setting id="browseCast" type="boolean" label="30819" help="30820">
           <level>0</level>
           <default>false</default>
@@ -1538,13 +1476,6 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <!-- Rewrites addon.xml's <reuselanguageinvoker>. Kodi reads that
-             element at addon load, so a change needs a Kodi restart. The
-             zip always ships true; the service reconciles a false setting
-             after an update overwrites the file. Disable when several
-             skin widgets load plugin:// paths at once — Kodi has one
-             reusable invoker thread, and overlapping GetDirectory calls
-             on it hang or crash. -->
       </group>
     </category>
 

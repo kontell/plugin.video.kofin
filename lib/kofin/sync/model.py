@@ -1,9 +1,4 @@
-"""Pure metadata shared by native SQL and public-API serializers.
-
-No Kodi modules, settings reads, networking or storage. The legacy API wrapper
-supplies settings-dependent art/resume policy separately. Stream conversion
-retains the existing writer representation and ordering exactly.
-"""
+"""Pure metadata helpers: no Kodi modules, settings reads, networking or storage."""
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -217,14 +212,13 @@ class Metadata:
 
 
 def streams_and_runtime(item: Mapping[str, Any]) -> Tuple[Dict[str, Any], float]:
-    """``(streams, runtime_seconds)`` for ``add_streams`` from a Jellyfin DTO.
+    """``(streams, runtime_seconds)`` from a Jellyfin DTO.
 
-    Used for movie extras (and later video versions). Prefers
-    ``MediaSources[0]`` streams — the same shape the Movie map uses — and
-    falls back to top-level ``MediaStreams``. When the payload has a runtime
-    but no video track, a stub video row is synthesised so Kodi still gets
-    ``iVideoDuration`` (without it the extras UI falls back to the film's
-    length). Track dicts are copied so the caller's DTO is not mutated.
+    Prefers ``MediaSources[0]`` streams and falls back to top-level
+    ``MediaStreams``. When the payload has a runtime but no video track, a
+    stub video row is synthesised so Kodi still gets ``iVideoDuration``
+    (without it the extras UI falls back to the film's length). Track dicts
+    are copied so the caller's DTO is not mutated.
     """
     sources = item.get("MediaSources") or []
     if sources:
@@ -271,22 +265,12 @@ def streams_and_runtime(item: Mapping[str, Any]) -> Tuple[Dict[str, Any], float]
 
 
 def ratings(obj: Mapping[str, Any]) -> Dict[str, Tuple[Any, Any]]:
-    """Ordered ``{rating_type: (rating, votes)}`` for Kodi's rating table.
+    """Ordered ``{rating_type: (rating, votes)}`` for Kodi's ratings.
 
-    The community rating is always present, even as ``None``: Kodi keys the
-    default-rating pointer on a row, so an unrated item still needs one (and
-    the fork's single ``default``-typed row is exactly this entry, kept under
-    its old name so no existing install is rewritten for cosmetics).
-
+    The community rating is always present as ``default``, even as ``None``.
     The critic rating (Jellyfin's ``CriticRating``, the OMDb plugin's Rotten
-    Tomatoes tomatometer) is a percentage, so it is scaled onto Kodi's 0-10
-    scale -- 78 becomes 7.8. Star ratings and rating sorts assume that scale,
-    and a raw 78 next to a community 7.1 would break both the moment the user
-    made critic the default. Rounded because the dumps must be byte-identical
-    across an idempotent re-write.
-
-    First entry first: :meth:`kodidb.Movies.sync_ratings` uses insertion order
-    for both id allocation and the fallback pointer.
+    Tomatoes tomatometer) is a percentage, scaled onto Kodi's 0-10 scale --
+    78 becomes 7.8 -- so star ratings and rating sorts agree.
     """
     rows = {"default": (obj.get("Rating"), obj.get("Votes"))}
     critic = obj.get("CriticRating")
@@ -301,30 +285,13 @@ PROVIDER_PRIORITY = ("imdb", "tvdb", "tmdb")
 
 
 def unique_ids(obj: Mapping[str, Any]) -> Dict[str, str]:
-    """Ordered ``{provider: value}`` for Kodi's uniqueid table.
+    """Ordered ``{provider: value}`` of every non-empty provider id.
 
-    That table is a *set* with a pointer, exactly as ``rating`` is: the media
-    row names the default member -- ``movie.c09``, ``tvshow.c12``,
-    ``episode.c20``, the columns ``movie_view`` and kin LEFT JOIN on -- so
-    every provider the server sends gets a row and the pointer picks one of
-    them (:meth:`kodidb.kodi.Kodi.sync_unique_ids`).
-
-    The fork wrote one row per item, typed from a provider hardcoded per media
-    kind in ``obj_map.json`` (Imdb for movies, Tvdb for TV), whether or not
-    the item had that provider. An item carrying only a TMDB id therefore got
-    a row with an empty value while its real id was discarded -- 15,796 empty
-    rows on a 16,404-item corpus, and nothing able to resolve any of those
-    items by external id (the mechanism behind jellyfin/jellyfin-kodi#920).
-
-    Keys are lowercased because that is what Kodi's own scrapers write and
-    what ``ListItem.UniqueID(imdb)`` looks up, while Jellyfin capitalises
-    them. Empty values are skipped rather than stored, which is the fix. And
-    nothing is filtered by name: an allowlist here is the defect, so a
-    provider kofin has never heard of still gets its row.
-
-    PROVIDER_PRIORITY first, then whatever else the server sent in its own
-    order, which keeps uniqueid_id allocation deterministic for the
-    idempotency dumps.
+    Keys are lowercased, as Kodi's own scrapers write them and
+    ``ListItem.UniqueID(imdb)`` looks them up, while Jellyfin capitalises
+    them. PROVIDER_PRIORITY comes first, then the server's order. Nothing is
+    filtered by name, so a provider kofin has never heard of still gets its
+    entry.
     """
     found = {}
 

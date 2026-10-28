@@ -1,19 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Change-feed providers: the companion-plugin tier ladder as code
-(phase 5, plan §2).
+"""Change-feed providers: the companion-plugin tier ladder as code.
 
 One internal record type covers every tier; each enhancement keys off
-**field presence, not tier identity**, so the phase-6 plugin-free provider
-is a third implementation, not a redesign. ``KofinFeed`` speaks the
+**field presence, not tier identity**. ``KofinFeed`` speaks the
 KofinSyncQueue v1 protocol (typed records, query-time Etags, retention
 cutoff in-band); ``LegacyFeed`` adapts the official KodiSyncQueue
 ``GetItems`` shape into sparse records — optional fields stay ``None`` and
 the tier-1 features simply never engage.
-
-The planner functions are pure: they turn a change set plus local lookups
-into ordered work lists, so every decision (skip-before-download, parent
-prefetch, image-only demotion, retention overrun) is unit-testable without
-Kodi or a server.
 """
 
 import calendar
@@ -34,8 +27,7 @@ TIER_KOFIN = "kofin"
 TIER_OFFICIAL = "official"
 TIER_NONE = "none"
 
-# The one protocol version this client speaks. A mismatch falls to tier 2
-# (adopt-by-probe, never raise a floor — the phase-4 stance).
+# The one protocol version this client speaks.
 PROTOCOL_VERSION = 1
 
 WATERMARK_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -46,10 +38,8 @@ ALL_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music", "playlists"
 # The official KodiSyncQueue exclude list does not know playlists.
 LEGACY_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 
-# Parent-first ranks: parents download ahead of children so the orphan
-# re-queue dance never engages on tier 1. Unranked types sit mid-field.
-# ("AlbumArtist" was ranked here too, from the fork; it is not a Jellyfin
-# item kind and never reaches a record -- see the note in library.py.)
+# Parent-first ranks: parents download ahead of children. Unranked types sit
+# mid-field.
 _TYPE_RANK = {
     "Series": 0,
     "MusicArtist": 0,
@@ -67,8 +57,7 @@ ARTWORK_ONLY_TYPES = ("Movie", "Series", "Season", "Episode", "MusicVideo")
 # Media classes that are not library-scoped, and so are never dropped by the
 # library filter. Boxsets live in Jellyfin's own "Collections" library, whose
 # id is never in a user's whitelist -- filtering them by library would delete
-# every collection. They are admitted by type, as _include_types has always
-# done (movies synced => boxsets synced).
+# every collection. They are admitted by type.
 LIBRARY_AGNOSTIC_TYPES = ("boxsets", "playlists")
 
 
@@ -198,8 +187,7 @@ class KofinFeed:
         libraries: Optional[Sequence[str]] = None,
     ) -> ChangeSet:
         # Sent unconditionally: a server that predates the parameter ignores
-        # it, and one that honours it saves us the records outright. No
-        # handshake -- the enhancement keys off field presence, both ways.
+        # it, and one that honours it saves us the records outright.
         result = self.api.kofin_sync_queue(
             watermark_to_unix(last_sync),
             ",".join(include),
@@ -230,13 +218,9 @@ class KofinFeed:
 
 
 class LegacyFeed:
-    """Tier 2: the official KodiSyncQueue — sparse records, fork semantics.
+    """Tier 2: the official KodiSyncQueue — sparse records.
 
-    The GetServerDateTime round trip the drain-time watermark save used to
-    make (library.py save_last_sync) happens here at *query* time instead:
-    same request count per catch-up, an earlier (safer) clock sample, and
-    the RetentionDateTime field — returned today and ignored by every
-    client — finally read (plan §2 retention overrun, sync-plan R5).
+    The server clock and RetentionDateTime are sampled at query time.
     """
 
     tier = TIER_OFFICIAL
@@ -250,9 +234,8 @@ class LegacyFeed:
         include: Sequence[str],
         libraries: Optional[Sequence[str]] = None,
     ) -> ChangeSet:
-        # The legacy protocol has no library dimension at all; the records it
-        # returns carry no library_ids, so the planner keeps them and the
-        # ancestor walk decides, exactly as before.
+        # The legacy protocol has no library dimension; its records carry no
+        # library_ids, so they are kept and the ancestor walk decides.
         del libraries
 
         envelope = Envelope()
@@ -268,7 +251,6 @@ class LegacyFeed:
             # detection just skips this cycle.
             LOG.warning("GetServerDateTime failed: %s", error)
 
-        # The legacy protocol takes an *exclude* list.
         excluded = [x for x in LEGACY_TYPES if x not in include]
         result = self.api.sync_queue(last_sync, ",".join(excluded))
 
@@ -331,11 +313,11 @@ def detect(api: Any) -> Optional[Any]:
 
 
 def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:
-    """Whether the server's queue no longer reaches back to our watermark.
+    """Whether the server's queue does not reach back to our watermark.
 
-    True means records between the watermark and the cutoff are gone —
-    silently, unless answered with a targeted update pass (sync-plan R5).
-    An empty watermark is a fresh install: nothing to overrun.
+    True means records between the watermark and the cutoff are gone, and
+    only a complete enumeration brings them back. An empty watermark is a
+    fresh install: nothing to overrun.
     """
     if not retention_cutoff:
         return False
@@ -346,8 +328,7 @@ def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:
 
 
 def stored_checksum_matches(etag: Optional[str], checksum: Optional[str]) -> bool:
-    """The check_unchanged predicate, evaluated before download — one
-    spelling with the catalogue, via policy.reference_checksum."""
+    """Whether the Etag matches the stored checksum (policy.reference_checksum)."""
     return bool(etag) and checksum == reference_checksum(etag)
 
 
@@ -385,10 +366,7 @@ def in_scope(record: ChangeRecord, libraries: Optional[Set[str]]) -> bool:
 
 
 def type_rank(item_type: Optional[str]) -> int:
-    """Parent-first rank for an item type. Public because the update-mode
-    prune sorts by it too: its id/Etag pages arrive in SortName order, which
-    interleaves Series/Season/Episode, so it needs the same ordering the typed
-    feed gives additions."""
+    """Parent-first rank for an item type."""
     return _TYPE_RANK.get(item_type or "", _RANK_DEFAULT)
 
 
@@ -401,12 +379,8 @@ def parent_candidates(records: Sequence[ChangeRecord]) -> List[str]:
     the caller checks these against kofin.db and passes the unknown-locally
     survivors to build_plan as prefetch material.
 
-    Updated records count, not only Added ones: "Updated" is the server's word
-    about its own item, and says nothing about whether we ever synced it. An
-    updated season whose series kofin.db has never seen was the one
-    deterministic way a child still reached the writer parentless — the
-    writers heal that inline now, but a fetch inside the write lock is the
-    fallback, not the plan.
+    Updated records count too: "Updated" says nothing about whether we ever
+    synced the item.
     """
     batch = {record.id for record in records}
     series: List[str] = []
@@ -437,18 +411,10 @@ def build_plan(
     """Turn a change set into ordered work lists.
 
     * Library scope: records naming only libraries we do not sync are dropped
-      first, before anything is fetched. This is the whole point of the
-      dimension — without it the client pays one ``/Items/{id}/Ancestors``
-      round trip per irrelevant item just to learn it should refuse it, and
-      the work scales with the size of libraries the user is *not* syncing.
-      Removals are exempt: they cost two local lookups rather than a round
-      trip, and one dropped in error leaves a row orphaned in Kodi with no
-      watermark that would ever bring it back.
+      before anything is fetched; removals are exempt, since one dropped in
+      error leaves a row orphaned in Kodi.
     * Skip-before-download: records whose Etag matches the stored checksum
-      are dropped here — same predicate as the post-download short-circuit,
-      evaluated earlier (plan §2). Their userdata, if any, survives via the
-      userdata list (the dedup below only considers records that will
-      actually download).
+      are dropped here.
     * Ordering: parents ahead of children, newest first within rank.
     * Parent prefetch: unknown series/seasons referenced by any child that
       will download — added or updated — are prepended as their own additions.
@@ -497,11 +463,6 @@ def build_plan(
 
     added_records.sort(key=_added_sort_key)
 
-    # Candidates come from everything that will download, not just the
-    # additions: an updated or image-only child can reference a parent we have
-    # never synced. Skipped records are excluded by construction — their Etag
-    # matched a stored checksum, so they are in kofin.db and so are we.
-    #
     # A prefetched parent joins plan.added even when the child that wanted it
     # is an update, which is what makes the ordering hold: additions are
     # downloaded and written before any update is downloaded at all.
