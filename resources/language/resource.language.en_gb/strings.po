@@ -341,7 +341,7 @@ msgid "Preferred video codec"
 msgstr ""
 
 msgctxt "#30115"
-msgid "The codec the server targets when it must transcode video."
+msgid "The codec the client asks for when video must be transcoded."
 msgstr ""
 
 msgctxt "#30116"
@@ -349,7 +349,7 @@ msgid "Preferred audio codec"
 msgstr ""
 
 msgctxt "#30117"
-msgid "The codec the server targets when it must transcode audio."
+msgid "The codec the client asks for when audio must be transcoded."
 msgstr ""
 
 msgctxt "#30118"
@@ -365,7 +365,7 @@ msgid "Maximum streaming bitrate"
 msgstr ""
 
 msgctxt "#30121"
-msgid "Media above this bitrate is transcoded down to it. Unlimited suits LAN playback."
+msgid "Media above this bitrate is transcoded down to it."
 msgstr ""
 
 msgctxt "#30122"
@@ -389,7 +389,7 @@ msgid "Context menu bitrates"
 msgstr ""
 
 msgctxt "#30127"
-msgid "Bitrates offered by 'Play with transcoding'. With exactly one selected the popup is skipped."
+msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr ""
 
 # 30128 — retired with the settings reorganisation of 2026-07-21 (the Music
@@ -1129,7 +1129,7 @@ msgid "Resume offset (seconds)"
 msgstr ""
 
 msgctxt "#30476"
-msgid "Seconds to rewind before the stored resume point, so playback picks up a moment earlier."
+msgid "Seconds to rewind before the stored resume point."
 msgstr ""
 
 msgctxt "#30477"
@@ -1137,7 +1137,7 @@ msgid "Hide the skip button after"
 msgstr ""
 
 msgctxt "#30478"
-msgid "How far into a segment the skip button disappears, so it stops covering the picture once you have decided not to press it. 100% keeps it up for the whole segment."
+msgid "How far into a segment the skip button disappears. 100% keeps it up for the whole segment."
 msgstr ""
 
 msgctxt "#30481"
@@ -1381,7 +1381,7 @@ msgstr ""
 # names; the live TV toast that took its place is #30875. Kept, never reused,
 # for the reason given at #30744.
 msgctxt "#30586"
-msgid "Fine sync"
+msgid "Fine sync using tempo"
 msgstr ""
 
 msgctxt "#30587"
@@ -1833,7 +1833,7 @@ msgid "Transcode music"
 msgstr ""
 
 msgctxt "#30729"
-msgid "Transcode a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file with their tags intact."
+msgid "Transcode a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file."
 msgstr ""
 
 msgctxt "#30730"
@@ -1892,7 +1892,7 @@ msgid "Download newly added movies"
 msgstr ""
 
 msgctxt "#30743"
-msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
+msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr ""
 
 # 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
@@ -1936,7 +1936,7 @@ msgid "Export NFO files and artwork"
 msgstr ""
 
 msgctxt "#30753"
-msgid "Write NFO metadata and artwork beside downloaded files, so other apps can scan the download folder as a library."
+msgid "Write NFO metadata and artwork beside downloaded files, so other Kodi profiles and apps can scan the download folder as a library."
 msgstr ""
 
 msgctxt "#30754"
@@ -1944,7 +1944,7 @@ msgid "Download all new episodes"
 msgstr ""
 
 msgctxt "#30755"
-msgid "Every episode newly added to a synced library is downloaded automatically. A bulk import of many episodes at once is skipped, with a notification."
+msgid "Every episode newly added to a synced library is downloaded automatically."
 msgstr ""
 
 msgctxt "#30756"
@@ -1952,7 +1952,7 @@ msgid "Download new albums"
 msgstr ""
 
 msgctxt "#30757"
-msgid "Albums newly added to a synced library are downloaded automatically. A bulk import of many albums at once is skipped, with a notification."
+msgid "Albums newly added to a synced library are downloaded automatically."
 msgstr ""
 
 msgctxt "#30758"
@@ -2326,7 +2326,7 @@ msgid "Storage used"
 msgstr ""
 
 msgctxt "#30833"
-msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgid "Show where the downloads are kept and how much space each kind is using."
 msgstr ""
 
 # The row for everything under the downloads folder that kofin did not put
@@ -2430,7 +2430,7 @@ msgid "Library nodes and playlists"
 msgstr ""
 
 msgctxt "#30857"
-msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead."
+msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr ""
 
 # 30858 — the toast the API build shows once when it turns Kodi's own
