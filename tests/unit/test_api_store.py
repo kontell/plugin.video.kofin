@@ -93,10 +93,9 @@ def test_library_move_is_pending_without_metadata_change(store):
 
 
 def test_pending_work_carries_payloads_only_for_removals(store):
-    """A pass holds one record per pending item; loading every payload with
-    them was 200 MB of Python for 6,600 video items and wedged a 1 GB
-    device. Only a tombstone, which names what it removes, travels with
-    the work; an upsert's payload is read on demand."""
+    """A pass holds one record per pending item. Only a tombstone, which
+    names what it removes, travels with its payload; an upsert's payload is
+    read on demand."""
     store.publish([movie(), movie("b")], library=LIB)
     store.publish([movie("b")], library=LIB)
     work = {item_id: rest for item_id, *rest in store.pending_work()}

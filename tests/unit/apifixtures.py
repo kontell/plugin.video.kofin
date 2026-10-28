@@ -416,8 +416,8 @@ def worker(store, server, selected, monkeypatch, feed=None):
     monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": []})
     monkeypatch.setattr(library.private, "save_sync", lambda state: None)
     # The coordinator republishes the node tree when the selection moves, and
-    # under the stubs its paths are relative: a test that whitelists a
-    # library wrote kofin/ and Kofin/ into the working directory.
+    # under the stubs its paths are relative: it would write kofin/ and Kofin/
+    # into the working directory.
     monkeypatch.setattr("kofin.sync.dynamic.publish", lambda *a, **k: None)
     if feed is None:
         monkeypatch.setattr(library.changefeed, "detect", lambda api: None)

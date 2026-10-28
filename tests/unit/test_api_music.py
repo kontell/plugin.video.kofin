@@ -105,8 +105,9 @@ def test_a_first_import_under_repair_writes_only_the_played_song(store, backend,
 
 def test_a_repair_sends_nothing_for_a_song_whose_userdata_matches(store, backend, kodi):
     """A song's desired state is its userdata and the readback shows all of
-    it, so a moved payload hash is no reason to write: the setter would only
-    re-stamp the song's dateAdded."""
+    it, so a moved payload hash is no reason to write: the setter would
+    change nothing, and without song_date_added it re-stamps the song's
+    dateAdded."""
     store.publish(album_bundle(songs=2), library=LIB)
     backend.reconcile()
     kodi.calls.clear()
@@ -125,8 +126,8 @@ def test_a_repair_sends_nothing_for_an_album_whose_userdata_key_moved(
 ):
     """Jellyfin answers an album's UserData.Key with the key its user data
     was saved under or with its release group's, depending on its cache. No
-    desired state reads the key, and a repair that hashed it rewrote the same
-    thirty albums after every complete enumeration."""
+    desired state reads the key, so a hash that took it in would have every
+    repair rewrite those albums."""
     items = album_bundle(songs=2)
     items[1]["UserData"] = {"Key": "Band-Record", "PlayCount": 0, "Played": False}
     store.publish(items, library=LIB)
@@ -166,8 +167,7 @@ def test_a_first_import_reads_no_song_payload_to_pick_its_directories(
     store, backend, kodi, monkeypatch
 ):
     """A song with no row is missing whatever its tags say: the directories
-    of a first import are picked without one payload read, where walking
-    22,000 of them cost a Raspberry Pi 21 s before the scan began."""
+    of a first import are picked without one payload read."""
     store.publish(album_bundle(songs=3), library=LIB)
     before_the_scan = []
     payloads, payload = store.payloads, store.payload
@@ -486,10 +486,8 @@ def test_music_readback_pages_and_acknowledges_in_batches(
 
 
 def test_a_song_marked_unplayed_keeps_the_stamp_kodi_cannot_clear(store, backend, kodi):
-    """Kodi's song setter loads the row first and an empty date leaves the
-    old one standing, so a last-played stamp cannot be cleared through it.
-    Wanted empty, a song played once and then marked unplayed failed its
-    readback on every pass, and each failed pass was run again in full."""
+    """Kodi's song setter cannot clear a last-played stamp, so a song marked
+    unplayed keeps it and the pass does not ask for it empty."""
     items = album_bundle(songs=1)
     items[2]["UserData"] = {
         "Played": True,
@@ -538,9 +536,8 @@ def test_video_and_music_libraries_share_one_pass(store, backend, kodi):
 
 
 def test_album_and_artist_art_does_not_wait_for_the_video_scans(store, backend, kodi):
-    """Selected together, a music library's covers came after every movie
-    and show had been scanned: the music scan runs first, but the kinds were
-    all applied after the last scan, half an hour later on a small device."""
+    """Selected together with a video library, a music library's albums and
+    artists are applied between the music scan and the video scans."""
     membership = {"a": LIB}
     items = [movie()] + album_bundle(songs=2)
     items[3]["UserData"] = {
@@ -636,9 +633,9 @@ def test_a_scan_visits_its_directories_a_part_at_a_time_in_label_order(
 def test_a_part_is_never_a_directory_below_the_music_root():
     """Kodi takes a directory it is asked to scan to exist from its cached
     listing of the parent when it has one, and it lists a music root on its
-    own account; a part below the root was skipped as missing the moment
-    that listing was cached (observed on 22.0b2). The parts have a parent
-    of their own, which nothing lists but a request for it."""
+    own account, so a part below the root would be skipped as missing once
+    that listing is cached. The parts have a parent of their own, which
+    nothing lists but a request for it."""
     key, library = "a" * 32, "b" * 32
     root = paths.library_dir(key, library, "music")
     part = paths.music_part(key, library, 7)
@@ -680,7 +677,7 @@ def test_the_provider_lists_a_part_from_the_plan_and_the_parent_names_every_part
     # Nothing planned: a part lists nothing and the parent names no part.
     assert listed(paths.music_part(key, LIB, 0)) == []
     assert listed(paths.walk_dir(key, LIB)) == []
-    # The root lists every directory, as it always did.
+    # The root lists every directory.
     everything = [(paths.music_dir(key, LIB, f), True) for f in oldest_first]
     assert listed(paths.library_dir(key, LIB, "music")) == everything
     # A plan of three of the five: two parts, in the plan's order.
@@ -825,9 +822,7 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
     assert metadata.hash_time(base) != metadata.hash_time(
         metadata.tag_hash(song("t1", Name="Other"), album())
     )
-    # Played with no date: the day the server first saw the song stands in,
-    # or Kodi's UpdateSong stamps the import time and the album tops
-    # "recently played" (sixteen such songs did, on a tablet).
+    # Played with no date: the day the server first saw the song stands in.
     assert metadata.details(item, "http://s", "k", LIB) == {
         "playcount": 3,
         "lastplayed": metadata._timestamp("2023-11-15T19:18:34.08Z"),
@@ -1080,9 +1075,9 @@ def test_a_directory_the_scanner_skips_is_salted_until_it_imports(
 ):
     """A scan stopped before its songs were written leaves Kodi a directory
     hash with no rows, and every later scan skips the directory "due to no
-    change": two albums on the LibreELEC box. A by-name scan that leaves the
-    songs missing bumps the directory's salt, which moves every listed date
-    and the folder's label, so the next scan sees a change."""
+    change". A by-name scan that leaves the songs missing bumps the
+    directory's salt, which moves every listed date and the folder's label,
+    so the next scan sees a change."""
     from kofin.sync.backends.api import metadata
 
     items = album_bundle(songs=2)
