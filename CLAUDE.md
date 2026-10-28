@@ -460,9 +460,10 @@ What remains is kofin's own:
   tells the extras directory, a file in it and a disc-probe folder below it apart: the
   directory is listed, a probe answers empty (`native._prepare_scan` lists the folder and its
   `VIDEO_TS/` and `BDMV/` through `Files.GetDirectory` right before the scan, so the directory
-  cache answers Kodi's probe), and a file goes to the play route or fails as a play. The pass
-  turns `videolibrary.ignorevideoextras` off once (`allow_extras`), with a toast, since Kodi
-  drops the folder before looking at it while that is on. **The folder `extras/` is bound,
+  cache answers Kodi's probe), and a file goes to the play route or fails as a play. Kodi
+  drops the folder before looking at it while `videolibrary.ignorevideoextras` is on (its
+  default), and that setting is the viewer's: the pass never changes it, and the folder is
+  scanned once either way. **The folder `extras/` is bound,
   `noupdate`, or Clean library deletes every extra unasked:** an extra's URL has no query, so
   Kodi files it under the add-on's root (`CVideoDatabase::SplitPath`), where a clean finds no
   binding and asks nothing. The scan that files a movie's extras binds the folder

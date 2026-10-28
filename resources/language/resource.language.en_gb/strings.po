@@ -2395,8 +2395,8 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr ""
 
-# 30858 — the toast shown once when kofin turns Kodi's own "Ignore video
-# extras on scan" setting off for the extras import.
+# 30858 — retired: the toast for turning Kodi's "Ignore video extras on
+# scan" off. Kept, never reused, for the reason given at #30744.
 msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr ""

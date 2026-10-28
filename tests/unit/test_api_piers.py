@@ -140,6 +140,7 @@ def test_a_piers_leaves_dropped_assets_to_the_viewers_own_clean(store, backend, 
     would ask about every bound folder of every library and delete what goes
     unanswered, so the pass cleans nothing, acknowledges the listing it
     presented, and says so once; the rows stay until the movie leaves."""
+    piers.settings["videolibrary.ignorevideoextras"] = False
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()

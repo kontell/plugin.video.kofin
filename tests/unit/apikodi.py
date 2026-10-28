@@ -285,10 +285,11 @@ class Kodi:
     def _scan_movie_assets(self, record):
         """A movie folder scanned by name. Each further version file, whose
         tag says it has versions (kontell/xbmc #8), is filed as a version of
-        the movie. The extras folder is read only when the folder's binding
-        uses folder names, "Ignore video extras" is off and its directory
-        cache knows the folder and the disc folders probed below it;
-        otherwise the folder is a phantom disc and the extras are lost."""
+        the movie. While "Ignore video extras" is on Kodi drops the extras
+        folder from the listing. Otherwise it is read only when the folder's
+        binding uses folder names and its directory cache knows the folder
+        and the disc folders probed below it; failing either, the folder is
+        a phantom disc and the extras are lost."""
         folder = paths.movie_dir(self.key, record.library, record.item_id)
         canonical = paths.playback_url(
             self.key, "Movie", record.library, record.item_id
@@ -315,11 +316,9 @@ class Kodi:
             return
         extras = folder + paths.EXTRAS
         probes = {extras, extras + "VIDEO_TS/", extras + "BDMV/"}
-        if (
-            self.settings.get("videolibrary.ignorevideoextras")
-            or not self.dirnames.get(folder)
-            or not probes <= set(self.listed)
-        ):
+        if self.settings.get("videolibrary.ignorevideoextras"):
+            return
+        if not self.dirnames.get(folder) or not probes <= set(self.listed):
             self.phantoms.append(folder)
             return
         self.extras[owner["movieid"]] = [paths.extra_name(f) for f in features]
