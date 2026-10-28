@@ -26,9 +26,8 @@ ENTRY_PROPS = ("index", "id", "path", "artwork", "title", "content", "type")
 # ...and on each of its sub-nodes. Derived from the node table, so a node
 # added there is cleared here without a second list to forget.
 SUB_PROPS = ("title", "content", "path", "id", "type", "artwork")
-# Dropped from NODES but still cleared: a skin that read the old
-# Kofin.nodes.N.nextepisodes.* would otherwise keep a dead plugin path
-# until Kodi restarts (window props outlive a regeneration).
+# A retired sub-node, still cleared so a property an earlier version set
+# does not keep a dead path until Kodi restarts.
 _RETIRED_SUB_NODES = ("nextepisodes",)
 SUB_NODES = tuple(
     sorted(
@@ -68,11 +67,11 @@ def ordered(libraries, sorted_views):
 
 
 def publish(libraries, sync, singles, media_folders, server):
-    """Set every property from the view table and the whitelist.
+    """Set every property from the views and the whitelist.
 
-    ``libraries`` are the kofin.db view rows, ``media_folders`` the server's
-    listing (for the library tiles' artwork; None when there is no server to
-    ask, which clears the prop outright).
+    ``libraries`` are the server's views (``dynamic.View``), ``media_folders``
+    the server's listing (for the library tiles' artwork; None when there is
+    no server to ask, which clears the prop outright).
     """
     clear(NODES_PREFIX)
     clear(WNODES_PREFIX)
@@ -90,7 +89,7 @@ def publish(libraries, sync, singles, media_folders, server):
             "Media": library.media_type,
         }
 
-        if library.view_id in whitelist:  # synced libraries
+        if library.view_id in whitelist:
             if view["Media"] in ("movies", "tvshows", "musicvideos", "mixed"):
                 if view["Media"] == "mixed":
                     for media in ("movies", "tvshows"):
@@ -106,8 +105,7 @@ def publish(libraries, sync, singles, media_folders, server):
 
                         # Each half takes an index of its own; with the
                         # outer step below that leaves one unused per mixed
-                        # library, which is what skins have read since the
-                        # fork and stays as it is (a contract, not a bug).
+                        # library, and skins read this numbering.
                         index += 1
                         windex += 1
                 else:
@@ -220,8 +218,8 @@ def _single(index, item_type, single):
 
 
 def _wnode(index, view, artwork, node=None, node_label=None):
-    """Similar to _node, but does not contain music, musicvideos. Contains
-    books, audiobooks."""
+    """Similar to _node, but without music and musicvideos, and with books
+    and playlists."""
     if view["Media"] in ("homevideos", "photos", "books", "playlists"):
         path = browse_url(view, None if node in ("all", "browse") else node)
     else:

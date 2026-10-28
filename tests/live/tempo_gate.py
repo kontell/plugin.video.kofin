@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
-"""Gate 0 — does ``Player.SetTempo`` actually move the media clock on a device?
+"""Does ``Player.SetTempo`` actually move the media clock on a device?
 
-docs/syncplay-drift-shakedown.md §6, Gate 0. kofin's drift correction has
-exactly one actuator, and it is unverified outside desktop Linux: Kodi gates
-tempo on ``videoplayer.usedisplayasclock`` on every platform, but a
-``SetTempo`` that answers OK and changes nothing would leave the whole
-shakedown measuring a controller with no output. Android is the case in
-question — kodi-drive records only that webOS overrides ``CanTempo()``.
+Kodi gates tempo on ``videoplayer.usedisplayasclock`` on every platform, and
+webOS overrides ``CanTempo()``; a ``SetTempo`` that answers OK and changes
+nothing would leave a drift measurement watching a controller with no output.
 
 The test is a slope measurement, not an API check. Play a file, measure the
 media clock against the host clock, apply tempo, measure again: the second
 slope must be steeper by the tempo step. Reading ``Player.PlaySpeed`` back
 proves only that Kodi stored the number.
 
-It also reports, for free:
+It also reports:
 
-* the device's **free-running rate error in ppm** with the tempo gate on —
-  §5.3's calibration in miniature, which is what predicts the drift sawtooth;
-* the **round-trip uncertainty during playback**, which is the open question on
-  the Wi-Fi members (§5.2);
-* any **position jump when tempo returns to 1.0** — the Omega restore-skip bug
-  that `_verify_tempo_restore` exists for, and which Piers is meant to have
-  fixed (R-L).
+* the device's **free-running rate error in ppm** with the tempo gate on,
+  which is what predicts the drift sawtooth;
+* the **round-trip uncertainty during playback**;
+* any **position jump when tempo returns to 1.0**, Omega's restore-skip bug.
 
 Nothing here involves kofin: it drives Kodi directly, so a failure is Kodi's.
 
 Usage:
-    ./tempo_gate.py --url http://192.168.1.112:18300/gate0.mp4 \\
-        --device bravia=192.168.1.198:8080 --device pixel=192.168.1.218:8080
+    ./tempo_gate.py --url http://HOST:PORT/gate0.mp4 \\
+        --device NAME=HOST:8080 --device NAME=HOST:8080
 """
 
 import argparse

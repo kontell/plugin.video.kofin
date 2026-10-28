@@ -1,34 +1,20 @@
 """The settings diff engine: a registry of ``setting id -> handler(old, new)``
 consulted from the service's ``onSettingsChanged``.
 
-The table (``SettingsApplier.handlers``) is the whole design: one handler
-per setting whose change the running service has to act on -- the transport
-(sslVerify), the library whitelist, the SyncPlay and downloads toggles, the
-who's-watching shortlist, the backdrop, the context-menu bitrates, the music
-playlists folder -- and everything not in the table is read fresh wherever
-it is used. The whitelist handler is the one with policy: it computes add/remove
-sets against the *synced* whitelist (sync.json), not the previous csv, so a
-partially failed sync self-heals on the next apply; removals confirm via
-yesno before rows are deleted, and a declined removal restores the ids into
-the selection.
+The table (``SettingsApplier.handlers``) holds one handler per setting whose
+change the running service has to act on; everything not in the table is read
+fresh wherever it is used. The whitelist handler computes add/remove sets
+against the *synced* whitelist (sync.json), not the previous csv, so a
+partially failed sync self-heals on the next apply.
 
-Startup guard (learned in S2 live testing): Kodi fires ``onSettingsChanged``
-while it loads the profile settings, and the fresh-``Addon()``-per-call reads
-(needed for reuselanguageinvoker correctness) can transiently return "" before
-the persisted value lands. Acting on those transients once prompted the user
-to *remove a synced library* on a plain Kodi restart. So the applier ignores
-every change until the service marks it ready, then re-baselines against the
-now-stable store. A genuine user edit only ever happens interactively, long
-after startup.
+Kodi fires ``onSettingsChanged`` while it loads the profile settings, and the
+fresh-``Addon()``-per-call reads (needed for reuselanguageinvoker correctness)
+can transiently return "" before the persisted value lands. So the applier
+ignores every change until the service marks it ready, then re-baselines
+against the settled store.
 
-The same read can fail *after* ready, though (phase 5 live testing: Kodi
-logged "failed to load addon settings from ...settings.xml" four minutes into
-a ready session and handed back "" for librarySelection, which proposed
-removing all six synced libraries). So emptying a guarded setting is
-corroborated before it is believed — by a re-read and by a canary setting that
-is never legitimately empty, because the failure arrives in bursts and a
-re-read on its own can land inside the same broken window. See
-``_is_spurious_clear``.
+The same read can fail *after* ready, so emptying a guarded setting is
+corroborated before it is believed (``_is_spurious_clear``).
 """
 
 import threading
@@ -46,10 +32,8 @@ Handler = Callable[[str, str], None]
 
 # Settings whose emptied value destroys data if believed too readily, so an
 # empty read is corroborated before it is acted on (``_is_spurious_clear``).
-# ``syncMusicPlaylists`` is here too: a failed settings load during materialize
-# was observed live as true→"" which fired CleanupMusicPlaylists and wiped
-# the just-written ``playlists/music/Kofin/`` folder. ``libraryNodes`` is the
-# API build's switch for the same files and the node tree with them.
+# ``libraryNodes`` is the switch for the managed playlist files and the node
+# tree.
 GUARDED_CLEARS = ("librarySelection", "syncMusicPlaylists", "libraryNodes")
 
 # Non-empty for the whole life of an installed addon: Credentials.load
@@ -104,15 +88,11 @@ class SettingsApplier:
     def apply(self) -> None:
         """Run the handler for every watched setting whose value changed."""
         if not self.ready:
-            # A startup transient, not a user edit — never act on it, or a
-            # transient empty read of librarySelection looks like "user removed
-            # every library" and prompts a destructive removal.
             LOG.debug("settings change before ready; ignored")
             return
-        # Whole-document load failures blank every setting (or, for booleans
-        # with a default of false, surface the default). Acting on that once
-        # wiped managed music playlists live: true→false CleanupMusicPlaylists
-        # mid-materialize. If the canary is empty, trust nothing this cycle.
+        # A whole-document load failure blanks every setting (or, for booleans
+        # with a default of false, surfaces the default). If the canary is
+        # empty, trust nothing this cycle.
         if settings.get_str(LOAD_CANARY) == "":
             LOG.warning(
                 "settings document failed to load (%s empty); skipping apply cycle",
@@ -138,22 +118,11 @@ class SettingsApplier:
     def _is_spurious_clear(self, setting_id: str, old: str, new: str) -> bool:
         """Whether an emptied setting is a failed read rather than an edit.
 
-        The startup guard above covers transient empty reads *before* ready;
-        this covers the same failure after it. Kodi can fail to load
-        settings.xml mid-session ("failed to load addon settings from
-        special://profile/addon_data/.../settings.xml") and hand back "" for
-        a setting that is intact on disk — observed live during phase 5, four
-        minutes into a ready session, which read as "user deselected every
-        library" and prompted removal of all six.
-
-        A re-read alone is not enough. The failure comes in bursts: Kodi logged
-        it three times in a row while a repair was running, so the immediate
-        re-read landed inside the same broken window and the removal prompt
-        appeared anyway. The decisive test is a canary instead of a retry — a
-        failed load empties *every* setting, not just this one, so a
-        ``deviceId`` that reads empty proves the document did not parse. Both
-        checks are single reads, so a genuine clear still proceeds without
-        waiting on anything.
+        Kodi can fail to load settings.xml mid-session and hand back "" for a
+        setting that is intact on disk. The failure comes in bursts, so a
+        re-read that agrees is not proof; a failed load empties *every*
+        setting, so a ``deviceId`` that reads empty is. Both checks are single
+        reads, so a genuine clear still proceeds without waiting on anything.
         """
         if setting_id not in GUARDED_CLEARS or new != "" or old == "":
             return False
@@ -188,7 +157,7 @@ class SettingsApplier:
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —
-        off means no manager thread at all (plan §4)."""
+        off means no manager thread at all."""
         service = self.service
         if new == "true":
             if service._online:
@@ -233,10 +202,10 @@ class SettingsApplier:
         """Whether a boolean read as off was really switched off.
 
         The off direction of these settings is destructive (it deletes the
-        managed playlists). Live testing showed failed settings loads can
-        surface the boolean default ("false") while the document is
-        mid-rewrite after setSettingBool — corroborate before wiping, and
-        leave the snapshot on so a real off after recovery still applies.
+        managed playlists). A failed settings load can surface the boolean
+        default ("false") while the document is mid-rewrite after
+        setSettingBool — corroborate before wiping, and leave the snapshot on
+        so a real off after recovery still applies.
         """
         confirm = settings.get_str(setting_id)
         # Only an explicit "false" is off: an empty read is a document that
@@ -254,7 +223,7 @@ class SettingsApplier:
         return True
 
     def _library_nodes_changed(self, old: str, new: str) -> None:
-        """The API build's one presentation switch (``sync/dynamic.py``).
+        """The presentation switch (``sync/dynamic.py``).
 
         On: the node tree and the smart playlists are written now and the
         Jellyfin playlists at the next pass. Off: the managed playlists go
@@ -281,19 +250,13 @@ class SettingsApplier:
         return dynamic.wanted()
 
     def _server_backdrop_changed(self, old: str, new: str) -> None:
-        """Swap the addon fanart now rather than at the next connect.
-
-        ``force`` because the daily fetch floor is there to stop reconnect
-        churn, not to make a deliberate toggle wait a day. Off needs no server
-        and no thread of its own, but goes the same way so the two directions
-        cannot disagree about what is on disk.
-        """
+        """Swap the addon fanart now rather than at the next connect."""
         service = self.service
         service._start_backdrop(force=True)
 
     def _downloads_enabled_changed(self, old: str, new: str) -> None:
         """The downloads master toggle builds/tears down the manager live,
-        the same shape as SyncPlay's (plan W1.1)."""
+        the same shape as SyncPlay's."""
         service = self.service
         if new == "true":
             if service._online:
@@ -313,15 +276,9 @@ class SettingsApplier:
     def _regenerate_nodes(self) -> None:
         """Rewrite the generated library nodes now.
 
-        The Downloaded nodes exist only while the feature is on, but nothing
-        used to regenerate the tree when the toggle moved: node generation
-        hangs off the library thread's startup and off library add/remove, so
-        enabling downloads left the nodes to appear at the next service start
-        — behind a server probe and two library calls, which is why they
-        turned up about a minute later.
-
-        Contained: a node write must never take a settings apply down with
-        it, and nothing is asked of a server that is not there.
+        The Downloaded nodes exist only while the feature is on. Contained: a
+        node write must never take a settings apply down with it, and nothing
+        is asked of a server that is not there.
         """
         try:
             from kofin.sync.dynamic import publish
@@ -334,11 +291,11 @@ class SettingsApplier:
             LOG.exception("node regeneration after a settings change failed")
 
     def _downloads_path_changed(self, old: str, new: str) -> None:
-        """Write-probe the new root now, not at the first download (W1.1).
+        """Write-probe the new root now, not at the first download.
 
-        The probe is the whole apply: existing downloads deliberately stay
-        where they are (migration is a stated phase-1 non-goal), and the
-        manager reads the setting per download, so nothing needs a restart.
+        The probe is the whole apply: existing downloads stay where they are,
+        and the manager reads the setting per download, so nothing needs a
+        restart.
         """
         import os
 
@@ -383,16 +340,11 @@ class SettingsApplier:
             return
 
         if removal_entries:
-            # The yes/no gate stays — it is the last thing before rows are
-            # deleted — but the thread it runs on moves. This handler runs
-            # inside Service.onSettingsChanged, and Kodi delivers a monitor
-            # callback on the thread that created the Monitor, from inside
-            # its own Kodi API calls: the service main thread. A modal here
-            # held that thread — the run loop and every other kofin player
-            # and monitor callback — for as long as the person took to
-            # answer (audit R5). A one-shot worker asks and dispatches; a
-            # second save while the dialog is up is refused with a log line
-            # rather than opening a second one.
+            # Confirmed on a worker: this handler runs inside
+            # Service.onSettingsChanged, on the service main thread, where a
+            # modal would hold the run loop and every kofin player and monitor
+            # callback until answered. A second save while the dialog is up is
+            # refused with a log line.
             def confirm_and_dispatch() -> None:
                 confirmed = self._confirm_removals(removal_entries, selection)
                 self._dispatch_selection(confirmed, additions)

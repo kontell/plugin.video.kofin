@@ -1,9 +1,9 @@
 """The pass on a Piers: the baseline, every Kodi 23 feature off.
 
-What a Kodi lacks is off by name, never an error (CLAUDE.md, the capability
-profile): a property Kodi does not name is never asked for, a setter field
-it does not take is never sent nor compared, and the same profile moved to
-a Kodi that has them compares again and patches what Piers could not.
+What a Kodi lacks is off by name, never an error: a property Kodi does not
+name is never asked for, a setter field it does not take is never sent nor
+compared, and the same profile moved to a Kodi that has them compares again
+and patches what Piers could not.
 """
 
 import xbmcgui
@@ -199,8 +199,8 @@ def test_a_piers_listing_sets_no_stream_flags_and_no_song_date(monkeypatch):
 
 def test_a_piers_answers_no_for_an_extra_the_server_dropped(store, backend, piers):
     """Kodi 22's Clean library asks the add-on about an extra's file (the
-    extras folder is bound), so an extra the movie's payload no longer names
-    must answer no, whatever the feature set: the only way its row leaves."""
+    extras folder is bound), so an extra the movie's payload does not name
+    answers no, whatever the feature set."""
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()

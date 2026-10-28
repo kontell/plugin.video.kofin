@@ -1,8 +1,7 @@
 """SyncPlay menu: list/create/join groups, or manage the current one.
 
-Ported from the fork (``dialog()`` -> ``xbmcgui.Dialog()``, string ids
-remapped to 30550+). Blocks on dialogs; the service runs it on a dedicated
-worker thread, never on the notification loop.
+Blocks on dialogs; the service runs it on a dedicated worker thread, never on
+the notification loop.
 """
 
 from typing import List, Union
@@ -30,8 +29,7 @@ def _join_menu(manager):
     groups = manager.list_groups()
 
     if groups is None:
-        # Listing the groups failed, which is why there is nothing to show --
-        # an error, not the news the info glyph made it look like.
+        # A failed listing, not an empty one.
         toast.show(
             settings.localized(30574), toast.ERROR, heading="SyncPlay", time_ms=3000
         )

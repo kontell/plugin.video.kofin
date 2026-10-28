@@ -1,18 +1,12 @@
-"""Thread dumps, for the stalls that only ever happen on someone else's box.
+"""Thread dumps for a library thread that will not stop.
 
 The teardown's wait for the library thread is bounded
-(``service.main.LIBRARY_JOIN_SECONDS``), so a thread that will not stop is
-survivable — but the bound explains nothing, and the event is rare enough that
-asking for a reproduction is asking for nothing. The thread could be blocked in
-a socket read, parked on a database lock, or running fine and merely starved of
-the GIL by something else, and those want three different fixes.
+(``service.main.LIBRARY_JOIN_SECONDS``). When the wait goes long, write down
+what every thread was doing, and say whether the one we are waiting on moved
+between one look and the next: blocked and slow are indistinguishable from a
+single dump and obvious from two.
 
-So when the wait goes long, write down what every thread was doing, and say
-whether the one we are waiting on moved between one look and the next. Blocked
-and slow are indistinguishable from a single dump and obvious from two.
-
-Warnings rather than debug: this fires on a path that is already broken, on a
-box whose owner has no reason to have debug logging on.
+Warnings rather than debug, since debug logging is usually off.
 """
 
 import sys

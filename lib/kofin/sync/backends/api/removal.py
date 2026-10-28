@@ -41,11 +41,8 @@ def _merged_shows(store, pending, placement, members) -> List[str]:
     Kodi files a show onto an existing row with the same default unique id,
     or the same title and premiere date (GetMatchingTvShow), whatever
     library either came from, so a copy in another library may have gone
-    with this one and has to be read again. Every show of every other
-    library used to be: removing a library of one show re-read 79 others
-    and their 4,316 episodes, two minutes on a desktop. A show sharing a
-    name or any provider id with one that left is every show Kodi could
-    have merged, and in most libraries that is none.
+    with this one and has to be read again. A show sharing a name or any
+    provider id with one that left is every show Kodi could have merged.
     """
     names: Set[str] = set()
     provider_ids: Set[Tuple[str, str]] = set()
@@ -119,18 +116,10 @@ def _rows(kinds) -> int:
 def clear_library(native, library, kinds, rows=0):
     """One call removes every row Kodi filed under the library root.
 
-    The call returns when the last row is gone: three minutes for 1,787
-    movies on a desktop, a quarter of an hour on a Raspberry Pi 3, and
-    until this said so the screen showed nothing in that time. It is made
-    on a thread of its own, and this one reads how many of the library's
-    ``rows`` Kodi still lists and moves the bar.
-
-    One call, not a folder at a time: removed fifty folders to a call with
-    a pause between, the same library took 186 s on the P1D against 109 s
-    and 1,364 s on a Raspberry Pi 3 against 803 s, and neither way stalled
-    a Python thread (tests/live/or_bench/README.md).
-    Its waits are timed: a three-second wait that took 47 s is how the
-    stall of one ``OnRemove`` callback per row showed on a television.
+    The call returns when the last row is gone, which can take minutes, so
+    it is made on a thread of its own, and this one reads how many of the
+    library's ``rows`` Kodi still lists and moves the bar. Its waits are
+    timed, to show a stall of the ``OnRemove`` callbacks.
     """
     root = paths.library_root(native.key, library)
     heading = removing(library)
@@ -171,8 +160,7 @@ def clear_library(native, library, kinds, rows=0):
                 # The call cannot be taken back, and it is this thread's:
                 # reported stopped while Kodi is still clearing, the thread
                 # would let the next service generation issue the same
-                # clear beside it. It waits as it did when it made the call
-                # itself, and no longer paints.
+                # clear beside it.
                 worker.join()
                 raise InterruptedError("native sync stopped")
             if rows and worker.is_alive():
@@ -210,9 +198,8 @@ def clear_library(native, library, kinds, rows=0):
 
 def _owed(library, what, call):
     """Do something a library is owed once its rows are gone, and never
-    fail its removal for it: failed, the library was cleared a second time
-    on the next pass, and its sets could not be told again, since Kodi no
-    longer lists them."""
+    fail its removal for it: failed, the library would be cleared a second
+    time on the next pass."""
     try:
         call()
     except InterruptedError:
@@ -244,8 +231,8 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         kinds = {placement[i].kind for i in members}
         try:
             began = time.monotonic()
-            # Kodi deletes the sets the removal empties itself, in the same
-            # transaction (kontell/xbmc #3).
+            # A Kodi carrying kontell/xbmc #3 deletes the sets the removal
+            # empties, in the same transaction.
             clear_library(
                 native,
                 library,
@@ -265,17 +252,16 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 _fail(store, pending, item_id, error, errors)
             continue
         _owed(library, "its event", native.library_event)
-        # One transaction: let go of one at a time, a library of 6,000 items
-        # was 6,000 commits, each collecting the catalogue's closed intervals.
+        # One transaction for the whole library.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
         cleared.add(library)
         if kinds & {"Series", "Episode"}:
             store.invalidate(_merged_shows(store, pending, placement, members))
 
     # 2. Music: every song tombstone is its album directory listed without
-    #    it. The directories are scanned (the root once, when there are
-    #    many) and one readback per directory confirms the songs are gone;
-    #    albums and artists are derived and leave with their songs.
+    #    it. The directories are scanned and one readback per directory
+    #    confirms the songs are gone; albums and artists are derived and
+    #    leave with their songs.
     remove_music(native, pending, placement, removals, errors)
 
     # 3. Rows. Children of a show that is going leave with it and are
@@ -495,23 +481,19 @@ def finish_sets(native, pending, live_boxsets, errors):
 
 
 def _remove_empty_set(store, item_id, listed, features=frozenset()):
-    """Remove the row Kodi keeps for a set none of its movies files any
-    more, by the id the collection was acknowledged under.
+    """Remove the empty row Kodi keeps for a set, by the id the collection
+    was acknowledged under.
 
-    Only with the remove_set feature (``VideoLibrary.RemoveMovieSet``,
-    kontell/xbmc #7). Without it the empty row stays: it is in no listing,
-    since Kodi lists sets through the movies that file them, and Kodi's own
-    Clean library deletes it.
+    Only with the remove_set feature (``VideoLibrary.RemoveMovieSet``);
+    without it the empty row stays for Kodi's own Clean library.
 
     An emptied set is in no listing: GetMovieSets and GetMovieSetDetails
     both read sets through the movies that file them (GetSetsByWhere), so
-    the row cannot be read back to confirm it is ours. What can be read is
-    that no set with movies holds the id (``listed``, this pass's set
-    readback). The row is removed only then, so a set of anyone's with a
-    movie is never touched, even after Kodi gave the id to a new set: it
-    numbers a new set from the highest one left (``sets.idSet`` is a plain
-    rowid). An empty set that is not ours is one Kodi's own clean would
-    delete. A row already gone, or never made (no movie of the collection
+    the row cannot be read back to confirm it is ours. It is removed only
+    while this pass's set readback (``listed``) shows no set with movies
+    holding the id, so a set of anyone's with a movie is never touched,
+    even after Kodi gave the id to a new set (``sets.idSet`` is a plain
+    rowid). A row already gone, or never made (no movie of the collection
     was filed), leaves nothing to do."""
     if "remove_set" not in features:
         return

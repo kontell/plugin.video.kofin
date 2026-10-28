@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Count GitHub release-asset downloads for a repository.
 #
-# Usage: ./scripts/release-downloads.sh [owner/repo]
+# Usage: tools/release-downloads.sh [owner/repo]
 #
 # With no argument, the repo is derived from the `origin` remote.
 # Prints a per-release breakdown followed by the grand total.

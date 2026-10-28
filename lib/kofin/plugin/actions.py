@@ -106,9 +106,6 @@ def delete_item(request: Request) -> None:
         _api().delete_item(item_id)
     except JellyfinError as error:
         LOG.warning("delete failed: %s", error)
-        # Was raised with neither an icon nor a sound argument, so Kodi's
-        # defaults made a failed deletion the one toast in kofin that showed
-        # the info glyph *and* beeped.
         toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
@@ -208,11 +205,8 @@ def _playlist_items(lines: List[str]) -> List[Tuple[str, str]]:
 def repair_libraries(request: Request) -> None:
     """Per-library picker (or all) -> remove + re-add.
 
-    No confirmation: the picker is already the decision, and a repair is not
-    destructive — it rebuilds the same libraries from the server. The prompt
-    that used to sit here borrowed the *removal* copy ("Remove %s from the
-    Kodi library? The items are deleted from this device only."), which read
-    as though repairing would leave the library gone.
+    No confirmation: the picker is the decision, and a repair rebuilds the
+    same libraries from the server.
     """
     whitelist = settings.get_list("librarySelection")
     if not whitelist:
@@ -252,7 +246,7 @@ def _selection_names(library_ids: List[str]) -> List[str]:
     return names
 
 
-# -- offline downloads (docs/offline-downloads-plan.md W1.10) ------------------
+# -- offline downloads ---------------------------------------------------------
 
 
 def _human_size(size_bytes: int) -> str:
@@ -262,14 +256,7 @@ def _human_size(size_bytes: int) -> str:
 
 
 def _report_size(size_bytes: int) -> str:
-    """``_human_size`` with the floor removed for the size report (D1).
-
-    That floor exists for the confirm dialogs, where "0 MB" for a small
-    download would read as "this costs nothing" — but a *report* has real
-    zeroes in it, a category nothing has ever been downloaded into, and
-    telling somebody they are using 1 MB of a folder that is empty is the
-    one number here that is simply false.
-    """
+    """``_human_size`` without the 1 MB floor: a report has real zeroes."""
     if size_bytes <= 0:
         return "0 MB"
     return _human_size(size_bytes)
@@ -379,8 +366,7 @@ def _expand_downloadable(
 ) -> List[dict]:
     """The downloadable leaves under an item: itself, or a container's
     episodes/tracks. Client-side expansion, because the server has no folder
-    download — CanDownload is false for every folder type by construction
-    (feasibility V1)."""
+    download — CanDownload is false for every folder type by construction."""
     item_type = item.get("Type")
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_LEAF_TYPES:
@@ -451,15 +437,13 @@ def _estimate_options() -> tuple:
 
 
 def _estimated_size(item: dict, options: Optional[tuple] = None) -> int:
-    """What this child will actually weigh on disk.
+    """What this child will weigh on disk.
 
-    The source size is the honest answer for anything downloading as its
-    original file. A track the music transcode re-encodes is not its FLAC,
-    though: it is the target bitrate times its runtime, and quoting the
-    source there offered a 12-track lossless album at 400 MB when it landed
-    at 60. Which tracks transcode is the server's call at download time
-    (``quality.decide``), so take the smaller of the two — a track already
-    inside the cap downloads untouched, and the confirmation says "about".
+    A track the music transcode re-encodes weighs the target bitrate times its
+    runtime. Which tracks transcode is the server's call at download time
+    (``quality.decide``), so take the smaller of that and the source — a
+    track already inside the cap downloads untouched, and the confirmation
+    says "about".
     """
     original = _source_size(item)
     item_type = item.get("Type")
@@ -510,19 +494,15 @@ def _free_space_note() -> str:
 def _confirm_download(item: dict, wanted: List[dict]) -> bool:
     """Whether to go ahead with a queue request — asking, or refusing.
 
-    The question a confirmation should answer is "will this fit", not "is
-    this a lot of things": keyed on the container type, a 40 GB film queued
-    in silence while thirty three-minute tracks demanded an answer. So the
-    request is sized against what is actually free —
+    The request is sized against what is free:
 
       * over free space minus the reserve: refused outright, since the
         manager would only fail it item by item further down;
       * at or over ``CONFIRM_FREE_SPACE_RATIO`` of what is free: confirmed;
       * anything smaller: queued in silence, whatever the count.
 
-    A probe that cannot answer (files.free_bytes -1: exotic mount,
-    permissions) falls back to the old container prompt — no ratio is
-    computable, and the alternative is a silent 40 GB.
+    A probe that cannot answer (files.free_bytes -1) confirms a container
+    and queues a single item in silence.
     """
     from kofin.downloads import downloads_root, files
     from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
@@ -616,7 +596,7 @@ def download(request: Request) -> None:
 
 
 def download_show(request: Request) -> None:
-    """Toggle a show's new-episode subscription (W4.6)."""
+    """Toggle a show's new-episode subscription."""
     item_id = request.params.get("id", "")
     if not item_id:
         return
@@ -701,12 +681,12 @@ def manage_download_subscriptions(request: Request) -> None:
 
 
 def manage_download_shows(request: Request) -> None:
-    """Settings button: review the subscribed shows; untick to stop (W4.6).
+    """Settings button: review the subscribed shows; untick to stop.
 
     Cancel changes nothing; OK keeps exactly what stayed ticked. Names come
     from Kodi's own rows via the mapping, so the picker works offline; a
-    show the library no longer holds falls back to its raw id, which is
-    still removable — the whole point of the button.
+    show missing from the library falls back to its raw id, which is still
+    removable.
     """
     from kofin.downloads import auto as downloads_auto
 
@@ -790,22 +770,13 @@ def library_status(request: Request) -> None:
 
 
 def download_size(request: Request) -> None:
-    """Settings button: where the downloads are and what they weigh (D1).
+    """Settings button: where the downloads are and what they weigh.
 
-    Read-only. Picking a row does nothing; the dialog exists to be read, and
-    answering it returns to the Downloads settings rather than dumping the
-    user in the library (the button carries no ``<close>``, like "Manage
-    shows" beside it).
+    Read-only. The button carries no ``<close>``, so answering the dialog
+    returns to the Downloads settings.
 
-    Each size goes in the row's own **label**, not in ``label2``. That was
-    the first shape, on the reasoning that label2 is where a skin puts a
-    right-hand value and would line the column up without assuming a
-    monospace font — and it renders as nothing at all: measured on Omega
-    21.3 under Estuary, ``Dialog().select`` drew five rows reading "Movies",
-    "TV shows", "Music", "Total", "Free" and not one number (S-D1). The
-    dialog's plain list layout has no second field; only ``useDetails=True``
-    switches to one that does, and that is a per-skin layout to depend on
-    for the whole content of the report. A label carries everywhere.
+    Each size goes in the row's own label: ``Dialog().select``'s plain list
+    layout draws no ``label2``.
 
     The walk happens here, in the plugin process, which must stay thin — so
     it is stat-only, bounded (``usage.MAX_ENTRIES``), and covered by a
@@ -908,13 +879,10 @@ def cancel_download(request: Request) -> None:
 
 
 def remove_download(request: Request) -> None:
-    """Let the service restore the rows and delete the files. No confirmation.
+    """Let the service delete the downloaded files. No confirmation.
 
-    Unlike Delete on the same menu, this destroys nothing the server does not
-    still have: a download is a local copy, and removing it puts the item back
-    to streaming. The feedback is a toast and the listing itself — the service
-    unstamps the download badge and refreshes as soon as the rows are gone —
-    so the answer to "did that work" arrives without a dialog in front of it.
+    Unlike Delete on the same menu, only a local copy goes: the server still
+    has the item.
 
     A container removes everything finished under it, expanded from kofin.db
     rather than the server so the entry keeps working offline, and sent as one

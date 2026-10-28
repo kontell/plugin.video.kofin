@@ -1,9 +1,9 @@
 """File layout, naming, sanitization and free-space for downloads.
 
 Pure decisions plus one filesystem probe (:func:`free_space_ok`) — no Kodi
-imports, so every rule here is table-testable. Layout per the plan's storage
-decisions: human-readable, components frozen at download time, stored as
-POSIX-style paths relative to the downloads root.
+imports, so every rule here is table-testable. Layout: human-readable,
+components frozen at download time, stored as POSIX-style paths relative to
+the downloads root.
 """
 
 import os
@@ -32,11 +32,7 @@ _WHITESPACE = re.compile(r"\s+")
 # to the last byte breaks them first (Emby's reserve, same number).
 FREE_SPACE_RESERVE = 2 * 1024**3
 
-# The share of free space at which a download request is worth asking about.
-# The confirmation used to key on whether the item was a container, which
-# asked the wrong question: a single 40 GB film went in silence while thirty
-# three-minute tracks needed an answer. A quarter of the volume is the point
-# where "will this fit" stops being obvious.
+# A request is confirmed once it would take a quarter of the free space.
 CONFIRM_FREE_SPACE_RATIO = 0.25
 
 MOVIES_DIR = "Movies"
@@ -47,17 +43,10 @@ MUSIC_DIR = "Music"
 def sanitize(name: str) -> str:
     """A path component safe on every target filesystem.
 
-    Unsafe characters are dropped rather than replaced — "Mission:
-    Impossible" reads better as "Mission Impossible" than with a stand-in
-    glyph — whitespace runs collapse, and FAT's trailing-dot/space rule is
-    applied. Unicode passes through untouched *when the interpreter can put
-    it on disk*: Kodi's embedded Python can run with an ASCII filesystem
-    encoding (no locale exported — measured live, G12: the ``’`` in an album
-    name killed the download with UnicodeEncodeError inside ``os.remove``),
-    and there every non-ASCII path explodes in the ``os`` module, so the
-    name degrades to its closest ASCII — accents fold (NFKD), the rest
-    drops. An empty survivor answers "untitled" so a caller never builds a
-    path with a vanished component.
+    Unsafe characters are dropped, whitespace runs collapse, and trailing
+    dots and spaces are stripped (FAT). Kodi's Python can run with an ASCII
+    filesystem encoding; there the name folds to ASCII (NFKD). An empty
+    result answers "untitled".
     """
     cleaned = _WHITESPACE.sub(" ", _UNSAFE.sub("", name)).strip().rstrip(". ")
     if cleaned and not _fits_filesystem(cleaned):
@@ -79,7 +68,7 @@ def _fits_filesystem(name: str) -> bool:
 
 
 def filename_from_disposition(value: str, fallback: str) -> str:
-    """The server's filename out of a Content-Disposition header (V1).
+    """The server's filename out of a Content-Disposition header.
 
     Handles both the plain ``filename="..."`` parameter and the RFC 5987/2231
     ``filename*=UTF-8''...`` form via the stdlib parser. The result is taken
@@ -128,12 +117,7 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
     the film alone. Episodes: ``("Shows/<Show>", "Season NN")`` — the *show*
     directory is the owner and the season is a leaf inside it (season 0 is
     ``Specials``, Kodi's own convention; an episode with no season number
-    sits directly under the show). The split is what keeps collision
-    handling honest: a name clash is a clash between owners, and every
-    episode of a show belongs under one show directory whatever its season
-    (see :func:`unique_dir`). Anything else raises — phase 1 downloads
-    movies and episodes, and a silent default would put a future type's
-    files somewhere nobody decided.
+    sits directly under the show). Any other type raises.
     """
     item_type = item.get("Type", "")
     if item_type == "Movie":
@@ -180,8 +164,7 @@ def unique_dir(base: str, owner_id: str, taken: Callable[[str], bool]) -> str:
     or — for an episode — its *series* id, and ``taken`` answers whether the
     directory already belongs to a different owner. Owners, not items: every
     episode of a show shares that show's directory, and a per-item test
-    would suffix each sibling into a directory of its own (found live —
-    four episodes of one season landed in three directories).
+    would suffix each sibling into a directory of its own.
     """
     if not taken(base):
         return base
@@ -217,7 +200,7 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
 
 
 def absolute_path(root: str, rel_path: str) -> str:
-    """The one spelling of a download's on-disk location (P1.10)."""
+    """The one spelling of a download's on-disk location."""
     return os.path.join(root, rel_path)
 
 

@@ -1,30 +1,12 @@
-"""The download progress bar, on Kodi's own library-update surface (W3.4).
+"""The download progress bar, on Kodi's own library-update surface.
 
-``xbmcgui.DialogProgressBG`` is the Python binding onto the same background
-extended-progress window Kodi's library scanner reports through
-(``CGUIDialogExtendedProgressBar``), so downloads render exactly the way a
-scan does — the small corner bar, skinned by every skin's
-``DialogExtendedProgressBar.xml``, rotating in place with any other active
-bar (a library scan and a download simply alternate). kofin's own sync
-already reports through this window (``sync/shims.progress``), and the
-downloads bar deliberately matches it.
+``xbmcgui.DialogProgressBG`` is the window Kodi's library scanner reports
+through. One aggregate bar for the whole queue, never one per worker: the
+window cycles between registered handles, so per-worker bars would flicker.
+Progress is counted in items — completed plus the active transfers' byte
+fractions, over completed plus the store's remainder.
 
-One aggregate bar for the whole queue, never one per worker: the window
-cycles between registered handles every few seconds, so two per-worker
-bars would read as flicker rather than parallelism. Progress is counted in
-items — completed plus the active transfers' byte fractions, over
-completed plus the store's remainder — the same unit Kodi's scanner uses.
-That stays honest when a total is unknowable (a fraction nobody can
-compute counts 0 until its item finishes) and when the queue grows
-mid-run (the bar steps back, as the scanner's does when it discovers more
-work).
-
-Stop discipline (the thread-stop doctrine): nothing is created once the
-manager is stopping — a GUI dialog touched during Kodi's exit is a classic
-quit-wedge ingredient — and ``close`` runs unconditionally from the
-manager's ``stop()`` after the workers joined, so no bar ghosts in the
-corner. The offline hold closes it too (``idle``): a bar frozen at
-"3 of 7" for the length of an outage would misstate work in flight.
+Nothing is created once the manager is stopping.
 """
 
 import threading

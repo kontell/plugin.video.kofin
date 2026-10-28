@@ -13,10 +13,6 @@ and are probed by proxy, named in ``requirements.json``: ``asset_clean``
 (kontell/xbmc #1, #2 and #10, by the ``xbmc.python`` version the change set
 raises) and ``tempo`` (the tempo set, by the ``correction`` flag #38 adds to
 ``Player.SetTempo``).
-
-Everything here is decided from one capture: ``JSONRPC.Introspect``'s
-methods and types, ``Application.GetProperties``, the system add-ons'
-versions and ``hasattr`` on the info tags and the stream detail classes.
 """
 
 from typing import Any, Dict, List

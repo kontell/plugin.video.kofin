@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Check a public API capture against the shipped capability contract.
 
-The capture is what ``capabilities.inspect`` reads inside Kodi, saved by the
-phase-0 probe (``tests/live/or_phase0/probe.py``): ``JSONRPC.Introspect``'s
-methods and types, the application version, the system add-ons' versions
-and the Python methods found on the info tags. The report says whether the
-baseline passes and which feature each probe turned on. Passing proves
-interface presence only: behavioural qualification is separate.
+The capture is what ``capabilities.inspect`` reads inside Kodi, saved by
+``tests/live/or_phase0/probe.py``: ``JSONRPC.Introspect``'s methods and
+types, the application version, the system add-ons' versions and the Python
+methods found on the info tags. The report says whether the baseline passes
+and which feature each probe turned on. Passing proves interface presence
+only: behavioural qualification is separate.
 """
 
 import argparse

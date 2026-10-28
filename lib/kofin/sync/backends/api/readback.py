@@ -4,12 +4,13 @@ one library's songs.
 A video row is owned only when its namespaced unique id and its exact
 resolver URL both say so. A song has no unique id -- Kodi keeps none for
 music -- so its ownership is its URL alone: the directory it is filed under
-is ours and the query names the item. Readings are cached for the pass that
-made them and dropped whenever a scan or a removal could have changed them.
+is ours and the file name names the item. Readings are cached for the pass
+that made them and dropped whenever a scan or a removal could have changed
+them.
 
 A library's songs are read in one listing (paged, 5,000 to a page) and split
-by directory here: the pass asks for one directory at a time, 1,500 times,
-and must not pay a call each time.
+by directory here: the pass asks for one directory at a time and must not
+pay a call each time.
 """
 
 import time
@@ -314,9 +315,8 @@ class Readback:
     ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
         """One movie's or one show's owned row, read now and not cached, with
         the movie's version rows Kodi filed apart: the confirmation after a
-        refresh. Listing the library instead took 2.5 s for 1,791 movies on a
-        32-bit Android TV where the folder took 0.2 s, and a refresh is
-        polled until Kodi has filed the row again."""
+        refresh. Read by its folder, not the library: a refresh is polled
+        until Kodi has filed the row again."""
         if kind not in OWN_FOLDER:
             raise ValueError("%s has no folder of its own" % kind)
         table = KINDS[kind]
@@ -369,8 +369,7 @@ class Readback:
     FULL_FLOOR = 25
     # Below the floor, a scope is still read in one listing when most of it
     # is wanted: a first import compares every row, and a show of a dozen
-    # episodes read a row at a time is a dozen calls where one answers
-    # (761 of them for 79 shows).
+    # episodes read a row at a time is a dozen calls where one answers.
     SMALL_SHARE = 0.5
 
     def _scope_params(self, kind, library, parent_id):

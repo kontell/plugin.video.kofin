@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Sample-accurate per-instance audio capture for the music shakedown (§6.1).
+# Sample-accurate per-instance audio capture for the music shakedown.
 #
 # Two Kodi instances share one host, so their outputs can be recorded against one
 # clock: give each its own null sink, move its stream there, and record both
 # monitors. The difference between the two files is then the true audible offset,
 # including the sink latency no player reports.
 #
-# Streams are MOVED at runtime (pactl move-sink-input) rather than repointing
-# Kodi's audiooutput.audiodevice setting. Moving needs no restart, no settings
-# write on a box mid-experiment, and undoes itself exactly; a settings change
-# would persist into the next run and silently become part of the rig.
+# Streams are MOVED at runtime (pactl move-sink-input), which needs no restart
+# and undoes itself exactly. tools/music_capture.py routes through Kodi's
+# audiooutput.audiodevice setting instead, since the streams of two Kodis are
+# hard to tell apart (see kodi_streams below).
 #
 #   music_capture.sh probe                     validate the rig, no Kodi needed
 #   music_capture.sh streams                   list Kodi stream indices
@@ -33,10 +33,9 @@ log() { printf '  %s\n' "$*" >&2; }
 
 # Unloading a null sink while a Kodi stream is still attached to it destroys
 # that stream's sink underneath Kodi, and its AudioEngine does NOT recover: the
-# player reports a position that never advances and no audio reaches any device.
-# Measured on P1D 2026-08-31 -- it wedged both instances and only a restart
-# cleared it. So a module is unloaded ONLY once every stream is verified off it.
-# A leftover null sink is a trivial mess; a wedged Kodi is not.
+# player reports a position that never advances and no audio reaches any device
+# until Kodi restarts. So a module is unloaded ONLY once every stream is verified
+# off it.
 cleanup() {
     set +e
     local stuck=0
@@ -79,11 +78,11 @@ make_sink() {
     log "null sink $name (module $id)"
 }
 
-# Identifying a stream by PID does NOT work here: measured on P1D 2026-08-31,
-# PipeWire's PulseAudio compatibility reports every Kodi stream as application
-# name "Kodi" with application.process.id unset, and the client index a
-# sink-input names does not resolve in the clients list. Both instances are
-# therefore indistinguishable by property alone.
+# Identifying a stream by PID does NOT work here: PipeWire's PulseAudio
+# compatibility reports every Kodi stream as application name "Kodi" with
+# application.process.id unset, and the client index a sink-input names does not
+# resolve in the clients list. Both instances are therefore indistinguishable by
+# property alone.
 #
 # Nor by appearance or cork state: an idle Kodi keeps its stream open and
 # UNCORKED, feeding silence, so both exist and both look alive with nothing
@@ -93,10 +92,10 @@ make_sink() {
 # going to the speakers, and the null sinks stay SUSPENDED (a suspended monitor
 # yields parec "Stream error: Timeout" and a zero-byte file).
 #
-# The working procedure, and the only one measured to work here: start playback
-# FIRST, list the streams while they are live, move those, then identify which
-# is which from the audio -- pause one instance briefly and see which capture
-# goes quiet. Pause keeps the stream alive where stop does not.
+# The working procedure: start playback FIRST, list the streams while they are
+# live, move those, then identify which is which from the audio -- pause one
+# instance briefly and see which capture goes quiet. Pause keeps the stream
+# alive where stop does not.
 kodi_streams() {
     pactl -f json list sink-inputs 2>/dev/null | python3 -c '
 import json, sys

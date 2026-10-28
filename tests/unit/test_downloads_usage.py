@@ -1,4 +1,4 @@
-"""L1 units for the download size report (D1)."""
+"""L1 units for the download size report."""
 
 import os
 
@@ -16,8 +16,7 @@ def _stub_free(monkeypatch, value):
 
 
 def test_scan_totals_each_category_from_disk(tmp_path, monkeypatch):
-    """Every file counts, not just the media: the whole reason the report
-    walks the folder instead of summing the store's size_actual."""
+    """Every file in the folder counts, not just the media."""
     _stub_free(monkeypatch, 1000)
     root = tmp_path / "dl"
     _file(root / "Movies" / "The Movie (2019)" / "The Movie (2019).mkv", 300)

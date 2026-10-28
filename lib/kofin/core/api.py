@@ -1,4 +1,4 @@
-"""The Jellyfin API surface kofin uses (phase 1: browse, playback, sessions)."""
+"""The Jellyfin API surface kofin uses."""
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,26 +21,18 @@ JsonDict = Dict[str, Any]
 # transport default: see Api.lyrics.
 LYRICS_TIMEOUT = (2.0, 3.0)
 # The SyncPlay leave on the teardown path: inside Kodi's five-second
-# script-stop grace even when the server never answers (audit R4).
+# script-stop grace even when the server never answers.
 LEAVE_TIMEOUT = (2.0, 3.0)
 
-# The splashscreen is a ~700KB WebP the server may render (and transcode) on
-# demand, so it gets a longer read budget than the default. It runs on its own
-# worker thread and nothing waits on it, so a slow server costs nothing but a
-# late backdrop.
+# The splashscreen is a WebP the server may render (and transcode) on demand,
+# so it gets a longer read budget than the default. It runs on its own worker
+# thread and nothing waits on it, so a slow server costs nothing but a late
+# backdrop.
 SPLASHSCREEN_TIMEOUT = (6.0, 60.0)
 
 # The service's reachability probe (Service._connect): one attempt on the
 # interactive connect budget and a bounded read. The backoff loop calling it
-# *is* the retry policy, so the transport must not stack its own ladder on
-# top — with the default budget a single offline probe held the service loop
-# for ~29 s (4 x 6 s connects plus backoff), long enough to blow Kodi's
-# five-second stop grace whenever a stop request landed mid-probe (measured
-# 2026-08-08: a profile switch killed the script and the interrupted login
-# left the profile with no kofin service and a dead webserver). The read
-# stays generous for a slow-but-alive server: the endpoint is a tiny JSON
-# document, and a server that cannot produce it in ten seconds is one the
-# backoff should treat as down anyway.
+# is the retry policy, and a probe must fit Kodi's five-second stop grace.
 PROBE_TIMEOUT = (3.05, 10.0)
 
 
@@ -65,14 +57,9 @@ class Api:
         # source for it.
         self.device_id = device_id
         self._header = auth.build_auth_header(device_name, device_id, version, token)
-        # Interactive callers — browse listings, the play route, context and
-        # settings buttons — have a person watching a spinner, and the
-        # transport's default 3-retry, 6 s-connect ladder reads as a hang: an
-        # unreachable server took ~54 s to render the root listing. One retry
-        # and a 3.05 s connect budget instead; the read timeout stays at the
-        # default, because a big listing is legitimately slow. None means the
-        # transport's own defaults (service and sync callers, who prefer
-        # persistence over promptness).
+        # Interactive callers have a person waiting: one retry and a 3.05 s
+        # connect budget. The read timeout stays at the default, because a big
+        # listing is legitimately slow. None means the transport's defaults.
         self._retries: Optional[int] = 1 if interactive else None
         self._timeout: Optional[Tuple[float, float]] = (
             (3.05, DEFAULT_TIMEOUT[1]) if interactive else None
@@ -95,23 +82,15 @@ class Api:
 
     @classmethod
     def for_plugin(cls, creds: Credentials) -> "Api":
-        """The plugin process's one way to build a client (P1.4): the stdlib
-        transport (``plugin_transport`` — the ~1 s requests import is the
-        browse latency budget), ``sslVerify`` read here, and the interactive
-        retry/timeout budget every plugin surface wants. Folds the ten
-        spellings the plugin routes had grown."""
+        """The plugin process's client: the stdlib transport, ``sslVerify``
+        and the interactive retry and timeout budget."""
         return cls.from_credentials(
             plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
         )
 
     def close(self) -> None:
-        """Release the transport's connection pool.
-
-        Sync builds one Api per worker thread (each with its own session), and
-        nothing closed them: the sockets survived until CPython's cyclic GC
-        happened to run, which on a busy catch-up is a lot of idle connections
-        against the server (audit finding #9).
-        """
+        """Release the transport's connection pool (one Api per sync worker
+        thread)."""
         self._http.close()
 
     # -- plumbing ----------------------------------------------------------
@@ -120,11 +99,8 @@ class Api:
     def _json(response: Any, empty: Any) -> Any:
         """The decoded body, or ``empty`` for none.
 
-        A body that is not JSON — a proxy that is up while Jellyfin is not
-        answers HTML with a 200 — used to raise ValueError past every
-        ``except JellyfinError`` in the plugin and land in a Kodi error
-        dialog (audit F4). It is a server that did not answer as one, so it
-        is an HttpError like any other bad answer.
+        A body that is not JSON (a proxy answering HTML with a 200) is an
+        HttpError like any other bad answer.
         """
         if not response.content:
             return empty
@@ -187,14 +163,9 @@ class Api:
         """Query params naming the logged-in user.
 
         Jellyfin 10.9 moved every user-scoped route off ``/Users/{userId}/…``
-        onto a top-level path taking ``userId`` as a query parameter. 10.11
-        still answers the old shape but has dropped it from its OpenAPI spec,
-        which is how a route stops being served — so kofin asks the documented
-        way. Safe without a fallback: the addon's floor is 10.11 (README,
-        docs/rewrite-research.md), well past the move.
-
-        A caller's own ``userId`` wins. Nothing passes one today; the merge
-        order is stated so it cannot become a surprise.
+        onto a top-level path taking ``userId`` as a query parameter, and the
+        add-on's floor, 10.11, has dropped the old shape from its OpenAPI spec.
+        A caller's own ``userId`` wins.
         """
         merged: JsonDict = {"userId": self.user_id}
 
@@ -209,11 +180,7 @@ class Api:
     # -- system / session ---------------------------------------------------
 
     def _get_list(self, path: str, params: Optional[JsonDict] = None) -> List[JsonDict]:
-        """GET whose body is a bare JSON array rather than an Items envelope.
-
-        The hand-rolled copies of this shape had started to drift (P1.7);
-        every list-shaped endpoint goes through here.
-        """
+        """GET whose body is a bare JSON array rather than an Items envelope."""
         response = self._http.request(
             "GET",
             self._url(path),
@@ -246,31 +213,11 @@ class Api:
     def splashscreen(self) -> bytes:
         """The server's splashscreen image, as WebP.
 
-        ``format`` is the only parameter the endpoint honours: it ignores
-        ``quality`` (40/70/90/100 return byte-identical output) and ignores
-        ``maxWidth``/``maxHeight`` (every one of them still answers 1920x1080).
-
-        WebP rather than the default PNG because the default is a 3.6MB RGBA
-        image, and an alpha channel is what stops Kodi's texture cache from
-        re-encoding it — it caches an RGBA source as a PNG of the same size,
-        so the backdrop costs its full weight twice over and the cache saves
-        nothing. WebP is 698KB and caches down to a 600KB JPEG.
-
-        Not ``Jpg``, though it is the obvious lossy choice: that derivative
-        answers a *different, older* collage than the endpoint's own PNG, and
-        it stayed byte-identical across every cache key that could be varied
-        (format alone, with quality, with maxWidth, with maxHeight), so there
-        is no way to ask it for a current one. WebP tracks the PNG.
-
-        It has to stay the server's *lossy* WebP. A lossless one is ARGB in
-        the bitstream whatever the picture, so Kodi reads an alpha channel and
-        the whole thing lands back on the PNG path.
-
-        One lossy generation is spent here and a second by Kodi's cache pass
-        (measured at q00=8, 4:2:0). End to end that is 29.98 dB against the
-        lossless PNG, with the damage confined to saturated colour edges —
-        better than the Jpg route's 28.08 dB, on a poster collage which is the
-        content most likely to show it.
+        ``format`` is the only parameter the endpoint honours. WebP rather
+        than the default PNG, which is RGBA: Kodi's texture cache keeps an
+        RGBA source as an unreduced PNG. Not ``Jpg``, which answers an older
+        collage than the endpoint's own PNG. It has to be the lossy WebP: a
+        lossless one reads as alpha and lands back on the PNG path.
         """
         response = self._http.request(
             "GET",
@@ -314,7 +261,7 @@ class Api:
         ``/Users/Me`` and ``/Users/Configuration`` below are *not* the
         ``/Users/{userId}/…`` family ``_as_user`` exists to avoid — both are
         top-level routes in 10.11's OpenAPI spec, and this one carries no path
-        id at all (the token names the user). Verified against 10.11.11.
+        id at all (the token names the user).
         """
         return self.get("/Users/Me")
 
@@ -386,14 +333,9 @@ class Api:
     def resume(self, fields: str = "", limit: int = 25) -> JsonDict:
         """In-progress items across every library — "Continue watching".
 
-        The server's own endpoint rather than an /Items query filtered on
-        IsResumable, so the list matches what the other clients show: which
-        items count as in progress is the server's judgement (its min/max
-        resume percentages decide when something enters and leaves), and so is
-        the order they come back in, most recently played first.
-
-        MediaTypes limits it to video. Audiobooks are the other thing the
-        server tracks a position for, and Kodi has nowhere to resume one.
+        The server's own endpoint, so its resume thresholds decide which
+        items count as in progress and their order. Video only, since Kodi
+        cannot resume an audiobook.
         """
         params: JsonDict = {
             "Limit": limit,
@@ -410,21 +352,14 @@ class Api:
     ) -> List[JsonDict]:
         """The server's own "recently added" — ``/Items/Latest``.
 
-        For music it is the only query that answers the question. An album's
+        For music it is the only query that answers the question: an album's
         ``DateCreated`` is when the scanner last *created the album row*, and
-        a rescan re-creates rows in folder order: on a 1,538-album library the
-        25 newest by that field were AC/DC, Accept and Aerosmith, all stamped
-        within the same second, while the records added that week sat nowhere
-        near the top. ``Latest`` sorts the *songs* by ``DateCreated`` and, with
-        ``GroupItems``, hands back each one's album — the query the web
-        client's Recently added section makes, so the two agree.
+        a rescan re-creates rows in folder order. ``Latest`` sorts the *songs*
+        by ``DateCreated`` and, with ``GroupItems``, hands back each one's
+        album, as the web client's Recently added section asks.
 
-        It honours the account's ``HidePlayedInLatest`` preference, and the
-        API has no way to ask for both sides at once (``IsPlayed`` picks one).
-        That is the web client's behaviour for the same account, and it is
-        kept on purpose (docs/dynamic-libraries-plan.md §3).
-
-        The answer is a bare list, not an ``Items`` envelope.
+        It honours the account's ``HidePlayedInLatest`` preference. The answer
+        is a bare list, not an ``Items`` envelope.
         """
         params: JsonDict = {
             "ParentId": parent_id,
@@ -441,13 +376,8 @@ class Api:
         return self.get("/Artists", self._as_user({"parentId": parent_id}))
 
     def album_artists(self, parent_id: str) -> JsonDict:
-        """Artists credited with an album, rather than every credited artist.
-
-        The distinction is the point of the node: on a 20,802-song library
-        /Artists answers 626 and this answers 298 — the difference is guests
-        and featured performers, which is noise when you are looking for a
-        record.
-        """
+        """Artists credited with an album, without guests and featured
+        performers."""
         return self.get("/Artists/AlbumArtists", self._as_user({"parentId": parent_id}))
 
     def filters(self, parent_id: str, item_type: str = "") -> JsonDict:
@@ -482,14 +412,9 @@ class Api:
     def lyrics(self, item_id: str) -> JsonDict:
         """Lyrics for a song, or {} when the server has none.
 
-        Called on the playback-start callback, where the whole budget is the
-        gap before Kodi renders its first frame — a lyrics addon searching
-        online wins the moment we are late, and it caches that result, so a
-        slow answer is worth no more than no answer. Hence the short timeout
-        and no retries: forfeit rather than hold up the callback.
-
-        404 is the ordinary "no lyrics for this track" reply and is not worth
-        an exception to the caller.
+        Called on playback start, where an online lyrics add-on wins (and
+        caches its result) once we are late: a short timeout and no retries.
+        404 is no lyrics.
         """
         try:
             response = self._http.request(
@@ -520,7 +445,7 @@ class Api:
         (404 means the plugin is absent or disabled)."""
         return self.get("/Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime")
 
-    # -- KofinSyncQueue companion plugin (tier 1, phase 5) ---------------------
+    # -- KofinSyncQueue companion plugin ---------------------------------------
 
     def kofin_sync_info(self) -> JsonDict:
         """KofinSyncQueue probe: protocol version, server clock and retention
@@ -529,9 +454,8 @@ class Api:
 
     def kofin_sync_queue(self, since: int, types: str, libraries: str = "") -> JsonDict:
         """Typed change records since the unix-seconds watermark. ``types``
-        is an include list (the legacy exclude-list inversion dies here);
-        ``libraries`` narrows that to the synced libraries, and is simply
-        ignored by a server that predates the field."""
+        is an include list; ``libraries`` narrows that to the synced
+        libraries, and is ignored by a server that predates the field."""
         params: JsonDict = {"since": since, "types": types}
 
         if libraries:
@@ -590,7 +514,7 @@ class Api:
             self._as_user({"adjacentTo": item_id, "Fields": "Overview"}),
         )
 
-    # -- SyncPlay (phase 4) ----------------------------------------------------
+    # -- SyncPlay --------------------------------------------------------------
 
     def get_utc_time(self) -> JsonDict:
         """NTP-style timestamps: {RequestReceptionTime, ResponseTransmissionTime}."""
@@ -620,9 +544,6 @@ class Api:
         self.post("/SyncPlay/Join", body)
 
     def syncplay_leave(self) -> None:
-        # Sent from SyncPlayManager.stop on the service main thread during
-        # teardown: a courtesy to the group on its own short budget, never
-        # the transport's 6 s + 30 s (audit R4).
         self.post("/SyncPlay/Leave", timeout=LEAVE_TIMEOUT)
 
     def syncplay_hello(
@@ -764,7 +685,7 @@ class Api:
         update with a zero position is it. The body is a partial
         UpdateUserItemDataDto and the server keeps every field left out, so
         this touches neither the played flag, the play count nor the
-        favourite state (verified against 10.11).
+        favourite state.
         """
         self.post(
             "/UserItems/%s/UserData" % item_id,
@@ -773,13 +694,12 @@ class Api:
         )
 
     def update_user_data(self, item_id: str, payload: JsonDict) -> None:
-        """Partial UpdateUserItemDataDto write (offline replay, plan W2.4).
+        """Partial UpdateUserItemDataDto write.
 
-        Position and played travel in one call deliberately: sent
-        separately, an item finished offline arrives as "played" and then as
-        a stale position, which is precisely how a watched episode comes
-        back in Continue Watching (Findroid #406). Fields left out are kept
-        by the server, as ``set_resume_position`` documents.
+        Position and played travel in one call: sent apart, the stale
+        position lands after "played" and puts a finished item back in
+        Continue Watching. Fields left out are kept by the server, as
+        ``set_resume_position`` documents.
         """
         self.post(
             "/UserItems/%s/UserData" % item_id,
@@ -807,8 +727,7 @@ class Api:
         excluded. Paged so a large account does not load in one response.
 
         Dedupes by item id: some Jellyfin builds report a ``TotalRecordCount``
-        higher than the unique set and re-emit earlier rows on later pages
-        (live: count 13, eight unique, page 2 repeated Shuffle 02–07 + UHD).
+        higher than the unique set and re-emit earlier rows on later pages.
         """
         results: List[JsonDict] = []
         seen: set[str] = set()
@@ -867,9 +786,8 @@ class Api:
     def playlists(self) -> List[JsonDict]:
         """User-visible playlists of every MediaType, with Etag.
 
-        Same paging/dedupe as :meth:`music_playlists`; the caller decides
-        Audio vs Video vs skip. An empty first page against a positive
-        TotalRecordCount is a contradiction, not "none exist".
+        Same paging and dedupe as :meth:`music_playlists`; the caller decides
+        Audio vs Video vs skip.
         """
         results: List[JsonDict] = []
         seen: set[str] = set()
@@ -983,25 +901,24 @@ class Api:
 
     @property
     def http(self) -> Http:
-        """The transport, for the one caller that fetches by URL and writes
-        the bytes itself: the late-subtitle chase reuses the play route's own
-        naming and file handling (``plugin/subtitles``), so it needs the
-        transport rather than a method here."""
+        """The transport, for the subtitle fetches of the play route and the
+        late-subtitle chase, which fetch by URL and write the bytes
+        themselves."""
         return self._http
 
     def download(self, url: str) -> bytes:
-        """Raw bytes of a server resource (chapter thumbnail downloads)."""
+        """Raw bytes of a server resource."""
         response = self._http.request("GET", url, headers=self._headers())
         return response.content or b""
 
-    # -- offline downloads (docs/offline-downloads-plan.md) --------------------
+    # -- offline downloads -----------------------------------------------------
 
     def download_stream(self, item_id: str, start: int = 0) -> "StreamedResponse":
-        """/Items/{id}/Download as a resumable byte stream (plan W1.5).
+        """/Items/{id}/Download as a resumable byte stream.
 
         The original file, Range-capable, gated server-side on the user's
-        EnableContentDownloading policy (feasibility V1) — a 403 here means
-        the admin turned that off, and surfaces as Unauthorized.
+        EnableContentDownloading policy: a 403 here means the admin turned
+        that off, and surfaces as Unauthorized.
         """
         return self._http.stream(
             self._url("/Items/%s/Download" % item_id),
@@ -1025,7 +942,7 @@ class Api:
         )
 
     def transcode_stream(self, url: str) -> "StreamedResponse":
-        """A progressive transcode as a byte stream (plan W3.1).
+        """A progressive transcode as a byte stream.
 
         The URL is the PlaybackInfo answer's TranscodingUrl — deviceId,
         PlaySessionId and the api key already ride it. Never a Range

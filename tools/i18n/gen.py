@@ -8,9 +8,7 @@ PASSTHROUGH ids get msgstr == msgid automatically and are absent from the JSON.
 
 The generator refuses to write when a locale is missing a key, has an empty
 value, carries a key the source does not have, or when the English text has been
-reworded since the translations were made. That last check is the one the
-sibling add-on lacks, and is why its locales silently went two English revisions
-stale (pvr.kofin commit bb5de9b).
+reworded since the translations were made.
 
 Output is deterministic -- PO-Revision-Date is fixed -- so regenerating with no
 data change produces no diff.

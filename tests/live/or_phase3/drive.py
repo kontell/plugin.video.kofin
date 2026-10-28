@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the packaged phase-3 movie lifecycle on a Piers Flatpak.
+"""Run the packaged movie lifecycle on a Piers Flatpak.
 
 Installs an isolated plugin.video.kofin.phase3 fixture and removes its own rows.
 Does not replace the active Kofin or touch production library rows. Target addresses

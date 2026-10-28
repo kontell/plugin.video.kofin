@@ -4,12 +4,7 @@ Every listing comes from the pinned committed generation, so a scan that
 spans minutes sees one complete membership throughout, and nothing here can
 turn a server outage into an empty directory.
 
-A music listing cannot fail halfway. Kodi scans whatever rows reached it
-before a listing failed, however it failed, and the music scanner replaces a
-directory's songs with what it was given -- so a song directory is built in
-full before anything is handed over, goes out in one call, never ends with
-``succeeded=False``, and when the store itself cannot be read the rows Kodi
-already holds are listed back to it rather than nothing.
+A music listing cannot fail halfway (``_music_folder``).
 """
 
 import time
@@ -81,7 +76,8 @@ def exists(store, location, item_id, source="", features=frozenset()):
     of deletion. Only an explicit committed tombstone says an item is gone,
     and only a movie's own payload says a version file or an extra is: the
     scan that lists the folder adds and never removes, so Clean, which asks
-    this per file, is how a row the listing no longer names leaves."""
+    this per file, is the only way a row the listing no longer names can
+    leave."""
     if location.probe:
         # A disc-structure folder Kodi probes for: never a row.
         return False
@@ -173,8 +169,8 @@ def serve(request):
             _music_part(request, store, location.key, location.library, location.part)
         return
     if action == "check_exists":
-        # The source is in the query: base_url is Kodi's argv[0], which has
-        # none, and read from there every version file existed.
+        # The source is in the query, never base_url: Kodi's argv[0], which
+        # has none.
         source = request.params.get(PARAM_MEDIA_SOURCE, "")
         xbmcplugin.setResolvedUrl(
             request.handle,
@@ -213,8 +209,7 @@ def serve(request):
             for record in store.records(kind="Season", library=library).values():
                 seasons.setdefault(record.parent_id, []).append(record.item)
             # Only the numbering reaches the show hash; the payloads are read
-            # a chunk at a time and let go. Held together, one library's
-            # episodes were over 100 MB in the listing's interpreter.
+            # a chunk at a time and let go.
             episodes: Dict[str, List[Any]] = {}
             window = PayloadWindow(store)
             lazy = store.records(kind="Episode", library=library, payloads=False)
@@ -326,9 +321,7 @@ def serve(request):
         else {}
     )
     # Payloads are read a chunk at a time and let go once their ListItem is
-    # built: one library's movies held together were about 100 MB in the
-    # listing's interpreter, which a 1 GB device did not have (its first
-    # movies listing under the scanner left it unable to answer ssh).
+    # built.
     entries = []
     window = PayloadWindow(store)
     for record in window.walk(records[i] for i in sorted(records)):
@@ -379,22 +372,17 @@ def _movie_entries(
 ):
     """A movie's file, and with ``assets`` a file per further media source,
     each carrying the whole tag and the source's name as its video asset
-    title, and the movie's extras folder.
+    title, and the movie's extras folder (see metadata.Version).
 
-    A plugin item's tag takes the NFO branch of RetrieveInfoForMovie, which
-    groups a file under an existing movie only when the tag says it has
-    versions (kontell/xbmc #8). So every file of a movie with several
-    sources says so, the movie's own as the default, and carries the
-    movie's unique ids, not its source's: the scan then files one movie
-    with a version per file. The extras folder is read only when the pass
-    has warmed Kodi's directory cache for it (native._prepare_scan) and the
-    folder's binding uses folder names, which the pass sets.
+    The extras folder is read only when the pass has warmed Kodi's
+    directory cache for it (native._prepare_scan) and the folder's binding
+    uses folder names, which the pass sets.
     """
     item = record.item
     url = paths.playback_url(key, "Movie", library, record.item_id)
-    # Without video_versions (kontell/xbmc #8) a Kodi cannot group a further
-    # file under the movie, so the folder lists the movie's own file alone
-    # and the default source plays; the extras folder is Kodi 22's too.
+    # Without video_versions a Kodi cannot group a further file under the
+    # movie, so the folder lists the movie's own file alone and the default
+    # source plays; the extras folder is Kodi 22's too.
     sources = metadata.version_sources(item) if "video_versions" in features else []
 
     def row(name="", source=None):
@@ -701,14 +689,10 @@ def _known_entries(directory):
 
 def _hold(request, scanner):
     """Keep the scanner's listing of the hold directory open while the pass
-    writes, then list it empty.
+    writes, then list it empty (native.hold).
 
-    Kodi marks every library announcement made while its scanner is busy as
-    a transaction, and the home widgets skip those; without the hold each
-    song written re-ran four whole-library widget queries and the next
-    write waited behind them (measured: 46 ms a song against 0.4 ms). The
-    token the service set is the one this listing waits on; a different or
-    cleared token ends it, and so does the limit.
+    The token the service set is the one this listing waits on; a different
+    or cleared token ends it, and so does the limit.
     """
     token = state.native_hold(scanner)
     monitor = xbmc.Monitor()

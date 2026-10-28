@@ -1,14 +1,4 @@
-"""Media-segment checker: the playback tick behind segment skipping.
-
-Fork ``segments.py`` port, retimed per plan §2 (timing robustness): the fork
-ticked at 1 Hz on ``int(getTime())`` and could step over short or late-loaded
-segments entirely; kofin ticks at 0.25 s on ``float`` positions and the player
-detects boundary *crossings*, so a coarse or late poll cannot lose a segment.
-The checker stays decoupled from the player: it calls two hooks (prepare once,
-tick repeatedly) and never blocks on dialogs — the tick itself opens and
-closes the overlay, so there is no second monitor thread to hang shutdown on
-(the fork's ``_monitor_skip_dialog`` defect).
-"""
+"""The playback tick behind segment skipping and Play Next."""
 
 import threading
 from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
@@ -59,10 +49,8 @@ AUTOPLAY_MARGIN_SECONDS = 1.0
 
 # A skip prompt hides part-way through its segment (``skipPromptHidePercent``)
 # rather than sitting over the opening moment of the content the viewer just
-# chose to watch — but never before it can be read and pressed. Eight seconds
-# is the Jellyfin ecosystem's own figure, agreed independently by jellyfin-web
-# (skipsegment.ts setTimeout), jellyfin-androidtv (AskToSkipAutoHideDuration)
-# and the intro-skipper plugin (SkipbuttonHideDelay).
+# chose to watch — but never before it can be read and pressed: 8 s, the
+# figure jellyfin-web and jellyfin-androidtv use.
 MIN_PROMPT_SECONDS = 8.0
 
 # Segments too short to act on: a prompt that flashes is worse than none, and a
@@ -90,7 +78,7 @@ MODE_OFF = 0
 MODE_AUTO = 1
 MODE_ASK = 2
 
-# -- pure timing / decision helpers (L1-tested) -------------------------------
+# -- pure timing / decision helpers -------------------------------------------
 
 
 def crossed_into(prev: Optional[float], now: float, start: float, end: float) -> bool:
@@ -110,7 +98,7 @@ def safe_seek_end(
     end: Any, runtime: float, current: Optional[float], margin: float = 1.0
 ) -> Optional[float]:
     """EOF-clamped seek target for a segment end; None when the seek would go
-    backwards or nowhere (fork ``_get_safe_seek_time`` semantics)."""
+    backwards or nowhere."""
     try:
         target = max(0.0, float(end))
     except (TypeError, ValueError):
@@ -160,7 +148,7 @@ def near_end_prompt_at(runtime: float, lead: float) -> float:
 def plan_for_crossing(
     segment_type: str, mode: int, offer_next: bool
 ) -> Tuple[bool, Tuple[str, ...]]:
-    """``(auto_seek, buttons)`` for a segment crossing — the §2 decision matrix.
+    """``(auto_seek, buttons)`` for a segment crossing.
 
     ``mode`` is 0 Off / 1 Auto / 2 Ask; ``offer_next`` means a Play Next is on
     offer (episode with a resolved next episode, Play Next enabled, not in a
@@ -231,8 +219,8 @@ class SegmentChecker(threading.Thread):
         LOG.debug("---> segment checker")
         monitor = xbmc.Monitor()
         try:
-            # Warm-fetch fallback + next-episode resolution; the first arm is
-            # gated on this completing (plan §2d — the t≈0 Intro race).
+            # Warm-fetch fallback + next-episode resolution; the first arm
+            # waits for this.
             self._player.prepare_segment_state(self._halt)
         except Exception:
             LOG.exception("segment state preparation failed")
@@ -241,20 +229,18 @@ class SegmentChecker(threading.Thread):
                 self._player.segment_tick()
             except Exception:
                 LOG.exception("segment tick failed")
-            # Kodi-aware wait, not threading.Event.wait: while the overlay is
-            # open the checker must yield to Kodi between ticks so the window's
-            # onClick/onAction callbacks are serviced (upstream's skip button
-            # works for exactly this reason — its monitor loop pumps
-            # waitForAbort; a plain Event.wait never lets Kodi deliver them).
+            # waitForAbort, not threading.Event.wait: Kodi delivers the
+            # overlay's onClick/onAction callbacks to this thread only while it
+            # waits there.
             if monitor.waitForAbort(TICK_SECONDS):
                 break
         LOG.debug("<--- segment checker")
 
 
 class EnginePlayer(Protocol):
-    """What the engine needs from the player that owns it (P2.3): the
-    position and runtime Kodi reports, the seek, the claimed item, and the
-    SyncPlay flag that withholds Play Next."""
+    """What the engine needs from the player that owns it: the position and
+    runtime Kodi reports, the seek, the claimed item, and the SyncPlay flag
+    that withholds Play Next."""
 
     def getTime(self) -> float: ...
 
@@ -269,7 +255,7 @@ class EnginePlayer(Protocol):
 
 
 class SegmentEngine:
-    """The segment engine (plan §2), split out of the player (P2.3).
+    """The segment engine.
 
     Runs on the SegmentChecker's 0.25 s tick: boundary-*crossing* detection
     on float positions (a coarse or late poll cannot step over a segment),
@@ -277,10 +263,10 @@ class SegmentEngine:
     (seek out and back in re-offers), and a settle window after our own
     skip seek so a lagging ``getTime()`` cannot re-trigger. The overlay's
     lifetime is tick-driven — open at the crossing, auto-close past the
-    end, button actions on Kodi's GUI thread — no second monitor thread.
-    Play Next resolves the next episode up front and starts it through
-    kofin's own play path. One engine per player, reset per playback: the
-    state below is exactly what the player used to carry.
+    end, button actions delivered to the checker thread while it waits —
+    no second monitor thread. Play Next resolves the next episode up front
+    and starts it through kofin's own play path. One engine per player,
+    reset per playback.
     """
 
     def __init__(self, player: EnginePlayer, api: Api) -> None:
@@ -328,8 +314,8 @@ class SegmentEngine:
         if not segments_enabled:
             self._segments_loaded = True  # engine runs for Play Next only
         elif isinstance(prefetched, list):
-            # Warm fetch: the play path piggybacked the segments (plan §2d),
-            # so the engine is armed before the first frame renders.
+            # Warm fetch: the play path piggybacked the segments, so the
+            # engine is armed before the first frame renders.
             self._segments = sorted(
                 (
                     segment
@@ -348,7 +334,7 @@ class SegmentEngine:
 
     def prepare_segment_state(self, halt: threading.Event) -> None:
         """Checker-thread setup: warm-fetch fallback and next-episode
-        resolution. Ticks no-op until the segments are loaded (plan §2d).
+        resolution. Ticks no-op until the segments are loaded.
 
         Every assignment re-checks ``halt`` and the claimed item: a slow
         fetch must never land its result on a playback that superseded the
@@ -366,7 +352,7 @@ class SegmentEngine:
                 self._segments_loaded = True
                 return
             segments: List[JsonDict] = []
-            for attempt in (1, 2):  # short bounded retry (plan §7)
+            for attempt in (1, 2):  # short bounded retry
                 if halt.is_set():
                     return
                 try:
@@ -400,7 +386,7 @@ class SegmentEngine:
             self._next_episode = nxt
 
     def _resolve_next_episode(self, item: JsonDict) -> Optional[JsonDict]:
-        """The episode after the playing one (fork ``next_up`` adjacency)."""
+        """The episode after the playing one."""
         try:
             listing = (
                 self.api.adjacent_episodes(item["SeriesId"], item["Id"]).get("Items")
@@ -490,11 +476,10 @@ class SegmentEngine:
 
         if self._settle_target is not None:
             # Post-seek settle: a lagging getTime() must not re-trigger the
-            # segment we just skipped (plan §2f).
+            # segment we just skipped.
             self._settle_ticks -= 1
             if now >= self._settle_target - 0.5:
-                # The seek landed. Toast now (not before — a seek issued at
-                # t~=0 can be silently dropped) and release the settle.
+                # The seek landed: toast now and release the settle.
                 if self._pending_notify is not None:
                     self._notify(settings.localized(30488) % self._pending_notify)
                     self._pending_notify = None
@@ -503,7 +488,7 @@ class SegmentEngine:
                 self._prev_pos = now
             elif self._settle_ticks <= 0:
                 if self._settle_retries > 0:
-                    # Seek dropped (player not yet seekable at t~=0): re-issue.
+                    # Seek dropped: re-issue.
                     self._settle_retries -= 1
                     self._settle_ticks = SEEK_SETTLE_TICKS
                     LOG.info(
@@ -638,12 +623,9 @@ class SegmentEngine:
             float(segment["End"]),
         ) in self._start_inside
         if started_inside or now >= float(segment["End"]) - 0.25:
-            # No skip button. Either the crossing already stepped past the
-            # boundary, or playback *started* inside this segment — a resume
-            # point mid-intro, where the viewer asked to pick up exactly here
-            # and all the prompt does is flash and auto-close. Auto-skip is
-            # untouched ("always skip intros" must not lapse because a resume
-            # landed in one) and a Play Next offer still stands.
+            # No skip button: the crossing already stepped past the boundary,
+            # or playback started inside this segment. Auto-skip and a Play
+            # Next offer are unaffected.
             buttons = tuple(button for button in buttons if button != "skip")
         elif span < MIN_ASK_SECONDS:
             # Likewise for a segment nobody could read the prompt for, let
@@ -658,8 +640,6 @@ class SegmentEngine:
         target = safe_seek_end(segment["End"], self._runtime_for_seek(), now)
         if target is None:
             return
-        # The toast is deferred to the tick that confirms the seek landed, so a
-        # dropped t~=0 seek never reports a skip that did not happen.
         self._begin_settle(target, notify=str(segment["Type"]))
         self.player.seekTime(target)
         LOG.info("auto-skip %s -> %.1f", segment["Type"], target)
@@ -776,7 +756,7 @@ class SegmentEngine:
         if overlay is None:
             return
         if getattr(overlay, "closed", False):
-            self._overlay = None  # a button or back closed it on the GUI thread
+            self._overlay = None  # a button or back closed it
             return
         if self._overlay_autoplay and self._overlay_end > 0:
             remaining = self._overlay_end - now
@@ -802,7 +782,7 @@ class SegmentEngine:
             except Exception:
                 pass
 
-    # Overlay button callbacks (run on Kodi's GUI thread).
+    # Overlay button callbacks (delivered to the checker thread while it waits).
 
     def _overlay_skip(self) -> None:
         target = self._skip_target
@@ -830,10 +810,7 @@ class SegmentEngine:
         from kofin.service.libraryclaim import library_video_path
 
         LOG.info("play next episode %s", nxt.get("Id"))
-        # Kodi highlights a playing row by exact path. Use the synced row's
-        # current path (including a download repoint) if one exists; otherwise
-        # match kofin's dynamic listing path. The builtin's noresume option
-        # starts at zero without changing either path or asking to resume.
+        # Kodi highlights a playing row by exact path; noresume starts at zero.
         item_id = str(nxt["Id"])
         url = library_video_path(item_id, "episode") or plugin_url(
             {"mode": "play", "id": item_id}
@@ -842,5 +819,3 @@ class SegmentEngine:
 
     def _notify(self, message: str, level: str = toast.INFO) -> None:
         toast.show(message, level, time_ms=3000)
-
-    # -- internals -------------------------------------------------------------

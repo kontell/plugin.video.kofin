@@ -1,20 +1,17 @@
 """Skin entries and node trees from the server's views and the native selection.
 
-The API build has no SQL view machinery, so this is where its skin-facing
-presentation is built: every server view is a ``Kofin.nodes.*`` entry, a
-whitelisted video library gets the generated node tree under
-``special://profile/library/video/kofin/`` (``nodes/video.write_tree``) and
-``library://`` paths in its properties, and everything else is a dynamic
-``browse`` entry. The tree's filter nodes select by the folder the library's
-rows are filed under (``paths.library_dir``): a movie's folder or an
-episode's show folder is below it, and Kodi files the row on that path
-because its URL has a query (``CVideoDatabase::SplitPath``). A tag did that
-job once and showed in every info dialog. A whitelisted music library gets a
-folder in the music tree (``nodes/music.write_music_nodes``), whose nodes
-filter on the folder the library's songs are filed under, since the SQL
-tree's Kodi music *sources* are never written here; its skin entry is
-Kodi's music root, as in the SQL build. The folder's path is what the Manage menu reads a library's
-downloads from (``plugin/context.py``).
+Every server view is a ``Kofin.nodes.*`` entry. A whitelisted video library
+gets the generated node tree under ``special://profile/library/video/kofin/``
+(``nodes/video.write_tree``) and ``library://`` paths in its properties, and
+everything else is a dynamic ``browse`` entry. The tree's filter nodes select
+by the folder the library's rows are filed under (``paths.library_dir``): a
+movie's folder or an episode's show folder is below it, and Kodi files the row
+on that path because its URL has a query (``CVideoDatabase::SplitPath``). A
+whitelisted music library gets a folder in the music tree
+(``nodes/music.write_music_nodes``), whose nodes filter on the folder the
+library's songs are filed under; its skin entry is Kodi's music root. The
+folder's path is what the Manage menu reads a library's downloads from
+(``plugin/context.py``).
 
 Ownership is the ``kofin`` name prefix throughout (``nodes/fs.py``): a tree
 rewrite reconciles the folder against what it wrote and never touches a
@@ -25,17 +22,15 @@ the tree, the smart playlists beside it and the Jellyfin playlists
 (``backends/api/playlists.py`` reads the same switch). Off, the files Kofin
 wrote go the way an empty whitelist takes them and a synced video library is
 published as a browse entry, like an unsynced one; Kodi's own library and the
-rows in it are untouched. The SQL build's ``syncMusicPlaylists`` is the other
-build's switch, and each package ships one (``tools/package_manifest.py``).
+rows in it are untouched.
 
 Kodi's shipped video nodes are seeded into the profile before the tree is
 written (``kodisetup.seed_default_nodes``): the moment
 ``special://profile/library/video/`` exists, every ``library://video/...``
 path resolves there and nowhere else (CLibraryDirectory::GetDirectory, no
 merge), so a profile holding only ``kofin/`` lists nothing for
-``library://video/movies/`` and a skin's categories row goes empty -- as
-the P1D's did until the seed. The music tree gets Kodi's shipped music nodes
-the same way.
+``library://video/movies/`` and a skin's categories row goes empty. The
+music tree gets Kodi's shipped music nodes the same way.
 """
 
 from typing import Dict, List, NamedTuple, Optional, Tuple
@@ -150,8 +145,8 @@ def wanted() -> bool:
 
     Only an explicit off switches it off. Off deletes files, and an empty
     read is a settings document that did not load (the applier's canary
-    case, ``service/settings_apply.py``), as is a build whose settings never
-    defined the switch; both read as the default, which is on.
+    case, ``service/settings_apply.py``) and reads as the default, which is
+    on.
     """
     try:
         value = settings.get_str(SETTING)
