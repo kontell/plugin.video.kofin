@@ -1,8 +1,5 @@
-"""Command execution and correction behaviour (SYNCPLAY.md §5.1, §7, §10).
-
-Ported from the fork; the JSON-RPC seam is kofin's module-level ``_rpc``
-and settings come from the FakeAddon store. New kofin coverage at the end:
-the play-path re-target (plugin URLs, never resolved paths — plan §2)."""
+"""Command execution and correction behaviour (SYNCPLAY.md §5.1, §7, §10),
+and the play-path re-target (plugin URLs, never resolved paths)."""
 
 import threading
 from contextlib import contextmanager
@@ -100,8 +97,8 @@ class FakePlayer:
 
         if (self.audio or self.resumes_on_seek) and self._paused:
             # PAPlayer::SeekTime() restores playback speed, silently resuming
-            # a paused player; Android's VideoPlayer was measured doing the
-            # same, which resumes_on_seek stands in for.
+            # a paused player; Android's VideoPlayer does the same, which
+            # resumes_on_seek stands in for.
             self.paused = False
 
     def stop(self):
@@ -206,9 +203,8 @@ def _player_conditions(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _player_ops_over_jsonrpc(monkeypatch):
-    """Stops and resumes leave through JSON-RPC, not the player bindings
-    (issue #155 for the stop, kodirpc.resume_player for the resume). Wired
-    back to the fake player so the observable behaviour is unchanged.
+    """Stops and resumes leave through JSON-RPC, not the player bindings;
+    this wires them back to the fake player.
     """
     monkeypatch.setattr(
         "xbmc.executeJSONRPC", player_ops_rpc(lambda: FakePlayer.current)
@@ -318,9 +314,9 @@ class TestUnpause:
         assert abs(estimate - 10000.0) < 500
 
     def test_unpause_while_loading_is_not_marked_applied(self):
-        """A zap Unpause arrives while the follower is still opening.
-        Marking it applied made the Ready re-issue a repeat, and the
-        Tab stayed paused (Raceday Live, 2026-09-03)."""
+        """A zap Unpause arrives while the follower is still opening. Marked
+        applied, the Unpause re-issued on Ready would be a repeat and the
+        member would stay paused."""
         controller, manager, player = make_controller(paused=True, position=0.0)
         manager.phase = "loading"
         cmd = command("Unpause", -10, ticks=utils.seconds_to_ticks(10))
@@ -398,8 +394,7 @@ class TestUnpauseAlignment:
 
     def test_fire_time_catch_all_uses_tight_band(self):
         controller, manager, player = make_controller(paused=True, position=10.0)
-        # 300ms off used to pass through (< the 1500ms drift threshold); a
-        # start must align on the tight band instead.
+        # 300ms off is outside the tight band a start aligns on.
         controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(10.3)))
 
         assert self.seeks(player) and abs(self.seeks(player)[0][1] - 10.3) < 0.05
@@ -416,7 +411,7 @@ class TestPause:
         assert seeks and abs(seeks[0][1] - 10.0) < 0.01
 
     def test_pause_waits_for_the_player_lock(self):
-        # Y1: schedule() arms the fire-time timer and then pre-aligns on the
+        # schedule() arms the fire-time timer and then pre-aligns on the
         # dispatcher holding _player_lock, so a timer-thread Pause landing
         # mid-align must queue behind it, not interleave with its seek.
         controller, manager, player = make_controller(paused=False, position=12.0)
@@ -583,16 +578,15 @@ class TestSeekWhilePaused:
         assert seeks and seeks[0][1] < 0.5
 
     def test_audio_resume_without_fine_sync_keeps_its_wide_band(self):
-        # Not armed: only past AUDIO_UNPAUSE_ALIGN_MS, as before.
+        # Not armed: only past AUDIO_UNPAUSE_ALIGN_MS.
         fine_sync = self._MusicFineSync(armed=False, budget_ms=500.0)
         assert self._audio_unpause(fine_sync, 10.0, 10.8) == []
         fine_sync = self._MusicFineSync(armed=False, budget_ms=500.0)
         assert self._audio_unpause(fine_sync, 18.9, 0.0)
 
     def test_unpause_retries_a_swallowed_toggle(self):
-        # Fork field log 2026-07-10: a paused-at-boundary PAPlayer can
-        # swallow the pause toggle; the resume must nudge again until
-        # the clock demonstrably moves.
+        # A paused-at-boundary PAPlayer can swallow the pause toggle; the
+        # resume must nudge again until the clock demonstrably moves.
         controller, manager, player = make_controller(paused=True, position=18.9)
         player.audio = True
         player.clock_advances = True
@@ -661,8 +655,7 @@ class TestSeekWhilePaused:
 
 class TestStartHoldGates:
     """The hold must be able to pause and align during the gapless swap
-    window, when getTime() can misbehave (fork field log: align/pause were
-    silently skipped and the pause only landed at adopt time)."""
+    window, when getTime() can misbehave."""
 
     def test_ensure_paused_survives_a_broken_clock(self):
         controller, manager, player = make_controller()
@@ -705,11 +698,10 @@ class TestUnpauseIsByIntent:
     """A group Unpause must end with the player *playing*, whatever the seek
     that preceded it did to the pause state.
 
-    Measured failure it guards (docs/syncplay-drift-shakedown.md §11): the
-    align seek resumed the player, the settle re-paused it, and the toggle that
-    was meant to start it read the not-yet-applied pause as "playing" and did
-    nothing — so the member sat still while the group played on, and with no
-    drift loop nothing ever revisited it.
+    The failure it guards: the align seek resumes the player, the settle
+    re-pauses it, and a toggle meant to start it reads the not-yet-applied
+    pause as "playing" and does nothing, so the member sits still while the
+    group plays on.
     """
 
     def test_unpause_resumes_even_when_the_seek_resumed_the_player(self):
@@ -731,8 +723,8 @@ class TestUnpauseIsByIntent:
         player.pause_latency = 1
         controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(42)))
 
-        # One pause toggle in the whole sequence would mean the settle re-paused
-        # and something had to undo it; the fixed path never re-pauses at all.
+        # A pause toggle anywhere in the sequence would mean the settle
+        # re-paused and something had to undo it.
         assert "pause" not in player.actions
         assert player.paused is False
 
@@ -752,11 +744,7 @@ class TestTranscodedSeekReloads:
 
     The reason is timing, not accuracy: a transcode seek makes the server
     restart the encode, so the position does not move for seconds and any
-    residual read after a normal settle is the pre-seek position. Measured
-    live, seeking first and deciding on the result reported the whole 60 s
-    seek distance as the residual and made the fallback reload land 10.7 s
-    from the group instead of 0.9 s (PR #208, reverted). The playback.py
-    comment carries the numbers.
+    residual read after a normal settle is the pre-seek position.
     """
 
     def test_transcoding_reloads_at_the_target(self):
@@ -772,8 +760,8 @@ class TestTranscodedSeekReloads:
 
     def test_transcoding_unpause_carries_the_offset(self):
         # The fire-time align has the same problem as the arm-time one: on a
-        # transcode the seek snaps to a segment, so aligning a member that was
-        # 224 ms out left it 4.2 s out (measured). Resume where it is instead.
+        # transcode the seek snaps to a segment, so aligning a small offset can
+        # leave a member seconds out. Resume where it is instead.
         controller, manager, player = make_controller(paused=True, position=10.0)
         manager.transcoding = True
 
@@ -858,17 +846,13 @@ class FakePlaylist:
 
 
 class TestPlayPathRetarget:
-    """The one substantive transplant change (plan §2): a group play goes
-    through kofin's plugin play path — a plugin:// URL naming the id and
-    start position — never a resolved stream path.
+    """A group play goes through kofin's plugin play path — a plugin:// URL
+    naming the id and start position — never a resolved stream path.
 
-    Driven end to end through the G1 provider seam: the Jellyfin provider
-    builds the target, the controller plays it, and together they must
-    reproduce the pre-seam behaviour byte for byte. (The old
-    item-without-an-Id guard is gone with the item dict: the URL is built
-    from the queue key, which a queue entry always carries; an item the
-    lookup cannot produce is the provider's LookupError, tested in
-    test_syncplay_providers.py.)"""
+    Driven end to end through the provider seam: the Jellyfin provider
+    builds the target from the queue key and the controller plays it. An
+    item the lookup cannot produce is the provider's LookupError, tested in
+    test_syncplay_providers.py."""
 
     @pytest.fixture(autouse=True)
     def _playlist(self, monkeypatch):
@@ -904,10 +888,9 @@ class TestPlayPathRetarget:
         assert plays and plays[0][2] == 0  # startpos 0
 
     def test_zero_start_sends_startticks_and_stops_current(self):
-        # It used to be omitted. A group start naming position zero must still
-        # say so: with no startticks the play route falls back to this member's
-        # own resume point, which is how a follower ended up 290 s from the
-        # group (docs/syncplay-drift-shakedown.md §11).
+        # A group start naming position zero must still say so: with no
+        # startticks the play route falls back to this member's own resume
+        # point.
         import xbmc
 
         controller, manager, player = make_controller()
@@ -921,9 +904,8 @@ class TestPlayPathRetarget:
 
     def test_negative_estimate_is_clamped_not_passed_through(self):
         # A group start's estimate can land fractionally below zero across a
-        # clock offset; it reached the play route as startticks=-240000, which
-        # the route cannot use, so the member fell back to its own resume point
-        # and started 290 s from the group (docs/syncplay-drift-shakedown.md).
+        # clock offset, which the play route cannot use: the member would fall
+        # back to its own resume point.
         import xbmc
 
         controller, manager, player = make_controller()
@@ -948,12 +930,10 @@ class TestPlayPathRetarget:
 class TestAlignAfterResume:
     """The resume opens a gap the pre-resume alignment cannot see.
 
-    Measured on two devices from one command they agreed on to within 3ms: the
-    resume landed 82ms after the fire on one and 1202ms after it on the other,
-    four captures running. The alignment happens before the resume, so by the
-    time there is a picture it describes a position the player has left -- and
-    nothing looked again. That is the whole of why a seek holds sync and a
-    resume does not: a seek names a position, so arriving late costs nothing.
+    How long a resume takes after the fire differs from device to device. The
+    alignment happens before the resume, so by the time there is a picture it
+    describes a position the player has left. A seek names a position, so
+    arriving late costs it nothing; a resume does not.
 
     These tests model the resume *taking time*, because a gap that already
     exists when the command arrives is closed by the pre-resume align and
@@ -981,7 +961,7 @@ class TestAlignAfterResume:
         manager.phase = "synced"
         now = manager.server_now_ms()
         # In position when the command lands: the pre-resume align has nothing
-        # to do, so any seek here belongs to the new code.
+        # to do, so any seek here is the post-resume align.
         controller.set_reference(utils.ms_to_ticks(100000), now, True)
         self._slow_resume(controller, manager, monkeypatch, 1200.0)
 
@@ -1024,7 +1004,7 @@ class TestAlignAfterResume:
 
 
 # ----------------------------------------------------------------------------
-# Live items on the source clock (pvr sync plan P4)
+# Live items on the source clock
 # ----------------------------------------------------------------------------
 
 EPOCH_MS = utils.LIVE_PTS_EPOCH_S * 1000.0
@@ -1371,9 +1351,8 @@ class TestLiveClock:
         assert controller.live_on_source_clock()
 
     def test_unpause_after_a_skipped_live_seek_keeps_the_source_clock(self):
-        """The protocol Unpauses at the Seek's ticks. Those are session
-        time. Adopting them left DirectPlay at residual −9919s and
-        'session time; no pulses' (P1D/Tab Sky Racing, 2026-09-04)."""
+        """The protocol Unpauses at the Seek's ticks, which are session
+        time; adopting them would take the member off the source clock."""
         controller, manager, player = make_controller(paused=True, position=100.0)
         player.clock_advances = False
         manager.phase = "synced"

@@ -186,7 +186,7 @@ def test_current_claim_is_the_players_item(manager):  # noqa: F811
 
 def test_a_resume_settles_a_left_rate_first(manager, monkeypatch):  # noqa: F811
     """In a group or not: a member that left while paused resumes its own
-    playback, and the rate a cut pulse left must not play on."""
+    playback."""
     settled = []
     monkeypatch.setattr(
         manager.playback.tempo, "settle_owed", lambda: settled.append(1)
@@ -418,8 +418,8 @@ def test_seek_lag_is_timed_from_the_clock_restarting(monkeypatch):
 
 
 def test_seek_lag_includes_an_early_landing(monkeypatch):
-    # The Tab's shape: restarts after ~600 ms *and* 350 ms early, so a seek
-    # aimed at the group's position leaves ~950 ms behind.
+    # A player that restarts after ~600 ms *and* lands 350 ms early: a seek
+    # aimed at the group's position leaves it ~950 ms behind.
     controller = _seek_with(HoldingPlayer(hold_reads=12, lands_ms=-350.0), monkeypatch)
     assert 650 < controller.seek_lag_ms < 900
 
