@@ -1,31 +1,7 @@
-"""Playback reporting, the segment engine, and everything else that hangs
-off a kofin playback.
+"""Playback reporting for kofin's own plays.
 
-The player owns its progress ticker (10s cadence) — the service loop does no
-playback polling. Foreign playback (anything not queued on kofin.play.json)
-is ignored entirely, except that a library row Kodi started on its own is
-claimed back from ``Player.OnPlay`` (``backfill_library_claim`` and the
-module-level claim helpers) so it reports like any other.
-
-Beside the reporter and the segment engine this file also holds: the lyrics
-hand-off at playback start (``start_lyrics`` — published for
-script.kofin.lyrics when that add-on is installed, otherwise a no-op); the
-default audio and subtitle track selection for a transcode; the
-watched-to-end offers (delete from the server, remove a download); and the
-wiring for late subtitles and chapter thumbnails, which run on their own
-threads.
-
-The segment engine is ``service/segments.py``'s ``SegmentEngine`` since P2.3 (one per
-player, reset per playback, driven by the checker's 0.25 s tick) and the claim
-helpers are ``service/libraryclaim.py``. The engine, for the record:
-boundary-*crossing* detection on float positions (a coarse or late poll
-cannot step over a segment), a pre-armed next boundary (one compare per
-tick), recoverable dedup (seek out and back in re-offers), and a settle
-window after our own skip seek so a lagging ``getTime()`` cannot re-trigger.
-The overlay's lifetime is tick-driven — open at the crossing, auto-close
-past the end, button actions on Kodi's GUI thread — no second monitor
-thread. Play Next resolves the next episode up front and starts it through
-kofin's own play path; no ``service.upnext`` anywhere.
+The player owns its progress ticker (10s cadence), so the service loop does no
+playback polling. Foreign playback (anything not in the play queue) is ignored.
 """
 
 import queue
@@ -60,10 +36,8 @@ JsonDict = Dict[str, Any]
 PROGRESS_INTERVAL_SECONDS = 10.0
 PLUGIN_URL = "plugin://plugin.video.kofin/"
 CLAIM_TIMEOUT_SECONDS = 10.0
-# Grace for a claim that arrives from the Player.OnPlay notification instead
-# of the play route (see backfill_library_claim): library-originated audio,
-# and downloaded video playing as the local file its row points at (W1.7).
-# Only until the notification lands.
+# How long _claim waits for an audio or downloaded-video claim to be queued
+# before calling the playback foreign.
 BACKFILL_GRACE_SECONDS = 3.0
 
 # How far into an item counts as having watched it, for the
@@ -105,11 +79,11 @@ class _Reporter(threading.Thread):
     Kodi delivers player callbacks on its announcement thread, which every
     addon shares: a network call there stalls player and monitor callbacks
     for all of them, for the transport's whole budget, whenever the server is
-    away (audit finding #2). So callbacks capture their payload at event time
-    — position and volume are read when the event happens, not when the
-    network gets to it — and enqueue here, and this thread posts strictly in
-    order: the server reads playing/progress/stopped as one session's story,
-    and the single pipe is what keeps a stop from overtaking its start.
+    away. So callbacks capture their payload at event time — position and
+    volume are read when the event happens, not when the network gets to it
+    — and enqueue here, and this thread posts strictly in order: the server
+    reads playing/progress/stopped as one session's story, and the single
+    pipe is what keeps a stop from overtaking its start.
     """
 
     def __init__(self) -> None:
@@ -150,31 +124,29 @@ class Player(xbmc.Player):
         self._item: Optional[JsonDict] = None
         self._ticker: Optional[_Ticker] = None
         self._lock = threading.Lock()
-        # Driven by SyncPlay (phase 4); while True, Play Next is withheld —
-        # the group queue is authoritative.
+        # Driven by SyncPlay; while True, Play Next is withheld — the group
+        # queue is authoritative.
         self._syncplay_group_active = False
         # The SyncPlay manager, attached by the service when built.
         self.syncplay: Optional["SyncPlayManager"] = None
-        # The segment engine, split out in P2.3: one per player, reset per
-        # playback (service/segments.py).
+        # One per player, reset per playback (service/segments.py).
         self.segments = SegmentEngine(self, api)
-        # W4.1's one-shot: the item id whose 80% crossing already fired,
-        # latched before the lookup so a failed resolve never retries.
+        # The auto-next one-shot: the item id whose 80% crossing already
+        # fired, latched before the lookup so a failed resolve never retries.
         self._auto_next_latch = ""
         self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
         # Raised by stop_threads, and every Kodi callback is ignored from then
         # on. Kodi calls a Player until the object is freed, and a stopped
-        # service generation outlives its run (Service.onNotification says
-        # why), so its Player raced the live one for every claim.
+        # generation outlives its run (Service.onNotification says why).
         self._stopped = False
 
     # A property so joining or leaving a group also withdraws or restores the
     # stream menu, without the SyncPlay manager having to know the menu exists:
-    # it writes this attribute and nothing else (syncplay/manager.py is ported
-    # fork code and stays that way). Changing audio means restarting playback,
-    # which in a group would desync everyone else, so the entry disappears.
+    # it writes this attribute and nothing else. Changing audio means
+    # restarting playback, which in a group would desync everyone else, so the
+    # entry disappears.
     @property
     def syncplay_group_active(self) -> bool:
         return self._syncplay_group_active
@@ -208,9 +180,7 @@ class Player(xbmc.Player):
         is no other consumer. Kodi's music database has no lyrics column, so
         lyrics cannot be synced into the library the way everything else is;
         they exist only on the playback that is running, and only while it
-        runs. That holds whichever path a song was written with, so this one
-        route covers both direct rows and the plugin:// rows musicTranscode
-        writes.
+        runs.
 
         The fetch runs synchronously at the top of playback start, ahead of
         the claim, and forfeits rather than stalls (see Api.lyrics).
@@ -353,7 +323,7 @@ class Player(xbmc.Player):
         self._maybe_auto_next()
 
     def _maybe_auto_next(self) -> None:
-        """W4.1: the 80% crossing of a downloaded episode queues the next
+        """The 80% crossing of a downloaded episode queues the next
         keep-ahead. Runs on the ticker thread — the lookup is one bounded
         listing, and the ticker's next beat is ten seconds out anyway."""
         item = self._item
@@ -387,7 +357,7 @@ class Player(xbmc.Player):
             if not self.offer_delete(item):
                 # Never two stacked dialogs about one just-finished item:
                 # the local-remove offer stands down when the server-delete
-                # prompt ran (W4.5).
+                # prompt ran.
                 self.offer_remove_download(item)
 
     def finalize(self) -> None:
@@ -420,8 +390,8 @@ class Player(xbmc.Player):
                 LOG.warning("stop report failed: %s", error)
                 # The position is the user's viewing progress and this was
                 # its only route to the server; park it for the next connect
-                # rather than lose it (plan W2.4). Contained: a parking
-                # failure must not skip the transcode close below.
+                # rather than lose it. Contained: a parking failure must not
+                # skip the transcode close below.
                 try:
                     from kofin.downloads import pending
 
@@ -444,13 +414,7 @@ class Player(xbmc.Player):
         state.clear_playing_streams()
 
     def stop_threads(self) -> None:
-        """Service shutdown: stop the ticker and checker without reporting.
-
-        Chapter thumbs are reverted too — the entries are per-play and this
-        Player is their only owner, so they must not outlive it. The cost is
-        a playback that survives a mid-play service restart losing its
-        chapter tiles; the startup sweep would otherwise never dare touch
-        them while that playback is live."""
+        """Service shutdown: stop the ticker and checker without reporting."""
         self._stopped = True
         self.segments.reset()
         self._stop_ticker()
@@ -475,10 +439,7 @@ class Player(xbmc.Player):
         if not watched_to_end(item):
             return False
         if not item.get("CanDelete"):
-            # The server's own answer for this account. Without it an account
-            # with no EnableContentDeletion was asked "delete this?" after
-            # every single episode, and told "Server request failed" every
-            # time it said yes.
+            # The server's own answer for this account.
             return False
         # Off the Kodi callback thread: this dialog waits on a person, and
         # blocking that thread stalls the player callbacks behind it (Play
@@ -488,30 +449,16 @@ class Player(xbmc.Player):
         return True
 
     def offer_remove_download(self, item: JsonDict) -> bool:
-        """W4.5: the local sibling of ``offer_delete`` — a download watched
-        to the end has its local copy removed, silently or after a prompt.
+        """The local sibling of ``offer_delete`` — a download watched to the
+        end has its local copy removed, silently or after a prompt, whoever
+        queued it.
 
-        One answer for every download, whoever queued it. It used to depend
-        on origin: this path refused anything automatic and the retention
-        sweep refused anything the user had asked for, so the same watched
-        episode was treated two different ways depending on how it had
-        arrived. The sweep still exists for what this path cannot see —
-        something watched while the service was down, or outside kofin's
-        player — and it only ever acts in the silent mode, because a dialog
-        about an episode finished an hour ago is not a question anyone can
-        answer.
+        The retention sweep covers what this path cannot see — something
+        watched while the service was down, or outside kofin's player — and
+        acts only in the silent mode.
 
-        Video only, on ``DELETABLE_TYPES`` — the constant ``offer_delete``
-        already gates on, whose whole reason for existing is that reaching
-        the end of a song is not an invitation to delete anything. This
-        path was the one of the three that never got the rule: the
-        retention sweep skips a song (``store.VIDEO_MEDIA_TYPES``) and so
-        does ``_mark_watched``, but a downloaded track played to its end
-        raised "Remove download?" every time. The test is the *item's*
-        Jellyfin type rather than the row's ``media_type`` because that is
-        the vocabulary this method is handed and it is always populated —
-        a row queued before the type was knowable carries ``""``, which
-        would have made this refuse for video as well.
+        Video only, on ``DELETABLE_TYPES``. The test is the *item's* Jellyfin
+        type rather than the row's ``media_type``, which can be ``""``.
         """
         if item.get("Type") not in DELETABLE_TYPES:
             return False
@@ -535,8 +482,7 @@ class Player(xbmc.Player):
             LOG.info("removing watched download %s (automatic)", item_id)
             ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": [item_id]})
             return True
-        # The same thread shape as the delete prompt: a dialog waits on a
-        # person, and Kodi's callback thread must never wait with it.
+        # Off the callback thread, as the delete prompt.
         spawn_once(
             None,
             self._remove_download_prompt,
@@ -616,10 +562,9 @@ class Player(xbmc.Player):
     def apply_default_tracks(self) -> None:
         """Start on the tracks the Jellyfin *user profile* nominates.
 
-        Kodi otherwise picks from its own language settings, so a viewer whose
-        Jellyfin account asks for Japanese audio with English subtitles got
-        neither. The server has already resolved both against that account and
-        returns them on every MediaSource; nothing had ever applied them.
+        Kodi otherwise picks from its own language settings. The server has
+        already resolved both against that account and returns them on every
+        MediaSource.
 
         Runs at first frame rather than at claim because Kodi's stream lists
         do not exist until then — and because running here cannot delay the
@@ -694,12 +639,7 @@ class Player(xbmc.Player):
         (Kodi delivers Python player and monitor callbacks on the thread
         that created the object, from inside its Kodi API calls), so every
         beat waited here delays onAVStarted — the SyncPlay Ready trigger and
-        apply_default_tracks. The ``waitForAbort`` in the grace loop is also
-        what delivers the pending Player.OnPlay notification whose backfill
-        this waits for, so the grace is satisfiable, and the wait is bounded
-        by the backfill's server GET — or the full grace when the server is
-        away. The log line at the end is the measurement audit F6 asked for
-        before restructuring: outcome, elapsed and kind, one line per start.
+        apply_default_tracks.
         """
         monitor = xbmc.Monitor()
         waited = 0.0
@@ -728,13 +668,6 @@ class Player(xbmc.Player):
                 if claimed is not None:
                     outcome = "claimed"
                     break
-                # Two kinds of playback never pass through the play route
-                # and get their claim back-filled from the Player.OnPlay
-                # notification instead, which can land after this callback:
-                # songs written as direct ``<server>/Audio/<id>/`` stream
-                # URLs, and downloaded video whose row is a local file
-                # (W1.7). Wait a beat for the back-fill rather than calling
-                # either foreign playback.
                 if (
                     kind != "video"
                     and waited < BACKFILL_GRACE_SECONDS
@@ -742,9 +675,7 @@ class Player(xbmc.Player):
                 ):
                     waited += 0.25
                     continue
-                # A file is playing but nothing is queued: foreign playback
-                # — or, for the two back-filled kinds, a back-fill that never
-                # landed inside the grace.
+                # A file is playing but nothing is queued: foreign playback.
                 outcome = "foreign" if kind == "video" else "backfill missed"
                 break
             if monitor.waitForAbort(0.5):
@@ -769,10 +700,10 @@ class Player(xbmc.Player):
         if item is None:
             return
         if state.is_offline():
-            # Offline claims exist for the local machinery (W4.7); a session
-            # post every ten seconds would ride the ladder to nowhere for a
-            # session the server cannot see. The stop report is not gated —
-            # its failure path parks the position for the replay (W2.4).
+            # Offline claims exist for the local machinery; a session post
+            # every ten seconds would ride the ladder to nowhere for a session
+            # the server cannot see. The stop report is not gated — its
+            # failure path parks the position for the replay.
             return
         volume, muted = _volume_state()
         data: JsonDict = {

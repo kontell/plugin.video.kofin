@@ -7,18 +7,9 @@ the server answered for (``record_feed``). Everything else the dialog shows is
 read from the catalogue at the moment it is opened, by the plugin process that
 draws it, so nothing is kept up to date for a dialog nobody has open.
 
-The thread stamps what it writes with its account's namespace, and the dialog
-reads the document for the account that is logged in: a login to another
-server with nothing selected starts no thread, and the previous server's
-state, listing and feed would otherwise stand for as long as nothing wrote.
-What the service writes before there is an account (a Kodi this build cannot
-sync on) carries no stamp and is read by any account.
-
-The document replaces two settings the service used to write, "Synced
-libraries" and "Sync status". A setting write rewrites settings.xml and
-fires the settings callback of every running part of the add-on, and what
-it showed was a line that could not be read once the settings were closed,
-which is when a sync runs.
+The thread stamps what it writes with its account's namespace, and the
+dialog reads only the document of the account that is logged in, or an
+unstamped one.
 """
 
 import json
@@ -123,10 +114,7 @@ def _store(document: Dict[str, Any], namespace: str = "") -> None:
     if namespace:
         document["namespace"] = namespace
     target = path()
-    # A path of this thread's own. Two service generations run side by side
-    # for a moment, each with a library thread: on one shared ".part" the
-    # first to rename took the other's file with it, and the second write
-    # was lost.
+    # A path of this thread's own: two service generations may write at once.
     part = "%s.%d.part" % (target, threading.get_ident())
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -269,8 +257,7 @@ def rows(
         )
     if features is not None:
         # What this Kodi cannot do, counted here and named in the viewer the
-        # row opens (``show``): the one place a viewer is told, since nothing
-        # logs it per item (the capability profile, CLAUDE.md).
+        # row opens (``show``).
         off = off_features(features, text)
         if off:
             lines.append("%s:  %s" % (text(30876), _number(len(off))))
@@ -344,13 +331,10 @@ def show(store) -> None:
     The first row, the last and the "Kodi cannot import" row are the only
     ones that do anything. A select dialog closes on whichever row is
     picked, so a fact that was picked is shown again as it was, the cursor
-    on it: picking one used to close the report, which read as the report
-    having gone wrong. Back is what closes it. The row for what this Kodi
-    lacks carries a count, and picking it opens the names, one feature a
-    line, in a text viewer: named on the row, they were cut short by the
-    skin and scrolled once a few features were off (eight on a Piers).
-    Picking the count of what Kodi cannot import opens what it counts the
-    same way. Both lists are read with the rows they explain, so a pass
+    on it; Back is what closes it. The row for what this Kodi lacks carries
+    a count, and picking it opens the names, one feature a line, in a text
+    viewer; picking the count of what Kodi cannot import opens what it
+    counts the same way. Both lists are read with the rows they explain, so a pass
     that moves either while the report is open cannot make the text
     disagree with the row.
     """

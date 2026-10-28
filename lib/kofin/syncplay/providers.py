@@ -1,12 +1,10 @@
 """The provider seam: how the engine starts content and maps local plays.
 
-G1 of ``docs/syncplay-generic-backend-plan.md``. The engine coordinates the
-*global* Kodi player; what a queue item id means — how to start it at a
-position, and how a Kodi library id maps back to one — is the owning
-provider's business. Today there is exactly one provider,
-Jellyfin-through-kofin, and this seam exists so there can be another without
-the engine changing shape (``docs/syncplay-generic-backend-feasibility.md``
-§5).
+The engine coordinates the *global* Kodi player; what a queue item id means —
+how to start it at a position, and how a Kodi library id maps back to one — is
+the owning provider's business. Jellyfin-through-kofin is always registered;
+template and delegated providers register over the public bus
+(``SyncPlayManager.on_provider_register``).
 
 Kept in the ``ports.py`` discipline: the engine types against the Protocol,
 the registry is the only dispatch, and the Jellyfin implementation is the one
@@ -50,7 +48,7 @@ class PlayTarget(_PlayTargetRequired, total=False):
 
 
 class Provider(Protocol):
-    """What the engine needs from a content provider (plan G1.1)."""
+    """What the engine needs from a content provider."""
 
     def play_target(self, key: str, start_ticks: int) -> PlayTarget: ...
 
@@ -64,8 +62,7 @@ class JellyfinProvider:
     """Jellyfin-through-kofin: the reference provider.
 
     ``api`` mirrors the manager's Optional client: a manager built without
-    one answers every start with a failed lookup, exactly as the getattr
-    dispatch answered None before the seam existed.
+    one answers every start with a failed lookup.
     """
 
     def __init__(self, api: Optional[SyncPlayApi]):
@@ -84,12 +81,9 @@ class JellyfinProvider:
 
         params = {"mode": "play", "id": str(key)}
 
-        # Always sent, and never negative. A group start names the position
-        # even when that position is zero, so a falsy 0 must not be dropped —
-        # omitting it lets the play route fall back to the member's own resume
-        # point, which starts it minutes away from the group. And the estimate
-        # can land just below zero (extrapolation across a clock offset), which
-        # was measured reaching the route as startticks=-240000.
+        # Always sent, and never negative: omitted, the play route falls back
+        # to the member's own resume point; and the estimate can extrapolate
+        # below zero across a clock offset.
         params["startticks"] = str(max(0, int(start_ticks or 0)))
 
         target: PlayTarget = {
@@ -109,8 +103,6 @@ class JellyfinProvider:
 
         The longest of its versions, not the item's own figure: that one
         describes the primary version, and a member may be on a longer cut.
-        Nothing for the live kinds — a recording still being written is
-        already longer than whatever length it was probed at.
         """
         if item.get("Type") in LIVE_TYPES:
             return 0
@@ -123,11 +115,9 @@ class JellyfinProvider:
         )
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
-        # Kofin keeps no table of Kodi ids: a native row is ours when its
-        # unique id and resolver URL say so, which is the lookup the library
-        # claim and the userdata watcher already make. A lookup that fails
-        # raises: the caller leaves that play to its claim rather than
-        # calling it foreign.
+        # A native row is ours when Kodi's row and the catalogue agree on its
+        # unique id and resolver URL. A lookup that fails raises: the caller
+        # leaves that play to its claim rather than calling it foreign.
         from kofin.sync.backends.api.identity import mapped_item
 
         item_id = mapped_item(kodi_id, media)
@@ -138,7 +128,7 @@ class JellyfinProvider:
 
 
 class TemplateProvider:
-    """A provider registered over the public bus (plan G2.4): start-only.
+    """A provider registered over the public bus: start-only.
 
     The template names ``{key}`` and optionally ``{position_s}`` (whole
     seconds). Substitution is by token replace, never str.format — the
@@ -181,12 +171,7 @@ class DelegatedProvider:
 
 
 class ProviderRegistry:
-    """The engine's one dispatch from a content key to its provider.
-
-    G1 knows a single provider; G2's ``SyncProvider.Register`` intake is what
-    grows this beyond ``jellyfin``, and the queue side stays keyed by the
-    default until G3's descriptors name a provider per entry.
-    """
+    """The engine's one dispatch from a content key to its provider."""
 
     def __init__(self) -> None:
         self._providers: Dict[str, Provider] = {}
@@ -210,8 +195,7 @@ class ProviderRegistry:
         return self.get(provider).play_target(key, start_ticks)
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
-        # The default provider owns the Kodi library today; a second library
-        # owner joins this dispatch when one exists.
+        # The default provider owns the Kodi library.
         return self.get(JELLYFIN).resolve_kodi_id(kodi_id, media)
 
 

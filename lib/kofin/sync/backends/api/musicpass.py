@@ -46,8 +46,7 @@ class MusicPass:
 
     def album_items(self, library) -> Dict[str, Dict]:
         """The library's album payloads, read once a pass: a song's tag hash
-        takes its album's artists and MusicBrainz ids, and 22,000 songs must
-        not read their album 22,000 times."""
+        takes its album's artists and MusicBrainz ids."""
         if library not in self._album_items:
             self._album_items[library] = {
                 i: r.item
@@ -92,14 +91,7 @@ class MusicPass:
 
         The directories are planned in listing order (``walk.rows``) and
         scanned a part at a time: each scan is of a directory that lists
-        ``paths.MUSIC_PART`` of them, and the scanner goes into each. That
-        is one scan job for every thirty-two directories where a scan by
-        name was one for each, and it lists no directory that did not
-        change, where a walk of the library root listed them all. It is
-        also the only one of the three that is safe from Kodi's directory
-        cache: a directory scanned by name "does not exist" to Kodi when a
-        cached listing of its parent fails to name it, a new album under a
-        root listed before it arrived (``paths.MUSIC_PART`` has the rest).
+        ``paths.MUSIC_PART`` of them, and the scanner goes into each.
         ``expected`` is the number of songs the scan should add, for the bar.
         """
         if not folders:
@@ -186,14 +178,10 @@ class MusicPass:
         old half of a move, or a listing that failed half way -- is settled
         by its complete listing too.
 
-        Two kinds of applied song join the comparison uninvited. One Kodi
-        no longer holds -- a listing that failed half way, a scan stopped
-        between its delete and its re-add, a user's rescan interrupted:
-        nothing pending names it, so it is found by comparing what was
-        acknowledged with what Kodi has. And one whose album's payload moved:
-        its tags take the album's artists and MusicBrainz ids, which its own
-        payload hash never sees. Either goes back to pending and into this
-        pass, so the scan re-files it and the applier acknowledges it again.
+        Two kinds of applied song join the comparison uninvited: one Kodi
+        does not hold (as ``lost_songs``), and one whose album's payload
+        moved, since its tags take the album's artists and MusicBrainz ids.
+        Either goes back to pending and into this pass.
         """
         songs = {
             r.item_id: r
@@ -228,8 +216,7 @@ class MusicPass:
             )
         revived: Dict[str, Record] = {}
         if songs:
-            # Six minutes on a Raspberry Pi for 22,000 songs (a payload parse
-            # and a tag hash each): the bar names the phase and the log times it.
+            # The bar names the phase and the log times it.
             began = time.monotonic()
             self.native.progress.note(progress.label("Audio"))
 
@@ -239,9 +226,7 @@ class MusicPass:
                     revived[record.item_id] = record
 
             # Only a song with a row and an acknowledgement has tags to
-            # compare, and only its payload is read: a first import has
-            # neither for any song, and walking 22,000 payloads to decide
-            # that every directory is new cost a Raspberry Pi 21 s.
+            # compare, so only its payload is read.
             tagged: List[Record] = []
             for record in songs.values():
                 item_id = record.item_id

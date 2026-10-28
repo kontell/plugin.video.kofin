@@ -1,4 +1,4 @@
-"""Confirmed native operations for every kind through stock Piers public
+"""Confirmed native operations for every kind through Kodi's public
 interfaces.
 
 An accepted RPC is never a commit: every write is confirmed by reading the
@@ -32,9 +32,7 @@ from .store import Store
 LOG = Logger(__name__)
 
 # A pass scans a movies root once instead of the missing movies' folders by
-# name when at least this share of the library is missing. (Music has no
-# such choice to make: MusicPass.scan lists exactly the directories that
-# changed, however many, a part at a time.)
+# name when at least this share of the library is missing.
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
@@ -54,13 +52,10 @@ MOVIE_BINDINGS_STATE = "noupdate"
 EXTRAS_BINDINGS_STATE = "noupdate+extras"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
 # The rows an earlier Kofin filed, as the listings that can hold them and
-# the rule that picks them out (Native.setup). The SQL build files video
-# under the add-on's plugin URL, and a song either there, when it is
-# transcoded, or at the server's own stream URL:
-# <server>/Audio/<id>/stream.<container>?static=true. An earlier catalogue
-# of this build files everything under paths.BASE, which is below that URL.
-# An episode has a show and an album or an artist has songs, so those
-# listings are not asked.
+# the rule that picks them out: the add-on's plugin URL, and for a song of
+# the SQL build also the server's stream URL. Native.setup refuses to import
+# beside them. An episode has a show and an album or an artist has songs, so
+# those listings are not asked.
 KOFIN_FILED = {
     "field": "path",
     "operator": "startswith",
@@ -159,13 +154,10 @@ class Native:
         Those rows are in no catalogue, so an import beside them files every
         item twice and nothing would ever remove the first copy. They are
         told by where they are filed (LEFTOVERS), and they are all the gate
-        refuses. It used to refuse any row at all, which shut out a profile
-        with a library of its own files or of another add-on's for no
-        reason: the rows of this catalogue are found by their URL and their
-        unique id (Readback.owns), and a row that is neither is never read
-        as ours, patched or removed, whether it was there before the first
-        sync or came after it. What Kodi keeps by name is shared either
-        way: a set of the same title, an artist of the same name.
+        refuses: a row that is not this catalogue's by its URL and unique id
+        (Readback.owns) is never read as ours, patched or removed. What Kodi
+        keeps by name is shared: a set of the same title, an artist of the
+        same name.
         """
         owner = self.store.prepared()
         if owner and owner != self.key:
@@ -224,14 +216,11 @@ class Native:
     def pump(self):
         """Run the callbacks Kodi has queued for this thread.
 
-        Kodi queues one for every announcement on every Monitor object, in
-        one queue for the whole process, and they leave it only when the
-        thread that made the object waits on Kodi; every other Python thread
-        walks past them on each wait of its own (core/ws.py has the measure
-        of it). The pass's setters announce every row they write, thousands
-        in a burst with no wait between them, so the burst takes its own
-        callbacks off as it goes. One millisecond, since a zero timeout is
-        Kodi's spelling of "for ever".
+        Kodi queues one for every announcement on every Monitor object, and
+        they leave the queue only when the thread that made the object waits
+        on Kodi. The pass's setters announce every row they write, so a burst
+        takes its own callbacks off as it goes. One millisecond, since a zero
+        timeout is Kodi's spelling of "for ever".
         """
         if self.abort() or self.monitor.waitForAbort(0.001):
             raise InterruptedError("native operation interrupted")
@@ -265,23 +254,14 @@ class Native:
         found from beneath it (URIUtils::GetParentPath), and a folder without
         one is skipped by the scanner. A show folder is bound before the
         root scan that lists it; a movie folder only before a scan by name
-        (``containssingleitem`` would make the folder the movie). The calls
-        go 25 to a batch and the store learns them in one transaction.
+        (``containssingleitem`` would make the folder the movie).
 
         A movie folder is bound with folder names on: the scanner reads an
         extras folder only from a directory whose settings say its movies
         are in folders of their own (AddVideoExtras, ``parent_name``).
-        ``force`` binds a folder the store already knows, for a flag.
-
-        ``noupdate`` is the binding every movie folder ends up with: Kodi's
-        info dialog loads a library movie's full details (its cast among
-        them) only when it finds a scraper on the movie's own folder, and a
-        plugin path's parent walk never reaches the bound library root
-        (CGUIWindowVideoBase::ShowInfo, CVideoDatabase::GetScraperForPath),
-        so every folder is bound; with ``noupdate`` Kodi's own Update library
-        lists none of them. The scanner skips a ``noupdate`` folder it was
-        not told to scan everything of, so a folder scanned by name is bound
-        without the flag first and with it afterwards (scan_video)."""
+        ``force`` binds a folder the store already knows, for a flag, and
+        ``noupdate`` is the binding every movie folder ends up with
+        (bind_movie_folders)."""
         bound = self.store.bindings()
         wanted = list(
             dict.fromkeys(folders if force else [p for p in folders if p not in bound])
@@ -323,21 +303,22 @@ class Native:
                 raise failed[0]
 
     def bind_movie_folders(self):
-        """Every movie folder carries its binding (bind_folders), the folders
-        of an older profile's rows included: a pass plans pending rows only,
-        so this runs on the catalogue, after a pass and once per service
-        generation when nothing is pending (library.apply). Once per
-        profile every movie folder is bound again with ``noupdate``, for the
-        folders an earlier build bound without it -- the store does not
-        record the flag -- and MOVIE_BINDINGS_SETTING remembers that.
+        """Bind every movie folder of the catalogue with ``noupdate``, the
+        folders of an older profile's rows included, since a pass plans
+        pending rows only. Kodi's info dialog loads a library movie's full
+        details, its cast among them, only when it finds a scraper on the
+        movie's own folder (CGUIWindowVideoBase::ShowInfo,
+        CVideoDatabase::GetScraperForPath); with ``noupdate`` Kodi's own
+        Update library lists none of them.
 
-        Once per profile, too, the extras folders of the movies with extras
-        are bound, for the extras an earlier build filed; a scan binds the
-        ones it files (scan_video), so no pass reads every acknowledgement
-        for them. A movie acknowledged before the file list is told by its
-        payload, never by its assets token, which a movie with versions
-        alone has too. The setting is stored only after every folder is
-        bound, so a failed read or binding is tried again."""
+        Once per profile every movie folder is bound again, for the folders
+        an earlier build bound without the flag, and the extras folders of
+        the movies with extras are bound, for the extras an earlier build
+        filed; a scan binds the ones it files (scan_video). A movie with
+        extras is told by its payload, never by its assets token, which a
+        movie with versions alone has too. MOVIE_BINDINGS_SETTING is stored
+        only after every folder is bound, so a failed read or binding is
+        tried again."""
         state = settings.get_str(MOVIE_BINDINGS_SETTING)
         extras: Set[str] = set()
         if state == EXTRAS_BINDINGS_STATE:
@@ -370,15 +351,8 @@ class Native:
 
     def library_event(self):
         """Have Kodi announce that the video library changed, and scan
-        nothing for it.
-
-        A scan with no directory walks every bound folder to compare its
-        hash: every show of every library that was not being removed, 10 to
-        14 s on a desktop each time a library left, and Kodi refused the
-        clean asked for straight after it ("CleanLibrary is not possible
-        while scanning or cleaning"), so the sets a removed movie library
-        had emptied were never dropped. Not issued while a scan runs: the
-        builtin behind the call stops a running scan instead of queuing.
+        nothing for it: a scan with no directory walks every bound folder.
+        Not issued while a scan runs (see ``scan``).
         """
         if not self._idle("video"):
             return
@@ -387,19 +361,11 @@ class Native:
     def announce_writes(self):
         """``library_event`` for what a pass wrote, at its end.
 
-        A setter that changes only art or tags announces nothing: on 22.0b2
-        VideoLibrary.SetMovieDetails writes through UpdateDetailsForMovie
-        and RemoveArtForItem, neither of which reaches AnnounceUpdate, and
-        the notification socket stayed silent while an art key and a tag
-        were added and taken off. A home widget reloads on an announcement
-        and on nothing else, so a download's badge reached none of them. The
-        SQL build's refresh after a download is UpdateLibrary(video), which
-        walks nothing there and ends with the same announcement as this.
-
-        Issued through ``scan``, which waits for a running scan instead of
-        stopping it, and waited for: the pass lets go of its snapshot only
-        when Kodi is idle. Never with Kodi's dialog, which would come up
-        for a scan of nothing.
+        A setter that changes only art or tags announces nothing, and a home
+        widget reloads on an announcement and on nothing else. Issued
+        through ``scan``, which waits for a running scan instead of stopping
+        it, and never with Kodi's dialog, which would come up for a scan of
+        nothing.
         """
         self.scan([NOWHERE], dialogs=False)
 
@@ -429,9 +395,7 @@ class Native:
 
         One row is asked for with it, and never a zero-width page: the video
         library answers an end of 0 with no row, the audio library with
-        every row. The bar of a music import read this every three seconds
-        and was handed the library's whole song list each time (22,381
-        songs and 1.1 MB for the one number, 22.0b2).
+        every row.
         """
         if location is None or not location.library or not location.content:
             return None
@@ -505,15 +469,13 @@ class Native:
         ``expected`` maps a directory to the rows its scan should add; while
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
-        nothing of its own until it ends (20 minutes at "0 %" on the box).
-        ``on_poll`` is called while a directory with no such count is
-        scanned: the caller's own bar across the run (``MusicPass.scan``).
-        ``prepare`` is called with each directory just before its scan.
+        nothing of its own until it ends. ``on_poll`` is called while a
+        directory with no such count is scanned: the caller's own bar across
+        the run (``MusicPass.scan``). ``prepare`` is called with each
+        directory just before its scan.
 
-        One scan at a time: a second ``VideoLibrary.Scan`` queued while the
-        first runs never starts (observed on 22.0b2: of two scans issued
-        together only the first ran, every time, and a pass that selected
-        two video libraries at once lost one of them on every retry).
+        One scan at a time: the builtin behind the call stops a running scan
+        instead of queuing the request.
         """
         if not directories:
             return
@@ -530,9 +492,9 @@ class Native:
         # above it names the phase. Never for music: with a dialog the music
         # scanner starts its MusicFileCounter thread, which lists every
         # directory a second time, concurrently, to size the bar
-        # (MusicInfoScanner.cpp; two root listings of 62 s each on the
-        # LibreELEC box). The video scanner has no such thread. ``dialogs``
-        # is the caller's word against the setting's (announce_writes).
+        # (MusicInfoScanner.cpp). The video scanner has no such thread.
+        # ``dialogs`` is the caller's word against the setting's
+        # (announce_writes).
         if dialogs is None:
             dialogs = progress.show_dialogs()
         dialogs = dialogs and scanner != "music"
@@ -586,10 +548,8 @@ class Native:
         from its payload's (metadata.assets_token). The root walk lists the
         movie's own file alone, so these are scanned by name -- a movie that
         lost its last version or extra too, so that the empty token the
-        apply pass then acknowledges is one a scan presented. The scan adds
-        and re-reads and never removes (AddVideoExtras only adds): a row the
-        listing no longer names leaves through Clean, whose per-file
-        check_exists is provider.exists."""
+        apply pass then acknowledges is one a scan presented. The scan never
+        removes (provider.exists)."""
         movies = [
             r for r in upserts.values() if r.kind == "Movie" and r.library == library
         ]
@@ -611,25 +571,15 @@ class Native:
 
     def retire_assets(self, folders):
         """Clean the folder of every movie whose listing dropped a version
-        file or an extra this pass. The folder's scan adds and never
-        removes, so the row stays until a clean asks the add-on about it:
-        Kodi 23 decides a plugin's files by the add-on (kontell/xbmc #2),
-        reaches a movie's versions and extras from its folder (#10), and
-        keeps what the add-on did not answer for (#1), so the clean of one
-        folder removes what ``provider.exists`` says is gone and nothing
-        else. One that fails leaves the rows to the viewer's Clean library,
-        which asks the same questions.
+        file or an extra this pass. With the asset_clean feature the clean
+        of one folder removes what ``provider.exists`` says is gone and
+        nothing else; one that fails leaves the rows to the viewer's Clean
+        library.
 
-        Only where the clean is safe (the asset_clean feature, a proxy for
-        kontell/xbmc #1, #2 and #10): on a Kodi without them the stage after
-        the directory's files asks the add-on about every bound folder of
-        every library and deletes the path row of one left unanswered. So
-        the rows are left for the viewer's own Clean library, said once
-        here. Kodi 23's clean asks the add-on about them and takes them (a
-        dropped extra left stock master's library that way); Kodi 22's
-        deletes only the files of the movies and episodes it removes, so
-        there the rows stay until the movie leaves (22.0b2, the same extra
-        survived a full clean, asked and answered)."""
+        Without the feature a clean's stage after the directory's files asks
+        the add-on about every bound folder of every library and deletes the
+        path row of one left unanswered, so the rows are left for the
+        viewer's own Clean library, said once here."""
         if not folders:
             return
         if "asset_clean" not in self.features:
@@ -690,13 +640,10 @@ class Native:
 
         With it on the scanner asks the texture cache for every cast
         member's picture before it files the item (FetchActorThumbs,
-        VideoInfoScanner.cpp): a lookup in the texture database behind the
-        lock its one worker holds while it writes, then a search of the
-        whole job queue for a duplicate (CJobQueue::AddJob), twenty times a
-        movie, into a queue that a first import fills faster than the worker
-        empties it. The pictures are not lost by the hold: the listing gives
-        every actor's URL, AddActor stores it, and Kodi fetches a picture the
-        first time something shows it.
+        VideoInfoScanner.cpp), into a queue that a first import fills faster
+        than its worker empties it. The pictures are not lost by the hold:
+        the listing gives every actor's URL, AddActor stores it, and Kodi
+        fetches a picture the first time something shows it.
 
         The value is recorded before it is changed (store.hold_setting), so
         a Kodi stopped mid-scan gets it back at the next start
@@ -743,9 +690,7 @@ class Native:
         A value Kodi will not take now is no reason to stop: the record
         stays, ``settings_owed`` says so, and every later pass and service
         start asks again, as does the library thread while nothing is
-        pending (``Library.apply``). Raised from here it failed the pass
-        that called it, and the pass after that, for as long as Kodi
-        refused. A refusal is a warning once a setting and generation."""
+        pending (``Library.apply``)."""
         owed = False
         for setting, value in self.store.held_settings().items():
             try:
@@ -873,8 +818,6 @@ class Native:
         completed = False
         try:
             entries = self.store.entries()
-            # Payloads are read on demand, a chunk at a time: every pending
-            # payload at once was 200 MB of Python for one video catalogue.
             self.payloads = PayloadWindow(self.store)
             pending: Dict[str, Tuple[int, str, Dict]] = {
                 item_id: (generation, operation, payload)
@@ -991,12 +934,10 @@ class Native:
 
         A set is Kodi's to make and to drop. It goes with the last movie
         that names it, and a scan or a movie's patch makes it again from the
-        name alone, with no art and no plot. The collection's payload moves with none of
-        that, so nothing but its movies can bring it here: a library
-        imported again left every set of it bare, with only the repair pass
-        after the next daily enumeration to compare them. Planned, a set is
-        compared with its row (Applier.plan), and one found as it was left is
-        sent nothing.
+        name alone, with no art and no plot. The collection's payload moves
+        with none of that, so nothing but its movies can bring it here.
+        Planned, a set is compared with its row (Applier.plan), and one found
+        as it was left is sent nothing.
         """
         taken = {
             collections[item_id]
@@ -1143,13 +1084,8 @@ class Native:
         directory it is asked to scan exists from its cached listing of the
         parent when it has one (CDirectory::Exists,
         CDirectoryCache::FileExists), and a movies root lists files, never
-        folders: while the root's listing was cached -- after the scan of a
-        first import, for one -- every movie folder scanned by name was
-        "does not exist - skipping scan", and the pass failed and scanned it
-        again every few seconds. The cache holds the last fifty listings,
-        so a root listed hours before had usually gone, and one listed in
-        the same pass never had. A pass lists a library's root before its
-        folders (plan_video), so one forget per root covers them all."""
+        folders. A pass lists a library's root before its folders
+        (plan_video), so one forget per root covers them all."""
         owed = {
             paths.library_dir(location.key, location.library, "movies")
             for location in map(paths.parse, video.movie_folders)
@@ -1189,7 +1125,7 @@ class Native:
                 # An extra's URL has no query, so Kodi files it under the
                 # add-on's root (CVideoDatabase::SplitPath), and a clean asks
                 # the add-on about a plugin file only where it finds a binding
-                # for the file's folder: without one, Clean library deleted
+                # for the file's folder: without one, Clean library deletes
                 # every extra unasked. noupdate, so Update library never scans
                 # extras as movies.
                 extras = [

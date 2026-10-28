@@ -1,13 +1,12 @@
-"""Subtitle files as Kodi wants them: the naming and the fetch (P2.6).
+"""Subtitle files as Kodi wants them: the naming and the fetch.
 
 The pure half of the sidecar-subtitle work, shared by the play route
 (``plugin/subtitles.localize``) and the late-subtitle chase
 (``service/latesubs``): the cache directory every play writes into and
 sweeps, the delivery URL with an extension Kodi has a parser for, and the
 ``<name>.<language>[.forced].<ext>`` filename Kodi reads the label back
-from. One implementation for both halves is the invariant — a track that
-arrives late is labelled exactly as it would have been on time — and
-this module is where it lives; ``plugin/subtitles.py`` keeps the
+from. One implementation for both, so a track that arrives late is labelled
+exactly as it would have been on time; ``plugin/subtitles.py`` keeps the
 route-facing surface and re-exports these names.
 """
 
@@ -31,10 +30,10 @@ CACHE_DIR = "special://temp/kofin/subtitles"
 # delaying the picture for. The URL is still attached in its place.
 TIMEOUT = (3.05, 8.0)
 
-# Shorter still, for an embedded track. See the module docstring: the server
-# either has this one extracted already (~25 ms) or is about to spend half a
-# minute making it, and no budget between those two outcomes buys anything.
-# What does not land here is deferred, not lost.
+# Shorter still, for an embedded track: the server either has this one
+# extracted already or is about to spend half a minute making it, and no
+# budget between those two outcomes buys anything. What does not land here
+# is deferred, not lost.
 EMBEDDED_TIMEOUT = (3.05, 4.0)
 
 # Extensions Kodi recognises as subtitles. A URL already ending in one of these
@@ -74,9 +73,9 @@ def delivery_url(url: str) -> str:
     Jellyfin names the file after the *codec*, so a SubRip track arrives as
     ``Stream.subrip`` — which is not in Kodi's subtitle extension list, and is
     not something its parser factory recognises either. Asking the same route
-    for ``.srt`` returns the same cues (verified: 128,891 bytes as
-    ``application/x-subrip``). A URL already asking for a format Kodi knows —
-    ``.ass`` keeps its styling, ``.vtt`` its own parser — is left alone.
+    for ``.srt`` returns the same cues. A URL already asking for a format
+    Kodi knows — ``.ass`` keeps its styling, ``.vtt`` its own parser — is
+    left alone.
     """
     extension = extension_of(url)
     if extension in KNOWN_EXTENSIONS:
@@ -148,11 +147,7 @@ def fetch_to(
     directory: Optional[str] = None,
     timeout: Optional[Tuple[float, float]] = None,
 ) -> str:
-    """One subtitle to a named local file, or '' — the service's way in.
-
-    Same naming and same cache directory as the play path, so a track that
-    arrives late is labelled exactly as it would have been on time.
-    """
+    """One subtitle to a named local file, or '' — the service's way in."""
     return _fetch(http, attachment, directory or _cache_dir(), timeout)
 
 

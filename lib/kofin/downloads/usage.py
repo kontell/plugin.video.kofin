@@ -1,19 +1,11 @@
-"""What the downloads are costing on disk (D1).
+"""What the downloads are costing on disk.
 
-Walked from the filesystem, not summed from the store, and that is the whole
-point of the module. ``download.size_actual`` knows only the media files
-kofin finished fetching: it cannot see an exported NFO, a poster, a subtitle
-sidecar, a ``.part`` left by a transfer that died, or a row the store lost
-track of — so its total is always smaller than the folder's, and a user
-reconciling the two against their file manager would find kofin wrong. The
-walk is stat-only (``DirEntry.stat().st_size``), never a read.
+Walked from the filesystem, not summed from the store:
+``download.size_actual`` misses sidecars, ``.part`` files and rows the store
+lost track of. The walk is stat-only.
 
-The three category directories are counted separately because they are the
-only thing here kofin owns; everything else under the root goes to a single
-"other" bucket rather than being left out. That bucket is the honest half of
-the rule the deletion paths already follow — the root is user-configurable
-and may be shared with other media — and it is what stops the total
-disagreeing with ``du`` on a shared folder.
+The three category directories are counted separately, plus "other" for
+everything else under the root, so the total agrees with ``du``.
 """
 
 import os
