@@ -55,9 +55,8 @@ def test_urls_and_auth_header(api):
 
 def test_the_syncplay_leave_carries_its_own_short_budget(api):
     """SyncPlayManager.stop sends it on the service main thread during
-    teardown; at the transport's default it held Kodi's script stop for up
-    to 36 s against a server that vanished without closing the socket
-    (audit R4). A courtesy to the group, on a courtesy's budget."""
+    teardown, so it fits Kodi's script-stop grace even when the server
+    never answers."""
     from kofin.core.api import LEAVE_TIMEOUT
 
     client, transport = api
@@ -74,9 +73,7 @@ def test_the_syncplay_leave_carries_its_own_short_budget(api):
 
 def test_probe_info_is_one_attempt_on_the_probe_budget(api):
     """The service's connect probe: the backoff loop calling it is the retry
-    policy, so the transport contributes no ladder of its own. The default
-    budget held the service loop ~29 s per offline probe — long enough to
-    blow Kodi's five-second stop grace on a profile switch (2026-08-08)."""
+    policy, so the transport contributes no ladder of its own."""
     from kofin.core.api import PROBE_TIMEOUT
 
     client, transport = api
@@ -103,14 +100,10 @@ def test_played_and_favorite_verbs(api):
 
 
 def test_user_scoped_calls_use_the_documented_routes(api):
-    """Jellyfin 10.9 moved user-scoped routes off ``/Users/{userId}/…`` onto a
-    top-level path with a ``userId`` query parameter, and 10.11 dropped the old
-    shape from its OpenAPI spec while still serving it — the state a route is
-    usually in right before it stops answering. Every call below was verified
-    body-identical against the old one on a live 10.11.11 server.
-
-    A ``/Users/`` path reappearing here is the regression: it works today,
-    which is exactly why nothing else would catch it.
+    """User-scoped calls take the top-level routes with a ``userId`` query
+    parameter. Jellyfin still serves the ``/Users/{userId}/…`` shape but has
+    dropped it from its OpenAPI spec, so a ``/Users/`` path here works today
+    and nothing else would catch it.
     """
     client, transport = api
     client.views()
@@ -153,8 +146,6 @@ def test_music_playlists_and_items(api):
         def json(self):
             return self._body
 
-    # First call: list playlists (one page, includes a video playlist to filter)
-    # Second call: playlist items page
     bodies = [
         {
             "Items": [
@@ -242,10 +233,10 @@ def test_music_playlists_dedupes_repeated_pages(api):
 
 
 def test_music_playlists_refuses_an_empty_first_page_against_a_count(api):
-    """audit-F9 amplifier: returning [] here reads downstream as "this account
-    has no playlists", which is a deletion order for the managed folder. A
-    genuinely empty account answers count 0; a count with nothing behind it is
-    the server contradicting itself."""
+    """An empty list reads downstream as "this account has no playlists", a
+    deletion order for the managed folder. A genuinely empty account answers
+    count 0; a count with nothing behind it is the server contradicting
+    itself."""
     client, transport = api
 
     class Response:
@@ -316,8 +307,8 @@ def test_image_url(api):
 
 
 def test_syncplay_endpoints(api):
-    """The 17 /SyncPlay/* calls + /GetUtcTime (phase 4) hit the documented
-    routes with the documented body shapes."""
+    """The /SyncPlay/* calls and /GetUtcTime hit the documented routes with
+    the documented body shapes."""
     client, transport = api
     client.get_utc_time()
     client.syncplay_list()
@@ -436,10 +427,7 @@ def image_api(transport):
 
 
 def test_splashscreen_asks_for_webp():
-    """WebP is the whole point of the request: the endpoint's default PNG is
-    RGBA, and an alpha channel is what stops Kodi's texture cache re-encoding
-    it — 3.6MB on disk and 3.6MB cached, against 698KB and a 600KB JPEG. The
-    other lossy option, Jpg, serves a frozen older collage (see the method)."""
+    """The splashscreen is fetched as WebP; ``Api.splashscreen`` says why."""
     transport = ImageHttp()
     assert image_api(transport).splashscreen() == b"\x89PNG-bytes"
 
@@ -447,7 +435,7 @@ def test_splashscreen_asks_for_webp():
     assert call["url"] == "http://s:8096/Branding/Splashscreen"
     assert call["params"] == {"format": "Webp"}
     assert call["headers"]["Accept"] == "image/*"
-    # A ~700KB image the server may render on demand needs more than the
+    # An image the server may render on demand needs more than the
     # transport default read budget.
     assert call["timeout"] == (6.0, 60.0)
 
@@ -463,7 +451,7 @@ def test_branding_configuration_is_a_plain_get(api):
     assert transport.calls[0]["method"] == "GET"
 
 
-# --- interactive fail-fast profile (perf plan W1.3) --------------------------
+# --- interactive fail-fast profile -------------------------------------------
 
 
 def interactive_api():
@@ -482,9 +470,8 @@ def interactive_api():
 
 
 def test_interactive_gets_carry_one_retry_and_a_short_connect_budget():
-    """A person is watching the spinner: the transport's 3x6s ladder read as
-    a hang (~54s to render the root listing offline). Interactive GETs get one
-    retry and a 3.05s connect budget; the read timeout stays the default."""
+    """A person is watching the spinner: interactive GETs get one retry and a
+    short connect budget; the read timeout stays the default."""
     client, transport = interactive_api()
     client.views()
     kwargs = transport.calls[0]["kwargs"]
@@ -493,8 +480,7 @@ def test_interactive_gets_carry_one_retry_and_a_short_connect_budget():
 
 
 def test_interactive_list_gets_carry_the_same_budget():
-    """The list-returning GETs bypass get(); the profile must reach them too
-    or the who's-watching flows keep the 27s hang."""
+    """The list-returning GETs bypass get(); the profile reaches them too."""
     client, transport = interactive_api()
     client.device_sessions("dev1")
     client.users()
@@ -526,14 +512,11 @@ def test_service_profile_leaves_the_transport_defaults_alone():
 
 
 def test_user_configuration_uses_the_top_level_routes(api):
-    """``/Users/Me`` and ``/Users/Configuration`` are the exception to the
-    rule the test above enforces.
+    """``/Users/Me`` and ``/Users/Configuration`` are top-level routes in
+    Jellyfin's OpenAPI spec, the exception to the no-``/Users/`` rule.
 
-    Both are top-level routes in 10.11's OpenAPI spec, not the
-    ``/Users/{userId}/…`` sub-route family that was moved in 10.9 and is only
-    still answered out of politeness. ``/Users/Me`` takes no user at all (the
-    token names them); the write takes ``userId`` as a query parameter like
-    every other user-scoped call. Verified against a live 10.11.11 server.
+    ``/Users/Me`` takes no user (the token names them); the write takes
+    ``userId`` as a query parameter like every other user-scoped call.
     """
     client, transport = api
     client.me()

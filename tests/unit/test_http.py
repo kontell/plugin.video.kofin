@@ -66,9 +66,8 @@ def test_401_raises_unauthorized_without_retry(monkeypatch):
 
 
 def test_every_request_is_logged_for_counting(monkeypatch):
-    """The scenario gates assert request counts ("zero per-show /Episodes
-    calls", "3067 fetches to 0"); those are ungreppable unless successes are
-    logged too, not only failures."""
+    """Live tests count requests from the log, so successes are logged too,
+    not only failures."""
     lines = []
     monkeypatch.setattr(http.LOG, "debug", lambda msg, *a: lines.append(msg % a))
 
@@ -114,7 +113,7 @@ def test_500_raises_http_error_with_status(monkeypatch):
 def test_a_transient_status_rides_the_retry_budget(monkeypatch):
     """A proxy answering 502/503/504 while Jellyfin restarts, or a 429 from
     a rate limiter, is "not now": it spends the same budget a connection
-    failure does instead of killing the page outright (audit F7)."""
+    failure does instead of killing the page outright."""
     transport, session = make_http(
         monkeypatch,
         [FakeResponse(503), FakeResponse(502), FakeResponse(200, {"ok": 1})],
@@ -164,7 +163,7 @@ def test_an_explicit_retries_still_wins_for_post(monkeypatch):
     assert len(session.calls) == 2
 
 
-# --- the streaming GET (downloads plan W1.2) ---------------------------------
+# --- the streaming GET -------------------------------------------------------
 
 
 class FakeStreamResponse:
@@ -216,8 +215,7 @@ def test_stream_resumes_with_a_range_header(monkeypatch):
 
 def test_stream_416_means_already_complete(monkeypatch):
     """A resume offset at or past the end answers 416: for a download resume
-    that is 'nothing left to fetch', not an error (feasibility V1 —
-    jellyfin-android reads it the same way)."""
+    that is 'nothing left to fetch', not an error."""
     response = FakeStreamResponse(416)
     transport, _ = make_http(monkeypatch, [response])
 
@@ -230,8 +228,8 @@ def test_stream_416_means_already_complete(monkeypatch):
 
 def test_stream_hears_a_stop_between_chunks(monkeypatch):
     """The read timeout bounds a dead socket; the per-chunk abort check
-    bounds a live one — a stopping service must not sit out a multi-GB body
-    (the thread-stop doctrine, applied to downloads)."""
+    bounds a live one, so a stopping service never sits out a multi-GB
+    body."""
     stopping = {"yes": False}
     transport = http.Http(abort=lambda: stopping["yes"])
     session = FakeSession([FakeStreamResponse(200, [b"one", b"two", b"three"])])
@@ -289,11 +287,10 @@ def test_stream_maps_a_mid_body_death_to_unreachable(monkeypatch):
 
 
 def test_importing_the_transport_does_not_import_requests():
-    """requests costs ~1 s inside Kodi's Python (no bytecode cache), and
-    routes that never talk to the server still import this module through the
-    Api plumbing — the import must stay deferred to first use (perf plan
-    W1.2). Checked in a subprocess so the suite's own imports cannot mask a
-    regression."""
+    """Routes that never talk to the server still import this module through
+    the Api plumbing, and requests is slow to import in Kodi's Python (no
+    bytecode cache), so the import is deferred to first use. Checked in a
+    subprocess so the suite's own imports cannot mask it."""
     lib = str(Path(__file__).resolve().parents[2] / "lib")
     code = (
         "import sys; sys.path.insert(0, %r); "
@@ -307,10 +304,9 @@ def test_importing_the_transport_does_not_import_requests():
 
 
 def test_a_stopping_service_abandons_the_ladder_instead_of_replaying(monkeypatch):
-    """Measured on Omega: a black-holed GET rides 4 attempts x (6s connect +
-    30s read) plus backoff — about 147s — and Kodi will not finalise a script
-    while a thread it started is alive, so it blocks on "waiting on thread"
-    for all of it. Nothing in the ladder consulted the stop flag."""
+    """Kodi will not finalise a script while a thread it started is alive, so
+    a black-holed GET riding the whole ladder would hold the stop for all of
+    it."""
     stopping = {"yes": False}
     transport = http.Http(abort=lambda: stopping["yes"])
     session = FakeSession([requests.ConnectionError("boom")] * 4)
@@ -325,8 +321,8 @@ def test_a_stopping_service_abandons_the_ladder_instead_of_replaying(monkeypatch
 
 
 def test_a_stop_during_backoff_does_not_start_another_get(monkeypatch):
-    """sleep() cannot see the abort flag; a stop that lands in backoff used
-    to fire a second full-timeout GET. The check after sleep is the bound."""
+    """sleep() cannot see the abort flag, so it is checked again after the
+    backoff."""
     stopping = {"yes": False}
 
     def sleep(_seconds):

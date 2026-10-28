@@ -1,4 +1,4 @@
-"""L1: Jellyfin's UDP auto-discovery, against a scripted socket.
+"""Jellyfin's UDP auto-discovery, against a scripted socket.
 
 No real socket is bound. ``discovery.scan`` takes its socket and its clock as
 arguments for exactly this — the shape of the window (how many probes, how
@@ -169,8 +169,7 @@ def test_a_repeated_datagram_is_counted_once():
 
 def test_two_servers_sharing_an_id_are_both_kept():
     """Restoring one data directory onto a second box yields two real servers
-    with one Id. Upstream dedupes on the id alone and silently hides the
-    second, which reads as discovery being broken (jellyfin-android#1510)."""
+    with one Id; deduping on the id alone would hide the second."""
     one = b'{"Address":"http://10.0.0.1:8096","Id":"same","Name":"attic"}'
     two = b'{"Address":"http://10.0.0.2:8096","Id":"same","Name":"attic"}'
     found, _sock, _clock = _scan([(0.01, one, "10.0.0.1"), (0.02, two, "10.0.0.2")])

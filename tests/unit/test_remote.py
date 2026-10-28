@@ -69,8 +69,8 @@ def fakes(monkeypatch):
     def answer(query):
         payload = json.loads(query)
         rpc.append(payload)
-        # A Stop leaves over JSON-RPC now, not through player.stop() (issue
-        # #155), so the seam has to answer the player lookup it makes.
+        # A Stop goes over JSON-RPC, not through player.stop(), so the seam
+        # answers the player lookup it makes.
         if payload["method"] == "Player.GetActivePlayers":
             return json.dumps({"result": [{"playerid": 1, "type": "video"}]})
         if payload["method"] == "Player.Stop":
@@ -163,13 +163,12 @@ def test_syncplay_messages_without_manager_are_claimed_and_dropped(fakes):
     assert handler.handle("SyncPlayGroupUpdate", {"Type": "GroupJoined"}) is True
 
 
-# --- server-supplied numbers (audit finding #22) ------------------------------
+# --- server-supplied numbers --------------------------------------------------
 
 
 def test_junk_numbers_from_the_server_do_not_raise():
-    """These arrive over the websocket from the server; a non-numeric value
-    used to raise straight out of the handler. The message is the server's,
-    the crash was ours."""
+    """These arrive over the websocket from the server, and a non-numeric
+    value must not raise out of the handler."""
     from kofin.service.remote import _as_int
 
     assert _as_int("12") == 12
@@ -226,8 +225,8 @@ class _QuickMonitor:
 
 def test_play_now_with_a_start_position_returns_before_the_seek(fakes, monkeypatch):
     """The seek waits for the player to come up — on its own thread, so the
-    websocket thread that delivered the command is free for the next one
-    (assessment S1). Here the player is not up until the test says so."""
+    websocket thread that delivered the command is free for the next one.
+    Here the player is not up until the test says so."""
     import threading
 
     monkeypatch.setattr("xbmc.Monitor", _QuickMonitor)
@@ -257,9 +256,8 @@ def test_play_now_without_a_start_position_starts_no_thread(fakes):
 
 
 def test_remote_play_of_a_song_uses_the_music_queue(fakes, monkeypatch):
-    """audit A2-M4: Remote Play carries ids and no media kind, so an album
-    sent from the Jellyfin app went on the video queue. SyncPlay and play-all
-    already branch; the mapping database is the local answer."""
+    """Remote Play carries ids and no media kind, so the mapping database
+    tells a song from a video."""
     monkeypatch.setattr(remote, "_is_audio", lambda item_id: item_id == "song-1")
 
     RemoteHandler().handle("Play", {"ItemIds": ["song-1"], "PlayCommand": "PlayNow"})
@@ -273,7 +271,7 @@ def test_remote_play_of_a_song_uses_the_music_queue(fakes, monkeypatch):
 
 def test_an_unreadable_mapping_keeps_the_video_queue(fakes, monkeypatch):
     """The mapping is a convenience, not a dependency: no row, no database,
-    anything at all -- the queue is the video one, as it always was."""
+    anything at all -- the queue is the video one."""
 
     def explode(item_id):
         raise RuntimeError("no database")

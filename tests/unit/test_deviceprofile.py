@@ -70,7 +70,6 @@ def test_defaults_direct_play_everything():
 
 
 def test_eac3_direct_plays_by_default():
-    # Missing from the original port; pvr.kofin has carried it since day one.
     assert "eac3" in deviceprofile.DEFAULT_AUDIO_CODECS
     assert "eac3" in build(ProfileConfig())["DirectPlayProfiles"][0]["AudioCodec"]
 
@@ -201,10 +200,9 @@ def test_force_remux_opus_preferred_falls_back_on_ts():
 
 
 def test_video_force_settings_never_transcode_music():
-    """forceRemux/forceTranscode describe the video pipe. Taking the audio
-    DirectPlayProfile with them left the server no way to direct play a song:
-    measured against 10.11, an mp3 came back SupportsDirectPlay=false with a
-    stream.opus TranscodingUrl however musicTranscode was set."""
+    """forceRemux/forceTranscode describe the video pipe: without the audio
+    DirectPlayProfile the server cannot direct play a song, however
+    musicTranscode is set."""
     for config in (
         ProfileConfig(force_remux=True),
         ProfileConfig(force_transcode=True),
@@ -228,13 +226,11 @@ def test_av1_preferred_ordering_and_ts_lead():
 
 
 def test_av1_transcoding_leg_withdrawn_with_the_direct_play_codec():
-    """Removing av1 from the codec list must remove it from *both* lists.
+    """Removing av1 from the codec list removes it from *both* lists.
 
-    A TranscodingProfile is a device statement too. Jellyfin ranks the
-    transcoding profiles and puts the one holding the source codec first so it
-    can stream-copy, so leaving the fMP4/av1 leg behind handed an av1 source
-    straight back to a device that had just refused it — the server answered
-    VideoCodec=av1 and ran `-codec:v:0 copy` (measured against 10.11).
+    Jellyfin ranks first the transcoding profile that holds the source codec,
+    so that it can stream-copy: an fMP4/av1 leg left behind would hand an av1
+    source straight back to a device that refused it.
     """
     config = ProfileConfig(video_codecs=["h264", "hevc"])
     transcoding = build(config)["TranscodingProfiles"]
@@ -339,7 +335,7 @@ def test_streaming_cap_carries_a_fractional_setting(monkeypatch):
     assert build(config)["MaxStreamingBitrate"] == 750000
 
 
-# -- the download profile (plan W3.1/W3.2) -----------------------------------
+# -- the download profile ----------------------------------------------------
 
 
 def test_download_profile_shape():
@@ -443,11 +439,10 @@ def test_for_downloads_reads_the_downloads_settings(monkeypatch):
     assert not config.force_transcode
 
 
-# --- the P1.8 identity golden -------------------------------------------------
+# --- the identity golden ------------------------------------------------------
 #
 # build()/build_download() canonical-JSON digests over a matrix covering
-# every leg. Digests for force-remux / force-transcode (and every
-# force_transcode=True call) moved with the remux-copy / encode-target split.
+# every leg.
 
 GOLDEN_CONFIGS = {
     "defaults": {},

@@ -1,4 +1,4 @@
-"""L1: reads of Kodi's own library state.
+"""Reads of Kodi's own library state.
 
 0.0 and None are different answers — "the row has no bookmark" versus "the row
 could not be read" — and the play route branches on which it got.
@@ -155,8 +155,8 @@ def test_drop_cached_texture_removes_every_match(monkeypatch):
 
 
 def test_drop_cached_texture_spares_another_addons_file_of_the_same_name():
-    """Live finding: plugin.video.jellyfin ships its own resources/fanart.png,
-    so a filename-only match would evict a texture that is not ours."""
+    """plugin.video.jellyfin ships its own resources/fanart.png, so a
+    filename-only match would evict a texture that is not ours."""
     rpc = TextureRpc(
         [
             {"textureid": 7, "url": "image://…%2fplugin.video.kofin%2ffanart.png/"},
@@ -265,7 +265,8 @@ def test_stop_player_stops_each_active_player_by_its_own_id(monkeypatch):
 
 
 def test_stop_player_never_calls_the_gil_holding_binding(monkeypatch):
-    """The whole point of the helper (issue #155)."""
+    """``xbmc.Player.stop()`` blocks on Kodi's app thread holding the GIL,
+    which can deadlock; the helper stops through JSON-RPC."""
 
     def explode(*args, **kwargs):  # pragma: no cover - must not be reached
         raise AssertionError("xbmc.Player.stop() holds the GIL; use JSON-RPC")
@@ -363,7 +364,7 @@ def test_tvshow_title_is_none_for_a_gone_row_or_a_failed_call(monkeypatch):
     assert kodirpc.tvshow_title(7) is None
 
 
-# --- kodi_setting: absent vs unreachable (C3) --------------------------------
+# --- kodi_setting: absent vs unreachable -------------------------------------
 
 
 def test_kodi_setting_reads_the_value(monkeypatch):
@@ -381,9 +382,8 @@ def test_kodi_setting_is_none_only_for_a_genuinely_absent_setting(monkeypatch):
 
 
 def test_kodi_setting_reports_a_blip_as_failed_not_absent(monkeypatch):
-    """C3: a transient failure must not read as "this Kodi lacks the
-    setting" — the tempo session branched the Kodi version on exactly
-    that collapse."""
+    """A transient failure does not read as "this Kodi lacks the setting",
+    an answer a caller may branch the Kodi version on."""
 
     def boom(query):
         raise RuntimeError("no answer")

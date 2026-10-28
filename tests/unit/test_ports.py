@@ -1,4 +1,4 @@
-"""L1: the service seam helpers (service/ports.py)."""
+"""The service seam helpers (service/ports.py)."""
 
 import threading
 

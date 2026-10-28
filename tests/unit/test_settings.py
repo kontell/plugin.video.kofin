@@ -90,8 +90,8 @@ def test_adjusted_resume_rewinds_by_the_offset():
 
 
 def test_adjusted_resume_leaves_a_position_shorter_than_the_offset():
-    # Fork semantics: clamping to zero would flip a barely-started item back to
-    # unwatched, losing the in-progress bookmark the viewer expects to see.
+    # Clamping to zero would flip a barely-started item back to unwatched,
+    # losing the in-progress bookmark the viewer expects to see.
     FakeAddon.store["resumeJumpBack"] = "-60"
     assert settings.adjusted_resume(45.0) == 45.0
     assert settings.adjusted_resume(60.0) == 60.0
@@ -99,10 +99,8 @@ def test_adjusted_resume_leaves_a_position_shorter_than_the_offset():
 
 
 def test_the_artwork_query_carries_only_parameters_the_server_honours():
-    """Measured against 10.11: EnableImageEnhancers is not in the OpenAPI
-    spec at all (an Emby-era feature Jellyfin dropped), so the setting that
-    sent it could never have done anything. MaxHeight and Quality are both
-    declared and both work."""
+    """EnableImageEnhancers is not in Jellyfin's OpenAPI spec, so no setting
+    sends it. MaxHeight and Quality are both declared and both work."""
     import xml.etree.ElementTree as etree
     from pathlib import Path
 
@@ -139,7 +137,7 @@ def test_every_settings_label_resolves_to_a_string():
     """A settings id renders blank rather than failing when its string is
     missing, and Kodi caches the string table for the process lifetime — so
     a typo here is invisible until someone restarts Kodi and squints at an
-    empty row. This pass reworded and renumbered a whole category.
+    empty row.
 
     Only the 30000+ addon range is checked: Kodi-core ids (below 30000)
     resolve against Kodi's own table, which is not ours to enumerate.
@@ -163,9 +161,8 @@ def test_every_settings_label_resolves_to_a_string():
 
 
 def test_the_retired_lyrics_setting_is_gone_from_the_schema():
-    """musicLyricsMode was a three-way spinner over off / kofin lyrics / a
-    third-party lyrics addon. Lyrics now publish whenever
-    script.kofin.lyrics is installed, and otherwise do nothing."""
+    """Lyrics publish whenever script.kofin.lyrics is installed, and
+    otherwise do nothing, so there is no musicLyricsMode to choose."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -174,9 +171,9 @@ def test_the_retired_lyrics_setting_is_gone_from_the_schema():
 
 
 def test_the_settings_tabs_match_the_playback_split():
-    """Playback split into Skipping & Next up and SyncPlay; default tracks moved
-    to Account (gating the Jellyfin account settings button); the resume
-    offset lives on Advanced."""
+    """No Playback tab: Skipping & Next up comes before SyncPlay, default
+    tracks sit on Account (gating the Jellyfin account settings button), and
+    the resume offset lives on Advanced."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -221,9 +218,9 @@ def test_the_settings_tabs_match_the_playback_split():
 
 
 def test_the_retired_download_settings_are_gone_from_the_schema():
-    """downloadsAutoCleanup and the three-way downloadsDeleteAfterPlay were
-    replaced by one toggle plus its sub-toggle; a leftover control would go
-    on being read by nothing."""
+    """One toggle plus its sub-toggle hold the delete-after-watching choice;
+    a leftover downloadsAutoCleanup or downloadsDeleteAfterPlay control
+    would be read by nothing."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -234,7 +231,7 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
 
 
 def test_the_library_tab_holds_the_sync_settings_in_reading_order():
-    """The Sync tab merged into Library: what to sync, then the progress
+    """No Sync tab; the Library tab reads: what to sync, then the progress
     toggle with its item threshold (visible only while the toggle is on),
     then the status and the actions, then the node toggle, the artwork
     cap above the compression it gates, and the critic rating last. One
@@ -303,8 +300,7 @@ def test_the_downloads_category_stays_a_single_group():
     """Every control there bar the master toggle is gated visible on
     downloadsEnabled, and Kodi does not recompute a *group's* visibility
     when a member's changes — so a group without downloadsEnabled in it
-    stayed hidden until the dialog was rebuilt, which is what made half the
-    page appear only after backing out and coming in again."""
+    would stay hidden until the dialog is rebuilt."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -329,9 +325,9 @@ def test_the_streaming_bitrate_cap_shows_under_force_direct_play():
 
 
 def test_get_float_reads_the_fractional_bitrate_options():
-    """downloadsMaxBitrate had to leave Kodi's integer type to offer 0.5 and
-    0.75 Mbit/s; an unreadable or empty value means unlimited, which is what
-    every caller already does with 0."""
+    """downloadsMaxBitrate is not Kodi's integer type, so it can offer 0.5
+    and 0.75 Mbit/s; an unreadable or empty value means unlimited, which is
+    what every caller does with 0."""
     FakeAddon.store["downloadsMaxBitrate"] = "0.75"
     assert settings.get_float("downloadsMaxBitrate") == 0.75
 
@@ -345,7 +341,7 @@ def test_get_float_reads_the_fractional_bitrate_options():
     assert settings.get_float("downloadsMaxBitrate") == 0.0
 
 
-# --- the add-on-unregister window (issue #143) --------------------------------
+# --- the add-on-unregister window ---------------------------------------------
 
 
 class UnregisteredAddon:
@@ -362,9 +358,8 @@ class UnregisteredAddon:
 
 
 def test_reads_degrade_instead_of_raising_into_the_calling_thread(monkeypatch):
-    """The read that took down a full sync was Movies.__init__'s
-    preferCriticRating, on the library thread; the RuntimeError escaped
-    through every frame between."""
+    """A settings read on the library thread must not raise the
+    RuntimeError through every frame above it."""
     monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
 
     assert settings.get_addon() is None
@@ -390,9 +385,9 @@ def test_writes_are_dropped_rather_than_raising(monkeypatch):
 
 
 def test_an_unreadable_store_never_mints_a_new_device_id(monkeypatch):
-    """The landmine under degrading get_str to "": load() mints a device id
-    when it reads none, so eight blank reads look exactly like a fresh
-    install. Minting there replaces a good id with one no set_str can store —
+    """load() mints a device id when it reads none, and with get_str
+    degrading to "" an unreadable store looks exactly like a fresh install.
+    Minting there would replace a good id with one no set_str can store —
     the server sees a phantom device and the who's-watching restore looks up
     a session that does not exist."""
     established = settings.Credentials.load().device_id

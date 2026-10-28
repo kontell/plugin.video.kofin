@@ -1,13 +1,10 @@
-"""The two transports against a real loopback server (audit fixes plan H0).
+"""The two transports against a real loopback server.
 
 ``stdhttp.py`` promises "the same error taxonomy" as the requests transport;
 the library-level fakes in ``test_http.py``/``test_stdhttp.py`` cannot check
 that promise where it is most likely to break — on what the wire actually
 carries. Every test here runs once per transport through ``Api`` and asserts
 one answer for both.
-
-Written on the before build with today's behaviour pinned, so the H4 and H5
-commits flip named assertions instead of adding tests nobody watched fail.
 """
 
 import pytest
@@ -48,10 +45,8 @@ def test_a_json_200_is_the_body(server, client):
 
 
 def test_a_redirect_is_refused_on_both_and_names_the_location(server, client):
-    """Before H4 (audit F4) requests followed the redirect while the plugin
-    transport read the empty 302 body as an empty library — a working
-    service beside listings of nothing. One answer now: an HttpError that
-    carries the address the user should have entered."""
+    """A redirect is an HttpError that carries the address the user should
+    have entered; its empty body read as JSON would list an empty library."""
     api, _ = client
     server.answer("/Old", 302, headers={"Location": server.url + "/Items"})
     server.answer("/Items", 200, json_body={"Items": [1]})
@@ -65,9 +60,9 @@ def test_a_redirect_is_refused_on_both_and_names_the_location(server, client):
 
 
 def test_a_non_json_200_is_an_http_error_on_both(server, client):
-    """A proxy that is up while Jellyfin is down answers HTML with a 200.
-    That used to raise a ValueError past every ``except JellyfinError``
-    and end in a Kodi error dialog (audit F4)."""
+    """A proxy that is up while Jellyfin is down answers HTML with a 200,
+    which must raise inside the ``JellyfinError`` taxonomy, not a
+    ValueError past it."""
     api, _ = client
     server.answer(
         "/Items",
@@ -84,10 +79,8 @@ def test_a_non_json_200_is_an_http_error_on_both(server, client):
 
 
 def test_a_transient_status_rides_the_get_budget(server, client):
-    """Before H5 the ladder replayed transport errors only (audit F7): a
-    503 from a proxy waiting for Jellyfin spent none of the GET budget and
-    the sync healed at the 60 s resume ladder instead of the half-second
-    backoff already in this function."""
+    """A 503 or 502 from a proxy waiting for Jellyfin spends the GET budget
+    like a transport error."""
     api, _ = client
     server.answer("/Items", 503)
     server.answer("/Items", 502)
@@ -110,7 +103,7 @@ def test_a_transient_status_that_never_clears_is_the_last_answer(server, client)
 
 def test_a_500_is_terminal_for_every_method(server, client):
     """Jellyfin answers deterministic 500s for broken items; replaying those
-    would only slow a walk. Stays terminal after H5."""
+    would only slow a walk."""
     api, _ = client
     server.answer("/Items", 500, repeat=True)
     server.answer("/Sessions/Playing", 500, repeat=True)
@@ -128,7 +121,7 @@ def test_a_500_is_terminal_for_every_method(server, client):
 def test_a_post_answered_503_is_never_replayed(server, client):
     """POST carries no retry budget by design (a replay double-applies), and
     a 5xx is exactly the case where "never arrived" and "answered and lost"
-    are indistinguishable. Unchanged by H5."""
+    are indistinguishable."""
     api, _ = client
     server.answer("/Sessions/Playing", 503, repeat=True)
 

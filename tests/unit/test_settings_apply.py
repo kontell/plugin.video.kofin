@@ -1,5 +1,5 @@
-"""L1: library picker round-trip and the settings diff engine's add/remove
-dispatch against a fake library manager (plan §5 step 5 DoD)."""
+"""Library picker round-trip and the settings diff engine's add/remove
+dispatch against a fake library manager."""
 
 import pytest
 
@@ -83,9 +83,6 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("xbmcgui.Dialog", FakeDialog)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
     monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(tmp_path))
-    # mark_ready reconciles <reuselanguageinvoker> against the installed
-    # addon.xml; tests that do not care patch it to a no-op so they do not
-    # touch the stub Addon path.
     # Real strings carry a %s placeholder; the FakeAddon fallback does not.
     monkeypatch.setattr(
         "kofin.core.settings.localized", lambda sid: "string-%d %%s" % sid
@@ -173,9 +170,9 @@ def test_picker_cancel_changes_nothing(monkeypatch):
 
 
 def test_picker_says_unreachable_when_the_server_is(monkeypatch):
-    """This reported "No libraries available" (30269) for a failed views()
-    call, which claimed the opposite of what happened: whether the server has
-    libraries is precisely what could not be learned."""
+    """A failed views() call is not "No libraries available" (30269):
+    whether the server has libraries is precisely what could not be
+    learned."""
     from kofin.core.http import JellyfinError
 
     FakeAddon.store.update(
@@ -270,7 +267,7 @@ def test_removal_declined_restores_selection(monkeypatch):
     assert service.library.commands == []
 
 
-# --- the confirmation off the callback thread (audit R5, fixes plan H12) ------
+# --- the confirmation off the callback thread ---------------------------------
 
 
 class BlockingDialog:
@@ -300,8 +297,8 @@ def _blocking_dialog(monkeypatch):
 def test_the_removal_confirmation_does_not_hold_the_settings_callback(monkeypatch):
     """onSettingsChanged runs on the service main thread (Kodi delivers a
     monitor callback on the thread that created the Monitor, from inside
-    its Kodi API calls); a modal inside it held the run loop and every
-    other kofin callback until the person answered (audit R5)."""
+    its Kodi API calls); a modal inside it would hold the run loop and every
+    other kofin callback until the person answered."""
     seed_views(("v-movies", "Movies", "movies"))
     seed_whitelist("v-movies")
     FakeAddon.store["librarySelection"] = "v-movies"
@@ -341,7 +338,7 @@ def test_a_save_while_the_dialog_is_up_does_not_open_a_second(monkeypatch):
     assert service.library.commands == [("RemoveLibrary", {"Id": "v-shows"})]
 
 
-# --- startup guard (S2 regression: restart must not prompt a removal) --------
+# --- startup guard: a restart must not prompt a removal ----------------------
 
 
 def test_changes_ignored_before_ready():
@@ -359,9 +356,9 @@ def test_changes_ignored_before_ready():
 
 
 def test_startup_transient_empty_does_not_prompt_removal():
-    """The exact live bug: a synced library, its id persisted in
+    """A plain Kodi restart: a synced library, its id persisted in
     librarySelection, and a transient empty read at startup must NOT be taken
-    as 'user removed everything'. Reproduces a plain Kodi restart."""
+    as 'user removed everything'."""
     seed_views(("v-docs", "Documentaries", "tvshows"))
     seed_whitelist("v-docs")
     FakeAddon.store["librarySelection"] = "v-docs"  # persisted, correct
@@ -387,8 +384,8 @@ def test_startup_transient_empty_does_not_prompt_removal():
 
 class FailOnceAddon(FakeAddon):
     """One Addon instantiation whose settings load failed: it hands back ""
-    for the guarded setting. Every later instance reads correctly — the shape
-    of the live failure, where get_str builds a fresh Addon per call."""
+    for the guarded setting. Every later instance reads correctly, since
+    get_str builds a fresh Addon per call."""
 
     failed_reads = 0
     fail_setting = "librarySelection"
@@ -401,9 +398,9 @@ class FailOnceAddon(FakeAddon):
 
 
 def test_post_ready_empty_read_is_corroborated_not_obeyed(monkeypatch):
-    """The phase-5 live bug: settings.xml failed to load four minutes into a
-    ready session, librarySelection read "", and every synced library was
-    proposed for removal. A single failed read must never reach the handler."""
+    """A settings.xml that fails to load in a ready session reads
+    librarySelection as "", which would propose every synced library for
+    removal. A single failed read must never reach the handler."""
     seed_views(("v-docs", "Documentaries", "tvshows"))
     seed_whitelist("v-docs")
     FakeAddon.store["librarySelection"] = "v-docs"
@@ -431,8 +428,7 @@ def test_post_ready_empty_read_is_corroborated_not_obeyed(monkeypatch):
 class FailingLoadAddon(FakeAddon):
     """A settings document that will not parse: *every* setting reads back "".
 
-    The live shape of the burst failure — Kodi logged "failed to load addon
-    settings" three times in a row, so re-reading hits another broken instance
+    The failure comes in bursts, so re-reading hits another broken instance
     rather than a good one.
     """
 
@@ -467,8 +463,8 @@ def test_burst_read_failure_is_caught_by_the_canary(monkeypatch):
 
 
 class UnregisteredAddon:
-    """Kodi's add-on-unregister window: the constructor itself raises
-    (issue #143), where FailingLoadAddon models a document that loaded empty."""
+    """Kodi's add-on-unregister window: the constructor itself raises, where
+    FailingLoadAddon models a document that loaded empty."""
 
     def __init__(self, addon_id: str = "") -> None:
         raise RuntimeError("Unknown addon id 'plugin.video.kofin'.")
@@ -566,8 +562,6 @@ def test_mixed_whitelist_entries_survive_selection(monkeypatch):
 
 
 def test_ssl_handler(monkeypatch):
-    # Device name is no longer a setting (kofin uses System.FriendlyName), so
-    # only sslVerify remains among the scalar handlers.
     service = FakeService()
     FakeAddon.store["sslVerify"] = "true"
     applier = ready_applier(service)
@@ -578,8 +572,8 @@ def test_ssl_handler(monkeypatch):
 
 
 def test_library_nodes_enable_disable():
-    """The API build's switch: on rewrites the tree now and the playlists at
-    the next pass; off cleans the playlists up and republishes the tree."""
+    """On rewrites the tree at once and the playlists at the next pass; off
+    cleans the playlists up and republishes the tree."""
     service = FakeService()
     FakeAddon.store["libraryNodes"] = "false"
     FakeAddon.store["deviceId"] = "dev-1"

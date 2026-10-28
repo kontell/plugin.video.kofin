@@ -1,10 +1,8 @@
 """The chase for a subtitle Jellyfin was still extracting when the play began.
 
-The behaviour these pin was measured against a real 10.11.11 library: a cold
-embedded-subtitle extraction takes 28-146 s depending on the source file, the
-result is cached afterwards (~25 ms), and abandoning the request does not
-abandon the extraction. That is what makes waiting worthwhile rather than a
-second cold start, and it is why the play route no longer waits itself.
+A cold embedded-subtitle extraction takes tens of seconds or more, Jellyfin
+caches the result, and abandoning the request does not abandon the
+extraction, so asking again until it lands beats a second cold start.
 """
 
 import threading
@@ -65,10 +63,7 @@ class FakePlayer:
     def setSubtitles(self, path):
         # The *Player* setSubtitles: one path, added to the playback in
         # flight. Not the ListItem method of the same name, which takes a
-        # list and only applies before the stream is opened — and not
-        # addSubtitle, which xbmc.Player does not have at all (it exists over
-        # JSON-RPC, which is what made the first cut of this AttributeError
-        # against a live transcode).
+        # list and only applies before the stream is opened.
         self.added.append(path)
 
     def republish_streams(self, item):
@@ -93,10 +88,8 @@ def quick(monkeypatch):
 
 def test_the_player_calls_are_ones_kodi_actually_has():
     """A fake player answers to whatever the code calls, so the fake alone
-    cannot catch a method that does not exist. The first cut called
-    ``addSubtitle`` — which Kodi exposes over JSON-RPC as
-    ``Player.AddSubtitle`` but not on ``xbmc.Player`` — and the fetch it had
-    just waited 24 s for died on AttributeError against a live transcode."""
+    cannot catch a method that does not exist. ``addSubtitle`` is JSON-RPC's
+    (``Player.AddSubtitle``), not ``xbmc.Player``'s."""
     import xbmc
 
     assert hasattr(xbmc.Player, "setSubtitles")
@@ -128,8 +121,8 @@ def test_an_index_the_playback_cannot_be_handed_is_absent():
 
 def test_nothing_is_chased_on_a_direct_play():
     """The container already holds every embedded track, so there is nothing
-    to fetch — and a late addSubtitle would land after the demuxed ones, the
-    one arrangement subtitle_ordinal cannot describe."""
+    to fetch — and a subtitle added late would land after the demuxed ones,
+    the one arrangement subtitle_ordinal cannot describe."""
     payload = item(method="DirectStream", deferred=[2])
     assert latesubs.deferred_of(payload) == []
     assert latesubs.fetchable_of(payload) == {}
@@ -242,10 +235,9 @@ def test_nothing_is_attached_once_playback_has_stopped(monkeypatch, quick):
 
 
 def test_a_stop_is_answered_within_one_attempt(monkeypatch):
-    """CLAUDE.md's sync-thread rule applies to any thread an addon starts:
-    Kodi will not finalise a script while one is alive. So the chase must not
-    park a teardown for the length of an extraction — it sleeps on the cancel
-    event, and each attempt carries the play route's own short budget."""
+    """Kodi will not finalise a script while a thread it started is alive, so
+    the chase sleeps on the cancel event, and each attempt carries the play
+    route's own short budget."""
     monkeypatch.setattr(latesubs, "POLL_SECONDS", 30.0)
     player = FakePlayer(item())
     entered = threading.Event()

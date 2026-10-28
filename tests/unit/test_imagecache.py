@@ -1,6 +1,5 @@
-"""L1: the shared image-cache plumbing (core/imagecache.py) — the parser
-and the store step both texture-cache seeders ride (P1.10). The size and
-extension assertions moved here from the two callers' suites."""
+"""The image-cache plumbing in core/imagecache.py: the image parser and the
+store step."""
 
 from kofin.core import imagecache
 
@@ -30,15 +29,13 @@ def test_image_size_reads_both_formats_and_degrades():
     assert imagecache.image_size(jpeg(267, 400)) == (267, 400)
     assert imagecache.image_size(png(400, 267)) == (400, 267)
     assert imagecache.image_size(jpeg(640, 360)) == (640, 360)
-    # Unparseable is bookkeeping-only: the sizes row still lands (size=1 is
-    # what Kodi's lookup keys on).
     assert imagecache.image_size(b"\xff\xd8not-a-real-jpeg") == (0, 0)
     assert imagecache.image_size(b"not an image") == (0, 0)
 
 
 def test_extension_follows_the_bytes_not_the_url():
     """Kodi stores a PNG source as .png, and the extension is part of the
-    cachedurl the seeders write — a wrong one is a file Kodi never finds."""
+    cachedurl, so a wrong one is a file Kodi never finds."""
     assert imagecache.extension_for(png(1, 1)) == ".png"
     assert imagecache.extension_for(jpeg(1, 1)) == ".jpg"
     assert imagecache.extension_for(b"") == ".jpg"

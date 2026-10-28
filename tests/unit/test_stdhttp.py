@@ -1,11 +1,11 @@
 """The stdlib transport, held to the same contract as the requests one.
 
 The whole point of the split is that the plugin process must behave
-identically while skipping a ~1 s import (see the module docstring), so these
-tests mirror ``test_http.py``'s expectations — status taxonomy, per-method
-retry budget, timeouts — and add the two things only this implementation has
-to get right: the connect/read timeout split, and reusing one connection
-without inheriting a dead one.
+identically while skipping the requests import (see the module docstring), so
+these tests mirror ``test_http.py``'s expectations — status taxonomy,
+per-method retry budget, timeouts — and add the two things only this
+implementation has to get right: the connect/read timeout split, and reusing
+one connection without inheriting a dead one.
 """
 
 import http.client
@@ -128,7 +128,7 @@ def test_status_taxonomy_matches_the_requests_transport(monkeypatch):
         assert caught.value.status == status
 
     # A transient status is replayed on the same budget as a transport
-    # error (H5); the fake answers 200 to the second attempt.
+    # error; the fake answers 200 to the second attempt.
     response = _answering(monkeypatch, 503).request("GET", "https://s/x")
     assert response.status_code == 200
     assert len(FakeConnection.instances[-1].requests) == 2
@@ -200,12 +200,11 @@ def test_the_connection_is_reused_across_calls():
 
 
 def test_threads_never_share_a_connection(monkeypatch):
-    """The bug this class shipped with, seen live as "[Errno 9] Bad file
-    descriptor" out of a PlaybackInfo POST: requests hands each thread its own
-    pooled connection, so callers share one transport freely — and the play
-    route does, running the segments prefetch beside the resolve and four
-    sidecar subtitle fetches beside both. Two threads writing onto one
-    http.client socket interleave, and each reads the other's reply."""
+    """requests hands each thread its own pooled connection, so callers share
+    one transport freely — and the play route does, running the segments
+    prefetch beside the resolve and sidecar subtitle fetches beside both. Two
+    threads writing onto one http.client socket interleave, and each reads the
+    other's reply."""
     import threading
 
     seen_by_thread = {}
