@@ -139,7 +139,7 @@ def _login_quick_connect(
         return None
 
     progress = xbmcgui.DialogProgress()
-    progress.create("Quick Connect", _text(30015) % code)
+    progress.create(_text(30011), _text(30015) % code)
     monitor = xbmc.Monitor()
     started = time.time()
     try:
