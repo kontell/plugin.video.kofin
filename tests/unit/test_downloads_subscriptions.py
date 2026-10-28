@@ -173,7 +173,7 @@ def test_new_song_joins_its_library_subscription_after_writer_commit(
 def test_a_song_named_with_its_library_is_claimed_without_the_mapping_table(
     wired, monkeypatch
 ):
-    """The API build has no jellyfin table; the catalogue names the library."""
+    """The library comes with each song, from the catalogue."""
     monkeypatch.setattr(
         subscriptions.settings,
         "get_str",

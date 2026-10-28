@@ -1,4 +1,4 @@
-"""L1 units for the kofin.db download table (plan W1.3)."""
+"""L1 units for the kofin.db download table."""
 
 import pytest
 
@@ -157,9 +157,8 @@ def test_recover_interrupted_requeues_crashed_actives():
 
 
 def test_release_returns_an_active_row_to_queued():
-    """The outage interruption (plan W3.1 amendments): the owning worker
-    puts the row back itself, because recover_interrupted runs only at
-    manager start and an active row would sit stuck until then."""
+    """On an outage the owning worker puts the row back itself, because
+    recover_interrupted runs only at manager start."""
     store.queue(_movie("m1"))
     store.claim()
     store.record_progress("m1", 42)
@@ -220,10 +219,8 @@ def test_pending_count_spans_queued_and_active():
 
 
 def test_claim_is_scoped_to_a_pools_own_kinds():
-    """Music downloads got their own pool because they cost nothing like a
-    film; the kind filter is what keeps an album from queueing behind one.
-    The unknown kind — rows queued before the type travelled with the id —
-    belongs to the video pool, so no work can be stranded."""
+    """Music has a pool of its own, so an album never queues behind a film.
+    The unknown kind belongs to the video pool, so no row is stranded."""
     store.queue(store.Download(jellyfin_id="song1", media_type="song", queued_at=100))
     store.queue(store.Download(jellyfin_id="film1", media_type="movie", queued_at=101))
     store.queue(store.Download(jellyfin_id="old1", media_type="", queued_at=102))

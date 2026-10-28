@@ -1,4 +1,4 @@
-"""L1 units for the conditional download-quality decision (plan W3.1/W3.2)."""
+"""L1 units for the conditional download-quality decision."""
 
 import pytest
 
@@ -152,10 +152,9 @@ def test_unusable_answers_raise_instead_of_downloading_the_original():
 
 
 def test_targets_never_exceed_the_source_rates():
-    """Measured live (G11): a codec-forced transcode of a 0.9 Mbit/s file
-    under a 3 Mbit/s cap came back 2.9 Mbit/s — 3.5x the bytes for
-    nothing. The URL's targets are spliced down to the source's own rates;
-    equality keeps a planned stream copy legal (the copy gates on >=)."""
+    """The server sizes a transcode from the cap, not the source, so the
+    URL's targets are spliced down to the source's own rates; equality keeps
+    a planned stream copy legal (the copy gates on >=)."""
     source = {
         "MediaStreams": [
             {"Type": "Video", "BitRate": 760_000},

@@ -1,4 +1,4 @@
-"""L1 units for parked userdata and its replay conflict rule (plan W2.4)."""
+"""L1 units for parked userdata and its replay conflict rule."""
 
 import pytest
 
@@ -79,7 +79,7 @@ def test_an_unmoved_server_replays_verbatim():
     row = _row(played=1, position_ticks=1200)
     payload = pending.resolve(row, {"LastPlayedDate": "T1"})
     # Played wins the position: a finished item with a resume point is how a
-    # watched episode reappears in Continue Watching (Findroid #406).
+    # watched episode reappears in Continue Watching.
     assert payload == {"Played": True, "PlaybackPositionTicks": 0}
 
 
@@ -91,8 +91,8 @@ def test_position_only_replays_as_a_position():
 
 
 def test_a_server_that_moved_keeps_the_further_position():
-    """Someone watched elsewhere while this device was offline. Dragging them
-    back to our older position is the failure every other client ships."""
+    """Someone watched elsewhere while this device was offline: the further
+    position wins, whichever side holds it."""
     row = _row(position_ticks=1200)
     payload = pending.resolve(
         row, {"LastPlayedDate": "T2", "PlaybackPositionTicks": 4000}

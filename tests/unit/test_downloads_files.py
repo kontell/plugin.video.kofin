@@ -1,4 +1,4 @@
-"""L1 units for download file layout and naming (plan W1.4)."""
+"""L1 units for download file layout and naming."""
 
 import os
 
@@ -114,7 +114,7 @@ def test_free_space_probe_failure_allows_rather_than_refuses(monkeypatch):
     assert files.free_space_ok("/dl", 10**12) is True
 
 
-# -- the music layout and the fallback names (plan W3.2) -----------------------
+# -- the music layout and the fallback names -----------------------------------
 
 
 def test_audio_dirs_are_artist_album_owned_by_the_album():
@@ -156,10 +156,9 @@ def test_default_filename_orders_directories():
 
 
 def test_sanitize_degrades_to_ascii_only_when_the_filesystem_cannot(monkeypatch):
-    """Kodi's embedded Python can run with an ASCII filesystem encoding
-    (measured live, G12: '’' in an album name killed the download in
-    os.remove). Accents fold, unmappable glyphs drop — but only there; a
-    healthy UTF-8 box keeps the real name."""
+    """Kodi's embedded Python can run with an ASCII filesystem encoding, where
+    a non-ASCII name fails in os.remove. Accents fold and unmappable glyphs
+    drop only there; a UTF-8 filesystem keeps the real name."""
     fancy = "Black Betty (Rough ’n’ Ready remix)"
     accented = "Café Tacvba"
 

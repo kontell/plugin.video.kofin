@@ -1,4 +1,4 @@
-"""L1 units for the aggregate download progress bar (plan W3.4)."""
+"""L1 units for the aggregate download progress bar."""
 
 import pytest
 
