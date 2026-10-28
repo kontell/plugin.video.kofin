@@ -236,8 +236,9 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
 def test_the_library_tab_holds_the_sync_settings_in_reading_order():
     """The Sync tab merged into Library: what to sync, then the progress
     toggle with its item threshold (visible only while the toggle is on),
-    then the status and the actions, then the presentation and artwork
-    choices. One group — a second draws a separator."""
+    then the status and the actions, then the node toggle, the artwork
+    cap above the compression it gates, and the critic rating last. One
+    group — a second draws a separator."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -257,9 +258,9 @@ def test_the_library_tab_holds_the_sync_settings_in_reading_order():
         "repairLibraries",
         "fullUpdateInterval",
         "libraryNodes",
-        "preferCriticRating",
-        "compressArt",
         "maxArtResolution",
+        "compressArt",
+        "preferCriticRating",
     ]
     assert shown[1].findtext("default") == "true"
     visible = [

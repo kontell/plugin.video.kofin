@@ -312,10 +312,18 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
-        <setting id="preferCriticRating" type="boolean" label="30666" help="30667">
+        <setting id="maxArtResolution" type="integer" label="30320" help="30321">
           <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
+          <default>1080</default>
+          <constraints>
+            <options>
+              <option label="30322">0</option>
+              <option label="30323">720</option>
+              <option label="30324">1080</option>
+              <option label="30325">2160</option>
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
         </setting>
         <!-- Only offered alongside a resolution cap. Measured against 10.11:
              Quality=90 returns the original bytes for every artwork tested,
@@ -333,18 +341,10 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="maxArtResolution" type="integer" label="30320" help="30321">
+        <setting id="preferCriticRating" type="boolean" label="30666" help="30667">
           <level>0</level>
-          <default>1080</default>
-          <constraints>
-            <options>
-              <option label="30322">0</option>
-              <option label="30323">720</option>
-              <option label="30324">1080</option>
-              <option label="30325">2160</option>
-            </options>
-          </constraints>
-          <control type="spinner" format="string"/>
+          <default>false</default>
+          <control type="toggle"/>
         </setting>
       </group>
     </category>
