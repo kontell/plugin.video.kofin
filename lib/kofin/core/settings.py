@@ -1,8 +1,7 @@
 """Typed access to addon settings, and the hidden-settings credential store.
 
-The settings store is the only durable state in phase 1. Hidden level-4 keys
-(see resources/settings.xml) hold the credentials; :class:`Credentials` is the
-sole writer of those keys.
+Hidden level-4 keys (see resources/settings.xml) hold the credentials;
+:class:`Credentials` is the sole writer of those keys.
 """
 
 import uuid
@@ -26,29 +25,16 @@ def get_addon() -> Optional[xbmcaddon.Addon]:
     serve stale values after another process wrote the settings.
 
     ``xbmcaddon.Addon()`` raises ``RuntimeError: Unknown addon id`` for as
-    long as Kodi has the addon unloaded, and a routine repository update
-    opens that window as readily as a manual reinstall —
+    long as Kodi has the addon unloaded, and every update opens that window:
     ``CAddonInstallJob::DoWork`` unloads unconditionally before replacing any
-    file, while every thread the addon started keeps running. Unguarded, the
-    RuntimeError escaped into whichever thread happened to read a setting:
-    observed twice on 0.15.1 taking down a full sync's library pass from
-    ``Movies.__init__``'s ``preferCriticRating`` read (issue #143), where the
-    entry stays in sync.json and ``resume_pending_libraries`` retries the
-    walk — the pass is lost, not the library.
+    file, while every thread the addon started keeps running.
 
     So the lookup answers None and the accessors below degrade to their
-    type's empty value. Two things follow for callers. An empty read now
-    means "the store is unavailable" as often as it means "the user cleared
-    it", so anything destructive keyed on an emptied setting must corroborate
-    it before acting — ``service/settings_apply`` already does, through
-    ``LOAD_CANARY``, and that guard is load-bearing for this path too (the
-    canary is ``deviceId``, which reads empty here and so refuses the whole
-    apply cycle). And a *write* is silently dropped, which is why
-    :meth:`Credentials.load` takes its whole record off one Addon object: it
-    mints a device id when it reads none, and minting against an unavailable
-    store replaced a perfectly good id with one that was never stored — the
-    server saw a phantom device and the who's-watching restore looked up a
-    session that did not exist.
+    type's empty value. An empty read then means "the store is unavailable"
+    as often as it means "the user cleared it", so anything destructive keyed
+    on an emptied setting must corroborate it before acting
+    (``service/settings_apply``'s ``LOAD_CANARY``). A *write* is silently
+    dropped.
     """
     try:
         return xbmcaddon.Addon(ADDON_ID)
@@ -131,19 +117,13 @@ def addon_path() -> str:
 
     Callers join media filenames onto this, so an empty answer yields a
     relative path that fails to open rather than one that opens the wrong
-    file — a missing toast icon or backdrop for the length of the window,
-    which is the mildest degrade available here and self-corrects.
+    file.
     """
     return _addon_info("path")
 
 
 def addon_data_path() -> str:
-    """The profile's addon_data directory for kofin.
-
-    ``sync.db`` resolves the same directory for the transplant's own files;
-    this is the shell-side reader so a shell module does not have to import
-    the sync stack (and inherit its failure modes) to find a scratch path.
-    """
+    """The profile's addon_data directory for kofin."""
     return xbmcvfs.translatePath("special://profile/addon_data/" + ADDON_ID + "/")
 
 
@@ -158,17 +138,16 @@ def localized(string_id: int) -> str:
 
 def device_name() -> str:
     """How this device names itself to Jellyfin: Kodi's own friendly name
-    (services.devicename, or "Kodi (host)" by default), matching pvr.kofin.
-    Replaces the former per-addon ``deviceName`` setting."""
+    (services.devicename, or "Kodi (host)" by default), matching pvr.kofin."""
     return xbmc.getInfoLabel("System.FriendlyName") or "Kodi"
 
 
 def resume_offset() -> float:
     """Seconds a resume point is rewound by (Advanced tab, stored negative).
 
-    Never raises: the sync writers call this for every item they stamp a
-    bookmark on, and a settings read that failed must degrade to "no offset"
-    rather than take the item down with it.
+    Never raises: the listing and play routes call this, and a settings read
+    that failed must degrade to "no offset" rather than take the item down
+    with it.
     """
     try:
         return abs(float(get_int("resumeJumpBack")))
@@ -179,20 +158,18 @@ def resume_offset() -> float:
 def adjusted_resume(position_seconds: float, offset: Optional[float] = None) -> float:
     """``position_seconds`` pulled back by :func:`resume_offset`.
 
-    The single rule behind three call sites that must agree — the Kodi
-    bookmark the sync writes, the resume point a listing advertises, and the
-    position playback actually starts at. If they disagree, Kodi's resume
-    prompt names one time and playback lands on another.
+    The single rule behind the two call sites that must agree — the resume
+    point a listing advertises and the position playback actually starts at.
+    If they disagree, Kodi's resume prompt names one time and playback lands
+    on another.
 
     ``offset`` is a precomputed :func:`resume_offset`, for callers stamping a
     whole listing: reading the setting builds a fresh ``Addon`` every time
-    (see ``_addon``), and at one read per item that construction was most of
-    a large listing's build cost — measured ~2.9 ms per item, ~5 s across a
-    1,766-movie listing. None means read the setting here.
+    (see :func:`get_addon`). None means read the setting here.
 
-    Fork ``adjust_resume`` semantics: a position shorter than the offset is
-    left alone rather than clamped to zero, so a barely-started item keeps its
-    in-progress bookmark instead of reverting to unwatched.
+    A position shorter than the offset is left alone rather than clamped to
+    zero, so a barely-started item keeps its in-progress bookmark instead of
+    reverting to unwatched.
     """
     if offset is None:
         offset = resume_offset()
@@ -232,14 +209,10 @@ class Credentials:
         times, because the device-id mint below has to be decided on the same
         answer the reads got. Through the getters, an unregistered addon reads
         every key empty (see :func:`get_addon`) and the mint then *replaces* a
-        perfectly good device id with one no ``set_str`` can store — the
-        server sees a phantom device, and the who's-watching restore looks up
-        a session that does not exist. One object makes "nothing was
-        readable" and "the id is genuinely unset" different answers again.
+        good device id with one no ``set_str`` can store.
 
-        A blank record reads as ``is_logged_in`` False, which callers already
-        treat as "not yet" rather than "logged out": the window is momentary
-        and the next read answers properly.
+        A blank record reads as ``is_logged_in`` False, which callers treat
+        as "not yet" rather than "logged out".
         """
         addon = get_addon()
         if addon is None:
