@@ -130,8 +130,8 @@ What remains is kofin's own:
   reserved renames `Name (2).m3u8` onto whoever owns `Name.m3u8`. `apply_one` and
   `reconcile` both go through `assign_playlist_filename`.
 - Reference checksums have exactly one spelling: `policy.reference_checksum`. Never inline
-  `"|plugin"`; the playlist state and the change feed both compare through it, and two
-  comparators once agreed with each other while both being wrong.
+  `"|plugin"`; the playlist state compares through it, and two comparators once agreed with
+  each other while both being wrong.
 - The bundled backdrop is `resources/media/fanart.jpeg`, named in `addon.xml` and
   `plugin/browse.py` (`BACKDROP_IMAGE`), and nothing rewrites it. The server's splashscreen
   is fetched as WebP and written content-addressed into addon_data (`service/backdrop.py`,
@@ -176,7 +176,7 @@ What remains is kofin's own:
   every deleted row is a `VideoLibrary.OnRemove` without `transaction`, and every visible
   video widget lists itself again for each one (2,448 refreshes on the Pi, 803 s against
   480 s with none on screen). `tests/live/or_bench/README.md` has the runs.
-- **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_show`,
+- **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
   skips it — 79 shows, one listing, nothing imported on the P1D until the bindings existed.

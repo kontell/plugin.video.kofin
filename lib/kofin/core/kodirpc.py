@@ -93,50 +93,6 @@ def current_audio() -> Optional[int]:
         return None
 
 
-def drop_cached_texture(needle: str, require: str = "") -> int:
-    """Remove cached textures whose url contains ``needle`` (and ``require``,
-    if given); returns how many went. Best effort — a failure only means a
-    stale image.
-
-    Two-stage matching because Kodi's filter takes exactly one substring.
-    ``needle`` narrows the query server-side; ``require`` then makes the match
-    exact in Python. Both are needed: a filename alone could evict another
-    add-on's file of the same name, and the add-on id alone would take every
-    image the add-on ships. The url is percent-encoded by Kodi
-    (``image://%2fhome%2f…%2fplugin.video.kofin%2f…``), so neither substring
-    may span a path separator.
-    """
-    result = call(
-        "Textures.GetTextures",
-        {
-            # Without an explicit properties list Kodi answers with bare
-            # texture ids, and ``require`` would have no url to test.
-            "properties": ["url"],
-            "filter": {"field": "url", "operator": "contains", "value": needle},
-        },
-    )
-    if not isinstance(result, dict):
-        LOG.warning("texture lookup failed for %r: %r", needle, result)
-        return 0
-    textures = result.get("textures", [])
-
-    removed = 0
-    for texture in textures:
-        if require and require not in str(texture.get("url", "")):
-            continue
-        try:
-            texture_id = int(texture["textureid"])
-        except Exception as error:
-            LOG.warning("texture removal failed for %r: %s", texture, error)
-            continue
-        if call("Textures.RemoveTexture", {"textureid": texture_id}) is FAILED:
-            LOG.warning("texture removal failed for %r", texture)
-            continue
-        removed += 1
-    LOG.debug("dropped %s cached texture(s) matching %r", removed, needle)
-    return removed
-
-
 def stop_player(wait_seconds: float = 0.0) -> bool:
     """Stop whatever is playing, without holding Python's GIL while Kodi does it.
 
@@ -268,20 +224,6 @@ def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     return None if point is None else point[0]
 
 
-def video_file(kodi_id: int, media: str) -> Optional[str]:
-    """The playable path of a synced video row, or None if it is gone."""
-    query = RESUME_QUERY.get(media)
-    if query is None:
-        return None
-    method, id_field, result_field = query
-    result = call(method, {id_field: kodi_id, "properties": ["file"]})
-    try:
-        path = result[result_field]["file"]
-        return str(path) if path else None
-    except (KeyError, TypeError):
-        return None
-
-
 def preferred_subtitle_language() -> str:
     """Kodi's configured subtitle language as an ISO 639-2 code, or ''.
 
@@ -382,28 +324,6 @@ def kodi_setting(setting_id: str) -> Any:
     if result is FAILED:
         return FAILED
     return result.get("value") if isinstance(result, dict) else None
-
-
-def set_kodi_setting(setting_id: str, value: Any) -> bool:
-    """Set one of Kodi's own settings; True when Kodi accepted the value."""
-    result = call("Settings.SetSettingValue", {"setting": setting_id, "value": value})
-    return result is True
-
-
-def addon_details(addon_id: str) -> Optional[Dict[str, Any]]:
-    """``{"enabled": bool, "version": str}`` for an installed add-on, or None
-    when it is not installed at all."""
-    result = call(
-        "Addons.GetAddonDetails",
-        {"addonid": addon_id, "properties": ["enabled", "version"]},
-    )
-    addon = result.get("addon") if isinstance(result, dict) else None
-    if not isinstance(addon, dict):
-        return None
-    return {
-        "enabled": bool(addon.get("enabled")),
-        "version": str(addon.get("version") or ""),
-    }
 
 
 def clear_resume_bookmark(path: str) -> bool:

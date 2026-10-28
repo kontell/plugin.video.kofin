@@ -196,21 +196,16 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         checksum INTEGER, jellyfin_parent_id TEXT)""")
     cursor.execute("""CREATE TABLE IF NOT EXISTS view(
         view_id TEXT UNIQUE, view_name TEXT, media_type TEXT)""")
-    cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
-    cursor.execute("""CREATE TABLE IF NOT EXISTS boxset_state(
-        jellyfin_id TEXT PRIMARY KEY, linked_count INTEGER NOT NULL)""")
     # Jellyfin playlists are Kodi files, not MyVideos/MyMusic rows, so they
     # do not belong in the jellyfin mapping table (no kodi_id). checksum is
     # the server Etag; filename is the basename under the managed folder.
     cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_state(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT NOT NULL,
         filename TEXT NOT NULL, checksum TEXT NOT NULL)""")
-    # Ordered Audio membership of each managed playlist.
-    cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_item(
-        playlist_id TEXT NOT NULL, jellyfin_id TEXT NOT NULL,
-        position INTEGER NOT NULL, PRIMARY KEY(playlist_id, position))""")
-    cursor.execute("""CREATE INDEX IF NOT EXISTS playlist_item_song
-        ON playlist_item(jellyfin_id)""")
+    # Tables an earlier build kept and nothing reads; a profile it filed
+    # still holds them.
+    for table in ("playlist_item", "boxset_state", "version"):
+        cursor.execute("DROP TABLE IF EXISTS %s" % table)
     cursor.execute("""CREATE TABLE IF NOT EXISTS download_subscription(
         owner TEXT NOT NULL, jellyfin_id TEXT NOT NULL,
         PRIMARY KEY(owner, jellyfin_id))""")

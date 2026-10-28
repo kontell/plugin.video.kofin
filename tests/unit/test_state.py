@@ -48,7 +48,8 @@ def test_unrelated_play_does_not_claim_a_failed_resolve():
     song = "http://s/Audio/song/stream.flac"
 
     assert state.claim_play_item(song) is None
-    assert state.play_item_queued("http://s/Videos/movie/stream") is True
+    movie = state.claim_play_item("http://s/Videos/movie/stream")
+    assert movie is not None and movie["Id"] == "movie"
 
 
 def test_claim_on_empty_and_garbage(tmp_path, monkeypatch):
@@ -113,7 +114,6 @@ def test_a_push_during_a_claim_is_never_lost():
     state.push_play_item({"Path": "http://new", "Id": "new"})
 
     assert claimed is not None and claimed["Id"] == "old"
-    assert state.play_item_queued("http://new") is True
     fresh = state.claim_play_item("http://new")
     assert fresh is not None and fresh["Id"] == "new"
 
@@ -129,7 +129,7 @@ def test_stale_entries_expire_without_disturbing_a_fresh_claim():
 
     state.push_play_item({"Path": "http://fresh", "Id": "fresh"})
 
-    assert state.play_item_queued("http://ancient") is False
+    assert state.claim_play_item("http://ancient") is None
     claimed = state.claim_play_item("http://fresh")
     assert claimed is not None and claimed["Id"] == "fresh"
 

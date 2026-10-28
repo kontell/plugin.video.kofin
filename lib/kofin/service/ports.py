@@ -8,7 +8,7 @@ sites in ``main.py``, and ``Service`` itself where it hands ``self`` to
 """
 
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol
 
 from kofin.core.log import Logger
 
@@ -46,25 +46,7 @@ class LibraryPort(Protocol):
 
     def removed(self, ids: Iterable[str]) -> None: ...
 
-    def refresh_libraries(
-        self, databases: Iterable[str], force_reload: bool = ...
-    ) -> None: ...
-
-
-class FullSyncPort(LibraryPort, Protocol):
-    database_lock: threading.Lock
-    music_database_lock: threading.Lock
-    sync_failure_toasted: Set[str]
-
-    def claim(self) -> bool: ...
-
-    def release(self) -> None: ...
-
-    def stamp_watermark_if_empty(self) -> None: ...
-
-    def defer_playlist_poll(self) -> None: ...
-
-    def sync_music_playlists(self) -> None: ...
+    def refresh_libraries(self) -> None: ...
 
 
 class DownloadsPort(Protocol):

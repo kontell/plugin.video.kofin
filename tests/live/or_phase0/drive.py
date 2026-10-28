@@ -90,12 +90,9 @@ class Driver:
             for path in (HERE / "provider").iterdir()
             if path.suffix in (".py", ".xml")
         }
-        for name in ("probe.py", "sql_baseline.py"):
-            payload[name] = base64.b64encode((HERE / name).read_bytes()).decode()
-        for name in ("myvideos149.sql", "myvideos149_seed.sql"):
-            payload[name] = base64.b64encode(
-                (HERE.parents[1] / "fixtures" / name).read_bytes()
-            ).decode()
+        payload["probe.py"] = base64.b64encode(
+            (HERE / "probe.py").read_bytes()
+        ).decode()
         movie = runpy.run_path(str(HERE.parents[1] / "unit/sync_dtos.py"))["MOVIE"]
         fixed = []
         for index in range(100):
@@ -154,7 +151,6 @@ print('fixture staged')
             "read-forced",
             "set-forced-metadata",
             "cleanup",
-            "sql-baseline",
         ):
             raise ValueError("unknown probe mode")
         self.remote(
@@ -166,9 +162,9 @@ print('fixture staged')
             + repr(mode + ".json")
             + "\np.unlink(missing_ok=True)\n"
         )
-        script = "/sql_baseline.py" if mode == "sql-baseline" else "/probe.py," + mode
+        script = "/probe.py," + mode
         self.builtin("RunScript(special://profile/addon_data/" + ADDON + script + ")")
-        deadline = time.monotonic() + (900 if mode == "sql-baseline" else 240)
+        deadline = time.monotonic() + 240
         while time.monotonic() < deadline:
             text = self.remote(
                 "from pathlib import Path\np = ("
@@ -181,9 +177,6 @@ print('fixture staged')
             )
             if text.strip():
                 result = json.loads(text)
-                if mode == "sql-baseline" and not result.get("complete"):
-                    time.sleep(2)
-                    continue
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(json.dumps(result, indent=2) + "\n")
                 print(
@@ -247,7 +240,6 @@ def main():
             "set-forced-metadata",
             "cleanup",
             "remove",
-            "sql-baseline",
         ),
     )
     parser.add_argument("--target", default="P1D")

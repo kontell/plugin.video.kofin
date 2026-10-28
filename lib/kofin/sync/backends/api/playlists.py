@@ -192,9 +192,6 @@ def reconcile(api, store: Store, music_root=None, video_root=None) -> Dict[str, 
             return {"pruned": pruned} if pruned else {}
         return playlists.reconcile(
             api,
-            None,
-            None,
-            None,
             kofindb.JellyfinDatabase(db.cursor),
             kinds,
             music_root=music_root,
@@ -218,9 +215,6 @@ def apply(
     with private.Database() as db:
         return playlists.apply_one(
             api,
-            None,
-            None,
-            None,
             kofindb.JellyfinDatabase(db.cursor),
             item,
             kinds,

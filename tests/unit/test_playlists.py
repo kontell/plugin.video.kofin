@@ -74,7 +74,6 @@ class FakeMapping:
 class FakeState:
     def __init__(self):
         self._rows = {}
-        self._items = {}
 
     def get_playlist_state(self, jellyfin_id):
         return self._rows.get(jellyfin_id)
@@ -84,13 +83,6 @@ class FakeState:
 
     def remove_playlist_state(self, jellyfin_id):
         self._rows.pop(jellyfin_id, None)
-        self._items.pop(jellyfin_id, None)
-
-    def replace_playlist_items(self, playlist_id, item_ids):
-        self._items[playlist_id] = list(item_ids)
-
-    def get_playlist_items(self, playlist_id):
-        return self._items.get(playlist_id, [])
 
     def get_playlist_states(self):
         return [
@@ -105,24 +97,6 @@ def test_safe_filename_keeps_unicode_and_strips_slashes():
     assert playlists.safe_filename("  ") == "playlist"
     assert playlists.safe_filename("Gym: 2024") == "Gym_ 2024"
     assert playlists.safe_filename("Ångström") == "Ångström"
-
-
-def test_join_song_path():
-    assert (
-        playlists.join_song_path("http://s/Audio/id/", "stream.mp3?static=true")
-        == "http://s/Audio/id/stream.mp3?static=true"
-    )
-    assert (
-        playlists.join_song_path(
-            "plugin://plugin.video.kofin/lib/id/",
-            "stream.mp3?mode=play&id=id",
-        )
-        == "plugin://plugin.video.kofin/lib/id/stream.mp3?mode=play&id=id"
-    )
-    # tolerate missing trailing slash
-    assert playlists.join_song_path("http://s/Audio/id", "stream.flac") == (
-        "http://s/Audio/id/stream.flac"
-    )
 
 
 def test_entry_label_matches_kodis_own_format():
@@ -160,36 +134,6 @@ def test_cleanup_removes_folder(tmp_path):
 # --- which path form a row gets ----------------------------------------------
 
 
-def test_playlist_line_keeps_the_row_path_for_plugin_rows():
-    """A plugin row plays through the play route, which resolves the stream and
-    stamps the song's tag and database id on it; musicdb:// cannot reach that
-    route at all (module docstring)."""
-    assert playlists.playlist_line(
-        10,
-        "plugin://plugin.video.kofin/lib/id/",
-        "stream.mp3?mode=play&id=id&dbid=10",
-    ) == ("plugin://plugin.video.kofin/lib/id/stream.mp3?mode=play&id=id&dbid=10")
-
-
-def test_playlist_line_uses_musicdb_for_direct_rows():
-    """Kodi does not match a bare server URL back to its song row, so a direct
-    row's line names the row instead -- and keeps its extension, which
-    CMusicDatabaseFile checks against it."""
-    assert (
-        playlists.playlist_line(10, "https://s/Audio/id/", "stream.flac?static=true")
-        == "musicdb://songs/10.flac"
-    )
-
-
-def test_playlist_line_falls_back_without_an_extension():
-    """No extension means musicdb:// would be refused, so the row keeps the
-    path it has, which still opens."""
-    assert (
-        playlists.playlist_line(10, "https://s/Audio/id/", "stream?static=true")
-        == "https://s/Audio/id/stream?static=true"
-    )
-
-
 def test_playlist_side_skips_mixed_and_unknown():
     audio = [{"Type": "Audio"}]
     video = [{"Type": "Movie"}]
@@ -214,24 +158,6 @@ def test_enabled_kinds_follow_synced_libraries():
     assert playlists.enabled_kinds(views, set()) == set()
 
 
-def test_jellyfin_id_from_plugin_and_stream_paths():
-    mapping = FakeMapping({})
-    assert (
-        playlists.jellyfin_id_from_path(
-            "plugin://plugin.video.kofin/?mode=play&id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            mapping,
-        )
-        == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    )
-    assert (
-        playlists.jellyfin_id_from_path(
-            "https://s/Audio/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/stream.flac?static=true",
-            mapping,
-        )
-        == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    )
-
-
 def test_parse_m3u_skips_headers():
     text = "#EXTM3U\n#EXTINF:1,A\nhttp://a\n#comment\nhttp://b\n"
     assert playlists.parse_m3u_paths(text) == ["http://a", "http://b"]
@@ -242,19 +168,6 @@ PLUGIN_FILE = (
     PLUGIN_DIR + "?filename=Aliens.mkv&id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     "&dbid=1128&mode=play"
 )
-
-
-def test_video_playlist_line_is_constructpath():
-    """Plugin rows store the full URL in strFilename; joining doubles it."""
-    assert playlists.video_playlist_line(PLUGIN_DIR, PLUGIN_FILE) == PLUGIN_FILE
-    assert (
-        playlists.video_playlist_line("/downloads/movies/", "Aliens.mkv")
-        == "/downloads/movies/Aliens.mkv"
-    )
-    assert (
-        playlists.video_playlist_line("/data/", "stack://a.mkv , /data/b.mkv")
-        == "stack://a.mkv , /data/b.mkv"
-    )
 
 
 def _audio_playlist(name, etag, playlist_id="pl1"):
@@ -378,21 +291,15 @@ def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
         ],
         items_by_id={"good": [{"Id": "a1", "Type": "Audio"}]},
     )
-    memberships = {}
     playlists.reconcile(
         api,
-        None,
-        None,
-        None,
         state,
         {"Audio"},
         music_root=str(root),
-        audio_memberships=memberships,
         resolver=_audio_resolver(),
     )
     assert (root / "Old.m3u8").is_file()
     assert state.get_playlist_state("bad") is not None
-    assert memberships == {"good": ["a1"]}
     assert SONG_LINE in (root / "Gym.m3u8").read_text(encoding="utf-8")
 
 
@@ -406,9 +313,6 @@ def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
     resolver = _video_resolver()
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Video"},
@@ -425,9 +329,6 @@ def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
     api._items["pl1"] = [{"Id": "m1", "Type": "Movie"}, {"Id": "m1", "Type": "Movie"}]
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Video"},
@@ -447,9 +348,6 @@ def test_apply_one_does_not_steal_another_playlist_filename(tmp_path):
     playlist = {"Id": "pl2", "Name": "UHD", "MediaType": "Video", "Etag": "one"}
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Video"},
@@ -470,9 +368,6 @@ def test_apply_one_keeps_a_music_filename_when_membership_changes(tmp_path):
     resolver = _audio_resolver()
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -485,9 +380,6 @@ def test_apply_one_keeps_a_music_filename_when_membership_changes(tmp_path):
     api._items["pl1"] = [{"Id": "a1", "Type": "Audio"}, {"Id": "a1", "Type": "Audio"}]
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -514,9 +406,6 @@ def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):
     playlist = _audio_playlist("Gym", "new", playlist_id="pl2")
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -551,9 +440,6 @@ def test_reconcile_keeps_a_disambiguated_music_filename_on_update(tmp_path):
     )
     playlists.reconcile(
         api,
-        None,
-        None,
-        None,
         state,
         {"Audio"},
         music_root=str(tmp_path),
@@ -576,9 +462,6 @@ def test_apply_one_renames_a_music_playlist_when_the_title_changes(tmp_path):
     resolver = _audio_resolver()
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -589,9 +472,6 @@ def test_apply_one_renames_a_music_playlist_when_the_title_changes(tmp_path):
     playlist["Etag"] = "two"
     playlists.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -617,9 +497,6 @@ def test_an_empty_listing_does_not_empty_the_managed_folder(tmp_path):
     )
     playlists.reconcile(
         stocked,
-        None,
-        None,
-        None,
         state,
         {"Audio"},
         music_root=root,
@@ -631,9 +508,6 @@ def test_an_empty_listing_does_not_empty_the_managed_folder(tmp_path):
 
     stats = playlists.reconcile(
         FakeApi(playlist_list=[]),
-        None,
-        None,
-        None,
         state,
         {"Audio"},
         music_root=root,
@@ -668,15 +542,10 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
             "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
         )
         if run == "reconcile":
-            pl.reconcile(
-                api, None, None, None, state, {"Audio"}, str(root), resolver=resolver
-            )
+            pl.reconcile(api, state, {"Audio"}, str(root), resolver=resolver)
         else:
             pl.apply_one(
                 api,
-                None,
-                None,
-                None,
                 state,
                 playlist,
                 {"Audio"},
@@ -695,9 +564,6 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
     )
     pl.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -710,9 +576,6 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
     )
     pl.apply_one(
         api,
-        None,
-        None,
-        None,
         state,
         playlist,
         {"Audio"},
@@ -720,12 +583,3 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
         resolver=resolver,
     )
     assert sorted(p.name for p in root.glob("*.m3u8")) == [moved]
-    # The playlist leaves the server: the view stays.
-    root = tmp_path / "removed"
-    root.mkdir()
-    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text(view, encoding="utf-8")
-    state = FakeState()
-    state.add_playlist_state("pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, "")
-    assert not pl.remove_one(state, "pl1", str(root))
-    assert (root / pl.DOWNLOADED_MUSIC_M3U8).read_text(encoding="utf-8") == view
-    assert state.get_playlist_state("pl1") is None

@@ -489,19 +489,6 @@ class DownloadManager:
         if row.state != store.DONE:
             self._apply_cancel(item_id)
             return
-        root = downloads_root()
-        restored = self.native.restore(row, root)
-        departed_subscription_item = False
-        if not restored and row.origin.startswith(
-            ("auto:playlist:", "auto:musiclibrary:")
-        ):
-            departed_subscription_item = not self.native.mapped(row.jellyfin_id)
-        if not restored and not departed_subscription_item:
-            LOG.error(
-                "download %s kept: its library row could not be restored", item_id
-            )
-            self._toast(30822, _display_name(row))
-            return
         self._remove_row(row)
         self._mark_dirty(row.media_type)
         if row.media_type == "song":
@@ -1138,11 +1125,6 @@ class DownloadManager:
             "downloaded file missing for %s; cleaning up and marking it watched",
             row.jellyfin_id,
         )
-        if not self.native.restore(row, root):
-            LOG.error(
-                "vanished download %s: library row not restored; cleaning up anyway",
-                row.jellyfin_id,
-            )
         self._remove_row(row)
         self._mark_watched(row)
         self._mark_dirty(row.media_type)

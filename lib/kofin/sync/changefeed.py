@@ -13,11 +13,10 @@ import calendar
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence
 
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
-from kofin.sync.policy import reference_checksum
 
 LOG = Logger(__name__)
 
@@ -32,33 +31,8 @@ PROTOCOL_VERSION = 1
 
 WATERMARK_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-# Every media-type class the sync queue knows about. ``include`` lists are
-# subsets of this; the legacy protocol wants the complement (exclude list).
-ALL_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music", "playlists")
 # The official KodiSyncQueue exclude list does not know playlists.
 LEGACY_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
-
-# Parent-first ranks: parents download ahead of children. Unranked types sit
-# mid-field.
-_TYPE_RANK = {
-    "Series": 0,
-    "MusicArtist": 0,
-    "Season": 1,
-    "MusicAlbum": 1,
-    "Episode": 2,
-    "Audio": 2,
-}
-_RANK_DEFAULT = 1
-
-# Types the artwork-only write path can apply (video art tables). Music and
-# boxset image updates take the full path.
-ARTWORK_ONLY_TYPES = ("Movie", "Series", "Season", "Episode", "MusicVideo")
-
-# Media classes that are not library-scoped, and so are never dropped by the
-# library filter. Boxsets live in Jellyfin's own "Collections" library, whose
-# id is never in a user's whitelist -- filtering them by library would delete
-# every collection. They are admitted by type.
-LIBRARY_AGNOSTIC_TYPES = ("boxsets", "playlists")
 
 
 @dataclass
@@ -92,23 +66,6 @@ class ChangeSet:
     records: List[ChangeRecord] = field(default_factory=list)
     userdata: List[JsonDict] = field(default_factory=list)
     envelope: Envelope = field(default_factory=Envelope)
-
-
-@dataclass
-class SyncPlan:
-    """Ordered work lists for one catch-up cycle (build_plan output)."""
-
-    userdata: List[JsonDict] = field(default_factory=list)
-    removed: List[str] = field(default_factory=list)
-    added: List[str] = field(default_factory=list)
-    updated: List[str] = field(default_factory=list)
-    artwork: List[str] = field(default_factory=list)
-    playlist_added: List[str] = field(default_factory=list)
-    playlist_updated: List[str] = field(default_factory=list)
-    playlist_removed: List[str] = field(default_factory=list)
-    userdata_changed_ids: Set[str] = field(default_factory=set)
-    skipped: int = 0
-    filtered: int = 0
 
 
 def _iso_to_unix(value: Optional[str]) -> Optional[int]:
@@ -325,162 +282,3 @@ def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:
     watermark = watermark_to_unix(last_sync)
 
     return bool(watermark) and watermark < retention_cutoff
-
-
-def stored_checksum_matches(etag: Optional[str], checksum: Optional[str]) -> bool:
-    """Whether the Etag matches the stored checksum (policy.reference_checksum)."""
-    return bool(etag) and checksum == reference_checksum(etag)
-
-
-def _is_image_only(record: ChangeRecord) -> bool:
-    """Exactly ImageUpdate — any other flag in the reason takes the full
-    path (an image change accompanied by a metadata edit must cascade)."""
-    if record.update_reason is None:
-        return False
-
-    reasons = {part.strip() for part in record.update_reason.split(",") if part.strip()}
-
-    return reasons == {"ImageUpdate"}
-
-
-def _is_playlist(record: ChangeRecord) -> bool:
-    return record.item_type == "Playlist" or record.media_type == "playlists"
-
-
-def in_scope(record: ChangeRecord, libraries: Optional[Set[str]]) -> bool:
-    """Whether a record belongs to a library this client syncs.
-
-    ``libraries`` empty or None means no filtering. A record whose
-    ``library_ids`` is absent is **always** kept: a server that predates the
-    field, a boxset, and a folder-less artist are indistinguishable here, and
-    none of the three is safe to drop. Only a record that names its libraries
-    and names none of ours is refused, and then before anything is fetched.
-    """
-    if not libraries or not record.library_ids:
-        return True
-
-    if record.media_type in LIBRARY_AGNOSTIC_TYPES:
-        return True
-
-    return any(library in libraries for library in record.library_ids)
-
-
-def type_rank(item_type: Optional[str]) -> int:
-    """Parent-first rank for an item type."""
-    return _TYPE_RANK.get(item_type or "", _RANK_DEFAULT)
-
-
-def _added_sort_key(record: ChangeRecord) -> Any:
-    return (type_rank(record.item_type), -(record.last_modified or 0))
-
-
-def parent_candidates(records: Sequence[ChangeRecord]) -> List[str]:
-    """Parent ids (series first, then seasons) that child records reference —
-    the caller checks these against kofin.db and passes the unknown-locally
-    survivors to build_plan as prefetch material.
-
-    Updated records count too: "Updated" says nothing about whether we ever
-    synced the item.
-    """
-    batch = {record.id for record in records}
-    series: List[str] = []
-    seasons: List[str] = []
-
-    for record in records:
-        if record.status == "Removed":
-            continue
-
-        if record.series_id and record.series_id not in batch:
-            if record.series_id not in series:
-                series.append(record.series_id)
-
-        if record.season_id and record.season_id not in batch:
-            if record.season_id not in seasons:
-                seasons.append(record.season_id)
-
-    return series + [season for season in seasons if season not in series]
-
-
-def build_plan(
-    records: Sequence[ChangeRecord],
-    userdata: Sequence[JsonDict],
-    checksums: Dict[str, Optional[str]],
-    known_parents: Callable[[str], bool],
-    libraries: Optional[Set[str]] = None,
-) -> SyncPlan:
-    """Turn a change set into ordered work lists.
-
-    * Library scope: records naming only libraries we do not sync are dropped
-      before anything is fetched; removals are exempt, since one dropped in
-      error leaves a row orphaned in Kodi.
-    * Skip-before-download: records whose Etag matches the stored checksum
-      are dropped here.
-    * Ordering: parents ahead of children, newest first within rank.
-    * Parent prefetch: unknown series/seasons referenced by any child that
-      will download — added or updated — are prepended as their own additions.
-    * Image-only demotion: reason == ImageUpdate exactly → the artwork
-      class (lowest priority, artwork-only write).
-    """
-    plan = SyncPlan()
-    plan.userdata_changed_ids = {
-        str(dto.get("ItemId")) for dto in userdata if dto.get("ItemId")
-    }
-
-    added_records: List[ChangeRecord] = []
-    downloading_records: List[ChangeRecord] = []
-
-    for record in records:
-        if record.status == "Removed":
-            if _is_playlist(record):
-                plan.playlist_removed.append(record.id)
-            else:
-                plan.removed.append(record.id)
-            continue
-
-        if not in_scope(record, libraries):
-            plan.filtered += 1
-            continue
-
-        if stored_checksum_matches(record.etag, checksums.get(record.id)):
-            plan.skipped += 1
-            continue
-
-        if _is_playlist(record):
-            if record.status == "Added":
-                plan.playlist_added.append(record.id)
-            else:
-                plan.playlist_updated.append(record.id)
-            continue
-
-        if record.status == "Added":
-            added_records.append(record)
-        elif _is_image_only(record) and record.item_type in ARTWORK_ONLY_TYPES:
-            plan.artwork.append(record.id)
-        else:
-            plan.updated.append(record.id)
-
-        downloading_records.append(record)
-
-    added_records.sort(key=_added_sort_key)
-
-    # A prefetched parent joins plan.added even when the child that wanted it
-    # is an update, which is what makes the ordering hold: additions are
-    # downloaded and written before any update is downloaded at all.
-    prefetch = [
-        parent
-        for parent in parent_candidates(downloading_records)
-        if not known_parents(parent)
-    ]
-    plan.added = prefetch + [record.id for record in added_records]
-
-    # An item can appear in the userdata list as well as among the records.
-    # Whatever downloads applies its own userdata (through the write cascade
-    # or the Etag short-circuit), so drop the overlap — but only against
-    # records that will download: skipped and artwork-only entries never
-    # apply userdata, so theirs must survive here.
-    downloading = set(plan.added) | set(plan.updated)
-    plan.userdata = [
-        dto for dto in userdata if str(dto.get("ItemId")) not in downloading
-    ]
-
-    return plan

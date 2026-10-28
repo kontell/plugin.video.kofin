@@ -655,17 +655,8 @@ class Api:
             },
         )
 
-    def syncplay_set_playlist_item(self, playlist_item_id: str) -> None:
-        self.post("/SyncPlay/SetPlaylistItem", {"PlaylistItemId": playlist_item_id})
-
-    def syncplay_queue(self, item_ids: List[str], mode: str = "Queue") -> None:
-        self.post("/SyncPlay/Queue", {"ItemIds": item_ids, "Mode": mode})
-
     def syncplay_next_item(self, playlist_item_id: str) -> None:
         self.post("/SyncPlay/NextItem", {"PlaylistItemId": playlist_item_id})
-
-    def syncplay_previous_item(self, playlist_item_id: str) -> None:
-        self.post("/SyncPlay/PreviousItem", {"PlaylistItemId": playlist_item_id})
 
     def syncplay_set_ignore_wait(self, ignore_wait: bool) -> None:
         self.post("/SyncPlay/SetIgnoreWait", {"IgnoreWait": bool(ignore_wait)})
