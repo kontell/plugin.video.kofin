@@ -1,13 +1,10 @@
 """Read public Kodi capabilities inside the addon; no HTTP server required.
 
-``inspect`` is the probe the service runs at every start. The baseline
-decides whether native sync runs at all, and the feature table says what
-this Kodi offers beyond it (``contract.py``). The report is written to
-``REPORT`` in the profile by the service, and ``features`` and ``table``
-are how the rest of the add-on -- the pass, the listing provider in the
-plugin process, the play route, SyncPlay -- read what was found, by name,
-without a probe of their own. A feature that is off is named once, in the
-service log at start and in the Library status dialog, never per item.
+``inspect`` is the probe the service runs at every start, and the service
+writes its report to ``REPORT`` in the profile. ``table``, ``features`` and
+``has`` read that report, so nothing else probes. A feature that is off is
+named once, in the service log at start and in the Library status dialog,
+never per item.
 """
 
 import json
