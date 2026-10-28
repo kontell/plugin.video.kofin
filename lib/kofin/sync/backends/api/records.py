@@ -1,11 +1,4 @@
-"""The pass's view of a catalogue member and the window its payloads come through.
-
-``Record`` is one member of the desired view with its payload read on first
-use; ``PayloadWindow`` reads those payloads a chunk at a time and holds a
-bounded number, so a pass over thousands of records never holds the
-catalogue (200 MB of Python for 6,600 video items wedged a 1 GB device).
-Lifted out of ``store`` so that module stays about the store.
-"""
+"""The pass's view of a catalogue member and the window its payloads come through."""
 
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, Optional
@@ -18,10 +11,7 @@ class Record:
     """One member of the desired view.
 
     ``item`` is the payload, read on first use when the record was built
-    without one. A pass over a whole catalogue holds a record for every
-    pending item, and their payloads together weigh 3.5 times their JSON
-    (200 MB for 6,600 video items): held all at once they wedged a 1 GB
-    device. The pass reads them through a ``PayloadWindow`` instead.
+    without one. A pass reads payloads through a ``PayloadWindow``.
     """
 
     __slots__ = (

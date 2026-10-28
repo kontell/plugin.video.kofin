@@ -5,8 +5,9 @@ store the way the scanner would -- from the pinned committed generation, per
 scanner directory -- and keeps the few rules the backend relies on: a direct
 scan of a show folder only adds episodes to a show that already exists,
 ``clearmode: "remove"`` deletes everything filed under the path and the sets
-it empties, a refresh replaces the row and its id, a movie's version files
-are filed as versions of it, and ``Clean`` asks the add-on about every
+it empties, a refresh files the row again under a new id (a show refreshed
+without its episodes keeps its row), a movie's version files are filed as
+versions of it, and ``Clean`` asks the add-on about every
 version and extra below its directory and drops sets no movie links. It is
 the Kodi 23 that carries kontell/xbmc #1-#13.
 
@@ -411,8 +412,7 @@ class Kodi:
                 self._import_episodes(row, record.library, item_id)
             else:
                 # Kodi rewrites the show's own row in place and leaves its
-                # seasons and episodes alone (observed on 22.0b2: the same
-                # tvshowid, every episode id and play count kept).
+                # seasons and episodes alone.
                 seasons = [
                     r.item
                     for r in self.store.records(

@@ -1,41 +1,12 @@
 # -*- coding: utf-8 -*-
-"""One-way materialization of Jellyfin music playlists as native Kodi basic
-playlists under ``special://profile/playlists/music/Kofin/``.
+"""One-way materialization of Jellyfin playlists as native Kodi playlists.
 
-Download each Audio playlist, rewrite track lines to the same path already
-stored for that song in MyMusic, write one ``.m3u8`` per playlist named after
-the playlist's title (``_unique_stem``, no ``kofin`` prefix). The folder is
-the ownership boundary — never touch sibling files under ``playlists/music/``.
-
-**The line has to be one Kodi can trace back to the song row**, and which line
-that is depends on how the row was written — so it is decided per row, not from
-the setting that produced it (a ``musicTranscode`` flip changes new rows only,
-which is exactly how two installs on the same settings ended up with different
-path forms).
-
-*Plugin rows* (``musicTranscode`` on) carry the song's own MyMusic
-``path.strPath + song.strFileName``, which is what Kodi itself writes when it
-saves a playlist of library songs (verified live: Kodi's own ``Save`` wrote the
-same ``plugin://…/stream.flac?mode=play&id=…&dbid=…`` rows kofin writes).
-Playing one runs the play route, which resolves the stream, stamps the song's
-tag and database id on the resolved item and reports the playback.
-
-``musicdb://songs/<id><ext>`` cannot be used for those rows:
-``CMusicDatabaseFile`` re-opens the translated path at the file layer with no
-plugin resolution, so every line fails at "Init: Error opening file
-musicdb://songs/<id>.mp3" before playback starts (verified live, both from the
-GUI and ``Player.Open``).
-
-*Direct rows* (``musicTranscode`` off) are the other way round, and the raw
-path is the one that cannot work. Kodi does not match a bare
-``https://…/Audio/<id>/stream.flac?static=true`` back to its song row — played
-by path it comes back with no database id, no title, artist or album, only the
-``#EXTINF`` label (verified live on Piers: the same track opened by ``songid``
-answers with all of it, opened by ``file`` with none of it). Without the
-database id nothing identifies the item, so the service cannot claim it either
-and the playback never reaches the Jellyfin dashboard. ``musicdb://`` is what
-those rows take: ``GetSongByFileName`` reads the id straight out of the URL,
-and the file layer opens the direct path underneath with nothing to resolve.
+Each Audio playlist is one ``.m3u8`` under
+``special://profile/playlists/music/Kofin/``, named after the playlist's title
+(``_unique_stem``, no ``kofin`` prefix). The folder is the ownership boundary —
+never touch sibling files under ``playlists/music/``. Video playlists go to
+``playlists/video/Kofin/``, beside the per-library smart playlists written at
+the end of this module.
 """
 
 from __future__ import annotations
@@ -70,51 +41,28 @@ PLAYLISTS_MUSIC = "special://profile/playlists/music"
 PAGE_SIZE = 100
 
 # How a managed playlist folder gets the addon's own icon instead of Kodi's
-# generic folder glyph. Both halves were measured on Piers (Kodi 22), in the
-# music and the video playlist windows alike:
-#
-# * The *name* is not ours to choose. Kodi only looks for the names in its
-#   art lists (advancedsettings ``<musicthumbs>``, and the video equivalent),
-#   and ``folder.jpg`` is in them where ``folder.png`` is not — a folder.png
-#   drew the plain glyph, nothing else.
-# * The *content* is ours. Kodi picks the decoder off the bytes, not off the
-#   extension, so the addon's own PNG goes in under the .jpg name and keeps
-#   its transparency. It has to: kofin-node.png is grey+alpha, and a real
-#   JPEG of it renders as the glyph on a black tile.
-#
-# Nothing extra ships for this — the file is a copy of the icon the node tree
-# already uses (views.NODE_ROOT_ICON), made when the folder is written.
-#
-# One caveat, also measured: Kodi resolves a folder's art while building the
-# listing that holds it, and keeps that listing for the session. An icon
-# written into a folder Kodi has *already* shown appears the next time the
-# listing is built cold — a Container.Refresh did not do it (Piers), a first
-# visit in a later session did (Omega) — so in the worst case, the next start.
-# The poll that writes the icon never shows it. New installs never notice: the
-# folder and the icon are written together, before anything has listed either.
+# generic folder glyph. Kodi looks only for the names in its folder-art lists
+# (advancedsettings ``<musicthumbs>`` and the video equivalent), which hold
+# ``folder.jpg`` and not ``folder.png``. It picks the decoder off the bytes,
+# so the addon's PNG goes in under the .jpg name and keeps its alpha. The file
+# is a copy of the node tree's icon (video.NODE_ROOT_ICON). A folder Kodi has
+# already listed shows the icon only on a cold listing.
 FOLDER_ICON = "folder.jpg"
 FOLDER_ICON_SOURCE = "kofin-node.png"
 
-# The Downloaded-music view (plan W3.3): a smart playlist whose one rule is
-# "path starts with the downloads music root" — repointed songs' paths live
-# there, so this is a real library view with no schema tricks. It sits in the
-# managed folder for the addon icon, but it is kofin *state*, not a mirror of
-# a server playlist: the pruner and the cleanup below both leave it (and the
-# folder icon with it), or it would survive exactly one poll — the documented
-# pruner behavior this exemption exists for.
+# A Downloaded-music smart playlist an earlier version wrote; removed when
+# the .m3u8 is written (write_downloaded_music_list).
 DOWNLOADED_MUSIC_XSP = "Downloaded music.xsp"
 
-# The same view in the API build, as a plain playlist of the downloaded songs:
-# its rows keep their plugin URLs, so the smart playlist's rule matches nothing
-# there (write_downloaded_music_list). Exempt from the prune like the .xsp, and
+# The Downloaded-music view, as a plain playlist of the downloaded songs: their
+# rows keep their plugin URLs, so a path rule on the downloads folder matches
+# nothing (write_downloaded_music_list). Exempt from the prune like the .xsp, and
 # its stem is reserved, so a server playlist of that title takes "(2)" rather
 # than the two writing over each other.
 DOWNLOADED_MUSIC_M3U8 = "Downloaded music.m3u8"
 RESERVED_STEMS = frozenset({os.path.splitext(DOWNLOADED_MUSIC_M3U8)[0].lower()})
 OURS = frozenset({DOWNLOADED_MUSIC_XSP, DOWNLOADED_MUSIC_M3U8})
 
-# What tells a plugin row from a direct one (writers/music.py writes one or the
-# other into path.strPath, per the musicTranscode setting at sync time).
 PLUGIN_PREFIX = "plugin://"
 
 VIDEO_VIEW_TYPES = frozenset({"movies", "tvshows", "musicvideos"})
@@ -126,8 +74,7 @@ VIDEO_MEDIA_TYPES = frozenset({"movie", "episode", "musicvideo"})
 
 
 # A stop for a server that over-reports ``TotalRecordCount`` and re-emits
-# earlier rows on later pages (seen live on the playlist *list* query — see
-# ``Api.music_playlists``). Paging ends on a short page, so this only bites
+# earlier rows on later pages. Paging ends on a short page, so this only bites
 # when full pages keep coming; a playlist longer than this is not real.
 MAX_PLAYLIST_ITEMS = 20000
 
@@ -139,10 +86,10 @@ _UNSAFE = re.compile(r'[/\\<>:"|?*\x00-\x1f]')
 class Entry(NamedTuple):
     """One playlist line, with what Kodi needs to render it before playback.
 
-    ``path`` is the MyMusic path; the rest fills the ``#EXTINF`` header so the
-    file reads correctly on its own (Kodi replaces the label from the song row
-    once the list resolves, but a playlist that has to state a duration —
-    "Total duration" before anything is queued — has one).
+    ``path`` is the line the resolver gives; the rest fills the ``#EXTINF``
+    header so the file reads correctly on its own (Kodi replaces the label
+    from the song row once the list resolves, but a playlist that has to state
+    a duration — "Total duration" before anything is queued — has one).
     """
 
     path: str
@@ -202,9 +149,7 @@ def write_folder_icon(directory: str) -> bool:
 def write_downloaded_music_list(
     entries: Iterable[Entry], root: Optional[str] = None
 ) -> bool:
-    """The Downloaded-music view as a plain playlist of ``entries``, the API
-    build's: its downloads keep their plugin URLs, so the smart playlist's rule
-    on the downloads folder (downloaded_music_xsp) matches nothing there. The
+    """The Downloaded-music view as a plain playlist of ``entries``. The
     smart playlist goes when this is written; True if the file was written."""
     directory = managed_dir(root)
     try:
@@ -234,15 +179,9 @@ def safe_filename(name: str) -> str:
 def playlist_line(kodi_id: int, str_path: str, str_filename: str) -> str:
     """The path to write for a song row: its own, or the musicdb URL for it.
 
-    Which one is read off the row rather than off ``musicTranscode``: the row
-    is what the line has to agree with, and the setting can have moved since it
-    was written (see the module docstring for why each form only works for the
-    rows it belongs to).
-
     The extension is load-bearing — ``CMusicDatabaseFile::TranslateUrl`` checks
     it against the row and refuses the id when it disagrees — so a direct row
-    whose filename carries none keeps its own path. That is no worse than
-    today, and better than a line that cannot open.
+    whose filename carries none keeps its own path.
     """
     if str_path.startswith(PLUGIN_PREFIX):
         return join_song_path(str_path, str_filename)
@@ -263,15 +202,9 @@ def join_song_path(str_path: str, str_filename: str) -> str:
 
 
 def video_playlist_line(str_path: str, str_filename: str) -> str:
-    """The path ``CVideoDatabase::ConstructPath`` would produce for this row.
-
-    Plugin rows store the full plugin URL in ``files.strFilename``. Joining
-    path+filename doubles it (``plugin://…/plugin://…/?id=``), and Kodi's
-    library lookup then misses: the playlist item has no artwork, duration or
-    DBTYPE until playback stamps a ListItem. ``ConstructPath`` returns
-    ``strFileName`` unchanged when ``strPath`` is plugin (or the filename is
-    a stack). Everything else is the folder join.
-    """
+    """The path ``CVideoDatabase::ConstructPath`` would produce for this row:
+    ``strFileName`` unchanged when ``strPath`` is plugin (or the filename is a
+    stack), the folder join otherwise."""
     if str_path.startswith(PLUGIN_PREFIX) or str_filename.startswith("stack://"):
         return str_filename
     return join_song_path(str_path, str_filename)
@@ -312,11 +245,8 @@ def _unique_stem(name: str, taken: Set[str]) -> str:
 def _stem_matches_title(name: str, filename: str) -> bool:
     """True when ``filename`` is this title, or its ``Title (n)`` disambiguation.
 
-    A membership rewrite has to keep that file. Recomputing the stem against
-    a collision set that does not yet hold the base name turns
-    ``Title (2).m3u8`` back into ``Title.m3u8`` and clobbers whoever already
-    owns the base name — the same ping-pong as seeding ``taken`` with our
-    own stem, reached from the reconcile pass instead of ``apply_one``.
+    A membership rewrite keeps that file: recomputing the stem would turn
+    ``Title (2).m3u8`` into ``Title.m3u8`` over whoever owns the base name.
     """
     stem = os.path.splitext(filename)[0]
     base = safe_filename(name)
@@ -334,9 +264,8 @@ def assign_playlist_filename(
 ) -> str:
     """The .m3u8 name to write. Reuses ``stored_filename`` while the title matches.
 
-    ``taken`` is collisions for *other* names. This playlist's own stored
-    stem must not be in it: seeding ``_unique_stem`` with that stem made
-    every membership rewrite mint ``Name (2).m3u8``.
+    ``taken`` holds other names' collisions only; this playlist's stored stem
+    must not be in it, or every rewrite mints ``Name (2).m3u8``.
     """
     if stored_filename and _stem_matches_title(name, stored_filename):
         stem = os.path.splitext(stored_filename)[0]
@@ -349,10 +278,7 @@ def assign_playlist_filename(
 def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
     """Stems already on disk that :func:`_unique_stem` must not reuse.
 
-    ``keep`` is this playlist's current filename: it is not a collision, it
-    is the name we want to keep. Seeding ``taken`` with it made every
-    membership rewrite pick ``Name (2).m3u8``, delete ``Name.m3u8``, and
-    ping-pong on the next event.
+    ``keep`` is this playlist's current filename, not a collision.
     """
     taken: Set[str] = set(RESERVED_STEMS)
     for name in _list_files(directory):
@@ -504,7 +430,6 @@ def cleanup_managed_playlists(root: Optional[str] = None) -> int:
         except OSError:
             LOG.exception("failed to remove managed playlist %s", name)
     try:
-        # Only remove the directory if empty (ignore leftover junk).
         if not os.listdir(directory):
             os.rmdir(directory)
     except OSError:
@@ -535,7 +460,7 @@ def _entries_for(
     The ``resolver`` (``entry(item, side) -> Entry | None``) answers for each
     item the pass has filed (backends/api/playlists.py); an item it has not,
     or an item with no id, is counted missing. ``mapping``, ``music`` and
-    ``video`` are the retired SQL build's lookups and are not read.
+    ``video`` are unused.
     """
     entries: List[Entry] = []
     missing = 0
@@ -591,7 +516,7 @@ def _remove_stored(
     directory: str, side: str, filename: str, copy: Optional[str] = None
 ) -> bool:
     """Remove a server playlist's stored file. A reserved name is the view's,
-    which the API build's download list writes over it, so it stands unless
+    which the download list writes over it, so it stands unless
     it still holds exactly ``copy``, the playlist's file under its new name:
     then no view was written there and the file is the playlist's alone."""
     if _reserved(side, filename):
@@ -815,8 +740,6 @@ def reconcile(
         entries, missing = _entries_for(items, side, mapping, music, video, resolver)
         stats["tracks"] += len(entries)
         stats["skipped"] += missing
-        # ``taken`` holds other playlists' stems only. Our stored name is not
-        # a collision — see assign_playlist_filename.
         stored_name = stored[1] if stored and stored[0] == side else None
         filename, written = write_playlist_file(
             directory,
@@ -930,7 +853,8 @@ def parse_m3u_paths(text: str) -> List[str]:
 
 
 def jellyfin_id_from_path(path: str, mapping: Any) -> Optional[str]:
-    """Jellyfin id encoded in a playlist line, or via kofin.db for musicdb/videodb."""
+    """Jellyfin id encoded in a playlist line; a musicdb/videodb line is looked
+    up through ``mapping`` when one is given."""
     if not path:
         return None
     match = re.search(r"[?&]id=([0-9a-fA-F]{32})", path)
@@ -952,18 +876,13 @@ def jellyfin_id_from_path(path: str, mapping: Any) -> Optional[str]:
     return None
 
 
-# --- the video smart playlists (P2.1: moved here from views.py) -----------------
+# --- the video smart playlists -------------------------------------------------
 #
 # One .xsp per synced video library, in a managed folder under Kodi's own
-# video playlists. The folder holds only generated files, so there is no
-# user ordering or label to preserve; its icon is the only thing that can
-# carry the addon's art (a .tbn beside an .xsp does nothing, measured on
-# Piers). Written whole every pass, like the nodes: a leftover tag rule
-# for a renamed library matched nothing under match=all.
-#
-# Ownership differs from the music side above: here the ``kofin`` prefix
-# gates every deletion and a foreign file in the folder is spared
-# (CLAUDE.md), because the folder used to be the user's own directory.
+# video playlists, written whole every pass. Only the folder icon can carry
+# the addon's art (a .tbn beside an .xsp does nothing). Ownership differs from
+# the music side above: here the ``kofin`` prefix gates every .xsp deletion,
+# and a foreign file other than an ``.m3u8`` is spared.
 
 PLAYLIST_KINDS = ("movies", "tvshows", "musicvideos")
 

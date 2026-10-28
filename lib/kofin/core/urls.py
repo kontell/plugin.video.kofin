@@ -1,9 +1,8 @@
-"""The one builder of ``plugin://`` URLs (shell refactor P1.5).
+"""The one builder of ``plugin://`` URLs.
 
 Kodi keys what it remembers about a plugin row — its resume bookmark, its
-play count — on the exact URL string, so the four independent builders the
-tree had grown (listitems, two node generators, the lyrics directory) were
-four chances to disagree by a byte. Everything builds through here now.
+play count — on the exact URL string, so every ``plugin://`` URL is built
+here.
 """
 
 from typing import Dict
@@ -11,10 +10,8 @@ from urllib.parse import urlencode
 
 BASE_URL = "plugin://plugin.video.kofin/"
 
-# The play route's own parameters, named once (shell refactor P2.2): the
-# context item and the stream menu build a play URL with them, the play
-# route reads them, and the three used to spell each name independently —
-# 4/4/5/3/3/3 copies across play.py, context.py and streams.py. A request
+# The play route's own parameters: the context item and the stream menu
+# build a play URL with them, and the play route reads them. A request
 # carrying any of STREAM_REQUEST_PARAMS names a stream or a quality the
 # server must serve, which is what keeps it off a download.
 PARAM_TRANSCODE = "transcode"

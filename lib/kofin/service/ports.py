@@ -1,16 +1,10 @@
-"""The service's view of its managers, and theirs of the service (P1.3).
+"""The service's view of its managers, and theirs of the service.
 
-``service/main.py`` holds one slot per manager and used to type all three
-``Optional[Any]``, which left every member access unchecked — 32 of them,
-and seven ``type: ignore[attr-defined]`` in ``settings_apply.py`` for the
-trip back. These Protocols are the seams, checked where the concrete
-objects flow in: ``Library``/``DownloadManager``/``SyncPlayManager`` at
-their construction sites in ``main.py``, and ``Service`` itself where it
-hands ``self`` to ``SettingsApplier``.
-
-``LibraryPort`` covers either coordinator. ``FullSyncPort`` additionally
-describes the legacy FullSync host; the API coordinator does not pretend to
-provide SQL locks or the legacy worker queue.
+Protocols for the managers and for the service as ``SettingsApplier`` sees
+it, checked where the concrete objects flow in:
+``Library``/``DownloadManager``/``SyncPlayManager`` at their construction
+sites in ``main.py``, and ``Service`` itself where it hands ``self`` to
+``SettingsApplier``.
 """
 
 import threading
@@ -22,8 +16,7 @@ LOG = Logger(__name__)
 
 
 class LibraryPort(Protocol):
-    """What the service drives on the library manager (a Thread), plus the
-    FullSync port below the divider."""
+    """What the service drives on the library manager (a Thread)."""
 
     startup_done: bool
     stop_thread: bool
@@ -59,8 +52,6 @@ class LibraryPort(Protocol):
 
 
 class FullSyncPort(LibraryPort, Protocol):
-    """Additional operations consumed by the legacy FullSync worker."""
-
     database_lock: threading.Lock
     music_database_lock: threading.Lock
     sync_failure_toasted: Set[str]
@@ -166,7 +157,7 @@ def spawn_once(
     *args: Any,
 ) -> Optional[threading.Thread]:
     """Start a named one-shot daemon worker unless the previous one still
-    runs; returns the new thread, or None when busy (P1.10). The caller
+    runs; returns the new thread, or None when busy. The caller
     keeps the slot — and its own busy message. ``current=None`` is the
     fire-and-forget case (the player's prompt threads)."""
     if current is not None and current.is_alive():

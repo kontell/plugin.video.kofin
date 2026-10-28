@@ -2,24 +2,9 @@
 type, naming the item when there is one of it and counting when there are
 several.
 
-This is the whole policy behind the new-content toasts, kept apart from
-:mod:`kofin.sync.library` because none of it needs a thread, a queue or a
-database to be true: a writer hands :func:`entry_for` the item it just wrote,
-the library thread hands :func:`summarize` a cycle's worth of entries, and
-what comes back is the lines to raise.
-
-Two rules are worth stating out loud, because both are silence and silence is
-hard to notice going missing:
-
-* A watched item is never announced. Kofin only notifies about additions:
-  the updated writers are built without notify, and an id already in
-  kofin.db is dropped before it reaches :func:`entry_for`. "Watched, new
-  or updated, stays quiet" then comes down to dropping anything whose
-  ``UserData/Played`` is set.
-* Songs are passed to the music-library download subscription after their
-  database writes commit, but are not announced. One album is a dozen songs,
-  and its own line already says it arrived. ``BoxSet`` and ``Season`` are
-  silent too.
+* A watched item is never announced.
+* Songs are not announced: an album says it arrived. ``BoxSet`` and
+  ``Season`` are silent too.
 """
 
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional
@@ -33,17 +18,13 @@ MUSICVIDEO = "MusicVideo"
 ARTIST = "MusicArtist"
 ALBUM = "MusicAlbum"
 
-# Jellyfin types that produce a message. Anything else -- Audio, BoxSet,
-# Season -- is dropped when the entry is built. Audio entries are used only
-# for download subscriptions and are excluded from the announcement backlog.
+# Jellyfin types that produce a message; Audio entries exist only for
+# download subscriptions.
 ANNOUNCED = (MOVIE, SERIES, EPISODE, MUSICVIDEO, ARTIST, ALBUM)
 
 # Message strings, singular then plural. The singular takes the item's name,
-# the plural a count; the two episode lines take a count *and* a show name.
-# Arity is checked against the shipped strings.po in
-# tests/unit/test_new_content.py -- a template with the wrong number of "%s"
-# raises at format time, which is a toast lost for a reason no log would
-# explain.
+# the plural a count; the two episode lines take a count *and* a show name
+# (arity checked in tests/unit/test_new_content.py).
 MOVIE_ONE = 30624
 MOVIE_MANY = 30625
 SERIES_ONE = 30626
@@ -75,14 +56,11 @@ class Entry(NamedTuple):
 
 
 def entry_for(item: Dict[str, Any]) -> Optional[Entry]:
-    """The announceable entry for a written item, or None when it is not.
+    """The announceable entry for an item, or None when it is not.
 
     None covers every reason to stay quiet: a type with no message, a watched
     item, and payloads too thin to name (no ``Id``, no ``Name``, an episode
-    with no show). The last of those should not happen -- ``SeriesName`` and
-    ``SeriesId`` are in the episode field set, ``UserData`` in every item's --
-    but a message built out of a missing value would read as a bug in the
-    library rather than in the payload.
+    with no show).
     """
     item_type = item.get("Type") or ""
 
@@ -113,10 +91,7 @@ def entry_for(item: Dict[str, Any]) -> Optional[Entry]:
 def summarize(entries: Iterable[Entry]) -> List[str]:
     """The messages for one cycle's entries, in display order.
 
-    Ids are deduplicated first: a change-feed addition and a repair prune's
-    ``missing_ids`` can both offer the same item inside one cycle, and a
-    library that says "2 movies added" for one movie is worse than saying
-    nothing.
+    Ids are deduplicated first.
     """
     unique: Dict[str, Entry] = {}
 

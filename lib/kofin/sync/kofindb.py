@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Accessors for the kofin.db mapping tables (fork ``jellyfin_db.py`` port).
-
-The class keeps the fork's name so the transplanted writers stay
-recognizably identical (plan §2: renaming buys nothing, costs diff-ability).
-"""
+"""Accessors for the kofin.db mapping tables."""
 
 import functools
 from collections import namedtuple
@@ -19,23 +15,15 @@ LOG = Logger(__name__)
 def _row_class(fields: Tuple[str, ...]):
     """One namedtuple class per distinct column list.
 
-    sqlite3 calls the row factory once per row, and the fork's factory
-    built the class inside it — ``namedtuple()`` generates and ``exec``s a
-    Python class, ~90 µs, for every row of every read through this module
-    (audit finding F1: 40× the cost of the row itself). Keyed on the exact
-    column names so two queries never share a class by accident; 64 covers
-    every SELECT in queries_map several times over.
+    sqlite3 calls the row factory once per row, and ``namedtuple()`` builds a
+    class, far too costly to repeat per row. Keyed on the exact column names
+    so two queries never share a class by accident; 64 covers every SELECT in
+    queries_map.
     """
     return namedtuple("Row", fields)
 
 
 def sqlite_namedtuple_factory(cursor, row):
-    """
-    Usage:
-    con.row_factory = namedtuple_factory
-
-    http://peter-hoffmann.com/2010/python-sqlite-namedtuple-factory.html
-    """
     return _row_class(tuple(col[0] for col in cursor.description))(*row)
 
 
@@ -51,11 +39,6 @@ class JellyfinDatabase:
         return self.cursor.fetchone()
 
     def add_reference(self, *args):
-        # A NULL checksum means "re-verify every walk" — correct for
-        # memberless boxsets (the V6 rule) and a field-list bug for anything
-        # else: the caller downloaded this item without its Etag
-        # (healing-loops-plan F4). Loud, so the offending Fields list is one
-        # grep away instead of surfacing as per-walk rewrite churn.
         if args[7] is None and args[4] != "BoxSet":
             LOG.warning(
                 "reference %s (%s) stamped without an Etag; it will rewrite "
@@ -68,8 +51,6 @@ class JellyfinDatabase:
 
     def update_reference(self, *args):
         if args[0] is None:
-            # Same rule as add_reference; no boxset exemption because
-            # boxsets stamp through add_reference only.
             LOG.warning(
                 "reference %s checksum cleared; it will rewrite on every "
                 "walk until an Etag arrives",
@@ -83,7 +64,6 @@ class JellyfinDatabase:
         self.cursor.execute(QU.update_parent, args)
 
     def update_pathid(self, *args):
-        """The mapping follows a path row the writer had to re-create."""
         self.cursor.execute(QU.update_pathid, args)
 
     def get_item_id_by_parent_id(self, *args):
@@ -113,8 +93,7 @@ class JellyfinDatabase:
 
     def get_boxset_state(self, *args):
         """linked_count stamped at the set's last successful membership
-        pass, or None when never stamped (docs/boxsets-robustness-plan.md).
-        """
+        pass, or None when never stamped."""
         self.cursor.execute(QU.get_boxset_state, args)
 
         try:
@@ -307,8 +286,5 @@ class JellyfinDatabase:
         return self.cursor.fetchone()
 
     def add_version(self, *args):
-        """
-        We only ever want one value here, so erase the existing contents first
-        """
         self.cursor.execute(QU.delete_version)
         self.cursor.execute(QU.add_version, args)

@@ -1,13 +1,4 @@
-"""Claiming library-originated playback (shell refactor P2.3).
-
-Kodi starts a synced row on its own — a song written as a direct stream
-URL, a downloaded movie or episode whose row is a local file — and nothing
-queues a play state for it. ``backfill_library_claim`` builds one from the
-``Player.OnPlay`` announcement: map the Kodi id back to a Jellyfin id, fetch
-(or, offline, reconstruct) the item, and push the claim so the player
-reports it like any other. Moved verbatim out of ``service/player.py``,
-where it was self-free module code beside the player class.
-"""
+"""Map what Kodi is playing back to a Jellyfin id."""
 
 import os
 import re
@@ -23,11 +14,10 @@ JsonDict = Dict[str, Any]
 
 
 def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
-    """The exact path Kodi uses for a synced video item, when it has one.
+    """The resolver URL Kodi filed a synced video item under, when it has one.
 
-    The mapping supplies Kodi's row id; JSON-RPC supplies its current file
-    path, including a download repoint. A Play Next started with another URL
-    will play, but Kodi's ListItem.IsPlaying will not match the browsing row.
+    A Play Next started with it matches ``ListItem.IsPlaying`` on the browsing
+    row; another URL will play, but will not match.
     """
     if media not in ("movie", "episode", "musicvideo"):
         return None
@@ -43,16 +33,13 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
 
 # A song played from a saved playlist is a bare ``musicdb://songs/<id><ext>``
 # line: nothing ever loads its music tag, so Kodi announces the playback
-# without a database id. Measured on Kodi 21 — the same song started from the
-# library announces ``{"id": 7005, "type": "song"}``, started from a playlist
-# ``{"title": "04. Golden Earring - Radar Love", "type": "song"}``. The id is
-# still in the path, which is the only thing that identifies the row.
+# without a database id. The id is still in the path, which is the only thing
+# that identifies the row.
 _MUSICDB_SONG = re.compile(r"^musicdb://songs/(\d+)")
 
 
 def downloaded_path(path: str) -> bool:
-    """A local file under the downloads root — a repointed row's target,
-    the one kind of video playback the back-fill claims for."""
+    """A local file under the downloads root."""
     if not path or "://" in path:
         return False
     try:
@@ -83,11 +70,10 @@ def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
         return None
 
 
-# A song's Jellyfin id as it appears in whichever path Kodi is playing:
-# ``<server>/Audio/<id>/stream.<ext>`` for direct rows, ``…?id=<id>`` for the
-# plugin:// rows musicTranscode writes. Only used when the item carries no
-# Kodi database id (playback started from kofin's own browse listing rather
-# than the synced library).
+# A Jellyfin id as it appears in whichever path Kodi is playing: the play
+# route's direct stream ``<server>/Audio/<id>/stream.<ext>``, the plugin URL's
+# ``…?id=<id>``, or a native song's ``…/music/<folder>/<id>.<ext>`` file
+# (``paths.song_url``).
 _ID_IN_PATH = re.compile(
     r"/Audio/([0-9a-f]{32})/|[?&]id=([0-9a-f]{32})\b"
     r"|/music/(?:singles/)?[0-9a-f]{32}/([0-9a-f]{32})\."

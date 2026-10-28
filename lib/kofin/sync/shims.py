@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Small Kodi helpers the sync code shares.
 
-What is left of the fork-compat layer the transplanted SQL writers imported:
-a localized-string lookup, the home-window property access the node
-publisher uses, and the UTC-to-local conversion the API serializer stamps
-``dateadded`` and ``lastplayed`` with (``metadata._timestamp``).
+A localized-string lookup, the home-window property access the node publisher
+uses, and the UTC-to-local conversion the API serializer stamps ``dateadded``
+and ``lastplayed`` with (``metadata._timestamp``).
 """
 
 import datetime
@@ -28,9 +27,9 @@ _DATE_RE = re.compile(
 
 
 def convert_to_local(date):
-    """Convert a Jellyfin UTC timestamp to local time, fork output shape
+    """Convert a Jellyfin UTC timestamp to local time
     (``YYYY-MM-DDTHH:MM:SS``). Handles 7-digit tick fractions and the
-    year-1 "no date" sentinel without dateutil.
+    year-1 "no date" sentinel.
     """
     try:
         if isinstance(date, datetime.datetime):
@@ -66,9 +65,7 @@ def convert_to_local(date):
 
 
 def window_prop(key, value=None, clear=False):
-    """Plain string window-property access on the home window (the fork's
-    ``window()`` helper minus the .json/.bool suffixes, which the ported
-    views code does not use)."""
+    """Plain string window-property access on the home window."""
     window = xbmcgui.Window(10000)
 
     if clear:

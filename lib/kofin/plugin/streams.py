@@ -3,7 +3,7 @@
 Reached from the context menu on the played item, which the viewer gets back
 to by pressing Back or Tab — fullscreen video itself has no context menu, but
 leaving it does not stop playback, and the item stays focused with
-``ListItem.IsPlaying`` true (docs/transcode-stream-selection-plan.md §2.7).
+``ListItem.IsPlaying`` true.
 
 Three kinds of change, and the differences are the whole reason this module
 exists. A subtitle Kodi already holds — anything embedded on a direct play,
@@ -151,8 +151,6 @@ def _choose_audio(
     method: str,
     playing: Playing,
 ) -> None:
-    # Annotated the way context.choose_bitrate is: Dialog.select takes
-    # list[str | ListItem], and a bare list[str] is not that (list is invariant).
     labels: List[Union[str, xbmcgui.ListItem]] = [
         streams.label_for(stream, stream.get("Index") == playing.audio)
         for stream in audio
@@ -166,12 +164,11 @@ def _choose_audio(
         return
     chosen = audio[index]
     if chosen.get("Index") == playing.audio:
-        return  # already playing; nothing worth a five-second restart
+        return  # already playing; nothing worth a restart
 
     if streams.is_direct(method):
         # The tracks are all in the stream Kodi opened, so this is a switch,
-        # not a new playback. Restarting here would cost five seconds to
-        # arrive at what setAudioStream does immediately.
+        # not a new playback.
         ordinal = streams.audio_ordinal(media_streams, chosen.get("Index"))
         if ordinal is None:
             return
@@ -208,15 +205,13 @@ def _choose_subtitle(
         active = stream.get("Index") == playing.subtitle
         label = streams.label_for(stream, active)
         if not active:
-            # Two kinds of row cost something on a transcode, and they are not
-            # the same thing. An image subtitle can only reach the screen as
+            # Two kinds of row cost something on a transcode, and they are
+            # labelled apart. An image subtitle can only reach the screen as
             # pixels in the video, so it costs a new stream. A text one that
             # was not attached (only the resolved track is — see
             # streams.attached_subtitles) costs a download and nothing else:
-            # the service fetches it onto the running playback. Saying "burned
-            # in" for both told a viewer picking a plain SRT that their picture
-            # was about to be stamped with it. The row already on screen has
-            # nothing left to warn about either way.
+            # the service fetches it onto the running playback. The row already
+            # on screen has nothing left to warn about either way.
             if streams.burns_in(stream, method):
                 label = "%s (%s)" % (label, settings.localized(30617))
             elif streams.needs_fetch(stream, method, attached):
@@ -250,10 +245,7 @@ def _choose_subtitle(
     if streams.burns_in(chosen, method):
         # The only row left that costs a new stream. ``burned=True`` is what
         # puts ``burnsubs=1`` on the restart, and only an image subtitle wants
-        # that: a text track restarted with it asked the server to withdraw
-        # the image subtitle formats for a stream that carries no image
-        # subtitle — harmless by luck, wrong by intent, and it is what made
-        # the menu call a plain SRT burned in.
+        # that.
         _restart(payload, playing._replace(subtitle=chosen.get("Index"), burned=True))
         return
     if streams.needs_fetch(chosen, method, attached):
@@ -276,8 +268,7 @@ def _current_subtitle_index(
     """The Jellyfin index of the subtitle Kodi is showing, or None.
 
     Asked of the player rather than remembered, because Kodi's own subtitle
-    menu can change it behind this module's back — which on a transcode is now
-    a normal thing to do, the attached tracks being switchable there too.
+    menu can change it behind this module's back.
     """
     current = kodirpc.current_subtitle()
     if current is None:
@@ -296,16 +287,11 @@ def _current_subtitle_index(
 def _fetch_subtitle(chosen: JsonDict) -> None:
     """Ask the service for a text track the transcode did not attach.
 
-    Not done here, and not by preference: fetching it means waiting on an
-    ffmpeg extraction the server runs on demand — measured at 28-146 s
-    depending on the source file — and this process is a plugin invocation
-    that has to return. The service owns the running playback and can wait
-    (``service/latesubs.py``), so this states the index and exits.
-
-    This used to restart playback into a stream resolved with the track
-    instead, which cost a five-second gap *and* re-ran the same doomed fetch
-    on the play route, so the viewer's first pick reliably came back with no
-    subtitle at all.
+    Not done here: fetching it means waiting on an ffmpeg extraction the
+    server runs on demand, which can take minutes, and this process is a
+    plugin invocation that has to return. The service owns the running
+    playback and can wait (``service/latesubs.py``), so this states the index
+    and exits.
     """
     index = chosen.get("Index")
     if index is None:
@@ -321,22 +307,12 @@ def _fetch_subtitle(chosen: JsonDict) -> None:
 def _restart(payload: JsonDict, playing: Playing) -> None:
     """Resolve a new stream that is ``playing``, and pick up where we were.
 
-    Every field is stated, not just the one the viewer changed. The server
-    resolves what it is not told from the user's profile, so an audio switch
-    that named only the audio track came back with the profile's subtitle —
-    losing a burned-in one, or bringing back one that had been turned off — and
-    a burn-in that named only the subtitle came back on the profile's audio.
-    Restating all three makes a restart a change of one thing.
+    Every field is stated, not just the one the viewer changed: the server
+    resolves what it is not told from the user's profile.
 
-    The position is stated in the params rather than left to Kodi: PlayMedia's
-    resume flag is gated on ``GetItemResumeInformation().isResumable``, which a
-    bare plugin path never satisfies, so it downgrades itself to noresume (see
-    CLAUDE.md). The transcode context item states its position for the same
-    reason.
-
-    The originating request's own params are carried forward, so a playback
-    that was a forced transcode at 3 Mbit/s restarts as one — the settings
-    alone would resolve it straight back to direct play.
+    The position is stated in the params rather than left to PlayMedia's
+    resume flag (context.play_with_transcode says why), and the originating
+    request's own params are carried forward (play.play_state).
     """
     item_id = str(payload.get("Id") or "")
     if not item_id:
@@ -360,8 +336,7 @@ def _restart(payload: JsonDict, playing: Playing) -> None:
             params["dbid"] = dbid
     if playing.audio is not None:
         params[PARAM_AUDIO_INDEX] = str(playing.audio)
-    # -1 is how Jellyfin is told "no subtitle", as distinct from omitting the
-    # parameter and letting the user's profile choose one (plugin.play).
+    # -1 is "no subtitle" (play._stream_index).
     params[PARAM_SUBTITLE_INDEX] = str(
         playing.subtitle if playing.subtitle is not None else -1
     )

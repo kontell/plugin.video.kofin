@@ -638,7 +638,7 @@ class TestPulses:
 
     def test_a_pulse_ends_before_its_item_does(self, rig):
         scheduler, controller, kodi = rig
-        # 20 s left: a 4.5 s pulse fits whole.
+        # 20 s left: a 5 s pulse fits whole.
         controller.remaining = 20000.0
         start_pulse(scheduler, controller, 150.0)
         assert scheduler._pulse["seconds"] == pytest.approx(plan_pulse(150.0)[1])
@@ -834,8 +834,8 @@ class TestKodiMovesTheTempo:
         assert sum("set outside fine sync" in line for line in logged) == 1
 
     def test_a_short_step_is_left_alone_and_settled_after(self, rig, clock):
-        """A live gate steps a member through Player.SetTempo: 0.75 s at 1.2x
-        is +150 ms, which the scheduler must then find and close."""
+        """A step someone else makes through Player.SetTempo (0.75 s at 1.2x
+        is +150 ms) is left to run; the scheduler then finds and closes it."""
         scheduler, controller, kodi = rig
         scheduler.tick()
         clock.advance(tempo.CONFIRM_GRACE_S)
@@ -911,7 +911,7 @@ class TestLive:
             scheduler._settle_until = 0.0
             start_pulse(scheduler, controller, 500.0)
             clock.advance(tempo.CONFIRM_GRACE_S)
-            kodi.take(1.0)  # #25: nothing to read for half a second
+            kodi.take(1.0)  # kontell/xbmc #25: nothing to read for half a second
             scheduler.tick()
             assert scheduler._edge_pulses == count
         assert scheduler._gave_up
@@ -1063,7 +1063,7 @@ def test_session_follows_the_setting_and_kodis_tempo(logged, monkeypatch):
 
 
 # ----------------------------------------------------------------------------
-# The source clock (pvr sync plan P4)
+# The source clock
 # ----------------------------------------------------------------------------
 
 EPOCH_MS = utils.LIVE_PTS_EPOCH_S * 1000.0

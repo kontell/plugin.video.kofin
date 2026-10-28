@@ -28,13 +28,10 @@ def seed_default_nodes(kind):
         LOG.error("XMLs source path `%s` not found.", source_base_path)
         return
 
-    # Make sure the files exist in the local profile.
     for source_path, _dirs, files in os.walk(source_base_path):
         relative_path = os.path.relpath(source_path, source_base_path)
         dest_path = os.path.join(dest_base_path, relative_path)
 
-        # makedirs, not mkdir: on a profile that has never had a tree of this
-        # kind the parent does not exist either.
         if not os.path.exists(dest_path):
             os.makedirs(os.path.normpath(dest_path))
 

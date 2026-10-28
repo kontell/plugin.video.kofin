@@ -3,25 +3,17 @@
 Jellyfin resolves each playback's default audio and subtitle track against the
 *account* rather than the client, and returns the result on every MediaSource
 — which ``service/player.apply_default_tracks`` applies at first frame. The
-preferences behind that resolution live only on the server, so until now the
-only way to change them from a Kodi box was to open the web UI.
+preferences behind that resolution live only on the server.
 
 This is the Account tab's button for them: read live from ``/Users/Me``, edited
-in a ``Dialog.select`` loop, written straight back. Each change is posted on
-its own, because ``/Users/Configuration`` replaces the whole document — every
-write is a read-modify-write of the full dict (see :func:`updated`), and a
-failed one has to put the old value back or the list would go on showing
-something the server never took.
+in a ``Dialog.select`` loop, written straight back (:func:`updated`,
+:func:`_save`).
 
 Six of the sixteen ``UserConfiguration`` fields are here. The rest are left
 alone deliberately: ``EnableNextEpisodeAutoPlay`` duplicates kofin's own
 ``playNextEnabled``, the display flags (``DisplayMissingEpisodes`` and kin)
 change what ``/UserViews`` and ``/Items`` return and so would silently desync
 the Kodi database, and the view lists overlap kofin's own library selection.
-
-It blocks on a modal in the plugin process, which a settings button may do:
-the node-invocation problem that pushes ``adduser.who_is_watching`` into the
-service does not apply to a button (see that module's route handler).
 """
 
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
@@ -111,10 +103,9 @@ def language_options(cultures: Sequence[JsonDict]) -> List[Tuple[str, str]]:
 def language_label(code: str, cultures: Sequence[JsonDict]) -> str:
     """A language code's display name; never blank.
 
-    An unlisted code falls back to itself rather than to "Any" — a value some
-    other client set against a different culture table is still the truth
-    about the account, and showing it as "Any" would be a lie the user would
-    then have to overwrite to discover.
+    An unlisted code falls back to itself rather than to "Any": a value some
+    other client set against a different culture table is still the account's
+    value.
     """
     if not code:
         return settings.localized(STR_ANY)
@@ -212,9 +203,6 @@ def _run_menu(
         # Read the toggle each pass: it lives in the settings dialog this menu
         # is sitting on top of, so it can change underneath.
         honoured = settings.get_bool("honourJellyfinDefaultTracks")
-        # Annotated the way plugin/streams.py's menus are: Dialog.select takes
-        # list[str | ListItem], and a bare list[str] is not that (list is
-        # invariant).
         labels: List[Union[str, xbmcgui.ListItem]] = list(
             row_labels(config, cultures, honoured)
         )
@@ -234,10 +222,8 @@ def _run_menu(
 def _ask(field: Field, config: JsonDict, cultures: Sequence[JsonDict]) -> Optional[Any]:
     """The chosen value for a row, or None when the user backed out.
 
-    A boolean has two states and no reason to cost a second dialog, so it
-    flips on the spot; the others open a list positioned on the current value
-    (the language one is 193 rows, and opening it at "Abkhazian" every time
-    would make it useless).
+    A boolean flips on the spot; the others open a list positioned on the
+    current value.
     """
     current = config.get(field.key)
     if field.kind == BOOL:

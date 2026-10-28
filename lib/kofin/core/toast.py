@@ -13,8 +13,7 @@ So the level a caller asks for is what picks between kofin's icon and Kodi's:
   only softens it.
 
 Sound is off by default and no caller turns it on. Kodi's own default is
-``sound=True``, which is how two of kofin's error toasts ended up beeping
-while the other fourteen did not.
+``sound=True``.
 
 Nothing here raises. A toast is cosmetic, and every caller sits on a path
 where losing the *message* is survivable but losing the work behind it is not
