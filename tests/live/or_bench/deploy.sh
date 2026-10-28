@@ -9,7 +9,7 @@ SRC="${1:-$(cd "$HERE/../../.." && pwd)}"
 DIR="${KOFIN_BENCH_DIR:-/storage/kofin-bench}"
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
-python3 "$SRC/tools/build.py" --stage "$T/a" --profile api
+python3 "$SRC/tools/build.py" --stage "$T/a"
 tar czf "$T/stage.tgz" -C "$T/a" .
 "$HERE/host.sh" "mkdir -p $DIR/runs $DIR/tmp"
 tar czf - -C "$HERE/box" . | "$HERE/host.sh" "tar xzf - -C $DIR"
