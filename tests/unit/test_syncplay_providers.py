@@ -1,9 +1,9 @@
-"""The provider seam (plan G1.1-G1.2).
+"""The provider seam.
 
 The registry is the engine's one dispatch from a queue item to a playing
-stream. The Jellyfin provider must produce byte-identical URLs to the
-pre-seam ``play_item``, because Kodi keys what it remembers about a plugin
-row — resume bookmark, play count — on the exact URL string (core/urls.py).
+stream. The Jellyfin provider's URLs must not change by a byte, because Kodi
+keys what it remembers about a plugin row — resume bookmark, play count — on
+the exact URL string (core/urls.py).
 """
 
 import pytest
@@ -42,15 +42,14 @@ def test_an_audio_item_routes_to_the_music_playlist():
 
 def test_a_zero_start_is_sent_not_dropped():
     """A falsy 0 dropped from the URL falls back to the member's own resume
-    point, minutes from the group — the pre-seam comment, kept true here."""
+    point, minutes from the group."""
     target = jellyfin({"Id": ITEM_ID, "Type": "Movie"}).play_target(ITEM_ID, 0)
 
     assert target["url"].endswith("&startticks=0")
 
 
 def test_a_negative_start_clamps_to_zero():
-    """Extrapolation across a clock offset was measured reaching the route
-    as startticks=-240000."""
+    """Extrapolation across a clock offset can reach the route negative."""
     target = jellyfin({"Id": ITEM_ID, "Type": "Movie"}).play_target(ITEM_ID, -240000)
 
     assert target["url"].endswith("&startticks=0")
@@ -101,8 +100,7 @@ def test_a_missing_item_is_a_failed_lookup():
 
 
 def test_no_api_client_is_a_failed_lookup():
-    """A manager built without a client answered every lookup with None
-    before the seam; the provider keeps that a failed start, not a crash."""
+    """Without an API client a start is a failed lookup, not a crash."""
     with pytest.raises(LookupError):
         providers.JellyfinProvider(None).play_target(ITEM_ID, 0)
 
@@ -184,7 +182,7 @@ def test_the_registry_refuses_an_unknown_provider():
         registry.get("youtube")
 
 
-# --- the template provider (plan G2.4) ------------------------------------
+# --- the template provider ------------------------------------------------
 
 
 def test_a_template_substitutes_key_and_position():

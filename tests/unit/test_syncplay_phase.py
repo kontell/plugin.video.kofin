@@ -1,11 +1,9 @@
-"""The SyncPlay phase table (shell refactor phase 2, P2.0).
+"""The SyncPlay phase table.
 
-``(phase, event) -> phase`` for every transition the manager's nine write
-sites make today — join, a queue that starts an item, a queue that adopts
-the item already playing, A/V up, the group unpause, the local stop, the
-item ending, the group stop, leaving, being left. P2.5 replaces the
-spellings with ``Phase``; this table must pass byte-identical before and
-after. The thread story is unchanged and not modelled here.
+``(phase, event) -> phase`` for every transition the manager makes — join,
+a queue that starts an item, a queue that adopts the item already playing,
+A/V up, the group unpause, the local stop, the item ending, the group stop,
+leaving, being left. Threading is not modelled here.
 """
 
 import pytest
@@ -32,7 +30,7 @@ def kodi_fakes(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     # _start_item arms a 45 s load watchdog through utils.later; a real
-    # Timer thread would outlive the test. Record instead of scheduling.
+    # Timer thread would outlive the test, so nothing is scheduled.
     monkeypatch.setattr(utils, "later", lambda seconds, func, *args: None)
 
 
@@ -97,12 +95,11 @@ EVENTS = {
     "playback_started": lambda m: m.on_playback_started(),
 }
 
-# (phase before, event) -> phase after, as the code stands at P2.0.
 TABLE = [
     (IDLE, "queue_starts_item", LOADING),
     (IDLE, "queue_adopts_playing_item", WAITING_READY),
     # The playlist item already being followed, while not idle: the queue
-    # dedup at the top of _apply_play_queue ignores it — no transition.
+    # dedup in _apply_play_queue ignores it — no transition.
     (SYNCED, "queue_adopts_playing_item", SYNCED),
     (WAITING_READY, "queue_adopts_playing_item", WAITING_READY),
     # A fresh PlaylistItemId for the item on screen: adopted, not reloaded.
@@ -165,9 +162,8 @@ def test_a_fresh_manager_is_idle():
 
 
 def test_in_group_is_not_a_phase(manager):
-    """Membership and phase are separate axes: a joined manager is idle
-    until a queue moves it (the write site in _on_group_joined does not
-    exist — join leaves the phase alone)."""
+    """Membership and phase are separate axes: join leaves the phase alone,
+    so a joined manager is idle until a queue moves it."""
     assert manager.in_group()
     assert manager.phase == IDLE
     assert manager_module.SyncPlayManager  # the module under test
