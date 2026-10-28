@@ -1,4 +1,4 @@
-"""Completion probes for transcoded downloads (plan W3.1/W3.2).
+"""Completion probes for transcoded downloads.
 
 A transcode states no Content-Length, and clean EOF is not proof of
 completion either: when the encoder dies mid-job the server has already
@@ -12,10 +12,9 @@ Fragmented MP4 keeps its duration in the fragments, not the header
 ``trun``/``tfhd`` (falling back to the ``trex`` defaults), in the track's
 ``mdhd`` timescale. Summing them is exactly what ffprobe does for these
 files, and it works on a truncated file too — which is the point. Ogg/Opus
-keeps it in the last page's granule position (48 kHz by definition,
-RFC 7845 §4). Both parsers stop quietly at the first incomplete structure
-and report what is whole; a container neither understands answers None and
-the caller treats the length as unverifiable.
+keeps it in the last page's granule position. Both parsers stop quietly at
+the first incomplete structure and report what is whole; a container neither
+understands answers None and the caller treats the length as unverifiable.
 """
 
 import os

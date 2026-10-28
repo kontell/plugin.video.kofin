@@ -1,11 +1,9 @@
 """The kofin.db ``download`` table: what is downloaded, wanted, or failed.
 
-One row per item, keyed by jellyfin id; rows leave the table only on
-remove-download. The DDL lives in :func:`kofin.sync.private.kofin_tables` so the
-table exists wherever kofin.db exists; every access here goes through the
-same :class:`kofin.sync.private.Database` plumbing the rest of the addon uses,
-which is what lets the sync writers read download state on the connection
-they already hold (plan W1.8).
+One row per item, keyed by jellyfin id; a row leaves the table when its
+download is removed or cancelled, or its file is found missing. The DDL lives
+in :func:`kofin.sync.private.kofin_tables` so the table exists wherever
+kofin.db exists.
 
 State machine: queued -> active -> done | failed; failed -> queued on a
 re-request (keeping ``bytes_done``, so an original resumes with a Range).
@@ -30,7 +28,7 @@ FAILED = "failed"
 
 ORIGIN_USER = "user"
 # Automatic downloads carry "auto:<context>" — the retention sweep matches
-# the prefix, never the user origin (plan W4.1/W4.2/W4.4).
+# the prefix, never the user origin.
 ORIGIN_AUTO_PREFIX = "auto"
 
 
@@ -66,24 +64,13 @@ class Download:
     queued_at: int = 0
     done_at: int = 0
     error: str = ""
-    # The raw /MediaSegments body taken at download completion (W4.7):
-    # parsed at claim time, where the parser lives. Empty means never
-    # fetched (the online claim path falls back to its own fetch); a stored
+    # The raw /MediaSegments body taken at download completion: parsed at
+    # claim time, where the parser lives. Empty means never fetched (the
+    # online claim path falls back to its own fetch); a stored
     # '{"Items": []}' is known-empty, so nobody asks again.
     segments_json: str = ""
-    # The files.strFilename the writers had built when the repoint captured
-    # the row — restore puts it back verbatim (byte-identical, and correct
-    # even for transcodes, whose local name shares nothing with the
-    # server's). Re-captured whenever a writer pass rebuilds the row, so a
-    # server-side rename never restores a stale URL.
+    # Written by the SQL build's repoint; unused here.
     restore_filename: str = ""
-    # The path.strPath a song sat on when the repoint captured it — the
-    # music side's second half. A song's server row is referenced by nothing
-    # while the download lives (MyMusic has one path row per song and the
-    # repoint moves the song off it), so the row can be gone by restore
-    # time, and the mapping's id alone cannot bring it back; the string can.
-    # Empty on rows captured before the column existed, or on video rows,
-    # whose path rows are shared and never orphaned by a repoint.
     restore_path: str = ""
     # What the user asked to download: its Jellyfin id and name. Distinct
     # from ``series_id``, which is the *item's* parent — a
@@ -174,9 +161,7 @@ def get(jellyfin_id: str) -> Optional[Download]:
 
 
 def get_on(cursor: Any, jellyfin_id: str) -> Optional[Download]:
-    """`get` on a caller-held cursor — for the sync writers, which hold the
-    kofin.db connection inside a transaction where a second connection would
-    sit on the WAL write lock (plan W1.8)."""
+    """`get` on a caller-held cursor."""
     cursor.execute(_SELECT + " WHERE jellyfin_id = ?", (jellyfin_id,))
     row = cursor.fetchone()
     return _row_to_download(row) if row is not None else None
@@ -205,13 +190,11 @@ def series_done_ids(series_id: str) -> List[str]:
 def container_states(container_id: str) -> Dict[str, str]:
     """``{jellyfin_id: state}`` for every download under a container.
 
-    Two lookups, because the table records only one parent. ``series_id`` is
-    written as ``SeriesId or AlbumId`` (manager._transfer), which answers a
-    Series and a MusicAlbum outright; a Season is nobody's ``series_id``, so
-    its children are found through the kofin.db mapping's ``parent_id``,
-    which is exactly what that column and its index are for. One connection,
-    and no server — the context menu that asks this has to answer offline
-    too.
+    ``series_id`` is written as ``SeriesId or AlbumId`` (manager._transfer),
+    which answers a Series and a MusicAlbum; a Season is answered through the
+    catalogue, and a playlist or a music library by the request or the
+    origin that names it. One connection, and no server — the context menu
+    that asks this has to answer offline too.
     """
     if not container_id:
         return {}
@@ -284,14 +267,7 @@ def container_states(container_id: str) -> Dict[str, str]:
 
 
 def request_counts(request_id: str) -> Dict[str, int]:
-    """Counts for one queue request, including failures.
-
-    A plain query on the request's own column — no mapping join, unlike
-    :func:`container_states`, because a request is recorded on every row it
-    created rather than inferred from what the items happen to be under.
-    The final toast waits for all queued/active rows and reports failure if
-    any member failed.
-    """
+    """Counts for one queue request, including failures."""
     if not request_id:
         return {"total": 0, "pending": 0, "failed": 0}
     with Database("kofin") as opened:
@@ -384,11 +360,7 @@ def claim(media_types: Optional[Sequence[str]] = None) -> Optional[Download]:
     UPDATE, and a loser's zero rowcount just moves it to the next candidate.
 
     ``media_types`` scopes a worker pool to its own kind. An empty
-    ``media_type`` — a row queued before the kind travelled with the id, or
-    one whose sender did not know it — matches only a caller that names ""
-    among its kinds, which is the video pool: unknown work must be claimed
-    by somebody, and the video pool is the one whose pacing assumes an item
-    might be large.
+    ``media_type`` matches only a caller that names "" among its kinds.
     """
     kinds = list(media_types) if media_types is not None else None
     if kinds is not None and not kinds:
@@ -399,10 +371,7 @@ def claim(media_types: Optional[Sequence[str]] = None) -> Optional[Download]:
         clause = "media_type IN (%s)" % ", ".join("?" for _ in kinds)
         params.extend(kinds)
         if "" in kinds:
-            # NULL is unknown too, and `IN` would never match it. The
-            # dataclass writes '' so no path here produces one — but a row
-            # no pool can claim is silently stuck forever, which is not a
-            # bet worth taking against a column that is merely TEXT.
+            # NULL is unknown too, and `IN` never matches it.
             clause = "(%s OR media_type IS NULL)" % clause
         where += " AND " + clause
     while True:
@@ -517,12 +486,8 @@ def set_restore_path_on(cursor: Any, jellyfin_id: str, path: str) -> None:
 
 
 def release(jellyfin_id: str) -> None:
-    """Put an active row back to queued without spending an attempt — the
-    outage interruption: the worker that owns the row calls this, so it
-    cannot race another claim, and ``recover_interrupted`` cannot help
-    until a restart (it runs only at manager start, so a row left active
-    mid-session would sit stuck until then). ``queued_at`` stays, keeping
-    the row at the head of the queue for the reconnect."""
+    """Put an active row back to queued without spending an attempt;
+    ``queued_at`` stays, so the row heads the queue for the reconnect."""
     with Database("kofin") as opened:
         opened.cursor.execute(
             "UPDATE download SET state = ? WHERE jellyfin_id = ? AND state = ?",
@@ -559,18 +524,6 @@ def rows(state: Optional[str] = None) -> List[Download]:
 
 
 def done_signature(media_types: Sequence[str]) -> List[Any]:
-    """``(jellyfin_id, media_type)`` for every finished download of these
-    kinds, sorted — the widget fingerprint's downloads section.
-
-    Here rather than in ``sync/widgetstate.py`` because it is a fact about
-    this table, and it is the *set* that is widget state: a completed
-    download stamps a badge art row and a removed one clears it, neither of
-    which moves a checksum, a rating, a play count or an order — so nothing
-    else the fingerprint hashes can see either happen. Only finished rows
-    count: queued and active ones render nothing (the badge goes on at the
-    end), and hashing them would refresh every widget at queue time for no
-    visible change.
-    """
     if not media_types:
         return []
     placeholders = ",".join("?" for _ in media_types)
