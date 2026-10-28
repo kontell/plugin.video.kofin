@@ -7,8 +7,7 @@ Python add-on needs that msgfmt does not do:
     formats with a plain % tuple and has no positional (%1$s) form anywhere, so
     a reordered pair swaps the arguments silently;
   * Kodi bbcode tags survive ([B]%s[/B] in #30015);
-  * help strings that quote another control's wording (see QUOTES_VERBATIM);
-    tests/unit/test_userprefs.py asserts the #30794 pair for English only.
+  * help strings that quote another control's wording (see QUOTES_VERBATIM).
 
     python3 tools/i18n/pocheck.py
 """

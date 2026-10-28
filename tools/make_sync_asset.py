@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Build the SyncPlay music shakedown asset (docs/syncplay-music-shakedown.md §5.4).
+"""Build the SyncPlay music shakedown asset.
 
 A 10-track synthetic album whose every property exists to make a measurement
-possible. Committed because the numbers in `tests/live/results/music-*` are only
-reproducible against the same asset; regenerating with the same --seed gives
-byte-identical WAVs.
+possible. Generation is deterministic, so a measurement can be repeated against
+the same asset.
 
 Three properties matter, and each is a measurement requirement, not taste:
 
@@ -26,8 +25,8 @@ Three properties matter, and each is a measurement requirement, not taste:
   marker alone — which is what makes a boundary detectable without the player.
 
 The programme bed is deliberately rhythmic. A steady offset between two members
-is inaudible on a drone and a flam on a snare (§3), so an asset with no beat
-would understate exactly the error this study exists to measure.
+is inaudible on a drone and a flam on a snare, so an asset with no beat would
+understate exactly the error this study exists to measure.
 """
 
 import argparse
@@ -51,9 +50,8 @@ PERC_LOWPASS_HZ = 5000.0  # keeps the programme out of the marker's band
 
 # Track k sweeps CHIRP_F0[k] -> CHIRP_F0[k] + CHIRP_SPAN, so a capture can tell
 # tracks apart from the marker alone. The band sits ABOVE the programme: the
-# percussion is broadband noise an order of magnitude louder than the marker, and
-# at 2-6 kHz it swamped the matched filter entirely (measured: every window
-# locked onto a drum hit instead of a chirp). The bed is low-passed at
+# percussion is broadband noise an order of magnitude louder than the marker and
+# swamps a matched filter that shares its band. The bed is low-passed at
 # PERC_LOWPASS_HZ and the markers live above it, so the two never compete.
 CHIRP_F0_BASE = 8000.0
 CHIRP_F0_STEP = 600.0
@@ -112,9 +110,8 @@ def synth_bed(track, duration_s, rate=RATE):
 
     Every event is generated at its *natural* length and then cut by the track
     end, never squeezed into the room left. An envelope anchored to the end of a
-    shortened segment plays its whole decay inside the stub, which is how the
-    first build ended each track on a 300 ms fade to -50 dBFS -- indistinguishable
-    from the boundary gap the asset exists to measure.
+    shortened segment plays its whole decay inside the stub, a fade
+    indistinguishable from the boundary gap the asset exists to measure.
 
     Deterministic given (track, duration); the only randomness is the percussion
     noise, seeded per track.
@@ -124,7 +121,7 @@ def synth_bed(track, duration_s, rate=RATE):
     root = ROOTS_HZ[track % len(ROOTS_HZ)]
     bpm = BPMS[track % len(BPMS)]
     beat = 60.0 / bpm
-    # Build two beats past the end and cut, so the track ends mid-programme.
+    # Build four beats past the end and cut, so the track ends mid-programme.
     n_ext = n + int(round(4 * beat * rate))
     out = np.zeros(n_ext)
     total_s = n_ext / float(rate)
@@ -161,8 +158,8 @@ def synth_bed(track, duration_s, rate=RATE):
             chord += np.sin(2 * np.pi * f * t) + 0.3 * np.sin(4 * np.pi * f * t)
         place(start, 0.30 * chord / 3.0, _sustain(bar_n, overlap, overlap))
 
-    # Percussion: the reason the asset has a beat at all (section 3). Band-limited
-    # so it never competes with the marker.
+    # Percussion: the reason the asset has a beat at all. Band-limited so it
+    # never competes with the marker.
     hit_n = int(0.045 * rate)
     for i in range(int(math.ceil(total_s / (beat * 0.5)))):
         start = int(i * beat * 0.5 * rate)
@@ -186,9 +183,9 @@ def synth_bed(track, duration_s, rate=RATE):
 def chirp_train(track, n, rate=RATE):
     """The marker train, sample-exact on a 1.000 s grid."""
     # Frequency offset alone is a weak discriminator: adjacent tracks share a
-    # slope, and a 600 Hz shift still scored 0.69 of the correct peak. Alternate
-    # the sweep direction as well -- an up-chirp and a down-chirp decorrelate
-    # almost completely, so neighbours can never be confused.
+    # slope, so a CHIRP_F0_STEP shift still correlates strongly. Alternate the
+    # sweep direction as well -- an up-chirp and a down-chirp decorrelate almost
+    # completely, so neighbours can never be confused.
     lo = CHIRP_F0_BASE + CHIRP_F0_STEP * track
     hi = lo + CHIRP_SPAN
     f0, f1 = (lo, hi) if track % 2 == 0 else (hi, lo)

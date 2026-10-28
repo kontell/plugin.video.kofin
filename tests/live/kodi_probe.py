@@ -26,8 +26,8 @@ device's own ``guisettings.xml`` and never printed.
                                             play an item to its end (or stop it),
                                             seeking first if asked
 
-``KODI_USERDATA`` names the userdata directory when it is not one of the
-usual two (a Flatpak install, LibreELEC).
+``KODI_USERDATA`` names the userdata directory when it is none of the
+Flatpak, LibreELEC and ``~/.kodi`` ones.
 """
 
 import base64
@@ -529,7 +529,7 @@ def play(item, stop_after=None, next_after=None, seek_percent=None, limit=600.0)
         players = rpc("Player.GetActivePlayers")
         if not players:
             # Between two items of a queue Kodi has no player for a moment;
-            # only a second of none is the end.
+            # only a second and a half of none is the end.
             if idle_since is None:
                 idle_since = time.monotonic()
             if time.monotonic() - idle_since >= 1.5:

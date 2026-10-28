@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs ON the box: the phase lines of a run. report.sh <label>
+# Runs ON the device: the phase lines of a run. report.sh <label>
 R="${KOFIN_BENCH_DIR:-/storage/kofin-bench}/runs/$1"
 L=$R/kodi.log
 T0=$(cat $R/t0)

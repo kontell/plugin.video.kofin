@@ -1,6 +1,6 @@
 #!/bin/bash
-# Stage the API profile of a tree and push it, with the device-side scripts,
-# to the bench device. The staged build is installed by box/bench.sh.
+# Stage a tree and push it, with the device-side scripts, to the bench
+# device. The staged build is installed by box/bench.sh.
 #   KOFIN_BENCH_HOST=root@<device> tests/live/or_bench/deploy.sh [TREE]
 set -euo pipefail
 : "${KOFIN_BENCH_HOST:?set KOFIN_BENCH_HOST to user@device}"

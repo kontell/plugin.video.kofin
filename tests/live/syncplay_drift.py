@@ -1,37 +1,33 @@
 #!/usr/bin/env python3
-"""Multi-device SyncPlay drift sampler — docs/syncplay-drift-shakedown.md §5.2.
+"""Multi-device SyncPlay drift sampler.
 
-Channel 2 of the shakedown: external truth. Polls every device's player over
-JSON-RPC on one host clock and reduces the samples to the numbers the plan asks
-for — pairwise divergence percentiles, each device's media-clock rate error in
-ppm, and the tempo duty cycle.
+External truth: polls every device's player over JSON-RPC on one host clock and
+reduces the samples to pairwise divergence percentiles, each device's
+media-clock rate error in ppm, and the tempo duty cycle.
 
 Three things about the measurement, since they decide whether the output means
 anything:
 
 * **Every reading is bracketed.** A sample's timestamp is the midpoint of its
   round trip and its uncertainty is half the round trip; samples wider than
-  ``--max-unc`` are dropped rather than trusted. On this LAN the RPC round trip
-  is a few milliseconds, well inside a 75 ms tolerance, but a Wi-Fi member can
-  spike and a spike must not read as drift.
+  ``--max-unc`` are dropped rather than trusted. A Wi-Fi member's round trip
+  can spike, and a spike must not read as drift.
 * **JSON-RPC ``speed`` cannot see tempo.** It is an int, and a 1.01x tempo
   correction leaves it at 1. The only external view of the actuator is the
   ``Player.IsTempo`` / ``Player.PlaySpeed`` infolabels, so those are sampled
-  too (kodi-drive: kodi-playback-tempo).
+  too.
 * **Interpolation onto a common grid is legitimate, gaps are not.** Playback is
   locally linear, so a position between two samples 250 ms apart is a straight
   line; a position inside a 30 s buffer stall is not. Grid points whose
   bracketing samples are further apart than ``--max-gap`` are dropped for that
-  device instead of invented, which keeps the stall scenarios (R-A, R-J)
-  honest.
+  device instead of invented, which keeps stall scenarios honest.
 
 A run refuses to start unless every device is already playing, and prints live
-pairwise divergence while it samples, so the operator can see the run working
-from whichever room they are standing in.
+pairwise divergence while it samples, so the operator can see the run working.
 
 Usage:
-    ./syncplay_drift.py sample --device A=192.168.1.198:8080 \\
-        --device B=192.168.1.217:8080 --seconds 3600 --label p2-tol150
+    ./syncplay_drift.py sample --device A=HOST:8080 \\
+        --device B=HOST:8080 --seconds 3600 --label LABEL
     ./syncplay_drift.py sample --device A=... --hz 10 --seconds 60 --label calib-A
     ./syncplay_drift.py aggregate tests/live/results/drift/<run-id>
 """
@@ -107,8 +103,7 @@ class Device(object):
 
         Keep-alive is not an optimisation here, it is the measurement: a fresh
         TCP handshake per sample would add a round trip to every reading and
-        land in the uncertainty column, which is the number deciding whether a
-        75 ms tolerance is measurable at all.
+        land in the uncertainty column.
         """
         body = json.dumps(payload).encode()
         headers = {
@@ -211,13 +206,12 @@ class Device(object):
 
         The two are deliberately **separate requests**. Infolabels and info
         booleans are evaluated on Kodi's GUI thread, and that dispatch is
-        measurable: on the Bravia `Player.GetProperties` answers in 2.5-3 ms
-        while `XBMC.GetInfoLabels` takes 19-20 ms, and on the phone and tablet
-        both are worse. Batching them together would put the position's
-        timestamp behind an app-thread round trip and destroy the precision the
-        whole channel exists for, so position is sampled alone at full rate and
-        the flags are refreshed about once a second and carried forward with
-        their own timestamp (``flags_ms``).
+        several times slower than `Player.GetProperties`. Batching them
+        together would put the position's timestamp behind an app-thread round
+        trip and destroy the precision the whole channel exists for, so
+        position is sampled alone at full rate and the flags are refreshed
+        about once a second and carried forward with their own timestamp
+        (``flags_ms``).
         """
         row = dict.fromkeys(COLUMNS, "")
 

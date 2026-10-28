@@ -1,7 +1,8 @@
 """Run inside Kodi. All mutations are confined to plugin.video.kofin.phase0.
 
 RunScript(special://profile/addon_data/plugin.video.kofin.phase0/probe.py,MODE)
-Modes: capture, lifecycle, prepare-forced, read-forced, cleanup.
+Modes: capture, lifecycle, prepare-forced, set-forced-metadata, read-forced,
+cleanup.
 Host automation retrieves JSON results; no credentials or real titles are saved.
 """
 

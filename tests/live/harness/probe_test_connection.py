@@ -1,5 +1,5 @@
 """One-off: run plugin/account.test_connection against a local 500 stub to
-check P0.4 (a 5xx becomes a toast, not an uncaught HttpError). Patches the
+check that a 5xx becomes a toast, not an uncaught HttpError. Patches the
 loaded credentials and the notifier in-process; the profile's real
 serverAddress is never touched. RunScript(<file>,<stub_url>)."""
 

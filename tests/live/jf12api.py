@@ -3,8 +3,8 @@
 Reads ``JF12_HOST``/``JF12_PORT`` from ``../test-server/jf12.env`` and the
 admin credential (``JF12_ADMIN_USER``/``JF12_ADMIN_PW``) from
 ``~/.config/kodi-drive/targets.env``; prints neither. Only the ``Authorization:
-MediaBrowser ..., Token=`` form is sent — the legacy headers are rejected on
-v12 (test-server README).
+MediaBrowser ..., Token=`` form is sent, since Jellyfin 12 rejects the legacy
+headers.
 
 The jf12 rule applies to every caller: nothing is ever deleted through the
 Items API and no file is written under a library path. A *user* this module

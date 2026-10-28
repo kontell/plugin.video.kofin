@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """Latency probes against the local Kodi, for before/after numbers on perf PRs.
 
-This is the instrument behind docs/perf-hardening-plan.md: every performance
-change re-runs the relevant probe and quotes the numbers in its PR description,
-so regressions are a diff in a table rather than a feeling.
-
 Subcommands:
 
   dir URL     Time ``Files.GetDirectory`` on a plugin path. ``--fresh`` appends
@@ -23,8 +19,8 @@ Subcommands:
 
   fingerprint Time ``widgetstate.fingerprint("video")`` and the kofin.db
               reference digest against *copies* of a profile's databases
-              (WAL included), outside Kodi, with the real code. The number
-              behind audit finding F1 / fixes plan H1; needs no running Kodi.
+              (WAL included), outside Kodi, with the real code. Needs no
+              running Kodi.
 
 Kodi's webserver (8080) and "allow remote control" TCP interface (9090) must
 be enabled; credentials default to kodi:kodi (``--auth`` to override).
