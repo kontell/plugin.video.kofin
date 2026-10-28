@@ -1,17 +1,14 @@
 """A download's mark on its library row, carried by the pass.
 
-The SQL build stamps the badge art and the "Kofin Downloads" tag itself;
-here they are part of the desired state: a downloaded movie or episode
-carries the badge, and so do the season and the show of a downloaded
-episode, as in the SQL build, so that a skin can mark them while browsing
+The badge art and the "Kofin Downloads" tag are part of the desired state: a
+downloaded movie or episode carries the badge, and so do the season and the
+show of a downloaded episode, so that a skin can mark them while browsing
 down to the file; a downloaded movie and the show of a downloaded episode
 carry the tag, and a downloaded episode a tag of its own where this Kodi
-keeps an episode's tags (``episode_tags``). The state is an input of the desired state, so it joins the
-inputs token (metadata.inputs_token) and a change of it re-plans the row
-(downloads/nativeport.NativeApi). The badge key has no dot: a dotted art key
-is accepted by the setter and never stored (feasibility report, §7), so a
-skin reads ``ListItem.Art(kofindownloaded)`` here where the SQL build's rows
-answer ``ListItem.Art(kofin.downloaded)``.
+keeps an episode's tags (``episode_tags``). The state joins the inputs token
+(metadata.inputs_token), so a change of it re-plans the row
+(downloads/nativeport.NativeApi). The badge key has no dot: the setter
+accepts a dotted art key and never stores it.
 """
 
 from typing import Dict, Iterable, Set, Tuple

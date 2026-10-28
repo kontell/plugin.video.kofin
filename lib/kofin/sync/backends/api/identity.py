@@ -148,7 +148,7 @@ def native_id_for(item_id, media="movie"):
         return None
     readback = Readback(store.namespace)
     if kind == "Audio":
-        # One directory, not the library: a lookup must not page 22,000 rows.
+        # One directory: a lookup must not page the whole song library.
         found = readback.directory(placed.library, placed.parent_id)
     else:
         found = readback.scope(kind, placed.library, placed.parent_id)

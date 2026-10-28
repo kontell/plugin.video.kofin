@@ -2,13 +2,11 @@
 
 Kodi has no play for a plugin *folder* — ``VIDEO_UTILS::IsItemPlayable`` and
 ``MUSIC_UTILS::IsItemPlayable`` both stop at ``IsPlugin()`` for folders — so
-an album, artist, genre or playlist row from a kofin listing had no way to be
-played as a whole: the viewer opened it and started a track, which in the
-video window plays that track alone. This route expands the container
-server-side, in the order the container deserves, and hands Kodi a music
-playlist of plugin items. Each entry still resolves through ``mode=play``, so
-reporting, downloads-first and the stream menu apply per track exactly as
-they do for a track Kodi queued itself (docs/dynamic-libraries-plan.md W4).
+this route expands an album, artist, genre or playlist server-side, in the
+order the container deserves, and hands Kodi a music playlist of plugin
+items. Each entry still resolves through ``mode=play``, so reporting,
+downloads-first and the stream menu apply per track exactly as they do for a
+track Kodi queued itself.
 
 Music only, by decision: seasons and series keep Kodi's own behaviour.
 """
@@ -82,9 +80,7 @@ def expand(api: Api, item: JsonDict, shuffle: bool) -> List[JsonDict]:
         "SortBy": "Random" if shuffle else SORT_BY[item_type],
     }
     if item_type == "MusicArtist":
-        # ArtistIds, not ParentId: an artist is a link target, not a folder,
-        # and albums an artist merely appears on still count (the download
-        # expansion says the same).
+        # ArtistIds, not ParentId (actions._expand_downloadable says why).
         query["ArtistIds"] = item_id
     elif item_type == "MusicGenre":
         query["GenreIds"] = item_id
@@ -133,27 +129,19 @@ def queue_and_play(tracks: List[JsonDict], server: str) -> None:
 
     An explicit *music* playlist: the queue Kodi builds for a kofin listing
     itself lands on the video playlist, because ``<provides>video audio
-    </provides>`` makes ``CGUIViewStateFromItems`` pick video last. Harmless
-    there, wrong here. Playback is stopped first for the same reason the
-    transcode item does it — a new plugin play handed to Kodi while
-    something else is still playing loses a race with the outgoing stop
-    (context.stop_current_playback).
+    </provides>`` makes ``CGUIViewStateFromItems`` pick video last. Playback
+    is stopped first (context.stop_current_playback).
 
     The service starts the queue (ipc.START_QUEUE). Kodi resolves the first
     track with a plugin request of its own, and gives it the interpreter it
-    keeps warm only once this script has ended. ``Player().play`` returns
-    after that resolve, so the first track always got a cold interpreter,
-    whose start and imports were 10 s of a 13 s start for a 230-track album
-    on a Raspberry Pi 3; and a start posted from here was still asked for
-    before this script had ended, every time.
+    keeps warm only once this script has ended; ``Player().play`` returns
+    only after that resolve, so a start from here gets a cold interpreter.
 
-    The request goes before the tracks. Every track added is a
-    ``Playlist.OnAdd`` announcement for every Python monitor in Kodi, and a
-    request sent after 230 of them reached the service six seconds later on
-    the Pi. Sent first, through JSON-RPC (ipc.notify_now) so that it is
-    announced before the first add, it carries the count, and the service
-    waits for the queue to hold that many. When Kodi refuses it the queue is
-    started here as before.
+    The request goes before the tracks, because every track added is a
+    ``Playlist.OnAdd`` announcement for every Python monitor in Kodi. Sent
+    first, through JSON-RPC (ipc.notify_now) so that it is announced before
+    the first add, it carries the count, and the service waits for the queue
+    to hold that many. When Kodi refuses it the queue is started here.
     """
     stop_current_playback()
     owner = state.take_queue()

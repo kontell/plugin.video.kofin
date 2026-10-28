@@ -1,17 +1,12 @@
 """Fine position sync for SyncPlay: tempo pulses through Kodi's own tempo.
 
-The actuator the drift shakedown could not have, now in Kodi itself. Stock
-Kodi plays a tempo only while "Sync playback to display" is on, and that
-setting slaves the media clock to the panel — ``docs/syncplay-drift-shakedown.md``
-§10 measured rate errors up to 4.3 % from it — which is why fine sync went
-through the inputstream.tempo add-on on Kodi 21 and 22. Kodi 23 with
-kontell/xbmc #14 and #16 plays the tempo in the audio itself (a resample ratio
-the engine keeps) and lets the audio be the clock, so the tempo works with the
-display clock **off**, where the rig's devices free-run within a few hundred
-ppm of real time. #37 is what keeps a tempo beyond the atempo threshold from
-drawing a clock correction. #15 gives PAPlayer the same tempo, so music takes
-pulses too, within limits of its own (``music_profile``).
-``docs/syncplay-fine-sync.md`` is the design.
+Stock Kodi plays a tempo only while "Sync playback to display" is on, and that
+setting slaves the media clock to the panel. With the ``tempo`` feature
+(kontell/xbmc #14 and #16) Kodi plays the tempo in the audio itself (a resample
+ratio the engine keeps) and lets the audio be the clock, so the tempo works
+with the display clock **off**. #37 keeps a tempo beyond the atempo threshold
+from drawing a clock correction. #15 gives PAPlayer the same tempo, so music
+takes pulses too, within limits of its own (``music_profile``).
 
 Three parts here:
 
@@ -26,12 +21,6 @@ Three parts here:
   for ``T`` seconds displaces the position by ``(r − 1) × T``. One pulse,
   confirmed by reading the tempo back, then a quiet window before the
   residual is trusted again.
-
-This is not the continuous ladder that was withdrawn. That one ran a
-per-second loop against an actuator whose precondition created the error;
-this one issues bounded, confirmed pulses against an actuator that works with
-that precondition off, and stops — and says so — when the residual keeps
-regrowing faster than pulses can reasonably close it.
 
 The planner is Kodi-free so the arithmetic is unit testable; the scheduler
 takes its player reads through the controller.
@@ -79,9 +68,8 @@ PULSE_MAX_S = 40.0
 PULSE_MIN_S = 1.0
 RAMP_STEP = 0.05
 RAMP_DT = 0.25
-# Below this the residual is left alone. One frame at 24 fps is 42 ms, and the
-# position reads jitter by about that much on an Android box: at 50 ms the Tab
-# pulsed ±50 ms against its own read noise, so the band sits above it.
+# Below this the residual is left alone: above the position reads' jitter,
+# about a frame (42 ms at 24 fps) on Android.
 DEADBAND_MS = 75.0
 # Above the budget (syncPlayPulseBudget, default 5 s) a seek closes the
 # residual instead; a skip is for gross errors only, because it is both jarring
@@ -97,9 +85,7 @@ WINDOW_SAMPLES = 12
 # After a pulse ends (or any seek or resume): this long before measuring. A
 # tempo change reaches the clock once the audio already queued in the engine
 # and the sink has played out at the old rate (VideoPlayer times its clock
-# change by that delay), a few hundred milliseconds. It is not the demux queue
-# an add-on's rate had to play out through, so videoplayer.queuetimesize plays
-# no part.
+# change by that delay), a few hundred milliseconds.
 SETTLE_S = 1.0
 # A pulse ends, settle included, at least this long before its item does: the
 # item after it must start at 1.0.
@@ -117,17 +103,15 @@ APPLY_MISSES = 2
 # thread catching up, not someone else's change.
 CONFIRM_GRACE_S = 1.0
 # A tempo kofin did not ask for — the OSD's play speed — is put back to 1.0
-# once it has held this long. Long enough that a live gate can step a member's
-# position through Player.SetTempo (0.75 s at 1.2x is +150 ms), short enough
-# that a viewer's speed costs a group a second or two to undo.
+# once it has held this long. Long enough that a test can step a member's
+# position through Player.SetTempo, short enough that a viewer's speed costs a
+# group a second or two to undo.
 FOREIGN_GRACE_S = 2.0
 # Give up when this many consecutive pulses went the same way and the residual
 # regrew between them at a steady rate above GIVEUP_PPM: a rate mismatch, not
-# jitter. The display clock off, the rig's boxes free-run within ±550 ppm; the
-# display clock on imposed 0.5–4.3 %. A regrowth above GIVEUP_PPM_CEILING is
-# not a rate at all but a step — a stall, a seek, an injection — and the rates
-# of a real mismatch agree with each other within GIVEUP_SPREAD. Measured: a
-# 1 s step on the desktop read as "−160 000 ppm" and tripped the old test.
+# jitter. A regrowth above GIVEUP_PPM_CEILING is not a rate at all but a step —
+# a stall, a seek, an injection — and the rates of a real mismatch agree with
+# each other within GIVEUP_SPREAD.
 GIVEUP_PULSES = 3
 GIVEUP_PPM = 3000.0
 GIVEUP_PPM_CEILING = 60000.0
@@ -171,13 +155,12 @@ VIDEO_DEFAULT = Profile(
 
 # Music's limits (Profile), fixed rather than the sliders, which are video's.
 # Members free-run about 200 ppm apart (12 ms a minute) and two sources of one
-# song heard together fuse below about 30 ms (docs/syncplay-music-shakedown.md
-# §3), so the deadband sits there and the corrections are slight: from Kodi's
-# 0.1 % step to 1 %, always within the atempo threshold, where the engine
-# resamples rather than stretches — the pitch moves at most 17 cents and none
-# of atempo's smearing reaches music. A 25 ms drift is a 0.2 % pulse for about
-# 13 s; a 135 ms start spread (M1) is 0.9 % for 15 s. Beyond the budget a seek
-# while playing is the cheaper sound.
+# song heard together fuse below about 30 ms, so the deadband sits there and
+# the corrections are slight: from Kodi's 0.1 % step to 1 %, always within the
+# atempo threshold, where the engine resamples rather than stretches — the
+# pitch moves at most 17 cents and none of atempo's smearing reaches music. A
+# 25 ms drift is a 0.2 % pulse for about 13 s. Beyond the budget a seek while
+# playing is the cheaper sound.
 MUSIC_DEADBAND_MS = 25.0
 MUSIC_RATE_MAX = 0.01
 MUSIC_PULSE_AIM_S = 15.0
@@ -420,12 +403,10 @@ def settle_left_rate(reason="", correction=None):
 
     The record (``state.syncplay_pulse``) is written when a pulse asks for a
     rate and dropped when a read shows Kodi took 1.0 back, not when the call
-    is accepted. It outlives a refusal — a pulse cut while paused, since Kodi
-    keeps a tempo across a pause and refuses a new one until the resume — and
-    a service generation that ended mid-pulse, which would otherwise leave the
-    item playing fast or slow to its end. It is
-    dropped unasked when the player is already at 1.0 (a new item starts
-    there) or no longer playing.
+    is accepted. It outlives a refusal — a pulse cut while paused — and a
+    service generation that ended mid-pulse, which would otherwise leave the
+    item playing fast or slow to its end. It is dropped unasked when the
+    player is already at 1.0 (a new item starts there) or not playing.
     """
     record = state.syncplay_pulse()
 
@@ -478,15 +459,13 @@ class PulseScheduler(object):
     confirmation is a later tick finding the tempo read back, not a sleep.
     ``cancel()`` and ``before_seek()`` take the same lock on the command
     thread, and a scheduled Pause must not wait on the actuator. The one
-    corrective seek goes through the controller with the lock dropped,
-    because the command path holds the player lock before it asks for this
-    one (``_seek_and_settle`` → ``before_seek``).
+    corrective seek goes through the controller with the lock dropped
+    (:meth:`tick`).
 
-    **A pulse never outlives a pause.** Kodi refuses a tempo while paused and
-    keeps the one in force across a pause, so a pulse cut while paused — by a
-    viewer's pause, or a command arriving on a paused player — leaves its
-    rate owed: the next playing tick, and every resume
-    (``SyncPlayManager.on_resumed``), put 1.0 back (:meth:`settle_owed`).
+    **A pulse never outlives a pause.** A pulse cut while paused — by a
+    viewer's pause, or a command arriving on a paused player — leaves its 1.0
+    owed: the next playing tick, and every resume
+    (``SyncPlayManager.on_resumed``), put it back (:meth:`settle_owed`).
     """
 
     def __init__(self, controller):
@@ -702,8 +681,8 @@ class PulseScheduler(object):
         return True
 
     def _return_to_one(self, now):
-        """Ask for 1.0; while paused Kodi refuses it, and it stays owed. The
-        left-rate record stays until a read shows 1.0 (``_back_at_one``)."""
+        """Ask for 1.0, which stays owed when Kodi refuses it. The left-rate
+        record stays until a read shows 1.0 (``_back_at_one``)."""
         if self.actuator is None or not self.actuator.set(1.0):
             return False
 
@@ -822,7 +801,7 @@ class PulseScheduler(object):
         if self._live and not controller.live_on_source_clock():
             # The group is anchored on session time (a proposer without
             # the clock) or this member cannot read its own: nothing to
-            # converge on — the commands keep it tuned together (P2).
+            # converge on — the commands keep it tuned together.
             if not self._session_time_logged:
                 self._session_time_logged = True
                 LOG.info(
@@ -836,8 +815,8 @@ class PulseScheduler(object):
         self._window.append(estimate - position)
 
         if self._live and now - self._live_logged_at >= LIVE_LOG_INTERVAL_S:
-            # The ruler for a live gate: every member's reading on the one
-            # clock, against the group, at a cadence a log can be read at.
+            # Every member's reading on the one clock, against the group, at a
+            # cadence a log can be read at.
             self._live_logged_at = now
             LOG.debug(
                 "[ syncplay/live ] %.1fs on the source clock, %+.0fms off the group",
@@ -862,11 +841,8 @@ class PulseScheduler(object):
         # Beyond the budget a seek is the tool — once, for gross errors, and
         # only when every sample in the window agrees. Otherwise — the seek's
         # blackout holds, or the residual straddles the budget — pulses close
-        # it after all, saturated at the rate ceiling for PULSE_MAX_S. The
-        # Bravia sat at +2.5 s for 25 s after a resume when a median beyond
-        # the budget and a window not all beyond it meant neither.
-        # A live stream has no seek (ffmpeg's HLS demuxer refuses one on a
-        # live playlist), so a live residual beyond the budget takes the
+        # it after all, saturated at the rate ceiling for PULSE_MAX_S. A live
+        # stream has no seek, so a live residual beyond the budget takes the
         # saturated pulses instead, as many as it needs.
         budget_ms = self.profile.budget_ms
 
@@ -1073,8 +1049,7 @@ class PulseScheduler(object):
 
     def _ended_by_kodi(self, pulse, now):
         """Kodi put the tempo back to 1.0 during the pulse. On a live stream
-        playing faster than its source that is the live edge (kontell/xbmc
-        #25: half a second with nothing to read)."""
+        playing faster than its source that is the live edge."""
         self._pulse = None
         self._back_at_one(now)
 
@@ -1167,13 +1142,13 @@ class PulseScheduler(object):
     def cancel(self, reason):
         """A command or seek is about to act: no pulse may run across it.
 
-        Returns at once — it asks for 1.0 and waits for nothing; a paused
-        player refuses it, and the 1.0 is owed to the resume. It is also a
-        fresh start for the give-up test (that is about the residual regrowing
-        between pulses on its own, and a command moves the position by hand)
-        and for a member that had given up: a real rate mismatch will earn the
-        verdict again within three pulses, and the user is told only once per
-        group either way.
+        Returns at once — it asks for 1.0 and waits for nothing; while paused,
+        the 1.0 is owed to the resume. It is also a fresh start for the
+        give-up test (that is about the residual regrowing between pulses on
+        its own, and a command moves the position by hand) and for a member
+        that had given up: a real rate mismatch will earn the verdict again
+        within three pulses, and the user is told only once per group either
+        way.
         """
         with self._lock:
             self._window = []
@@ -1269,9 +1244,9 @@ class TempoSession(object):
     """Whether this group membership has fine sync: the setting, read at join
     and again when it changes.
 
-    There is nothing to install and nothing to undo. The actuator is the
-    player's own, and an item that cannot take a tempo says so through
-    ``Player.TempoEnabled`` when it plays (:class:`PulseScheduler`).
+    The actuator is the player's own, and an item that cannot take a tempo
+    says so through ``Player.TempoEnabled`` when it plays
+    (:class:`PulseScheduler`).
     """
 
     def __init__(self):
@@ -1286,11 +1261,7 @@ class TempoSession(object):
             LOG.info("[ syncplay/tempo ] fine sync is off in settings")
             return
 
-        # Stock Kodi plays a tempo only while sync-to-display is on, and that
-        # setting is what put the rate error in the actuator
-        # (docs/syncplay-drift-shakedown.md §10): without the tempo set
-        # (kontell/xbmc #14-#19 and #37-#39, read as the correction flag of
-        # #38) this member keeps to the group's commands.
+        # Without the tempo feature this member keeps to the group's commands.
         if not capabilities.has("tempo"):
             LOG.info(
                 "[ syncplay/tempo ] fine sync needs Kodi's tempo set; this Kodi "

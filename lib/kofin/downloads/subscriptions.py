@@ -198,7 +198,7 @@ def reconcile_playlist_memberships(memberships: Dict[str, List[str]]) -> None:
 
 
 def reconcile_playlist_direct(api: Any, playlist_id: str) -> None:
-    """Sync one subscription when playlist file materialization is disabled."""
+    """Reconcile one subscribed playlist from the server's listing."""
     if playlist_id not in subscribed(PLAYLIST_SETTING):
         return
     from kofin.sync import playlists
@@ -253,8 +253,7 @@ def claim_new_library_songs(entries: Iterable[Any]) -> None:
 
 def claim_library_songs(placed: Dict[str, str]) -> None:
     """Claim new songs, each named with its library, for the music libraries
-    subscribed. The SQL build reads the library from its mapping table
-    (claim_new_library_songs); the API build has it from the catalogue."""
+    subscribed."""
     if not settings.get_bool("downloadsEnabled"):
         return
     libraries = set(subscribed(LIBRARY_SETTING))
