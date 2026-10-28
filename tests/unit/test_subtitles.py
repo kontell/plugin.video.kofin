@@ -1,9 +1,8 @@
 """Sidecar subtitles fetched to locally-named files.
 
-Every expectation here is pinned to what Kodi was measured doing with a
-filename on Omega 21.3 (see the module docstring): a name, a language, and
-``forced`` -- and nothing else, because anything Kodi does not parse is
-rendered in the label instead.
+Every expectation here is pinned to what Kodi reads off a filename (see the
+module docstring): a name, a language, and ``forced`` -- and nothing else,
+because anything Kodi does not parse is rendered in the label instead.
 """
 
 import os
@@ -129,7 +128,7 @@ def test_dots_and_separators_are_scrubbed_out_of_the_name(monkeypatch):
 
 
 def test_everything_attached_is_fetched_to_a_named_file(tmp_path, monkeypatch):
-    """Both kinds are fetched now. The list is short — sidecars plus at most
+    """Both kinds are fetched. The list is short — sidecars plus at most
     the one embedded track a transcode resolved — and a local file is what
     gives Kodi a language to read off the name."""
     monkeypatch.setattr(
@@ -167,11 +166,11 @@ def test_a_failed_sidecar_falls_back_to_its_url(tmp_path):
 
 
 def test_a_failed_embedded_track_is_deferred_not_dropped(tmp_path):
-    """The opposite call: an embedded track is extracted on demand, and its
-    URL is exactly what made Kodi stall for 20 seconds while building the
-    demuxer — so it is never attached unfetched. It is handed back instead of
-    dropped, because the extraction it just started is still running and the
-    service chases it onto the running playback (service/latesubs.py)."""
+    """The opposite call: an embedded track is extracted on demand, and Kodi
+    stalls on its URL while building the demuxer, so it is never attached
+    unfetched. It is handed back instead of dropped, because the extraction
+    it just started is still running and the service chases it onto the
+    running playback (service/latesubs.py)."""
     attached = [attachment(stream_index=3, sidecar=False)]
     localized = subtitles.localize(
         FakeHttp(fail=True), attached, directory=str(tmp_path)
@@ -235,11 +234,10 @@ def test_each_play_sweeps_the_one_before_it(tmp_path, monkeypatch):
 
 def test_an_embedded_track_waits_less_than_a_sidecar(tmp_path):
     """They are on different clocks. A sidecar is a file the server already
-    has; an embedded track is an ffmpeg extraction measured at 28-146 s, after
-    which it is cached and answers in ~25 ms. So no budget between those two
-    outcomes buys anything, and every second spent on a cold one is a second
-    of black screen — the single 8 s budget missed every first play and
-    charged 8 s to do it."""
+    has; an embedded track is an ffmpeg extraction that takes far longer than
+    a start can wait, and is answered at once when cached. So a longer budget
+    buys nothing, and every second spent on a cold one is a second of black
+    screen."""
     http = FakeHttp()
     subtitles.localize(
         http,
@@ -315,9 +313,9 @@ def test_a_deferred_track_leaves_the_others_in_position(tmp_path, monkeypatch):
 
 
 def test_sidecars_share_the_wait_instead_of_queuing(tmp_path, monkeypatch):
-    """Sequential fetches held the first frame for the sum of their round
-    trips; they must run concurrently, order-of-results still the order in
-    (perf plan W2.6)."""
+    """Sequential fetches would hold the first frame for the sum of their
+    round trips; they run concurrently, order-of-results still the order
+    in."""
     import threading
     import time
 
@@ -363,8 +361,8 @@ def test_extension_of_reads_the_filename_only(url, extension):
 
 
 def test_a_dot_in_the_host_is_not_an_extension():
-    """Rewriting on the last dot in the whole URL turned http://s.co/Stream
-    into http://s.srt -- a different server."""
+    """Rewriting on the last dot in the whole URL would turn
+    http://s.co/Stream into http://s.srt -- a different server."""
     assert subtitles.delivery_url("http://s.co/Stream") == "http://s.co/Stream.srt"
     assert subtitles.delivery_url("http://s.co/Stream.subrip?k=1") == (
         "http://s.co/Stream.srt?k=1"

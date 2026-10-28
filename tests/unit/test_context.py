@@ -38,7 +38,7 @@ def test_manage_options_delete_gated_by_setting(monkeypatch):
     assert delete_params["name"] == "The Movie"
 
 
-# --- the watched toggle (moved here off the listing's own context menu) -------
+# --- the watched toggle -------------------------------------------------------
 
 
 def test_manage_options_watched_label_follows_state(monkeypatch):
@@ -70,8 +70,8 @@ def test_manage_options_watched_leads_the_menu(monkeypatch):
 
 
 def test_manage_options_watched_reaches_songs_and_containers(monkeypatch):
-    """The listing-level toggle covered every playable type plus series,
-    seasons and boxsets; moving it must not quietly narrow that."""
+    """The toggle covers every playable type plus series, seasons and
+    boxsets."""
     for item_type in ("Audio", "Trailer", "Recording", "Series", "Season", "BoxSet"):
         options = _options(
             monkeypatch, {"Id": "i1", "Type": item_type, "UserData": {}}, False
@@ -427,12 +427,10 @@ def test_manage_drops_the_watched_toggle_on_a_library_item(monkeypatch):
 
 
 def test_extras_is_offered_only_when_the_item_has_some(monkeypatch):
-    """The reason this moved out of its own context item: a <visible>
-    condition can only ask Kodi, and Kodi's ListItem.HasVideoExtras is
-    movie-only by construction (hasVideoExtras is computed in movie_view with
-    media_type = 'movie' hardcoded; tvshow_view has no such column), so it is
-    false for every show whatever the server says. This menu is ours, built
-    from an item already fetched, so it can just ask."""
+    """A <visible> condition can only ask Kodi, and Kodi's
+    ListItem.HasVideoExtras is movie-only (movie_view computes it; tvshow_view
+    has no such column). This menu is built from the fetched item, so it asks
+    the server's count."""
     without = {"Id": "s1", "Type": "Series", "UserData": {}}
     assert "extras" not in [m["mode"] for _, m in _options(monkeypatch, without, False)]
 
@@ -445,11 +443,8 @@ def test_extras_is_offered_only_when_the_item_has_some(monkeypatch):
 
 def test_delete_is_not_offered_to_an_account_the_server_would_refuse(monkeypatch):
     """The opt-in says whether the *user* wants deletion offered; CanDelete
-    says whether the *server* would allow it. Without the second, an account
-    with no EnableContentDeletion got the entry, a "Delete <name>?" prompt,
-    and then "Server request failed" — a 403 for something never permitted.
-    Verified on 10.11: /Items/{id}?userId= carries the field with no Fields
-    request, False for a normal account and True for an admin."""
+    says whether the *server* would allow it, and /Items/{id}?userId= carries
+    it with no Fields request."""
     denied = {"Id": "i1", "Name": "The Movie", "UserData": {}, "CanDelete": False}
     modes = [params["mode"] for _, params in _options(monkeypatch, denied, True)]
     assert "delete" not in modes
@@ -459,7 +454,7 @@ def test_delete_is_not_offered_to_an_account_the_server_would_refuse(monkeypatch
     assert "delete" in modes
 
 
-# --- download entries (plan W1.10) -------------------------------------------
+# --- download entries ---------------------------------------------------------
 
 
 def _download_entry_options(monkeypatch, item, downloads=True, row=None, counts=None):
@@ -528,10 +523,8 @@ def test_containers_offer_download_without_the_per_item_gate(monkeypatch):
 
 
 def test_a_downloaded_container_offers_remove_not_just_download(monkeypatch):
-    """A fully downloaded show offered "Download" and nothing else — the one
-    entry that had nothing left to do — with no way to remove what it had
-    and no sign it held anything. The counts come from kofin.db, so this
-    answers offline too."""
+    """A fully downloaded show offers removal, not another download. The
+    counts come from kofin.db, so this answers offline too."""
     series = {"Id": "s1", "Type": "Series", "Name": "Show", "CanDownload": False}
 
     done = _download_entry_options(

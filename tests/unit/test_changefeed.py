@@ -1,5 +1,4 @@
-"""L1 units for the change-feed providers and planners (phase 5, plan §6):
-record parsing on both tiers, the detection ladder with the protocol guard,
+"""L1 units for the change-feed providers and planners: record parsing on both tiers, the detection ladder with the protocol guard,
 watermark conversions, retention-overrun decisions, and the build_plan
 matrix — skip-before-download, parent prefetch, ordering, image-only
 demotion, userdata dedup."""
@@ -344,8 +343,7 @@ def test_plan_userdata_dedup_spares_skipped_and_artwork():
 def test_parent_candidates_from_every_live_status():
     """ "Updated" is the server's word about its own item and says nothing
     about whether we ever synced it, so an updated child's parent is a
-    candidate too -- that was the one deterministic way a child still reached
-    the writer parentless. Removals bring no parent of their own."""
+    candidate too. Removals bring no parent of their own."""
     records = [
         rec("ep1", "Updated", item_type="Episode", series_id="s1"),
         rec("ep2", "Added", item_type="Episode", series_id="s2", season_id="se2"),
@@ -382,11 +380,8 @@ def test_plan_skipped_records_prefetch_nothing():
 # --- library scope ------------------------------------------------------------
 #
 # The feed is scoped by media type, which cannot tell two tvshows libraries
-# apart. Whitelisting one while being able to see the other used to deliver
-# every change from both, and the only way to separate them was an
-# /Items/{id}/Ancestors round trip per item: 12,404 items, ~17 minutes and
-# 5,404 errors on a live box, for a library that was never going to be
-# written. LibraryIds lets the planner refuse them before anything is fetched.
+# apart. LibraryIds lets the planner refuse a record from a library it does
+# not sync before anything is fetched.
 
 
 def test_parse_record_reads_library_ids():
@@ -429,9 +424,7 @@ def test_plan_keeps_records_whose_library_is_unknown():
 
 
 def test_plan_keeps_a_record_matching_any_of_its_libraries():
-    """One path under two libraries belongs to both. /Items/{id}/Ancestors
-    reports only the first, which is how the ancestor walk could refuse an
-    item that *is* in a whitelisted library; the list cannot."""
+    """One path under two libraries belongs to both."""
     records = [
         rec("shared", status="Added", item_type="Movie", library_ids=["bench", "libA"])
     ]
@@ -513,8 +506,8 @@ def test_plan_without_a_library_filter_keeps_everything():
 
 
 def test_out_of_scope_records_prefetch_no_parents():
-    """The whole point: a refused record must cost nothing at all, and a
-    prefetched series is a download."""
+    """A refused record must cost nothing at all, and a prefetched series is
+    a download."""
     records = [
         rec(
             "ep1",
@@ -542,13 +535,12 @@ def test_out_of_scope_userdata_survives():
     assert plan.userdata == [{"ItemId": "theirs"}]
 
 
-# --- checksum spelling (healing-loops-plan F4) -------------------------------
+# --- checksum spelling --------------------------------------------------------
 
 
 def test_reference_checksum_is_the_single_spelling():
-    """Writer stamp, feed skip and prune diff must agree through one
-    function; the three used to agree only because direct_path is hardcoded
-    False in every writer."""
+    """Every comparison with a stored checksum goes through
+    policy.reference_checksum."""
     from kofin.sync.policy import reference_checksum
 
     stored = reference_checksum("abc123")

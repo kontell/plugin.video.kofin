@@ -1,4 +1,4 @@
-"""The kofin.db row factory (audit fixes plan H1)."""
+"""The kofin.db row factory."""
 
 import sqlite3
 
@@ -21,8 +21,7 @@ def test_rows_keep_named_field_access():
 
 
 def test_the_row_class_is_built_once_per_column_list():
-    """One class per distinct SELECT, not one per row: every read through
-    JellyfinDatabase paid a namedtuple() class definition per row before."""
+    """One class per distinct SELECT, not one per row."""
     first, second = _rows("SELECT 1 AS a, 'x' AS b UNION ALL SELECT 2, 'y'")
     assert type(first) is type(second)
 

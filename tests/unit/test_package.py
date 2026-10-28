@@ -33,7 +33,7 @@ def test_zip_and_development_install_have_identical_contents(tmp_path):
     }
     assert contents == staged
     assert "lib/kofin/sync/backends/api/requirements.json" in contents
-    # Nothing of the SQL build ships: the tree has no native database code.
+    # No code that writes Kodi's databases ships.
     assert not any(name.startswith("lib/kofin/sync/kodidb/") for name in contents)
     assert not any(name.startswith("lib/kofin/sync/writers/") for name in contents)
     assert "lib/kofin/buildconfig.py" not in contents

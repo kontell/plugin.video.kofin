@@ -91,7 +91,7 @@ def test_newer_clean_kodi_still_needs_behavioral_qualification(capture, contract
 def test_the_piers_capture_passes_the_baseline_with_every_feature_off(
     capture, contract
 ):
-    """The approved Piers flatpak is the baseline, and nothing more."""
+    """The Piers capture is the baseline, and nothing more."""
     from kofin.sync.backends.api.contract import check
 
     result = check(capture, contract)

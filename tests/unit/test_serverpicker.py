@@ -271,8 +271,7 @@ def test_cancelling_the_scan_stops_before_the_picker(rig):
 
     assert rig.dialog.selects == []
     assert _stored() is None
-    # The point of running the scan on a worker: the dialog goes at Cancel,
-    # not when the window it can no longer stop finally closes.
+    # The dialog goes at Cancel, not when the scan's window closes.
     assert rig.progress.closed_at < rig.scan_ended_at
 
 

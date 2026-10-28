@@ -1,8 +1,6 @@
 """Gate the generated locale files.
 
-pvr.kofin runs its i18n validators by hand and has no test suite, which is how
-its 26 locales quietly went two English revisions stale on one string. kofin has
-a suite, so the validators run here: a PR that adds or rewords an English string
+The i18n validators run here, so a change that adds or rewords an English string
 cannot merge with the locales out of step with it.
 
 Everything is checked in memory. Nothing here writes a .po file — the
@@ -54,7 +52,7 @@ def test_passthrough_ids_all_still_exist(source):
 
 def test_the_source_snapshot_matches_the_english_file(source):
     """tr/_source.json records the English each translation was made from.
-    When this fails, an English string moved and its 26 translations now
+    When this fails, an English string moved and its 26 translations
     describe something else -- see tools/i18n/README.md."""
     gen.check_source(source)
 
