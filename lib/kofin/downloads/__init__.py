@@ -1,16 +1,15 @@
-"""Offline downloads (docs/offline-downloads-plan.md).
+"""Offline downloads.
 
-Shell code, not transplant: the store (kofin.db ``download`` table), the
-file layout, and the service-side manager live here. The Kodi-database
-repoint lives with the other database writers in ``kofin.sync.kodidb``.
+The store (kofin.db ``download`` table), the file layout, and the
+service-side manager live here.
 """
 
 import os
 
 TAG = "Kofin Downloads"
 # A downloaded episode's own tag, which its show never carries: Kodi's tag
-# rule on episodes matches the episode's tags or its show's (kontell/xbmc
-# #12), so a rule on TAG would list every episode of a show with a download.
+# rule on episodes matches the episode's tags or its show's, so a rule on
+# TAG would list every episode of a show with a download.
 EPISODE_TAG = "Kofin Downloaded episodes"
 
 ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
@@ -19,9 +18,8 @@ ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
 def downloads_root() -> str:
     """The absolute downloads root: the setting, or the profile default.
 
-    Here rather than in the manager because the sync writers resolve it too
-    (the post-write re-assert, plan W1.8), and they must not drag the whole
-    manager module in to do it.
+    Here rather than in the manager so the plugin need not import the
+    manager to resolve it.
     """
     import xbmcvfs
 
@@ -33,12 +31,8 @@ def downloads_root() -> str:
     return os.path.join(xbmcvfs.translatePath(ADDON_DATA), "downloads")
 
 
-# What ``downloadsNotify`` never silences: something went wrong and the
-# toast is the only place it says so. The syncplay notification setting
-# draws the same line (syncplay/manager.py) — an opt-out that swallowed
-# failures would turn "my download did nothing" into an unanswerable
-# question. 30766 and 30853 are the only answers the manage buttons give
-# when their lists are empty.
+# What ``downloadsNotify`` never silences: failures, and the two empty-list
+# answers of the manage buttons (30766, 30853).
 LOUD_STRINGS = frozenset(
     {
         30018,  # server request failed

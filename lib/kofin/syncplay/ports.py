@@ -1,15 +1,10 @@
-"""What SyncPlay needs from the REST client (shell refactor P1.2).
+"""What SyncPlay needs from the REST client.
 
-``SyncPlayManager`` reaches ``core.api.Api`` through getattr-by-name
-dispatch (``_api``/``_api_raw``), which left every verb below with zero
-static callers — a rename in ``core/api.py`` surfaced as a logged
-"SyncPlay x failed" at runtime. This Protocol is the static caller: the
-manager's constructor and ``get_api`` are typed against it, so ``Api``'s
-conformance is checked where the service hands the client over
-(``service/main.py``) and a renamed verb fails mypy instead.
-
-The dispatch itself stays ``getattr`` — the transplant keeps its shape;
-only its target is now a checked surface.
+``SyncPlayManager`` calls ``core.api.Api``'s verbs by name through getattr
+(``_api``/``_api_raw``), so this Protocol is their static caller: the
+manager's constructor and ``get_api`` are typed against it, ``Api`` is
+checked against it where the service hands the client over
+(``service/main.py``), and a renamed verb fails mypy.
 """
 
 from typing import Any, Dict, List, Optional, Protocol, TypedDict
@@ -18,7 +13,7 @@ JsonDict = Dict[str, Any]
 
 
 class Claim(TypedDict, total=False):
-    """The claimed play state the engine reads (plan G1.3).
+    """The claimed play state the engine reads.
 
     What ``player.current_item()`` answers: kofin's service player claims
     every play resolved through the plugin, and the engine reads identity
@@ -27,7 +22,7 @@ class Claim(TypedDict, total=False):
     ``utils.claim_is_live`` reads, and ``TimeshiftMissing``, a live play
     resolved without the timeshift route, which fine sync leaves to the
     group's commands (``syncplay/tempo.py``).
-    ``Provider`` is absent on every claim today and defaults to
+    ``Provider`` is absent on kofin's own claims and defaults to
     ``"jellyfin"`` — the key the provider registry dispatches on
     (``syncplay/providers.py``).
     """

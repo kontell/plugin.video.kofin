@@ -3,9 +3,7 @@ where they differ, confirmed by readback, acknowledged by the batch.
 
 Setters merge maps and replace tags, so a patch clears only the keys Kofin
 owned last time and keeps what Kodi or the user added. A refresh is the one
-operation that replaces a row -- cast and streams have no setter -- and a show
-refresh replaces every episode with it, so their local edits are captured
-first and all of them rejoin the pass.
+operation that replaces a row: cast and streams have no setter.
 
 Music is confirmed by the scope, not the row. A song's patch is its play
 count and last played; thousands of them on a first import would cost a
@@ -74,11 +72,9 @@ def _listed(asset_files) -> Set[str]:
 
 
 def assets_dropped(previous, applied) -> bool:
-    """Whether a version file or an extra the movie's folder listed is no
-    longer listed. The folder's scan adds and never removes, so such a row
-    stays in Kodi until a clean asks the add-on about it (provider.exists).
-    An acknowledgement older than the file list names no files: a token
-    that moved off a non-empty one may have lost some."""
+    """Whether a version file or an extra the movie's folder listed has
+    left its listing. An acknowledgement older than the file list names no
+    files: a token that moved off a non-empty one may have lost some."""
     if "asset_files" not in previous:
         return bool(previous.get("assets")) and previous.get("assets") != applied.get(
             "assets"
@@ -101,9 +97,7 @@ class Applier:
         self.store = native.store
         self.key = native.key
         self.readback = native.readback
-        # Per-pass write batches: thousands of one-row commits cost more than
-        # the pass itself (measured: 3,685 database opens for a 1,788-movie
-        # pass that sent no patch at all).
+        # Per-pass write batches.
         self._acks: List[Tuple[str, int, Optional[int], Dict[str, Any], str]] = []
         self._expectations: List[Tuple[str, int, Dict[str, Any]]] = []
         self._mappings: Dict[str, Any] = {}
@@ -177,9 +171,8 @@ class Applier:
             acks, self._acks = self._acks, []
             self.store.remember_many(acks)
             if self._mappings_loaded:
-                # Keep the preloaded mappings current without re-reading
-                # them: a 24,000-row reload every 200 acknowledgements was
-                # the pass's own largest cost.
+                # Keep the preloaded mappings current instead of reloading
+                # them.
                 for item_id, _, kodi_id, applied, kind in acks:
                     self._mappings[item_id] = Mapping(kodi_id, applied or {}, kind)
 
@@ -415,10 +408,9 @@ class Applier:
                 or (record.library, "*") in self.native.music.rescanned
             ):
                 # Listed and scanned this pass and still absent: Kodi skipped
-                # the directory "due to no change" -- a scan stopped before
-                # its songs were written left their hash behind. Salt the
-                # listing, once per directory and pass, so the next scan
-                # sees a change (store.salt).
+                # the directory "due to no change". Salt the listing, once
+                # per directory and pass, so the next scan sees a change
+                # (store.salt).
                 if record.parent_id not in self._salted:
                     self._salted.add(record.parent_id)
                     self.store.bump_salt(record.parent_id)
@@ -561,9 +553,7 @@ class Applier:
             # fields a readback cannot show. A row with no acknowledgement
             # yet was just filed by the scanner from this very listing:
             # there is nothing stale behind it, and the pass that follows
-            # every complete enumeration runs as a repair, so without this
-            # a first import re-wrote all 6,200 of its rows (a tablet spent
-            # an hour on it).
+            # every complete enumeration runs as a repair.
             and (
                 not repair
                 or mapping is None
@@ -620,16 +610,12 @@ class Applier:
         if matches(row, compare) and (
             # A song's desired state is its play count and last played, and
             # the readback shows both: a matching row has nothing a repair
-            # could re-send, and the setter is not free -- UpdateSong
-            # rewrites the song's dateAdded from the file's timestamp, which
-            # for a plugin path is the moment of the call.
+            # could re-send, and the setter is not free -- without the
+            # song_date_added feature UpdateSong rewrites the song's dateAdded
+            # to the moment of the call.
             kind == "Audio"
             # As for video (plan): a row with no acknowledgement was filed
-            # by the scanner from this very listing, and the pass after a
-            # complete enumeration runs as a repair. Without this a first
-            # import sent a setter for every song, 230 ms each on a
-            # Raspberry Pi: 308 s of a 357 s pass for 1,353 songs, six of
-            # them ever played.
+            # by the scanner from this very listing.
             or not repair
             or mapping is None
             or hash_matches(previous.get("hash"), record.item)
@@ -666,10 +652,7 @@ class Applier:
 
     def seasons_with_episodes(self, series_id: str) -> Set[int]:
         """The season numbers of a show that hold an importable episode,
-        read once a show. Asked per season, every season of a show read
-        every episode payload of the show again: 347 seasons were 349 s of
-        a pass on a Raspberry Pi, the show's episodes parsed once for each
-        of its seasons."""
+        read once a show."""
         if series_id not in self._seasons_with_episodes:
             found: Set[int] = set()
             for episode in self.store.records(
@@ -686,16 +669,14 @@ class Applier:
     def refresh(self, record: Record, kodi_id, token):
         """Re-import a row whose cast or streams changed; confirmed by token.
 
-        A show is refreshed alone. Kodi then rewrites the show's own row
-        from the listing, cast included, and keeps its id, its seasons and
-        its episodes (CVideoInfoScanner::RetrieveInfoForTvShow, the
-        refresh-show-info-only branch: one OnUpdate, 0.3 s on a desktop).
-        Asked to refresh the episodes too, it deletes the show and every
-        episode and imports them again under new ids, so a recast show lost
-        its play counts to whatever the catalogue held and was announced
-        row by row to every widget. What a show refresh cannot do is change
-        the plot of a season Kodi already has (AddSeason only inserts); the
-        season's own patch does that (SetSeasonDetails, kontell/xbmc #6).
+        A show is refreshed alone (``refreshepisodes`` false): Kodi rewrites
+        the show's own row from the listing, cast included, and keeps its
+        id, its seasons and its episodes (CVideoInfoScanner::
+        RetrieveInfoForTvShow, the refresh-show-info-only branch). Asked to
+        refresh the episodes too, it deletes the show and every episode and
+        imports them again under new ids. A show refresh cannot change the
+        plot of a season Kodi already has (AddSeason only inserts); the
+        season's own patch does that (SetSeasonDetails).
         """
         kind = record.kind
         table = KINDS[kind]
@@ -899,8 +880,7 @@ def local_edits(row, previous, desired):
     A viewer's edit of a play count is the watched mark going on or off. A
     count that differs only in size is Kodi and the server having counted
     differently, and the server's count is then written to Kodi like any
-    other field: read as an edit, it sent Kodi's count up to the server
-    after every play."""
+    other field."""
     edits = {}
     playcount = row.get("playcount", 0) or 0
     watched = bool(playcount)
@@ -927,7 +907,7 @@ def merge(kind, desired, row, owned_before):
     compare = dict(desired)
     if "tag" in compare:
         # The library tag is Kofin's on any row, owned or not, and no
-        # desired state carries it any more, so it comes off.
+        # desired state carries it, so it comes off.
         old_tags = set(owned_before.get("tag", [])) | {
             tag
             for tag in row.get("tag", [])
@@ -942,10 +922,9 @@ def merge(kind, desired, row, owned_before):
             continue
         owned = set(owned_before.get(field, []))
         if field == "art":
-            # tvshow.* and season.* art is Kodi's own, read off the show and
-            # season rows; an acknowledgement that listed such a key (before
-            # metadata.details stopped carrying them) must not try to clear
-            # it, which no episode setter can do.
+            # Dotted keys are Kodi's own (metadata.own_art): never sent,
+            # compared or cleared, even where an older acknowledgement owned
+            # one.
             owned = {key for key in owned if "." not in key}
         merged = dict(compare[field])
         merged.update({key: None for key in owned if key not in merged})
@@ -964,10 +943,6 @@ def merge(kind, desired, row, owned_before):
                     else value
                 )
                 for key, value in merged.items()
-                # Inherited keys are neither sent nor compared: Kodi reads
-                # them off the show and season rows, and setting one on an
-                # episode only pins a copy that goes stale when the show's
-                # art moves.
                 if "." not in key
             }
         desired[field] = merged

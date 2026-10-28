@@ -16,8 +16,7 @@ removal is the album directory listed without it.
 A song's URL is a file, ``<album dir>/<item id>.<container>``, not a query:
 the music database splits a URL into path and file name with the options
 dropped (``URIUtils::Split``), where the video database keeps a plugin URL
-whole, so a query-style song came back from Kodi as its bare directory --
-unplayable, and matched by nothing on a rescan.
+whole.
 """
 
 import re
@@ -120,9 +119,9 @@ MUSIC_PART = 32
 # whether a directory it is asked to scan exists from its cached listing of
 # the parent when it has one (CDirectory::Exists, CDirectoryCache::FileExists),
 # and it lists a music root on its own account -- for the art of an album
-# whose songs span two directories, for one -- so a part below the root "did
-# not exist" the moment that listing was cached, and its scan was skipped.
-# Nothing lists the parts' parent but a request for it, which names them all.
+# whose songs span two directories, for one -- so a part below the root would
+# not exist once that listing is cached. Nothing lists the parts' parent but
+# a request for it, which names them all.
 _WALK = re.compile(r"^/native/([0-9a-f]{32})/walk/([0-9a-f]{32})/(?:(\d{1,6})/)?$")
 
 # A movie folder's extras directory and the files in it. Kodi names an extra

@@ -1,14 +1,4 @@
-"""SyncPlay group membership and state mirror, ported from the fork.
-
-Mechanical adaptations only (phase-4 plan §2): the fork's ``Jellyfin()``
-client is kofin's ``Api``; ``window()`` flags become object attributes plus
-the one ``player.syncplay_group_active`` write; ``translate()`` ids are
-remapped to 30550+; the played-item identity comes from the service player's
-claimed play state instead of the fork's played-info pipeline; HTTP 403
-detection uses kofin's ``Unauthorized`` (its transport maps 401/403 there).
-The dispatcher-thread ordering, the guard-flag echo suppression, the hold
-choreography, and the membership lifecycle stay recognizably identical.
-"""
+"""SyncPlay group membership and state mirror."""
 
 import threading
 import time
@@ -60,10 +50,9 @@ class SyncPlayManager(object):
     ):
         self.api = api
         self.player = player
-        # The provider seam (plan G1.1): how a queue item id becomes a
-        # playing stream, and how a Kodi library id maps back to one. The
-        # service injects the registry; the default keeps the constructor
-        # honest for every caller that predates the seam.
+        # The provider seam: how a queue item id becomes a playing stream,
+        # and how a Kodi library id maps back to one. The service injects the
+        # registry.
         self.providers = providers if providers is not None else jellyfin_registry(api)
         # A play kofin's own pipeline did not resolve, identified from
         # outside over the public bus (SyncProvider.Claim). kofin's claim
@@ -100,7 +89,6 @@ class SyncPlayManager(object):
         # (§14.1); learned from Hello, server-scoped rather than group-scoped.
         self.server_external_content = False
 
-        # idle -> loading -> waiting_ready -> synced (utils.Phase)
         self.phase = Phase.IDLE
 
         self.join_local_ms = 0.0
@@ -147,13 +135,9 @@ class SyncPlayManager(object):
 
     def stop(self):
         # The leave is a courtesy to the group, not something teardown waits
-        # on: this runs on the service main thread inside Service.stop, and a
-        # POST at the transport's default budget (6 s connect + 30 s read, no
-        # retries, so no abort check) against a server that vanished without
-        # closing the socket held teardown well past Kodi's five-second
-        # script-stop grace (audit R4). Skipped outright when the service
-        # already knows the server is away; otherwise sent on the short
-        # budget syncplay_leave carries.
+        # on: this runs inside Service.stop, which Kodi gives five seconds.
+        # Skipped when the service knows the server is away; otherwise sent on
+        # the short budget syncplay_leave carries.
         if self.in_group() and not state.is_offline():
             try:
                 self._api_raw("syncplay_leave")
@@ -318,12 +302,8 @@ class SyncPlayManager(object):
             return (time.time() - self._prog_release) < utils.PROGRAMMATIC_ECHO_GRACE
 
     def _local_file_info(self) -> Optional[Claim]:
-        """The claimed play state of the current kofin playback, or None.
-
-        kofin's service player claims every play resolved through the
-        plugin (kofin.play.json), so the claim *is* the identity pipeline
-        the fork read from its played-info dict.
-        """
+        """The claimed play state of the current playback: kofin's own claim,
+        else the foreign claim, or None."""
         try:
             if not self.player.isPlaying():
                 return None
@@ -352,12 +332,9 @@ class SyncPlayManager(object):
         """A spectator whose player is showing something that is not the
         group's item.
 
-        ``ignore_wait`` alone cannot answer this. A spectator that is idle
-        still follows a queue update (``_apply_play_queue``) and then needs
-        the group's transport commands to start along with everyone else, so
-        a guard on the flag alone would strand it paused. Comparing what is
-        actually playing against the group's item separates the two without
-        any state to keep in step.
+        ``ignore_wait`` alone cannot answer this: an idle spectator still
+        follows the group's queue (``_apply_play_queue``) and transport
+        commands, so what is playing is compared with the group's item.
         """
         if not self.ignore_wait or not self.player.isPlaying():
             return False
@@ -421,10 +398,9 @@ class SyncPlayManager(object):
     def reload_current_item(self):
         """Restart the current item at the group position.
 
-        The seek path uses this where an in-stream seek cannot be accurate (a
-        transcode): starting the stream at the target is exact. The start
-        position comes from the drift reference, which the Seek command has
-        just set, so no position needs threading through.
+        The seek path uses this on a transcode (``PlaybackController._do_seek``).
+        The start position comes from the group position reference, which the
+        Seek command has just set, so no position needs threading through.
         """
         if not self.in_group() or self.current_item_id is None:
             return
@@ -436,19 +412,10 @@ class SyncPlayManager(object):
     def _load_allowance_ms(self):
         """How far ahead of the group to aim a load that is about to start.
 
-        A load is not instant, and a playing group does not wait for it: aim at
-        where the group is now and the stream starts wherever the group has got
-        to by the time the first frame arrives. On direct play that is a few
-        hundred milliseconds and nobody notices. On a transcode the server has
-        to start encoding first, and the measured cost was ~9s — which is what
-        a member looked "permanently adrift" by after a group Seek, having in
-        fact loaded at exactly the position it was told.
-
-        The allowance is measured, not predicted, because the load itself is
-        what determines it: whether the server transcodes depends on the
-        PlaybackInfo negotiation that happens *inside* the load. So the last
-        load's duration stands in for the next one's, which converges after a
-        single item on any given device.
+        A playing group moves on during a load, so the load aims ahead by the
+        last load's duration. It is measured, not predicted, because whether
+        the server transcodes is decided by the PlaybackInfo negotiation
+        *inside* the load.
 
         Zero unless the group is playing. Aiming ahead of a paused group would
         land the member past a position that is not going to move.
@@ -651,11 +618,10 @@ class SyncPlayManager(object):
     # WebSocket message handling (dispatcher thread)
     # ------------------------------------------------------------------
 
-    # Group updates by type (P2.4), in three tables that keep the dispatch's
-    # guard order: what is handled whether or not we are in a group, what is
-    # handled in-group before the state version moves, and what is versioned
-    # and dropped when stale. Method names, not bound methods, so the fork's
-    # __init__ stays as it is.
+    # Group updates by type, in three tables that keep the dispatch's guard
+    # order: what is handled whether or not we are in a group, what is handled
+    # in-group before the state version moves, and what is versioned and
+    # dropped when stale.
     _GROUP_UPDATES_ANY_STATE = {
         "GroupJoined": "_on_group_joined",
         "NotInGroup": "_on_not_in_group",
@@ -741,7 +707,7 @@ class SyncPlayManager(object):
         )
         if self.group_state == "Waiting" and previous == "Playing":
             # A member dropped out or started buffering: the whole
-            # group holds. Surface why playback froze (S4.5).
+            # group holds. Surface why playback froze.
             self._toast(settings.localized(30585))
 
     def _on_play_queue(self, payload, version, previous_version):
@@ -777,11 +743,8 @@ class SyncPlayManager(object):
             return
 
         if self.watching_own_media():
-            # _apply_play_queue already refuses to let the group's queue tear
-            # down a spectator's own playback; the transport commands had no
-            # such guard, so a group Seek or Unpause still landed on it.
-            # Measured: a spectator at 422.5s of its own item was seeked to
-            # 209.6s by the group's next command.
+            # A spectator's own playback follows no transport command, as it
+            # follows no group queue (_apply_play_queue).
             LOG.info("Spectator playing own media; not following transport")
             return
 
@@ -789,9 +752,7 @@ class SyncPlayManager(object):
             command.get("PlaylistItemId")
         ):
             # Not a missed queue update, so nothing to reconcile: the item is
-            # known, and the user stopped it. Read as "another queue item"
-            # (the stop cleared ours), a group Pause pulled a snapshot and the
-            # snapshot reloaded the item underneath the open stop prompt.
+            # known, and the user stopped it.
             LOG.info("Command for the item stopped here; waiting on the stop prompt")
             return
 
@@ -829,8 +790,8 @@ class SyncPlayManager(object):
         }
         self.last_group_id = info.get("GroupId")
         self.group_state = info.get("State")
-        # Members (with per-member state) is a v2/phase-0 field; stock v1
-        # servers only send Participants name strings.
+        # Members (with per-member state) is a v2 field; stock v1 servers
+        # only send Participants name strings.
         self.members = info.get("Members") or info.get("Participants") or []
         server_version = info.get("ProtocolVersion") or 1
         self.protocol_version = 2 if server_version >= 2 else 1
@@ -843,14 +804,11 @@ class SyncPlayManager(object):
             # Spectator state is client-local — the wire's Members carry no
             # session identity, so there is nothing to read it back from — and
             # a GroupJoined for the group we are already in would otherwise
-            # silently undo the user's choice. Measured: a spectator toggle 3s
-            # into a hot join was reset by the join's own update, and the
-            # group went on driving that member's private playback.
+            # silently undo the user's choice.
             self.ignore_wait = False
 
-        # The phase-3 stub is now driven: while True, Play Next and the
-        # cinema/near-end prompts are withheld (the group queue is
-        # authoritative).
+        # While True, Play Next and the cinema/near-end prompts are withheld:
+        # the group queue is authoritative.
         self.player.syncplay_group_active = True
 
         if self.timesync is None:
@@ -987,8 +945,8 @@ class SyncPlayManager(object):
     def _on_ws_connected(self):
         """Reconnect contract (§9): a v2 server re-attaches the member and
         pushes a StateSnapshot on its own; verify and pull one if it never
-        arrives. v1 servers end the session on any socket close (report R2):
-        probe GET /SyncPlay/List and re-join, or stop pretending."""
+        arrives. v1 servers end the session on any socket close: probe
+        GET /SyncPlay/List and re-join, or stop pretending."""
         if not self.in_group():
             return
 
@@ -1097,7 +1055,7 @@ class SyncPlayManager(object):
                 )
 
     # ------------------------------------------------------------------
-    # Queue mirror (SYNCPLAY.md §5.3, report §9.5.1)
+    # Queue mirror (SYNCPLAY.md §5.3)
     # ------------------------------------------------------------------
 
     def _apply_play_queue(self, data):
@@ -1154,15 +1112,6 @@ class SyncPlayManager(object):
         # LastActivity), so the instant it describes is now — not LastUpdate,
         # which timestamps the *queue's* last change and, on a group that has
         # been playing a while, is arbitrarily far in the past.
-        #
-        # Pairing the two added the whole elapsed playback a second time, so a
-        # member cold-joining a Playing group started at the group position
-        # plus elapsed-since-the-queue-changed: measured 27.0s against a group
-        # at 11.2s, and 546.0s against a group at 271.6s. The beacons then
-        # corrected it, so the visible symptom was the joiner starting far
-        # ahead and cutting backwards by the difference.
-        #
-        # last_update keeps its real job: the queue-version dedup above.
         reference_ms = self.server_now_ms()
         self.playback.set_reference(start_ticks, reference_ms, is_playing)
 
@@ -1234,7 +1183,7 @@ class SyncPlayManager(object):
         self._stop_pending = None
         # A leftover zap Unpause must not resume the next item. last_command
         # stays: a transcode Seek reload is the same event, and clearing it
-        # here would re-apply the Seek (Pixel 7 Pro, two reloads for one skip).
+        # here would re-apply the Seek.
         self.playback._deferred_unpause = None
 
         estimate_ms = self.playback.estimate_position_ms() or 0
@@ -1263,9 +1212,6 @@ class SyncPlayManager(object):
             contract.publish_start(provider, item_id, utils.ms_to_ticks(estimate_ms))
         else:
             try:
-                # Through the provider seam, which reaches the client directly
-                # rather than via _api: a 403 here is a library permission
-                # problem, not lost group membership.
                 target = self.providers.play_target(
                     item_id, utils.ms_to_ticks(estimate_ms), provider=provider
                 )
@@ -1277,15 +1223,11 @@ class SyncPlayManager(object):
             runtime_ms = utils.ticks_to_ms(target.get("runtime_ticks"))
 
             if runtime_ms and estimate_ms >= runtime_ms:
-                # The group's clock has run off the end of the item: the
-                # last entry of a queue played out and nothing followed it.
-                # A load aimed there ends the instant it starts on direct
-                # play (and the watchdog below then fails it 45s later and
-                # leaves the group), and starts over from 0:00 on a
-                # transcode. Nothing is loaded, and the item stays ours: the
-                # group's commands for it are not "another queue item", and
-                # a queue or snapshot that puts the group back inside it
-                # starts it then.
+                # The group's clock has run off the end of the item. A load
+                # aimed there ends at once on direct play and starts over from
+                # 0:00 on a transcode, so nothing is loaded. The item stays
+                # ours, and a queue or snapshot that puts the group back inside
+                # it starts it then.
                 LOG.info(
                     "[ syncplay/play ] not started: %.1fs is at or past the "
                     "item's end (%.1fs)",
@@ -1304,12 +1246,9 @@ class SyncPlayManager(object):
                 self._load_failed(error)
                 return
 
-        # Identify the load, not the item. A transcode seek reloads the *same*
-        # playlist item, so "still loading, and still the item I armed for" is
-        # true for a later load as well as a stuck one -- and the watchdog from
-        # a load that succeeded 45s ago would fire into a healthy reload and
-        # leave the group. Measured: a group start at 12:59:37 killed the
-        # reload from a seek at 13:00:19, and the member dropped out mid-test.
+        # Identify the load, not the item: a transcode seek reloads the *same*
+        # playlist item, so an earlier load's watchdog would fire into a
+        # healthy reload and leave the group.
         self._load_generation += 1
         generation = self._load_generation
 
@@ -1459,8 +1398,8 @@ class SyncPlayManager(object):
             self._post(self._api, "syncplay_pause")
 
     def on_resumed(self):
-        # First, in a group or not: a pulse cut while paused left its rate in
-        # force, and Kodi refuses the 1.0 until the player is playing again.
+        # First, in a group or not: a pulse cut while paused left its 1.0
+        # owed.
         self.playback.tempo.settle_owed()
 
         if not self.in_group() or self.is_programmatic():
@@ -1484,7 +1423,7 @@ class SyncPlayManager(object):
     def on_stopped(self):
         self.foreign_claim = None  # claims are playback-scoped
         self._hold_done("stopped")
-        self._hold = None  # whatever was held is gone
+        self._hold = None
 
         if not self.in_group() or self.is_programmatic():
             return
@@ -1669,8 +1608,8 @@ class SyncPlayManager(object):
             # time on this member's own stream, meaningless to the group.
             # With a live clock (PlaybackController._live_source_offset_ms)
             # the group is anchored on that instead, a delay behind this
-            # member's reading (P4); without one it tunes together from its
-            # own edge (P2).
+            # member's reading; without one it tunes together from its own
+            # edge.
             anchor_ms = self.playback.live_anchor_ms()
             position = anchor_ms / 1000.0 if anchor_ms is not None else 0.0
             LOG.info(
@@ -1718,8 +1657,7 @@ class SyncPlayManager(object):
             if media in ("channel", "recording"):
                 # A PVR play is never in the provider mapping, but its
                 # owner may claim it over the public bus a moment after
-                # OnPlay (pvr.kofin claims from onAVStarted) — the P2 gate
-                # measured the demotion beating the claim by 800 ms. Leave
+                # OnPlay (pvr.kofin claims from onAVStarted). Leave
                 # identification to the ordinary retry window.
                 return
             # A Kodi library item with no provider mapping: the group
@@ -1737,14 +1675,10 @@ class SyncPlayManager(object):
         self._propose_queue(mapped, position=0.0)
 
     def _drop_stale_claim(self):
-        """A new local play is starting: a foreign claim older than a
-        moment describes the *previous* playback — a seamless zap emits no
-        stop, so ``on_stopped`` never cleared it, and the P2 gate's zap
-        re-proposed nothing because the stale claim made the new channel
-        read as a duplicate start of the current item. A fresh claim (a
-        provider that claims at resolve time, before OnPlay) is kept;
-        pvr.kofin re-claims from its own onAVStarted moments later, inside
-        the forward retry window."""
+        """A new local play is starting: a foreign claim older than
+        STALE_CLAIM_SECS describes the *previous* playback (a seamless zap
+        emits no stop to clear it). A fresh claim (a provider that claims at
+        resolve time, before OnPlay) is kept."""
         if self.foreign_claim is None:
             return
 
@@ -1783,13 +1717,7 @@ class SyncPlayManager(object):
         utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
     def _hold_done(self, reason):
-        """How long a boundary hold lasted, and what ended it.
-
-        The controller's own view of the silence at a track change: §6.1's
-        capture times the audio from outside, this says why it was held. On a
-        three-minute track this is paid every three minutes, so it is the number
-        docs/syncplay-music-shakedown.md exists to shrink.
-        """
+        """How long a boundary hold lasted, and what ended it."""
         hold = self._hold
         if hold is None or not hold.get("at"):
             return
@@ -1865,7 +1793,7 @@ class SyncPlayManager(object):
         )
 
     # ------------------------------------------------------------------
-    # The public provider contract (plan G2)
+    # The public provider contract
     # ------------------------------------------------------------------
 
     def on_foreign_claim(self, claim):
@@ -1892,8 +1820,8 @@ class SyncPlayManager(object):
         ):
             # A new foreign play while following the group: the claim is
             # the propose trigger, because the event chain cannot be — a
-            # PVR zap on Omega fires no OnPlay, only an unpause echo whose
-            # programmatic grace swallows the AVStarted forward (P2 gate).
+            # PVR zap fires no OnPlay, only an unpause echo whose programmatic
+            # grace swallows the AVStarted forward.
             # A fresh start (phase idle) keeps the event-driven path, and
             # the adoption echo is inert here: its claim names the current
             # item.
@@ -1965,7 +1893,7 @@ class SyncPlayManager(object):
         )
 
     def publish_session_state(self, announce=False):
-        """The public session mirror (plan G2.2) on ``syncsession.state``.
+        """The public session mirror on ``syncsession.state``.
 
         ``announce`` also pings SyncSession.State over the bus — group
         join/leave and service start, which is what tells providers to
@@ -2015,9 +1943,9 @@ class SyncPlayManager(object):
 
     def on_wake(self):
         """Screensaver deactivate / system wake: never trust a stale clock
-        offset (report §9.5.6), and reconcile the group — after a sleep the
-        socket may be a zombie. A v2 snapshot request also re-attaches the
-        membership server-side; v1 keeps the kicked-probe."""
+        offset, and reconcile the group — after a sleep the socket may be a
+        zombie. A v2 snapshot request also re-attaches the membership
+        server-side; v1 keeps the kicked-probe."""
         if self.timesync is not None:
             self.timesync.force_update(reset=True)
 
