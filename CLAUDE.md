@@ -560,8 +560,9 @@ What remains is kofin's own:
   **`libraryNodes` is the one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,
-  which is Kodi's). Only an explicit `false` is off — an empty read is a settings document
-  that did not load, and off deletes files.
+  which is Kodi's). It is off by default, since everything it writes is outside
+  addon_data, and only an explicit value counts: an empty read is a settings document that did
+  not load, and on it `wanted` is None and nothing is written or taken down.
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
   loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows

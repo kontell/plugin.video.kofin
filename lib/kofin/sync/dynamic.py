@@ -140,19 +140,18 @@ def music_entries(
     ]
 
 
-def wanted() -> bool:
-    """Whether the generated presentation is on (``SETTING``).
-
-    Only an explicit off switches it off. Off deletes files, and an empty
-    read is a settings document that did not load (the applier's canary
-    case, ``service/settings_apply.py``) and reads as the default, which is
-    on.
-    """
+def wanted() -> Optional[bool]:
+    """Whether the generated presentation is on (``SETTING``), and None
+    while the settings cannot say: an empty read is a settings document that
+    did not load (the applier's canary case, ``service/settings_apply.py``),
+    and on it nothing is written and nothing taken down."""
     try:
-        value = settings.get_str(SETTING)
+        value = settings.get_str(SETTING).strip().lower()
     except TypeError:
-        return True
-    return value.strip().lower() != "false"
+        return None
+    if value in ("true", "false"):
+        return value == "true"
+    return None
 
 
 def publish(items, server):
@@ -165,7 +164,9 @@ def publish(items, server):
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
     nodes = wanted()
-    key = login_key() if nodes else ""
+    key: Optional[str] = None
+    if nodes is not None:
+        key = login_key() if nodes else ""
     entries = node_entries(views, whitelist, key) if nodes and key else []
     singles: List[Dict] = []
     try:
@@ -184,7 +185,7 @@ def publish(items, server):
         LOG.exception("library node tree not written")
         singles = []
     try:
-        libraries = music_entries(views, whitelist, key) if nodes else []
+        libraries = music_entries(views, whitelist, key)
         if libraries is None:
             LOG.warning("settings unreadable; music node tree left as it is")
         else:

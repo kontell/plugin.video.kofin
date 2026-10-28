@@ -140,7 +140,7 @@ def write_downloaded_music(store: Store, root: Optional[str] = None) -> bool:
     return playlists.write_downloaded_music_list(lines, root)
 
 
-def wanted() -> bool:
+def wanted() -> Optional[bool]:
     return dynamic.wanted()
 
 

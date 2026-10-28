@@ -302,7 +302,7 @@
              the smart playlists and the Jellyfin playlists together. -->
         <setting id="libraryNodes" type="boolean" label="30856" help="30857">
           <level>0</level>
-          <default>true</default>
+          <default>false</default>
           <control type="toggle"/>
         </setting>
         <setting id="maxArtResolution" type="integer" label="30320" help="30321">

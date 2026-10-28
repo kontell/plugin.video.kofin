@@ -1211,10 +1211,9 @@ class Library(threading.Thread):
             return
         if command == "CleanupMusicPlaylists":
             # Queued by the switch going off; by the time it runs the switch
-            # may be on again and the pass may have written the playlists
-            # back, so the setting is read again here.
-            if api_playlists.wanted():
-                LOG.info("playlist cleanup skipped: the switch is on again")
+            # may be on again, or unreadable, so only an explicit off cleans.
+            if api_playlists.wanted() is not False:
+                LOG.info("playlist cleanup skipped: the switch is not off")
                 return
             api_playlists.cleanup()
             return

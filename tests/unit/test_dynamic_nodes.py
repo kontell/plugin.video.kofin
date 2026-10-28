@@ -43,9 +43,11 @@ def library_dir(library, media):
 @pytest.fixture(autouse=True)
 def views_env(monkeypatch, tmp_path):
     """A profile directory behind every special:// path the node writers
-    touch, and kofin.db beside it, with a user logged in."""
+    touch, and kofin.db beside it, with a user logged in who has switched
+    the presentation on."""
     FakeAddon.store = {}
     logged_in()
+    FakeAddon.store[dynamic.SETTING] = "true"
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
@@ -309,14 +311,15 @@ def test_the_switch_takes_the_tree_and_playlists_down_and_publishes_browse_entri
     assert props()["Kofin.nodes.1.content"].endswith("/all.xml")
 
 
-def test_only_an_explicit_off_switches_the_presentation_off(monkeypatch):
-    """Off deletes files: an empty read (a settings document that did not
-    load) and a build without the setting both read as on."""
+def test_an_unreadable_switch_is_neither_on_nor_off(monkeypatch):
+    """Off deletes files and on writes them outside addon_data: an empty
+    read (a settings document that did not load) and a build without the
+    setting are None, on which neither happens."""
     from kofin.core import settings
 
     FakeAddon.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
-    assert dynamic.wanted() is True
+    assert dynamic.wanted() is None
     FakeAddon.store[dynamic.SETTING] = "false"
     assert dynamic.wanted() is False
     FakeAddon.store[dynamic.SETTING] = "true"
@@ -326,7 +329,16 @@ def test_only_an_explicit_off_switches_the_presentation_off(monkeypatch):
         raise TypeError("no such setting")
 
     monkeypatch.setattr(settings, "get_str", missing)
-    assert dynamic.wanted() is True
+    assert dynamic.wanted() is None
+
+
+def test_an_unreadable_switch_writes_no_tree(views_env):
+    del FakeAddon.store[dynamic.SETTING]
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (views_env["profile"] / "library" / "video" / NODE_ROOT).exists()
+    assert not (views_env["profile"] / "library" / "music" / NODE_ROOT).exists()
+    assert not list((views_env["profile"] / "playlists" / "video").iterdir())
 
 
 def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
