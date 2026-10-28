@@ -19,8 +19,6 @@ from kofin.core.urls import BASE_URL
 
 PROP_ONLINE = "kofin.online"
 PROP_PLAYING_ID = "kofin.playing.id"
-PROP_SYNC_STOP = "kofin.sync.stop"
-PROP_SYNC_ACTIVE = "kofin.sync.active"
 # Earns its place here because addon.xml's <visible> can only test window
 # properties: there is no infolabel that reads an addon setting, so hiding
 # "Play with transcoding" when no bitrates are configured needs the setting
@@ -300,17 +298,6 @@ def claim_play_item_of(item_id: str) -> Optional[Dict[str, Any]]:
     return newest
 
 
-def play_item_queued(path: str) -> bool:
-    """Whether a resolved play for ``path`` is already waiting to be claimed.
-
-    Read-only counterpart to :func:`claim_play_item`, for deciding not to
-    queue a second entry for a playback the play route already handled.
-    """
-    return any(
-        (_read_entry(entry) or {}).get("Path") == path for entry in _queue_files()
-    )
-
-
 def _expire_play_items() -> None:
     """Drop entries older than the TTL (see PLAY_QUEUE_TTL_SECONDS)."""
     cutoff = time.time_ns() - PLAY_QUEUE_TTL_SECONDS * 1_000_000_000
@@ -342,29 +329,6 @@ def get_playing_id() -> str:
 
 def clear_playing_id() -> None:
     _window().clearProperty(PROP_PLAYING_ID)
-
-
-def set_should_stop(stop: bool) -> None:
-    """Raised while the service shuts down."""
-    if stop:
-        _window().setProperty(PROP_SYNC_STOP, "true")
-    else:
-        _window().clearProperty(PROP_SYNC_STOP)
-
-
-def should_stop() -> bool:
-    return _window().getProperty(PROP_SYNC_STOP) == "true"
-
-
-def set_sync_active(active: bool) -> None:
-    if active:
-        _window().setProperty(PROP_SYNC_ACTIVE, "true")
-    else:
-        _window().clearProperty(PROP_SYNC_ACTIVE)
-
-
-def is_sync_active() -> bool:
-    return _window().getProperty(PROP_SYNC_ACTIVE) == "true"
 
 
 def set_native_hold(scanner: str) -> str:
@@ -564,14 +528,12 @@ def clear_lyrics() -> None:
     window.clearProperty(PROP_LYRIC_PATH)
 
 
-def clear_all(keep_stop: bool = False) -> None:
-    """Drop the live state. ``keep_stop`` leaves PROP_SYNC_STOP raised; the
-    teardown passes it when a sync thread outlived the wait."""
+def clear_all() -> None:
+    """Drop the live state."""
     window = _window()
     props = [
         PROP_ONLINE,
         PROP_PLAYING_ID,
-        PROP_SYNC_ACTIVE,
         PROP_CONTEXT_BITRATES,
         PROP_PLAYING_STREAMS,
         PROP_PLAYING_MENU,
@@ -580,8 +542,6 @@ def clear_all(keep_stop: bool = False) -> None:
         PROP_MENU_SYNCPLAY,
         PROP_SYNCSESSION,
     ]
-    if not keep_stop:
-        props.append(PROP_SYNC_STOP)
     for prop in props:
         window.clearProperty(prop)
     clear_lyrics()

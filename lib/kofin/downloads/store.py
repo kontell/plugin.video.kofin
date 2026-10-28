@@ -167,26 +167,6 @@ def get_on(cursor: Any, jellyfin_id: str) -> Optional[Download]:
     return _row_to_download(row) if row is not None else None
 
 
-def is_done_on(cursor: Any, jellyfin_id: str) -> bool:
-    cursor.execute(
-        "SELECT 1 AS present FROM download WHERE jellyfin_id = ? AND state = ? LIMIT 1",
-        (jellyfin_id, DONE),
-    )
-    return cursor.fetchone() is not None
-
-
-def series_done_ids(series_id: str) -> List[str]:
-    """Jellyfin ids of the completed downloads under a show."""
-    if not series_id:
-        return []
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id FROM download WHERE series_id = ? AND state = ?",
-            (series_id, DONE),
-        )
-        return [row[0] for row in opened.cursor.fetchall()]
-
-
 def container_states(container_id: str) -> Dict[str, str]:
     """``{jellyfin_id: state}`` for every download under a container.
 
@@ -202,13 +182,6 @@ def container_states(container_id: str) -> Dict[str, str]:
     with Database("kofin") as opened:
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE series_id = ?",
-            (container_id,),
-        )
-        states.update(opened.cursor.fetchall())
-        opened.cursor.execute(
-            "SELECT d.jellyfin_id, d.state FROM download d "
-            "JOIN jellyfin j ON j.jellyfin_id = d.jellyfin_id "
-            "WHERE j.parent_id = ?",
             (container_id,),
         )
         states.update(opened.cursor.fetchall())
@@ -342,16 +315,6 @@ def music_container_unclaimed_states(container_id: str, kind: str) -> Dict[str, 
         return dict(opened.cursor.fetchall())
 
 
-def series_done_on(cursor: Any, series_id: str) -> bool:
-    if not series_id:
-        return False
-    cursor.execute(
-        "SELECT 1 AS present FROM download WHERE series_id = ? AND state = ? LIMIT 1",
-        (series_id, DONE),
-    )
-    return cursor.fetchone() is not None
-
-
 def claim(media_types: Optional[Sequence[str]] = None) -> Optional[Download]:
     """Move the oldest queued row to active and return it; None when idle.
 
@@ -471,20 +434,6 @@ def set_segments(jellyfin_id: str, raw_json: str) -> None:
         )
 
 
-def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> None:
-    cursor.execute(
-        "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
-        (filename, jellyfin_id),
-    )
-
-
-def set_restore_path_on(cursor: Any, jellyfin_id: str, path: str) -> None:
-    cursor.execute(
-        "UPDATE download SET restore_path = ? WHERE jellyfin_id = ?",
-        (path, jellyfin_id),
-    )
-
-
 def release(jellyfin_id: str) -> None:
     """Put an active row back to queued without spending an attempt;
     ``queued_at`` stays, so the row heads the queue for the reconnect."""
@@ -521,19 +470,6 @@ def rows(state: Optional[str] = None) -> List[Download]:
             )
         fetched = opened.cursor.fetchall()
     return [_row_to_download(row) for row in fetched]
-
-
-def done_signature(media_types: Sequence[str]) -> List[Any]:
-    if not media_types:
-        return []
-    placeholders = ",".join("?" for _ in media_types)
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id, media_type FROM download "
-            "WHERE state = ? AND media_type IN (%s)" % placeholders,
-            (DONE, *media_types),
-        )
-        return sorted(tuple(row) for row in opened.cursor.fetchall())
 
 
 def is_done(jellyfin_id: str) -> bool:

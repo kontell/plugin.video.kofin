@@ -30,25 +30,6 @@ class Metadata:
     def __init__(self, item: Mapping[str, Any]) -> None:
         self.item = item
 
-    def get_playcount(self, played: bool, playcount: Optional[int]) -> Optional[int]:
-        """Convert Jellyfin played/playcount into
-        the Kodi equivalent. The playcount is tied to the watch status.
-        """
-        return (playcount or 1) if played else None
-
-    def get_naming(self) -> Any:
-
-        if self.item["Type"] == "Episode" and "SeriesName" in self.item:
-            return "%s: %s" % (self.item["SeriesName"], self.item["Name"])
-
-        elif self.item["Type"] == "MusicAlbum" and "AlbumArtist" in self.item:
-            return "%s: %s" % (self.item["AlbumArtist"], self.item["Name"])
-
-        elif self.item["Type"] == "Audio" and self.item.get("Artists"):
-            return "%s: %s" % (self.item["Artists"][0], self.item["Name"])
-
-        return self.item["Name"]
-
     def media_streams(self, video: Any, audio: Any, subtitles: Any) -> Dict[str, Any]:
         return {"video": video or [], "audio": audio or [], "subtitle": subtitles or []}
 
@@ -136,80 +117,6 @@ class Metadata:
 
         return runtime
 
-    def validate_studio(self, studio_name: str) -> str:
-        # Convert studio for Kodi to properly detect them
-        studios = {
-            "abc (us)": "ABC",
-            "fox (us)": "FOX",
-            "mtv (us)": "MTV",
-            "showcase (ca)": "Showcase",
-            "wgn america": "WGN",
-            "bravo (us)": "Bravo",
-            "tnt (us)": "TNT",
-            "comedy central": "Comedy Central (US)",
-        }
-        return studios.get(studio_name.lower(), studio_name)
-
-    def get_overview(self, overview: Optional[str] = None) -> Any:
-
-        overview = overview or self.item.get("Overview")
-
-        if not overview:
-            return
-
-        overview = overview.replace('"', "'")
-        overview = overview.replace("\n", "[CR]")
-        overview = overview.replace("\r", " ")
-        overview = overview.replace("<br>", "[CR]")
-
-        return overview
-
-    def get_mpaa(self, rating: Optional[str] = None) -> Any:
-
-        mpaa = rating or self.item.get("OfficialRating", "")
-
-        if mpaa in ("NR", "UR"):
-            # Kodi seems to not like NR, but will accept Not Rated
-            mpaa = "Not Rated"
-
-        if "FSK-" in mpaa:
-            mpaa = mpaa.replace("-", " ")
-
-        return mpaa
-
-    def get_file_path(self, path: Optional[str] = None) -> Any:
-
-        if path is None:
-            path = self.item.get("Path")
-
-        if not path:
-            return ""
-
-        if path.startswith("\\\\"):
-            path = (
-                path.replace("\\\\", "smb://", 1)
-                .replace("\\\\", "\\")
-                .replace("\\", "/")
-            )
-
-        if "Container" in self.item:
-
-            if self.item["Container"] == "dvd":
-                path = "%s/VIDEO_TS/VIDEO_TS.IFO" % path
-            elif self.item["Container"] == "bluray":
-                path = "%s/BDMV/index.bdmv" % path
-
-        path = path.replace("\\\\", "\\")
-
-        if "\\" in path:
-            path = path.replace("/", "\\")
-
-        if "://" in path:
-            protocol = path.split("://")[0]
-            path = path.replace(protocol, protocol.lower())
-
-        return path
-
 
 def streams_and_runtime(item: Mapping[str, Any]) -> Tuple[Dict[str, Any], float]:
     """``(streams, runtime_seconds)`` from a Jellyfin DTO.
@@ -282,30 +189,3 @@ def ratings(obj: Mapping[str, Any]) -> Dict[str, Tuple[Any, Any]]:
 
 
 PROVIDER_PRIORITY = ("imdb", "tvdb", "tmdb")
-
-
-def unique_ids(obj: Mapping[str, Any]) -> Dict[str, str]:
-    """Ordered ``{provider: value}`` of every non-empty provider id.
-
-    Keys are lowercased, as Kodi's own scrapers write them and
-    ``ListItem.UniqueID(imdb)`` looks them up, while Jellyfin capitalises
-    them. PROVIDER_PRIORITY comes first, then the server's order. Nothing is
-    filtered by name, so a provider kofin has never heard of still gets its
-    entry.
-    """
-    found = {}
-
-    for key, value in (obj.get("ProviderIds") or {}).items():
-        if value:
-            found[str(key).lower()] = str(value)
-
-    ordered = {name: found.pop(name) for name in PROVIDER_PRIORITY if name in found}
-    ordered.update(found)
-
-    return ordered
-
-
-BOXSET_UNCHANGED = "unchanged"
-BOXSET_WRITTEN = "written"
-BOXSET_HEALED = "healed"
-BOXSET_GUARDED = "guarded"

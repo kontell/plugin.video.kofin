@@ -1,5 +1,5 @@
 """One-off: run plugin/actions._show_names inside Kodi and log the result, to
-check that titles come over JSON-RPC and the plugin opens no MyVideos.
+check that the titles come from the catalogue.
 RunScript(<file>,<series_id>,<series_id>,...)."""
 
 import sys, xbmc, xbmcvfs

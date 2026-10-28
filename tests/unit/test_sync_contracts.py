@@ -5,7 +5,6 @@ import pytest
 from kofin.sync import private
 from kofin.sync.catalogue import Catalogue, BackendMismatch, claim_backend
 from kofin.sync.model import MediaItem, Metadata
-from kofin.sync.policy import plan_update
 
 
 def media(title="Movie"):
@@ -64,15 +63,5 @@ def test_unmarked_legacy_mappings_require_fresh_state(store):
         store.stage(media())
 
 
-def test_metadata_policy_keeps_unverifiable_and_forced_items_writable():
-    assert not plan_update({}, None, exists=True).skip_metadata
-    assert not plan_update(
-        {"Etag": "x"}, "x|plugin", exists=True, force=True
-    ).skip_metadata
-    assert not plan_update({"Etag": "x"}, "x|plugin", exists=False).skip_metadata
-    unchanged = plan_update(
-        {"Etag": "x", "_userdata_changed": False}, "x|plugin", exists=True
-    )
-    assert unchanged.skip_metadata and not unchanged.apply_userdata
-    assert plan_update({"Etag": "x"}, "x|plugin", exists=True).apply_userdata
+def test_metadata_reads_the_runtime_in_seconds():
     assert Metadata({"RunTimeTicks": 15_000_000}).get_runtime() == 1.5

@@ -7,7 +7,6 @@ from kofin.plugin import librarypicker
 from kofin.plugin.router import Request
 from kofin.service.settings_apply import SettingsApplier
 from kofin.sync import private as sync_db
-from kofin.sync import kofindb
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 
@@ -96,9 +95,7 @@ def env(monkeypatch, tmp_path):
 
 def seed_views(*views):
     with sync_db.Database("kofin") as opened:
-        mapping = kofindb.JellyfinDatabase(opened.cursor)
-        for view_id, name, media in views:
-            mapping.add_view(view_id, name, media)
+        opened.cursor.executemany("INSERT OR REPLACE INTO view VALUES (?,?,?)", views)
 
 
 def seed_whitelist(*entries):

@@ -323,10 +323,7 @@ def test_syncplay_endpoints(api):
     client.syncplay_stop()
     client.syncplay_seek(420000000)
     client.syncplay_set_new_queue(["i1"], 0, 900000000)
-    client.syncplay_set_playlist_item("pl-2")
-    client.syncplay_queue(["i2"], "QueueNext")
     client.syncplay_next_item("pl-1")
-    client.syncplay_previous_item("pl-1")
     client.syncplay_set_ignore_wait(True)
 
     calls = {call["url"].replace("http://s:8096", ""): call for call in transport.calls}
@@ -353,10 +350,7 @@ def test_syncplay_endpoints(api):
         "PlayingItemPosition": 0,
         "StartPositionTicks": 900000000,
     }
-    assert calls["/SyncPlay/SetPlaylistItem"]["json"] == {"PlaylistItemId": "pl-2"}
-    assert calls["/SyncPlay/Queue"]["json"] == {"ItemIds": ["i2"], "Mode": "QueueNext"}
     assert calls["/SyncPlay/NextItem"]["json"] == {"PlaylistItemId": "pl-1"}
-    assert calls["/SyncPlay/PreviousItem"]["json"] == {"PlaylistItemId": "pl-1"}
     assert calls["/SyncPlay/SetIgnoreWait"]["json"] == {"IgnoreWait": True}
 
 

@@ -35,9 +35,6 @@ LOG = Logger(__name__)
 # ways of browsing the library rather than splitting them up.
 MUSIC_NODE_ROOT_ORDER = 55
 
-MUSIC_DOWNLOADED_FOLDER = fs.PREFIX + "_Downloaded"
-
-MUSIC_DOWNLOADED_FILE = fs.PREFIX + "_DownloadedMusic.xml"
 
 # (file stem, label, content, group) for the sub-nodes inside a music folder.
 # Every label is a *Kodi-core* string id -- the same ones Kodi's own music

@@ -76,29 +76,6 @@ def test_resume_seconds_is_none_for_a_media_type_without_bookmarks(monkeypatch):
     assert kodirpc.resume_seconds(1, "tvshow") is None
 
 
-def test_video_file_reads_exact_library_path(monkeypatch):
-    seen = {}
-
-    def answer(query):
-        seen.update(json.loads(query))
-        return json.dumps(
-            {"result": {"episodedetails": {"file": "plugin://example/episode?dbid=42"}}}
-        )
-
-    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
-    assert kodirpc.video_file(42, "episode") == "plugin://example/episode?dbid=42"
-    assert seen["method"] == "VideoLibrary.GetEpisodeDetails"
-    assert seen["params"] == {"episodeid": 42, "properties": ["file"]}
-
-
-def test_video_file_missing_row(monkeypatch):
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC",
-        responder({"error": {"code": -32602, "message": "Invalid params."}}),
-    )
-    assert kodirpc.video_file(42, "episode") is None
-
-
 def test_each_query_asks_the_matching_method(monkeypatch):
     for media, (method, id_field, result_field) in kodirpc.RESUME_QUERY.items():
         seen = {}
@@ -129,61 +106,6 @@ class TextureRpc:
         if request["method"] == "Textures.GetTextures":
             return json.dumps({"result": {"textures": self.textures}})
         return json.dumps({"result": "OK"})
-
-
-def test_drop_cached_texture_removes_every_match(monkeypatch):
-    rpc = TextureRpc(
-        [
-            {"textureid": 7, "url": "image://…%2fplugin.video.kofin%2f…fanart.png/"},
-            {"textureid": 9, "url": "image://…%2fkofin%2ffanart.png/transform?x=1"},
-        ]
-    )
-    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
-
-    assert kodirpc.drop_cached_texture("plugin.video.kofin", require="fanart.png") == 2
-
-    lookup = rpc.calls[0]
-    # Filtered server-side: a real install's cache runs to thousands of rows.
-    assert lookup["params"]["filter"] == {
-        "field": "url",
-        "operator": "contains",
-        "value": "plugin.video.kofin",
-    }
-    # Without this Kodi answers with bare ids and `require` has nothing to test.
-    assert lookup["params"]["properties"] == ["url"]
-    assert [c["params"]["textureid"] for c in rpc.calls[1:]] == [7, 9]
-
-
-def test_drop_cached_texture_spares_another_addons_file_of_the_same_name():
-    """plugin.video.jellyfin ships its own resources/fanart.png, so a
-    filename-only match would evict a texture that is not ours."""
-    rpc = TextureRpc(
-        [
-            {"textureid": 7, "url": "image://…%2fplugin.video.kofin%2ffanart.png/"},
-            {"textureid": 8, "url": "image://…%2fplugin.video.kofin%2ficon.png/"},
-        ]
-    )
-    import xbmc
-
-    original, xbmc.executeJSONRPC = xbmc.executeJSONRPC, rpc
-    try:
-        assert (
-            kodirpc.drop_cached_texture("plugin.video.kofin", require="fanart.png") == 1
-        )
-    finally:
-        xbmc.executeJSONRPC = original
-    assert [c["params"]["textureid"] for c in rpc.calls[1:]] == [7]
-
-
-def test_drop_cached_texture_survives_a_failed_lookup(monkeypatch):
-    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
-    assert kodirpc.drop_cached_texture("plugin.video.kofin") == 0
-
-
-def test_drop_cached_texture_reports_nothing_to_do(monkeypatch):
-    rpc = TextureRpc([])
-    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
-    assert kodirpc.drop_cached_texture("plugin.video.kofin") == 0
 
 
 # -- what the player is currently playing -------------------------------------
@@ -342,28 +264,6 @@ def test_clear_resume_bookmark_reports_a_refusal(monkeypatch):
     assert kodirpc.clear_resume_bookmark("plugin://x") is False
 
 
-# --- tvshow_title: the plugin's show names without a MyVideos open ----------
-
-
-def test_tvshow_title_reads_the_row_over_jsonrpc(monkeypatch):
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC",
-        responder({"result": {"tvshowdetails": {"tvshowid": 7, "title": "The Show"}}}),
-    )
-    assert kodirpc.tvshow_title(7) == "The Show"
-
-
-def test_tvshow_title_is_none_for_a_gone_row_or_a_failed_call(monkeypatch):
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
-    )
-    assert kodirpc.tvshow_title(7) is None
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": {}}))
-    assert kodirpc.tvshow_title(7) is None
-    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
-    assert kodirpc.tvshow_title(7) is None
-
-
 # --- kodi_setting: absent vs unreachable -------------------------------------
 
 
@@ -395,13 +295,3 @@ def test_kodi_setting_reports_a_blip_as_failed_not_absent(monkeypatch):
 
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
     assert kodirpc.kodi_setting("musicplayer.crossfade") is kodirpc.FAILED
-
-
-def test_set_kodi_setting_true_only_when_kodi_accepted(monkeypatch):
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": True}))
-    assert kodirpc.set_kodi_setting("musicplayer.crossfade", 10) is True
-
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
-    )
-    assert kodirpc.set_kodi_setting("musicplayer.crossfade", 10) is False

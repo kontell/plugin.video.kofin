@@ -23,10 +23,6 @@ class Native(Protocol):
 
     def detached(self, row: Any) -> None: ...
 
-    def restore(self, row: Any, root: str) -> bool: ...
-
-    def mapped(self, item_id: str) -> bool: ...
-
     def mark_watched(self, row: Any) -> None: ...
 
     def watched_locally(self, row: Any) -> bool: ...
@@ -84,9 +80,6 @@ class NativeApi:
     def detached(self, row: Any) -> None:
         self._replan(row)
 
-    def restore(self, row: Any, root: str) -> bool:
-        return True
-
     def _replan(self, row: Any) -> None:
         """Have the pass build the row again with its download state: the
         badge on a movie or an episode, the tag on a movie or on the show
@@ -112,12 +105,6 @@ class NativeApi:
             LOG.exception(
                 "download state of %s not handed to the pass", row.jellyfin_id
             )
-
-    def mapped(self, item_id: str) -> bool:
-        try:
-            return self._store().entry(item_id) is not None
-        except Exception:
-            return False
 
     def mark_watched(self, row: Any) -> None:
         # The server is told (manager._push_played) and its answer reaches

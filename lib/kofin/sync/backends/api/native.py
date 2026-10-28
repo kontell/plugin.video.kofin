@@ -342,9 +342,6 @@ class Native:
                 self.bind_folders("movies", dirs, noupdate=True)
             settings.set_str(MOVIE_BINDINGS_SETTING, EXTRAS_BINDINGS_STATE)
 
-    def bind_show(self, library, series_id):
-        self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
-
     def library_event(self):
         """Have Kodi announce that the video library changed, and scan
         nothing for it: a scan with no directory walks every bound folder.

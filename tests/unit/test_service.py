@@ -1302,23 +1302,6 @@ def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
     assert service._join_library() is False  # reported, not pretended
 
 
-def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
-    """The flag is what every worker's @stop guard reads. Clearing it while
-    the thread lives would un-pause it against an already-rebuilt service."""
-    import kofin.service.main as main_module
-
-    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 0.0)
-    service = Service()
-    service.library = FakeLibrary(alive=True)
-    monkeypatch.setattr(service, "abortRequested", lambda: False)
-    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
-    monkeypatch.setattr(service, "_join_workers", lambda: None)
-
-    service._shutdown()
-
-    assert state.should_stop() is True
-
-
 def test_a_stuck_library_is_dumped_not_merely_reported(monkeypatch):
     """The deadline makes a stuck thread survivable without saying what stuck
     it, and the event is too rare to reproduce on demand. Both ends of the
@@ -1384,7 +1367,6 @@ def test_a_teardown_clears_the_state_it_still_owns(monkeypatch, tmp_path):
     service._shutdown()
 
     assert state.is_online() is False
-    assert state.should_stop() is False
 
 
 def test_a_superseded_teardown_leaves_the_live_generation_its_state(
@@ -1393,10 +1375,8 @@ def test_a_superseded_teardown_leaves_the_live_generation_its_state(
     """Kodi starts the replacement service before the old one has exited, and
     core.state is one set of window properties with no room for a generation.
 
-    A predecessor's teardown that cleared PROP_ONLINE or raised PROP_SYNC_STOP
-    after the successor connected would stop the successor's library threads
-    at their first @stop guard and refuse every route gated on
-    state.is_online().
+    A predecessor's teardown that cleared PROP_ONLINE after the successor
+    connected would refuse every route gated on state.is_online().
     """
     service = _teardown_service(monkeypatch, tmp_path)
     # What the successor's Service.__init__ does: mint its own nonce, connect,
@@ -1408,7 +1388,6 @@ def test_a_superseded_teardown_leaves_the_live_generation_its_state(
     service._shutdown()
 
     assert state.is_online() is True  # the successor's flag, left alone
-    assert state.should_stop() is False  # nor is its sync paused
 
 
 def test_a_superseded_teardown_still_stops_its_own_threads(monkeypatch, tmp_path):
@@ -1426,52 +1405,14 @@ def test_a_superseded_teardown_still_stops_its_own_threads(monkeypatch, tmp_path
     assert service.library is None
 
 
-def test_a_clean_teardown_clears_everything(monkeypatch):
-    service = Service()
-    service.library = FakeLibrary()
-    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
-    monkeypatch.setattr(service, "_join_workers", lambda: None)
-
-    service._shutdown()
-
-    assert state.should_stop() is False
-
-
-def test_a_new_generation_never_inherits_the_stop_flag(monkeypatch):
-    """A teardown that could not join its library thread leaves PROP_SYNC_STOP
-    raised on purpose, and nothing else lowers it: inherited, it would stop
-    every later library thread at its first @stop guard."""
-    import kofin.service.main as main_module
-
-    state.set_should_stop(True)
-    seen = []
-
-    class OneShot(main_module.Service):
-        def __init__(self):
-            seen.append(state.should_stop())
-
-        def run(self):
-            return False
-
-    monkeypatch.setattr(main_module, "Service", OneShot)
-    main_module.run_forever()
-
-    assert seen == [False]  # the flag was down before the generation was built
-
-
-def test_the_transports_abort_survives_the_next_generation(monkeypatch):
-    """The replacement service lowers PROP_SYNC_STOP on its way up, so an
-    abort that read it would send a thread the previous teardown orphaned
-    back onto the full retry ladder. The signal belongs to the generation
-    that raised it."""
+def test_the_transports_abort_is_the_generations_own(monkeypatch):
+    """The abort is this generation's _stopping Event, which no later
+    generation can lower, and the per-worker sessions read it too."""
     service = Service()
     abort = service.http._abort
     assert abort is not None and abort() is False
 
     service._stopping.set()
-    assert abort() is True
-
-    state.set_should_stop(False)  # what the next generation does on the way up
     assert abort() is True
 
     # the per-worker sessions the download pool and writers use, likewise

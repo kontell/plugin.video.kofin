@@ -350,30 +350,6 @@ def test_the_claim_wait_is_logged_with_its_outcome(monkeypatch):
     assert claim_lines[0].startswith("claim claimed after 0.00s (")
 
 
-# --- library-originated claims (music) ---------------------------------------
-
-
-class LookupApi(RecordingApi):
-    """Serves the one item the back-fill fetches after the id mapping."""
-
-    def __init__(self, item=None, error=None):
-        super().__init__()
-        self.item_requests = []
-        self._item = item or {
-            "Id": "jf-song-1",
-            "Type": "Audio",
-            "RunTimeTicks": 1800000000,
-            "MediaSources": [{"Id": "src-1"}],
-        }
-        self._error = error
-
-    def item(self, item_id):
-        self.item_requests.append(item_id)
-        if self._error:
-            raise self._error
-        return self._item
-
-
 # --- delete after watching ---------------------------------------------------
 
 

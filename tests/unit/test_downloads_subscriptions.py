@@ -5,7 +5,6 @@ import pytest
 from kofin.core import ipc
 from kofin.downloads import store, subscriptions
 from kofin.sync import private as sync_db
-from kofin.sync import newcontent
 
 
 @pytest.fixture
@@ -136,38 +135,6 @@ def test_empty_later_library_page_keeps_existing_claims(wired, monkeypatch):
             (owner_id,),
         )
         assert opened.cursor.fetchall() == [("song",)]
-
-
-def test_new_song_joins_its_library_subscription_after_writer_commit(
-    wired, monkeypatch
-):
-    monkeypatch.setattr(
-        subscriptions.settings,
-        "get_str",
-        lambda key: "library" if key == subscriptions.LIBRARY_SETTING else "",
-    )
-    with sync_db.Database("kofin") as opened:
-        opened.cursor.execute(
-            "INSERT INTO jellyfin(jellyfin_id, media_folder) VALUES (?, ?)",
-            ("song", "library"),
-        )
-    entry = newcontent.Entry("Audio", "song", "Song")
-    subscriptions.claim_new_library_songs([entry])
-    assert len(wired) == 1 and wired[0][0] == ipc.DOWNLOAD_ADD
-    payload = wired[0][1]
-    assert payload["Ids"] == ["song"]
-    assert payload["Types"] == ["Audio"]
-    assert payload["Origin"] == "auto:musiclibrary:library"
-    assert payload["Request"].startswith("auto:musiclibrary:library:")
-    assert payload["RequestName"] == "library"
-    store.queue(
-        store.Download("song", media_type="song", origin="auto:musiclibrary:library")
-    )
-    subscriptions.claim_new_library_songs([entry])
-    assert len(wired) == 1
-    with sync_db.Database("kofin") as opened:
-        opened.cursor.execute("SELECT COUNT(*) FROM download_subscription")
-        assert opened.cursor.fetchone()[0] == 1
 
 
 def test_a_song_named_with_its_library_is_claimed_without_the_mapping_table(

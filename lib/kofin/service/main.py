@@ -52,14 +52,6 @@ LIBRARY_COMMANDS = frozenset(
     }
 )
 
-DOWNLOAD_COMMANDS = frozenset(
-    {
-        ipc.DOWNLOAD_ADD,
-        ipc.DOWNLOAD_CANCEL,
-        ipc.DOWNLOAD_REMOVE,
-        ipc.DOWNLOAD_REMOVE_ALL,
-    }
-)
 
 # Seconds the service ignores settings changes after start, covering Kodi's
 # startup settings-load transients. A user cannot open the settings dialog and
@@ -174,9 +166,7 @@ class Service(xbmc.Monitor):
     def __init__(self) -> None:
         super().__init__()
         self._restart_requested = False
-        # This generation is tearing down: an Event owned by this generation,
-        # which its successor cannot lower as it lowers PROP_SYNC_STOP (see
-        # run_forever).
+        # This generation is tearing down: an Event owned by this generation.
         self._stopping = threading.Event()
         self.credentials = Credentials.load()
         self.http = Http(settings.get_bool("sslVerify"), abort=self._abort_transport)
@@ -267,15 +257,14 @@ class Service(xbmc.Monitor):
         return self._restart_requested and not self.abortRequested()
 
     def _prepare_api_backend(self) -> None:
-        from kofin.sync.backend import create_backend
-        from kofin.sync.backends.api import capabilities
+        from kofin.sync.backends.api import APIBackend, capabilities
         from kofin.sync.backends.api import status as apistatus
         from kofin.sync.catalogue import BackendMismatch
         from kofin.sync.private import addon_data_path
         import os
 
         self._api_interfaces = False
-        backend = create_backend()
+        backend = APIBackend()
         report = backend.capabilities()
         try:
             backend.initialize()
@@ -557,7 +546,7 @@ class Service(xbmc.Monitor):
         manager means nothing native is rendering the rows anyway."""
         library = self.library
         if library is not None and databases:
-            library.refresh_libraries(databases)
+            library.refresh_libraries()
 
     def _new_api(self) -> Api:
         """A fresh Api with its own HTTP session (one per sync worker).
@@ -1212,11 +1201,8 @@ class Service(xbmc.Monitor):
 
     def _shutdown(self) -> None:
         # The Event is what this generation's HTTP transports check between
-        # retries. PROP_SYNC_STOP is shared with the next generation, so it is
-        # raised only while no successor is live.
+        # retries.
         self._stopping.set()
-        if not self._superseded():
-            state.set_should_stop(True)
         self._stop_syncplay()
         # The websocket goes down before the library, not after: every event
         # it dispatches lands in the Library's queues — or, for UserDataChanged,
@@ -1226,10 +1212,9 @@ class Service(xbmc.Monitor):
             self.ws.stop()
             self.ws = None
         self._stop_downloads()
-        library_stuck = False
         if self.library is not None:
             self.library.stop_client()
-            library_stuck = not self._join_library()
+            self._join_library()
             self.library = None
         self.player.stop_threads()
         self.kodi_userdata.stop()
@@ -1242,7 +1227,7 @@ class Service(xbmc.Monitor):
         if self._superseded():
             LOG.debug("a newer service generation is live; leaving it its state")
             return
-        state.clear_all(keep_stop=library_stuck)
+        state.clear_all()
 
     def _join_library(self) -> bool:
         """Wait for the library thread to die; True when it did.
@@ -1280,7 +1265,7 @@ class Service(xbmc.Monitor):
         if library.is_alive():
             last = diag.thread_dump("library thread outlived the deadline")
             LOG.error(
-                "library thread outlived %.0fs (%s); leaving the sync stop flag raised",
+                "library thread outlived %.0fs (%s)",
                 LIBRARY_JOIN_SECONDS,
                 diag.describe_movement(library.ident, first, last),
             )
@@ -1342,8 +1327,6 @@ def _decode_kodi_data(data: str) -> Dict[str, Any]:
 
 def run_forever() -> None:
     while True:
-        # A generation never inherits the previous one's stop flag.
-        state.set_should_stop(False)
         service = Service()
         if not service.run():
             break

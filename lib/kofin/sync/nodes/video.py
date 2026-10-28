@@ -30,7 +30,6 @@ LOG = Logger(__name__)
 # folder name is the prefix every managed name carries.
 NODE_ROOT = fs.PREFIX
 
-NODE_LAYOUT = 13
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -195,11 +194,6 @@ def write_xml(file, element):
 
 
 # --- paths ---------------------------------------------------------------------
-
-
-def video_library_path():
-    """Kodi's video library node root -- the user's, where the parent sits."""
-    return xbmcvfs.translatePath("special://profile/library/video/")
 
 
 def node_root_path():
@@ -481,12 +475,3 @@ def delete_tree():
     root = node_root_path()
     fs.remove_managed_entries(root, also=("index.xml",))
     fs.remove_empty(root)
-
-
-def delete_library(view_id):
-    """Remove one library's folder, whatever kind it was written as."""
-    root = node_root_path()
-    dirs, _ = fs.listdir(root)
-    for name in dirs:
-        if fs.is_managed(name) and name.endswith(view_id):
-            fs.remove_folder(os.path.join(root, name))
