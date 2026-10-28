@@ -1,18 +1,10 @@
-"""Userdata that could not reach the server, and its replay (plan W2.4).
+"""Userdata that could not reach the server, and its replay.
 
-Watching a downloaded item offline is the whole point of the feature, and
-before this the watched flag and the resume point it produced were simply
-dropped: Kodi announced the change, ``service/kodiuserdata`` tried to push
-it, the transport failed, and the event was gone with nothing to retry it
-(feasibility V6). Here it is parked instead, and replayed on the next
+Userdata a failed push would lose is parked and replayed on the next
 connect.
 
-One row per item, not per event: a second event for the same item
-overwrites the fields it carries and leaves the rest alone
-(:func:`enqueue`). Replaying "played, position 0" after "position 1200"
-would otherwise resurrect a stale position, and Findroid's known ghost —
-an episode that comes back in Continue Watching after being finished
-offline — is exactly that shape.
+One row per item, not per event: a later event overwrites only the fields
+it carries (:func:`enqueue`), so a replay cannot resurrect a stale position.
 
 NULL means "unchanged": a row can carry a position without touching the
 played flag, and vice versa.
@@ -170,12 +162,6 @@ def record_attempt(jellyfin_id: str) -> int:
 
 def resolve(row: Pending, server: Dict[str, Any]) -> Dict[str, Any]:
     """What to send, given the server's *current* userdata for the item.
-
-    The conflict this settles is real and cheap to detect: the account was
-    watching somewhere else while this device was offline. Every shipped
-    Jellyfin client that replays offline state (Findroid is the only one)
-    overwrites blindly; comparing against the snapshot taken when the item
-    was queued costs one field.
 
     - The server has not moved since the snapshot: replay verbatim.
     - The server *has* moved: keep the further position — a viewer who got

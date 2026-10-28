@@ -1,20 +1,19 @@
-"""The service-side download manager (docs/offline-downloads-plan.md W1.5).
+"""The service-side download manager.
 
 A worker pool draining the kofin.db queue oldest-first: fetch to ``.part``
 over :meth:`Api.download_stream`, verify the size, pull the external
-subtitle sidecars (W1.6), rename, repoint, refresh. Owned by the service the
-way the library manager is — built when enabled, degrade-don't-die, stopped
-in ``_shutdown`` with bounded joins — and fed by the guarded download IPC
-messages, whose handlers run on Kodi's notification thread and therefore
+subtitle sidecars, rename, hand to the pass, refresh. Owned by the service
+the way the library manager is — built when enabled, degrade-don't-die,
+stopped in ``_shutdown`` with bounded joins — and fed by the guarded download
+IPC messages, whose handlers run on Kodi's notification thread and therefore
 only enqueue here (the ops queue) rather than touch a database or a socket.
 
-Stop discipline (the thread-stop doctrine, and the reason every worker gets
-its own ``_new_api`` session): the transport abort predicate bounds retries,
-the per-chunk check in ``StreamedResponse.chunks`` bounds a live body, and
-the read timeout bounds a dead one — so a stop request is honored within one
-chunk plus one read timeout, never a file's worth of transfer. A download a
-stop interrupts stays ``active`` and is re-queued by ``recover_interrupted``
-at the next start, resuming originals from ``bytes_done`` with a Range.
+Stop discipline: the transport abort predicate bounds retries, the per-chunk
+check in ``StreamedResponse.chunks`` bounds a live body, and the read timeout
+bounds a dead one — so a stop request is honored within one chunk plus one
+read timeout, never a file's worth of transfer. A download a stop interrupts
+stays ``active`` and is re-queued by ``recover_interrupted`` at the next
+start, resuming originals from ``bytes_done`` with a Range.
 """
 
 import os
@@ -86,14 +85,13 @@ PLAYBACK_POLL_SECONDS = 5.0
 # with a little grace (core.http.DEFAULT_TIMEOUT read budget is 30 s).
 JOIN_SECONDS = 35.0
 
-# How often the maintenance thread sweeps watched auto-origin downloads
-# (plan W4.2). Kodi marks played at ~90%, so "promptly after the credits"
-# needs no better than minutes.
+# How often the maintenance thread sweeps watched auto-origin downloads.
+# Kodi marks played at ~90%, so "promptly after the credits" needs no better
+# than minutes.
 RETENTION_SWEEP_SECONDS = 300.0
 
-# The stale sweep's unit and its fallback (plan W4.8): the setting is in
-# days, and an unset one behaves as the slider's own default so a profile
-# that predates it reads the same as one that has never touched it.
+# The stale sweep's unit and its fallback: the setting is in days, and unset
+# reads as the slider's default.
 SECONDS_PER_DAY = 86400.0
 STALE_DAYS_DEFAULT = 30
 
@@ -116,13 +114,7 @@ class _Cancelled(Exception):
 
 
 class _Op(NamedTuple):
-    """One item on the ops queue, applied by whichever worker drains it.
-
-    Named rather than a bare tuple since the request fields joined it (D6):
-    four positional strings could be read against the wrong slot at a
-    glance, six could not be read at all, and every op but ``add`` leaves
-    most of them empty.
-    """
+    """One item on the ops queue, applied by whichever worker drains it."""
 
     op: str
     item_id: str = ""
@@ -152,29 +144,16 @@ class DownloadManager:
     ) -> None:
         self._api_factory = api_factory
         self._refresh = refresh
-        # What the Kodi library says about a download, per build
-        # (downloads/nativeport.py).
+        # What the Kodi library says about a download (downloads/nativeport.py).
         self.native: nativeport.Native = native or nativeport.for_build()
         # The service generation's own event (never state.should_stop —
         # the successor lowers that on its way up; see service/main.py).
         self._stopping = stopping
         self._stop = threading.Event()
-        # One wake Event per worker, not one shared by the pool.
-        #
-        # Shared, it was a claim-latency bug rather than a race in the usual
-        # sense: `submit` sets the Event once, every worker wakes, and the
-        # first to notice clears it for everybody. When that first worker is
-        # from the *music* pool and the row is an episode, it drains the op,
-        # finds nothing it can claim, sees an empty ops queue and goes back to
-        # sleep — while the video workers, which could have taken the row, are
-        # already back in a 30 s wait with the Event clear. Measured on the
-        # Omega box: three consecutive user-initiated downloads sat queued for
-        # 31, 32 and 32 seconds with the machine otherwise idle.
-        #
-        # Per-worker Events fix it outright. Nobody can consume anybody else's,
-        # and a set that lands while a worker is between claim and wait is
-        # remembered rather than lost — which a Condition's notify_all, the
-        # other obvious shape, would drop.
+        # One wake Event per worker: a shared one is cleared by whichever
+        # worker wakes first, perhaps one that cannot claim the row. A set
+        # between claim and wait is kept, where a Condition's notify_all
+        # would drop it.
         self._wakes: List[threading.Event] = []
         self._wakes_lock = threading.Lock()
         self._ops: "Queue[_Op]" = Queue()
@@ -198,20 +177,15 @@ class DownloadManager:
         # Downloads deleted since the last announcement (see _flush_removed).
         self._removed: List[str] = []
         self._removed_lock = threading.Lock()
-        # One *video* transcode pull at a time (plan W3.1): the encoder runs
-        # flat-out with throttling force-disabled (V2), so two parallel pulls
-        # would saturate the server unbidden. Originals keep the full pool.
+        # One *video* transcode pull at a time: the encoder runs unthrottled,
+        # so two parallel pulls would saturate the server. Originals keep the
+        # full pool.
         #
-        # Audio gets its own counter, and it is the whole music pool. An
-        # Opus encode is seconds of one core, nothing like an h264 pass, and
-        # sharing the video slot was what made music downloads crawl: every
-        # track in an album queued behind every other track's encode, which
-        # measured out at roughly a tenth of Finamp's throughput. Sizing it
-        # to the pool means the semaphore never actually blocks a music
-        # worker — it stays a semaphore only so the two paths keep one shape.
+        # Music's slot is as wide as its pool, so it never blocks; it stays a
+        # semaphore so both paths share one shape.
         self._transcode_slot = threading.Semaphore(1)
         self._music_transcode_slot = threading.Semaphore(music_worker_count())
-        # The aggregate bar on Kodi's library-update surface (W3.4).
+        # The aggregate bar on Kodi's library-update surface.
         self._progress = progress.Reporter(self._should_stop)
 
     # -- lifecycle -----------------------------------------------------------
@@ -239,10 +213,8 @@ class DownloadManager:
             daemon=True,
         )
         self._reconciler.start()
-        # Two pools, one queue. The kinds a pool claims are what keep an
-        # album from sitting behind a film — and the video pool takes the
-        # unknown kind, because a row queued before the type travelled with
-        # the id could be anything (store.claim).
+        # Two pools, one queue. The kinds a pool claims keep an album from
+        # sitting behind a film.
         for index in range(worker_count()):
             self._spawn_worker("kofin-downloads-%d" % index, VIDEO_KINDS)
         for index in range(music_worker_count()):
@@ -295,7 +267,7 @@ class DownloadManager:
         ``request_id``/``request_name`` name the item the user selected,
         and ride onto every row this call creates so the
         completion toast can answer the request rather than each item
-        (D6, ``_announce_complete``).
+        (``_announce_complete``).
         """
         kinds = media_types or []
         for index, item_id in enumerate(item_ids):
@@ -314,18 +286,10 @@ class DownloadManager:
         self._wake_all()
 
     def remove(self, item_ids: List[str], subscription: bool = False) -> None:
-        """Delete finished downloads, restoring their library rows.
+        """Delete finished downloads.
 
-        A list, and *one* op for the lot, because a container removal is one
-        request: the sender expands the season or album from kofin.db
-        (``plugin/actions.py``) and what arrives here is the answer to a
-        single button press. Per-id ops would race their own announcement —
-        a worker that drained the first id before the second arrived would
-        toast twice for one press — and the batch is what lets the refresh
-        and the toast fire once at the end, exactly as ``remove_all`` does.
-
-        Joined into the op record's id slot rather than widening it: Jellyfin
-        ids are hex, so the separator cannot appear in one.
+        One op for the lot; Jellyfin ids are hex, so the comma joining them
+        cannot appear in one.
         """
         wanted = [item_id for item_id in item_ids if item_id]
         if not wanted:
@@ -370,22 +334,16 @@ class DownloadManager:
                 self._drain_ops(own=wake)
                 if state.is_offline():
                     # Hold the queue rather than burn it: every claim while
-                    # the server is gone would fail its three attempts and
-                    # settle, so a user who queued a season offline came back
-                    # to a list of failures instead of a list of downloads
-                    # (the gap phase 1's gates exposed). Ops still drain
-                    # above, so a cancel or a remove works offline.
+                    # the server is gone would fail its attempts and settle.
+                    # Ops still drain above, so a cancel or a remove works
+                    # offline.
                     self._progress.idle()
                     if wake.wait(timeout=OFFLINE_POLL_SECONDS):
                         wake.clear()
                     continue
                 if self._paused_for_playback():
-                    # The gate is on *claiming*, never inside _transfer: a
-                    # file already coming down runs to completion, which is
-                    # both what the setting promises and the only behaviour
-                    # that cannot strand a half-written .part for the length
-                    # of a film. Ops drain above, so cancelling and removing
-                    # still work while playback holds the pool.
+                    # The gate is on claiming only: a transfer already
+                    # running finishes, and ops still drain above.
                     self._progress.idle()
                     if wake.wait(timeout=PLAYBACK_POLL_SECONDS):
                         wake.clear()
@@ -394,11 +352,7 @@ class DownloadManager:
                 if row is None:
                     if not self._ops.empty():
                         # Ops arrived while this worker was claiming: never
-                        # sleep on a non-empty queue. This predates the
-                        # per-worker Events and is no longer the only thing
-                        # standing between a queued row and a 30 s wait, but
-                        # it still saves a needless round trip through the
-                        # wait when work is visibly pending.
+                        # sleep on a non-empty queue.
                         continue
                     # Nothing left for this pool: the moment to pay for the
                     # refreshes the finished items deferred.
@@ -423,22 +377,9 @@ class DownloadManager:
     def _drain_ops(self, own: Optional["threading.Event"] = None) -> None:
         """Apply everything waiting on the ops queue.
 
-        Re-notifies the other workers when an add actually created a row, and
-        that is the whole point of the method's second half. ``submit`` wakes
-        the pool when it *enqueues* an op, but the row does not exist until
-        some worker gets here and ``store.queue`` returns — and the worker
-        that can claim it has usually spent its wake by then:
-
-            submit sets every wake  ->  video worker wakes, drains nothing
-            (a music worker got the op first), claims nothing (no row yet),
-            finds the queue empty, and sleeps for the full idle poll
-            ->  the music worker finishes store.queue, cannot claim an
-                episode, and sleeps too  ->  nobody is left to notice
-
-        Measured on the Omega box: the row was queued 1.6 s after the request
-        and claimed 31 s after that, five trials running. The re-notify here
-        closes the window; ``own`` is skipped because the draining worker is
-        about to try to claim anyway.
+        Wakes the other workers once an add created a row: ``submit``'s wake
+        fires before the row exists, so the worker that could claim it may
+        already be asleep. ``own`` is skipped because it is about to claim.
         """
         queued = False
         while True:
@@ -507,11 +448,8 @@ class DownloadManager:
             LOG.info("download cancelled: %s", item_id)
 
     def _remove_row(self, row: "store.Download") -> None:
-        """The ordered removal every path shares (P1.10): media, store row,
-        tag, badge. The store row goes before the tag check because an
-        episode's unstamp asks whether any sibling download still holds the
-        show in the node, and the row being removed must not count itself
-        as that sibling."""
+        """The ordered removal every path shares: media, store row, then the
+        pass, which must find the row gone."""
         self._delete_media(row)
         store.remove(row.jellyfin_id)
         self.native.detached(row)
@@ -522,12 +460,8 @@ class DownloadManager:
         """One request's worth of removals: every row, then one refresh and
         one toast.
 
-        The batch boundary is the whole point. A removal answers something
-        the user just asked for, so it does not wait out the completion
-        path's defer window — but "immediate" has to mean once per
-        *request*, not once per row. Removing an album is one menu press and
-        seventeen rows: per row that was seventeen widget passes, and would
-        now be seventeen toasts, for one answer.
+        A removal is answered once per request, not per row, and does not
+        wait out the completion path's defer window.
         """
         for item_id in item_ids:
             if self._should_stop():
@@ -561,18 +495,8 @@ class DownloadManager:
         if not restored and row.origin.startswith(
             ("auto:playlist:", "auto:musiclibrary:")
         ):
-            # A mirrored item can leave the server before the manager gets
-            # its removal message. The sync writer may already have removed
-            # the Kodi row, leaving nothing to restore. In that one case the
-            # full remove path can still delete the orphaned local copy.
             departed_subscription_item = not self.native.mapped(row.jellyfin_id)
         if not restored and not departed_subscription_item:
-            # Refused (no captured filename, no usable mapping): deleting
-            # the media now would leave the library row pointing at a file
-            # that no longer exists. The download stays exactly as it is —
-            # file, row, tag, badge — and the user is told; the next writer
-            # pass over the item re-captures the filename, after which the
-            # removal goes through (assessment D5).
             LOG.error(
                 "download %s kept: its library row could not be restored", item_id
             )
@@ -587,25 +511,10 @@ class DownloadManager:
         LOG.info("download removed: %s", item_id)
 
     def _apply_remove_all(self) -> None:
-        """Every download goes: finished ones through the full remove path,
-        unfinished ones cancelled.
-
-        The refresh and the toast come once at the end, like every other
-        batch here (_apply_remove_batch): per row this would be a whole
-        library's worth of widget passes, and a whole library's worth of
-        notifications, out of one button press.
-
-        Unfinished rows are marked cancelled before being applied, not put
-        back on the ops queue: a row being transferred right now aborts at
-        its next chunk off that flag, and re-queueing would mean one op per
-        row for work this loop is already doing.
-
-        This is one of the two places that means *everything*, so it also
-        takes the category directories the per-row deletes leave standing —
-        after it, the downloads root is as bare as it was before the feature
-        was ever used. Not attempted when a stop cut the loop short: rows
-        that never got their turn still have files, and a sweep would find
-        the directories non-empty anyway.
+        """Every download goes: finished rows through the full remove path,
+        unfinished ones cancelled in place (an active transfer aborts off the
+        flag), then the empty category directories unless a stop cut the
+        loop short; one refresh and one toast at the end.
         """
         rows = store.rows()
 
@@ -644,7 +553,7 @@ class DownloadManager:
             LOG.info("download cancelled mid-transfer: %s", item_id)
         except Unauthorized as error:
             # The server's EnableContentDownloading gate: retrying cannot fix
-            # a permission, so the row settles immediately (feasibility V1).
+            # a permission, so the row settles immediately.
             store.fail(item_id, "download not permitted: %s" % error)
             if not row.request_id:
                 self._toast(30713, item_id)
@@ -720,13 +629,9 @@ class DownloadManager:
                 api, row, item, source, owner_id, decision, root
             )
 
-        # The chunk loop consults the cancel flag before each chunk, so a
-        # cancel that lands during the last chunk's write is one it never
-        # sees. Asked once more here, with the body complete: the item is
-        # not done yet, and the user asked first. From store.finish on the
-        # item *is* done and a cancel that arrives in between (the sidecars,
-        # the rename — a second at most) is superseded by completion: the
-        # flag is cleared there, and the row is removed, not cancelled.
+        # The chunk loop checks the cancel flag before each chunk, so check
+        # once more with the body complete. From store.finish on, completion
+        # wins.
         if self._cancelled(item_id):
             raise _Cancelled()
         absolute = files.absolute_path(root, rel_path)
@@ -743,7 +648,7 @@ class DownloadManager:
         store.finish(item_id, rel_path, container, actual)
         # Spent: a cancel that arrived after the check above completed
         # anyway, and left in the set it would cancel the *next* download
-        # of this id at its first chunk (assessment D1).
+        # of this id at its first chunk.
         self._clear_cancel(item_id)
         self._attempts.pop(item_id, None)
         finished = store.get(item_id)
@@ -755,11 +660,8 @@ class DownloadManager:
             export.export_item(api, item, absolute)  # best-effort by contract
         if media_type == "song":
             self._ensure_music_view()
-        # Deferred, not fired here. A refresh costs a widget fingerprint pass
-        # and an UpdateLibrary scan, which is nothing beside a film and
-        # everything beside a three-minute track — a 12-track album paid it
-        # twelve times over. The flusher does it once the pool goes quiet,
-        # for the databases that actually moved.
+        # Deferred, not fired here: the flusher refreshes once the pool goes
+        # quiet.
         self._mark_dirty(media_type)
         if media_type == "song":
             self._mark_playlist_dirty(item_id)
@@ -767,12 +669,8 @@ class DownloadManager:
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _capture_segments(self, api: Any, item_id: str) -> None:
-        """The offline segment cache (W4.7): the raw /MediaSegments body,
-        taken at completion and parsed at claim time, where the parser
-        lives. A failed fetch leaves the column empty — unknown, which the
-        online claim path covers with its own fallback fetch — while a
-        successful empty answer is stored as known-empty so nobody asks
-        again. Best-effort: segments must never fail a download."""
+        """The offline segment cache, taken at completion. Best-effort:
+        segments never fail a download."""
         import json
 
         try:
@@ -785,14 +683,14 @@ class DownloadManager:
             LOG.debug("segment capture skipped for %s: %s", item_id, error)
 
     def _ensure_music_view(self, force: bool = False) -> None:
-        """The Downloaded-music smart playlist and node exist from the first
-        song on (plan W3.3); idempotent, and never worth failing a download
-        over.
+        """The Downloaded-music view, the ``.m3u8`` of finished songs, exists
+        from the first song on; idempotent, and never worth failing a
+        download over.
 
-        Once per manager generation, not once per track: the document does
-        not depend on which songs exist, so rewriting it for every track of
-        an album was twelve identical writes. ``force`` is the reconcile,
-        which runs precisely to heal a file somebody deleted by hand.
+        Once per manager generation, not once per track: each track's
+        rewrite goes through ``_mark_playlist_dirty`` and
+        ``refresh_song_playlists``. ``force`` is the reconcile, which runs
+        to heal a file somebody deleted by hand.
         """
         if self._music_view_written and not force:
             return
@@ -812,7 +710,7 @@ class DownloadManager:
         size_expected: int,
         root: str,
     ) -> Tuple[str, int]:
-        """The phase-1 path: the original bytes, Range-resumable."""
+        """The original bytes, Range-resumable."""
         item_id = row.jellyfin_id
         rel_path = row.rel_path
         start = 0
@@ -824,7 +722,7 @@ class DownloadManager:
         try:
             if not rel_path:
                 # First contact decides the name: the server states it in
-                # Content-Disposition on this very response (V1), so one open
+                # Content-Disposition on this very response, so one open
                 # serves both the headers and the body.
                 rel_path = self._decide_target(
                     item,
@@ -866,7 +764,7 @@ class DownloadManager:
         decision: "quality.Decision",
         root: str,
     ) -> Tuple[str, int]:
-        """The W3.1 path: a progressive fMP4 (or music) transcode.
+        """A progressive fMP4 (or music) transcode.
 
         Never resumed — a re-encode is not byte-stable, so every attempt
         starts from a clean ``.part`` — and verified by the duration probe,
@@ -962,7 +860,7 @@ class DownloadManager:
         """End the server-side job by name. Also fired on success — closing a
         finished job is a no-op there, and saying it is free; on failure and
         cancel it is what stops an encoder working for nobody (the closed
-        connection kills it too, eventually — V2 — but not promptly)."""
+        connection kills it too, eventually, but not promptly)."""
         if not play_session_id:
             return
         try:
@@ -978,12 +876,7 @@ class DownloadManager:
         container: str,
         disposition: str,
     ) -> str:
-        """Freeze the target path on first contact (files.py owns the rules).
-
-        The uniqueness test is on the *owning* directory — a film's own, a
-        show's — never the season leaf, so siblings share one season folder
-        (files.unique_dir).
-        """
+        """Freeze the target path on first contact (files.py owns the rules)."""
         owning, leaf = files.item_dirs(item)
         owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
         directory = owning if leaf is None else "%s/%s" % (owning, leaf)
@@ -1026,16 +919,16 @@ class DownloadManager:
         rel_path: str,
         include_embedded: bool = False,
     ) -> None:
-        """Subtitle sidecars beside the media file (plan W1.6, W3.1).
+        """Subtitle sidecars beside the media file.
 
         An original download does not contain the external subtitles the
-        streaming play route attaches, so a repointed item would silently
-        lose them. A *transcoded* download loses the embedded text tracks
-        too — the fMP4 output carries no subtitles — so those are extracted
-        as sidecars as well (``include_embedded``); the endpoint serves both
-        kinds, converting embedded text to the asked-for srt. Embedded image
-        tracks (PGS/DVDSUB) stay lost: Kodi cannot render a standalone one,
-        and burning-in is a quality decision nobody made. Kodi auto-loads
+        streaming play route attaches, so a local play would lose them. A
+        *transcoded* download loses the embedded text tracks too — the fMP4
+        output carries no subtitles — so those are extracted as sidecars as
+        well (``include_embedded``); the endpoint serves both kinds,
+        converting embedded text to the asked-for srt. Embedded image tracks
+        (PGS/DVDSUB) stay lost: Kodi cannot render a standalone one, and
+        burning-in is a quality decision nobody made. Kodi auto-loads
         sidecars by name. Failures are logged and non-fatal — a missing
         subtitle must never fail the download.
         """
@@ -1084,11 +977,7 @@ class DownloadManager:
         item_id = row.jellyfin_id
         if state.is_offline():
             # The server went away mid-transfer: back to queued without
-            # spending an attempt, so the offline hold in the worker loop
-            # picks it up again on reconnect. Left active it would sit stuck
-            # until the next service start — recover_interrupted runs only
-            # there (a gap phase 3 closed; shutdown below is different
-            # because the manager *is* about to restart).
+            # spending an attempt, for the offline hold to pick up.
             LOG.info("download interrupted by an outage: %s", item_id)
             store.release(item_id)
             return
@@ -1096,10 +985,8 @@ class DownloadManager:
             # Not a failure: the service is going away mid-transfer, and the
             # abort that ended the chunk loop is our own. The row stays
             # ``active`` so ``recover_interrupted`` re-queues it at the next
-            # start, resuming from the .part with a Range — settling it as
-            # failed instead both mislabels a shutdown and loses the
-            # automatic resume (found live, G6b: a Kodi quit left the row
-            # failed and nothing picked it up again).
+            # start, resuming from the .part with a Range; settling it as
+            # failed would lose the automatic resume.
             LOG.info("download interrupted by shutdown: %s", item_id)
             return
         attempts = self._attempts.get(item_id, 0) + 1
@@ -1139,13 +1026,9 @@ class DownloadManager:
     def _delete_part(self, row: "store.Download") -> None:
         """Drop a partial transfer and the directories it created.
 
-        The prune matters here as much as in ``_delete_media``: a cancel
-        before the first byte lands still made the season folder on its way
-        in, and without this an empty ``Season 03/`` survived every cancel
-        (found live, G6a). It stops at the same category floor, for the same
-        reason and deliberately not one level lower: a cancel and a delete
-        must leave the tree in the same shape, or which of the two you last
-        did would decide whether ``Movies/`` is still there.
+        A cancel before the first byte still made the season folder; prune
+        to the same category floor as ``_delete_media``, so cancel and
+        delete leave the same tree.
         """
         if not row.rel_path:
             return
@@ -1170,9 +1053,9 @@ class DownloadManager:
     # -- maintenance: reconcile once, then the retention sweep ------------------
 
     def _run_maintenance(self) -> None:
-        """Reconcile at start, then sweep on a slow beat (plan W4.2). The
-        first sweep runs right after the reconcile — it covers items watched
-        while the service was down."""
+        """Reconcile at start, then sweep on a slow beat. The first sweep
+        runs right after the reconcile — it covers items watched while the
+        service was down."""
         self._reconcile_once()
         self._backfill_segment_caches()
         self._retention_sweep()
@@ -1188,11 +1071,10 @@ class DownloadManager:
             self._stale_sweep()
 
     def _backfill_segment_caches(self) -> None:
-        """Downloads without a segment cache get one at the next start
-        (W4.7): pre-cache downloads, and any whose capture failed. Online
-        only, never-fetched rows only — a known-empty answer is kept — so
-        the pass is one bounded fetch per healed row, then permanently
-        quiet."""
+        """Downloads without a segment cache get one at the next start:
+        pre-cache downloads, and any whose capture failed. Online only,
+        never-fetched rows only — a known-empty answer is kept — so the pass
+        is one bounded fetch per healed row, then permanently quiet."""
         if state.is_offline():
             return
         wanting = [
@@ -1213,9 +1095,9 @@ class DownloadManager:
 
     def _reconcile_once(self) -> None:
         """Walk the done rows once at start: a missing file is cleaned up
-        after (:meth:`_handle_vanished`), and a present file re-asserts the
-        repoint — which is what heals a library repair, whose rebuilt rows
-        are all in writer shape."""
+        after (:meth:`_handle_vanished`), and a present file is handed to the
+        pass again (``native.attached``), which heals a badge a finish never
+        got."""
         try:
             root = downloads_root()
             touched = False
@@ -1235,7 +1117,7 @@ class DownloadManager:
                     if row.media_type == "song":
                         repointed_songs.add(row.jellyfin_id)
             if songs:
-                self._ensure_music_view(force=True)  # heals a hand-deleted .xsp too
+                self._ensure_music_view(force=True)  # heals a hand-deleted .m3u8 too
             if repointed_songs:
                 self._refresh_song_playlists(repointed_songs)
             if touched:
@@ -1247,13 +1129,7 @@ class DownloadManager:
         """A downloaded file deleted behind Kodi's back — a file manager, a
         card pulled and cleaned up on a computer, another app.
 
-        This used to restore the library row and leave a ``failed`` store row
-        behind it, which meant the leftovers stayed: the sidecars, the empty
-        season directory, the Downloads tag and the badge. The item went on
-        advertising itself as downloaded in the Downloaded nodes with nothing
-        behind it.
-
-        So it goes through the removal path proper, and the item is marked
+        It goes through the removal path proper, and the item is marked
         watched. Deleting a file by hand is how people finish with something,
         and the alternative reading — that they wanted it re-downloaded — is
         the one the automatic arms would act on.
@@ -1263,11 +1139,6 @@ class DownloadManager:
             row.jellyfin_id,
         )
         if not self.native.restore(row, root):
-            # The file is already gone, so there is nothing to keep: the
-            # cleanup proceeds — the row must go, or the sweep finds the
-            # same missing file every pass — and the library row heals on
-            # the item's next writer pass. Said loudly; it should not
-            # happen (a done row always captured its filename).
             LOG.error(
                 "vanished download %s: library row not restored; cleaning up anyway",
                 row.jellyfin_id,
@@ -1286,9 +1157,7 @@ class DownloadManager:
         not make the server's copy wrong, and a server that cannot be
         reached does not make Kodi's wrong.
 
-        Songs are left alone, the same exclusion the retention sweep makes:
-        a played track is not a finished one, and "watched" is not a thing a
-        song is.
+        Songs are excluded.
         """
         if row.media_type not in store.VIDEO_MEDIA_TYPES:
             return
@@ -1296,10 +1165,6 @@ class DownloadManager:
         self._push_played(row)
 
     def _mark_local_watched(self, row: "store.Download") -> None:
-        """Kodi's own play state for a vanished download, as the build's
-        port writes it (the SQL port straight through SQLite, never JSON-RPC,
-        so the userdata echo cycle is never started; the API port leaves it
-        to the server round-trip that follows)."""
         self.native.mark_watched(row)
 
     def _push_played(self, row: "store.Download") -> None:
@@ -1328,14 +1193,8 @@ class DownloadManager:
             api.close()
 
     def _sweep_vanished(self) -> None:
-        """The presence check on the maintenance beat, not just at start.
-
-        ``_reconcile_once`` runs once per service generation, so a file
-        deleted mid-session went unnoticed until the next restart — the item
-        stayed in the Downloaded nodes, and playing it failed in Kodi rather
-        than falling back to the server. An ``os.path.exists`` per done row
-        every few minutes costs nothing.
-        """
+        """The presence check on the maintenance beat: ``_reconcile_once``
+        runs only at start."""
         try:
             root = downloads_root()
             touched = False
@@ -1361,7 +1220,7 @@ class DownloadManager:
             LOG.exception("vanished-download sweep failed")
 
     def _retention_sweep(self) -> None:
-        """W4.2: remove watched downloads, through the full remove path —
+        """Remove watched downloads, through the full remove path —
         never a bare unlink.
 
         The backstop for what the end-of-playback offer cannot see: an item
@@ -1402,38 +1261,13 @@ class DownloadManager:
             LOG.exception("retention sweep failed")
 
     def _stale_sweep(self) -> None:
-        """W4.8: remove downloads nobody has touched in ``downloadsStaleDays``
-        days, through the full remove path like every other removal here.
+        """Remove downloads nobody has touched in ``downloadsStaleDays`` days,
+        through the full remove path.
 
-        The companion to the watched sweep, and deliberately not nested under
-        it: that pair answers "you finished it", this one answers "you never
-        got to it", which is the case a watched-ness test can never reach.
-        Watched items past the cutoff are collected too — a download watched
-        a month ago is stale by any reading, and this is the only thing that
-        clears them with ``downloadsDeleteAfterWatching`` off.
-
-        Age is the *last touch*: the later of the download finishing and
-        Kodi's own ``files.lastPlayed``, so re-watching something resets its
-        clock. Both facts are local, so the sweep works offline exactly like
-        the watched one.
-
-        The exclusions, in order of how badly each would be missed:
-
-        * an item with a **resume point** is never stale, however long it has
-          sat. A part-watched film is in progress, not abandoned, and it is
-          precisely what a pure age clock reads wrong. The exemption needs no
-          bookkeeping to clear: Kodi drops the resume bookmark when playback
-          reaches the end, so finishing something puts it back in the pool.
-          It inherits from the server too — the writers write playstate from
-          Jellyfin's UserData, so starting an episode on a phone protects the
-          copy downloaded here.
-        * the file currently playing, for the reason the watched sweep skips
-          it.
-        * songs, the same exclusion the rest of the lifecycle makes: staleness
-          per track would delete an album one track at a time.
-        * a row whose age cannot be established — no ``done_at``, never
-          played, or no library mapping to read. An unknown age is not an old
-          age.
+        Age is the later of ``done_at`` and Kodi's last played. Never stale:
+        an item with a resume point (Kodi drops it at the end, and the pass
+        writes the server's play state), the file playing, songs, and a row
+        whose age is unknown.
         """
         try:
             if not settings.get_bool("downloadsDeleteStale"):
@@ -1446,8 +1280,8 @@ class DownloadManager:
                 if row.media_type not in store.VIDEO_MEDIA_TYPES:
                     continue
                 if not row.done_at or row.done_at > cutoff:
-                    # The cheap half, off the store row alone: a library
-                    # inside its window never opens Kodi's database here.
+                    # The cheap half, off the store row alone: a row inside
+                    # its window never asks Kodi.
                     continue
                 touched = _last_touch(row)
                 if touched is None:
@@ -1500,17 +1334,12 @@ class DownloadManager:
         absolute = files.absolute_path(downloads_root(), row.rel_path)
         return os.path.abspath(playing) == os.path.abspath(absolute)
 
-    # -- plumbing --------------------------------------------------------------
-
     # -- making writes visible --------------------------------------------------
 
     def _mark_dirty(self, media_type: str) -> None:
         """Note that a database needs a refresh, without doing it yet.
 
-        Songs move Kodi's music database, everything else the video one, and
-        asking for the wrong database is not free: the refresh runs a widget
-        fingerprint pass over whatever it is handed. Before this split every
-        finished track fired ``UpdateLibrary(video)``.
+        Songs move Kodi's music database, everything else the video one.
         """
         with self._dirty_lock:
             self._dirty.add("music" if media_type == "song" else "video")
@@ -1606,19 +1435,8 @@ class DownloadManager:
         self._toast(string_id, name)
 
     def _flush_removed(self) -> None:
-        """Announce the batch just deleted: the item by name when it is one,
-        a count when a container's worth went at once.
-
-        The same rule _announce_complete follows for an album, for the same
-        reason — "Delete download" on a season is one request, and seventeen
-        toasts naming files nobody chose individually is not an answer to
-        it. Silenceable like every other download toast (``downloadsNotify``
-        via ``notify_allowed``): a deletion the user asked for is feedback,
-        not a failure. The automatic paths — the watched offer's silent mode
-        and the two retention sweeps — announce through here too, and that
-        is deliberate: a file removed without being asked for is the case
-        where saying so matters most.
-        """
+        """Announce the batch just deleted: one toast per batch, the name for
+        one, a count for several. Automatic removals announce here too."""
         with self._removed_lock:
             names = self._removed
             self._removed = []
@@ -1653,8 +1471,8 @@ def _expected_total(stream: StreamedResponse, start: int, fallback: int) -> int:
 
     A 206 states the whole in Content-Range ("bytes a-b/total") — including
     the 416 already-complete answer's "bytes */total". A 200's Content-Length
-    is the whole outright. A transcode (phase 3) states neither, which is
-    what the fallback (and clean-EOF completion) is for.
+    is the whole outright. A transcode states neither, which is what the
+    fallback (and clean-EOF completion) is for.
     """
     content_range = stream.header("Content-Range")
     if "/" in content_range:
@@ -1696,7 +1514,7 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
 
 
 # The sweep's two reads of Kodi's own play state, as module functions so a
-# test can stand them in; each build's port answers (downloads/nativeport.py).
+# test can stand them in (downloads/nativeport.py).
 _as_epoch = nativeport._as_epoch
 
 
@@ -1718,11 +1536,9 @@ def _remove_quietly(path: str) -> None:
 def delete_media_files(row: "store.Download") -> None:
     """One download's media file, its .part and its sidecars, then empty dirs.
 
-    Module level because the Clean databases pass needs it too, and it must
-    not drag a whole Manager into the plugin process to get it. Scoped to the
-    row's own ``rel_path`` rather than sweeping the downloads root: the root
-    is user-configurable, and someone who pointed it at a folder they share
-    with other media must lose only what kofin put there.
+    Scoped to the row's own ``rel_path`` rather than sweeping the downloads
+    root: the root is user-configurable, and someone who pointed it at a
+    folder they share with other media must lose only what kofin put there.
     """
     if not row.rel_path:
         return
@@ -1746,7 +1562,7 @@ def delete_media_files(row: "store.Download") -> None:
 # the title, season and album directories inside them and stops there, so
 # a folder the user has pointed something at — a Kodi source, a file
 # manager shortcut — does not disappear from under it the moment its last
-# item goes. Only the two bulk paths take them (sweep_category_dirs).
+# item goes. Only remove-all takes them (sweep_category_dirs).
 CATEGORY_DIRS = frozenset({files.MOVIES_DIR, files.SHOWS_DIR, files.MUSIC_DIR})
 
 
@@ -1755,8 +1571,8 @@ def _category_floor(root: str, rel_path: str) -> str:
 
     ``<root>/<category>`` when the path starts with one of the three names
     the layout writes, and the root itself for anything else — a row whose
-    layout predates a category, or a hand-made path, prunes exactly as it
-    did before rather than being kept alive by a name nobody recognises.
+    layout predates a category, or a hand-made path, prunes to the root
+    rather than being kept alive by a name nobody recognises.
     """
     head = rel_path.split("/", 1)[0]
     if head in CATEGORY_DIRS:
@@ -1768,13 +1584,9 @@ def sweep_category_dirs(root: str) -> int:
     """Remove the empty category directories, and only those. Returns how
     many went.
 
-    The other half of the floor above: "delete all downloads" and the Clean
-    databases pass are the two places that mean *everything*, so they take
-    the folders the per-row deletes deliberately leave. By name and only
-    when empty — the root is user-configurable and may be shared with other
-    media, so a directory that is not one of kofin's three, or that still
-    holds anything at all, is never touched. The root itself is never a
-    candidate.
+    The other half of the floor above: "delete all downloads" takes the
+    folders the per-row deletes leave — only the three by name, only when
+    empty, never the root.
     """
     swept = 0
     for name in sorted(CATEGORY_DIRS):
@@ -1787,18 +1599,11 @@ def sweep_category_dirs(root: str) -> int:
     return swept
 
 
-# What the metadata export leaves at directory level (W4.3). A directory
-# holding only these counts as empty for pruning: the media left, and its
+# What the metadata export leaves at directory level. A directory holding
+# only these counts as empty for pruning: the media left, and its
 # escape-hatch sidecars must not keep the tree alive. The per-item
 # ``<basename>.nfo`` needs no entry — the sibling sweep in ``_delete_media``
 # already takes everything sharing the media file's stem.
-#
-# ``album.nfo`` and ``artist.nfo`` joined the set with the music export
-# (D5). The artist level is the one that needed it: its three files are
-# written once for a whole artist, so without an entry here an artist
-# directory whose every album had gone would have survived on its own
-# metadata — and now that pruning stops at the category folder rather than
-# the root, nothing above would ever have cleared it.
 EXPORTED_COMPANIONS = frozenset(
     {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg", "album.nfo", "artist.nfo"}
 )
@@ -1820,9 +1625,7 @@ def _prune_empty_dirs(directory: str, floor: str) -> None:
     directory down to its exported metadata counts as empty.
 
     ``floor`` is the category directory for a row that has one and the
-    downloads root otherwise (:func:`_category_floor`) — it used to be the
-    root always, which is what took ``Movies/`` away with the last film in
-    it.
+    downloads root otherwise (:func:`_category_floor`).
     """
     current = os.path.abspath(directory)
     stop = os.path.abspath(floor)

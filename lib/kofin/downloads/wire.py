@@ -1,10 +1,7 @@
-"""The downloads IPC wire format (shell refactor P2.4).
+"""The downloads IPC wire format.
 
-What ``DOWNLOAD_ADD`` carries and how the service reads it — kept beside the
-downloads package rather than inside ``Service.onNotification``, because it
-is the contract between the plugin process that builds the payload
-(``plugin/actions.py``, ``downloads/auto.py``) and the manager that consumes
-it, not a fact about the notification bus.
+The ``DownloadAdd``/``DownloadRemove`` payload contract between their
+senders and the manager.
 """
 
 from typing import Any, Dict, List, NamedTuple
@@ -29,17 +26,17 @@ class Add(NamedTuple):
 def parse_add(payload: JsonDict) -> Add:
     """The ids, origin, types and request a ``DownloadAdd`` payload names.
 
-    The optional Origin marks automatic downloads for W4.2's retention
-    sweep; anything unrecognized is a user download — the label that is
-    never auto-deleted. Types is optional and positional against Ids: the
-    sender holds each item's DTO type, and passing it here is what lets the
-    queue split by media kind without an item fetch per row. Paired before
-    the empty ids are dropped, so a blank in the middle cannot shift the
-    rest by one; a short or absent list just leaves kinds unknown, which the
-    video pool claims.
+    The optional Origin marks automatic downloads for the retention sweep;
+    anything unrecognized is a user download — the label that is never
+    auto-deleted. Types is optional and positional against Ids: the sender
+    holds each item's DTO type, and passing it here is what lets the queue
+    split by media kind without an item fetch per row. Paired before the
+    empty ids are dropped, so a blank in the middle cannot shift the rest by
+    one; a short or absent list just leaves kinds unknown, which the video
+    pool claims.
 
     Request/RequestName are optional for older plugin processes and automatic
-    downloads; a row without a request uses the earlier item/album behavior.
+    downloads; a row without a request gets the per-item or per-album toast.
     """
     origin = str(payload.get("Origin") or downloads_store.ORIGIN_USER)
     if origin != downloads_store.ORIGIN_USER and not downloads_store.is_auto_origin(
@@ -70,11 +67,9 @@ def item_id(payload: JsonDict) -> str:
 def item_ids(payload: JsonDict) -> List[str]:
     """The ids a ``DownloadRemove`` names.
 
-    A list like ``DownloadAdd``'s, because the sender expands a season or an
-    album before it sends (``plugin/actions.py``) and the manager has to see
-    the whole request at once to answer it once — one refresh, one toast.
-    A bare ``Id`` is still read: the automatic paths name a single item, and
-    a plugin process left over from before an add-on update sends that shape.
+    A list, because the sender expands a season or an album before it sends.
+    A bare ``Id`` is still read: a plugin process left over from before an
+    add-on update sends that shape.
     """
     raw = payload.get("Ids")
     if raw is None:

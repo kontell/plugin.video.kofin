@@ -1,15 +1,15 @@
-"""The conditional download-quality decision (plan W3.1/W3.2).
+"""The conditional download-quality decision.
 
 With the transcode toggles off this module answers "original" without a
 server round trip. With one on, the decision is the *server's*, through
 PlaybackInfo with the download device profile
 (:func:`kofin.core.deviceprofile.build_download`): an item within every
 limit — bitrate cap, resolution cap, the device's codec lists, the allowed
-HDR types — answers ``SupportsDirectPlay`` and downloads as the original,
-exactly phase 1's path; anything else hands back a ``TranscodingUrl`` whose
-job stream-copies the compliant tracks and re-encodes only the offending
-ones. A failed decision raises rather than falling back to the original:
-silently downloading a 40 GB file the caps ruled out is worse than a retry.
+HDR types — answers ``SupportsDirectPlay`` and downloads as the original;
+anything else hands back a ``TranscodingUrl`` whose job stream-copies the
+compliant tracks and re-encodes only the offending ones. A failed decision
+raises rather than falling back to the original: silently downloading a
+40 GB file the caps ruled out is worse than a retry.
 """
 
 from typing import Any, Dict, NamedTuple
@@ -23,8 +23,8 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-# The store's row value is the vocabulary; aliased rather than retyped so
-# the string-equality dependence between the two modules is named (P1.10).
+# The store's row value is the vocabulary; aliased so the shared vocabulary
+# is named once.
 ORIGINAL = store.QUALITY_ORIGINAL
 TRANSCODE = store.QUALITY_TRANSCODE
 
@@ -59,15 +59,11 @@ def cap_bitrates_to_source(url: str, source: JsonDict) -> str:
     """Splice the URL's target bitrates down to the source's own rates.
 
     The server sizes a transcode from the profile's budget, not from the
-    source: a codec-forced transcode of a 0.9 Mbit/s file under a 3 Mbit/s
-    cap came back 2.9 Mbit/s HEVC — 3.5x the bytes for nothing (measured,
-    G11). A re-encode cannot add quality the source does not have, so the
-    target never exceeds the source stream's own rate. Lowering to *equal*
-    is safe for a stream the server planned to copy: the copy gates on
-    ``requested >= source``, which equality satisfies. Params are spliced
-    textually, as ``play.rewrite_bitrates`` does — the URL carries opaque
-    values no parse/re-encode round trip has business touching — and a URL
-    that names no bitrate is left alone (nothing to cap).
+    source, so the target never exceeds the source stream's own rate.
+    Lowering to *equal* is safe for a stream the server planned to copy: the
+    copy gates on ``requested >= source``, which equality satisfies. Params
+    are spliced textually, as ``play.rewrite_bitrates`` does, and a URL that
+    names no bitrate is left alone.
     """
     base, _, query = url.partition("?")
     if not query:
@@ -91,11 +87,11 @@ def cap_bitrates_to_source(url: str, source: JsonDict) -> str:
 def estimated_bytes(url: str, runtime_ticks: int) -> int:
     """A transcode's likely finished size, off the URL's own targets.
 
-    The only total a progress bar can get — no Content-Length exists — and
-    a good one since :func:`cap_bitrates_to_source`: the targets are real
-    stream rates, and fMP4 adds ~0% container overhead (V3). 0 when the
-    URL names no bitrate or the runtime is unknown, which the bar reads as
-    "count this item only when it finishes".
+    The only total a progress bar can get — no Content-Length exists. The
+    targets are capped to the source's own rates by
+    :func:`cap_bitrates_to_source`. 0 when the URL names no bitrate or the
+    runtime is unknown, which the bar reads as "count this item only when it
+    finishes".
     """
     seconds = runtime_ticks / 10_000_000
     if seconds <= 0:
