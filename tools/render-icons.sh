@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Rasterise Material Symbols sources into resources/media.
 #
-# The PNGs under resources/media are drawn from the SVGs beside this script.
-# Download badges shipped at 32x32 greyscale, which was fine for the overlay a
-# skin draws at 24px and visibly soft everywhere else — the same file is now
-# the icon on the generated Downloaded library nodes, where Kodi hands it a
-# 256px slot. The alphabet listing icon is the same 256px slot.
+# The PNGs under resources/media are drawn from the SVGs beside this script,
+# at 256px: a download badge is also the icon of the generated Downloaded
+# library nodes, where Kodi hands it a 256px slot, as it does the alphabet
+# listing icon.
 #
 # Sources are Material Symbols exports (24px, viewBox="0 -960 960 960",
 # fill #e3e3e3). Download badges keep that fill so they match the rest of
@@ -16,8 +15,8 @@
 # larger than the addon's other listing icons. render_listing expands the
 # viewBox so the glyph occupies listing_inner of the 256px canvas.
 #
-# tools/ is excluded from the shipped zip (tools/build.py), so this is a dev
-# utility: run it after replacing an SVG, and commit the PNGs it writes.
+# A dev utility, not shipped: run it after replacing an SVG, and commit the
+# PNGs it writes.
 #
 #   tools/render-icons.sh
 #

@@ -46,11 +46,9 @@ def test_encode_decode_round_trip():
 
 
 def test_a_payload_with_quotes_and_backslashes_survives_the_builtin_parser():
-    """json.dumps writes a quote inside a value as \\" and the old encoder
-    then escaped that quote again, producing \\\\" — which SplitParams reads
-    as an escaped backslash followed by the closing quote (audit M1). No
-    payload carries free text today; this is the trap for the next field
-    that does (a name, a title)."""
+    """json.dumps writes a quote inside a value as \\", and escaping that
+    quote again gives \\\\", which SplitParams reads as an escaped backslash
+    followed by the closing quote."""
     payload = {"Name": 'The "Example" \\ Film', "Id": "abc", "Types": ["Movie"]}
     assert ipc.decode(_split_params(ipc._encode(payload))) == payload
 
@@ -72,7 +70,7 @@ def test_method_name_strips_kodi_prefix():
     assert ipc.method_name("Restart") == "Restart"
 
 
-# --- the nonce on destructive commands (audit finding #20) --------------------
+# --- the nonce on destructive commands ----------------------------------------
 
 
 @pytest.fixture
@@ -94,9 +92,9 @@ def test_rotate_writes_a_fresh_secret_each_generation(nonce_file):
 
 
 def test_the_secret_is_owner_only_from_the_moment_it_exists(nonce_file, monkeypatch):
-    """The temp file used to be created under the process umask and
-    chmod'ed afterwards — a window in which it was world-readable (audit
-    M2). With the chmod taken away, the mode must already be right."""
+    """The temp file is created owner-only, not narrowed by a later chmod,
+    so it is never world-readable: with the chmod taken away, the mode is
+    still right."""
     import os
 
     monkeypatch.setattr(ipc.os, "chmod", lambda path, mode: None)
@@ -172,8 +170,8 @@ def test_every_library_command_is_guarded(nonce_file):
 
 
 def test_sync_library_is_not_a_message(monkeypatch):
-    """Nothing ever sent it over NotifyAll (its producers enqueue on the
-    Library directly), and unguarded it was a forgeable full sync."""
+    """Its producers enqueue on the Library directly, and as a message it
+    would be a forgeable full sync."""
     monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: None)
     assert not hasattr(ipc, "SYNC_LIBRARY")
     with pytest.raises(ValueError):
@@ -188,7 +186,7 @@ def test_a_service_with_no_secret_accepts_nothing_guarded():
 
 def test_decode_never_raises_on_rubbish():
     """It runs on Kodi's notification thread, where the payload is whatever
-    the sender chose to put there (audit finding #21)."""
+    the sender chose to put there."""
     assert ipc.decode("not json") == {}
     assert ipc.decode('["zz-not-hex"]') == {}
     assert ipc.decode("[]") == {}
@@ -216,8 +214,8 @@ def test_download_commands_are_guarded(nonce_file):
 def test_notify_now_goes_through_json_rpc_with_the_registry_and_the_secret(
     monkeypatch, nonce_file
 ):
-    """The NotifyAll builtin, posted from a plugin script, reached the service
-    seconds late on a Raspberry Pi 3; JSON-RPC delivers at once."""
+    """The NotifyAll builtin, posted from a plugin script, can reach the
+    service seconds late; JSON-RPC delivers at once."""
     from kofin.core import kodirpc
 
     calls = []

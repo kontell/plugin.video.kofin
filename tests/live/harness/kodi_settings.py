@@ -1,6 +1,6 @@
 """RunScript harness: set Kodi system settings from inside Kodi through the
-in-process JSON-RPC, for a profile whose webserver is off (every new profile
-starts that way, so the first thing a fresh test profile needs is this).
+in-process JSON-RPC, for a profile whose webserver is off, as a new profile's
+is.
 
     RunScript(<file>,services.webserverpassword=kodi,services.webserver=true,debug.showloginfo=true)
 

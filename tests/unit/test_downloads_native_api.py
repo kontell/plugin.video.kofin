@@ -1,5 +1,5 @@
-"""Downloads in the API build: nothing of Kodi's moves; the pass carries the
-badge and the tag, and the play state is read back by id."""
+"""Downloads and Kodi's library: nothing of Kodi's moves; the pass carries
+the badge and the tag, and the play state is read back by id."""
 
 import pytest
 
@@ -129,9 +129,9 @@ def badged(kodi):
 
 
 def test_an_episode_s_download_badges_its_season_and_its_show(store, backend, kodi):
-    """A skin marks the show and the season on the way down to the file, as
-    it does on the SQL build's rows. The season is found by the episode's
-    number, which is how Kodi files it; the show's other season stays plain."""
+    """A skin marks the show and the season on the way down to the file. The
+    season is found by the episode's number, which is how Kodi files it; the
+    show's other season stays plain."""
     from tests.unit.apifixtures import SHOW, show_bundle
 
     backend.setup()
@@ -193,8 +193,8 @@ def test_an_episode_acknowledged_before_it_carried_its_tag_is_built_again(
     store, backend, kodi, monkeypatch
 ):
     """A downloaded episode acknowledged when the mark meant the badge alone
-    has the same mark and inputs as one acknowledged now, so only the
-    serializer's number tells them apart (metadata.SERIALIZER)."""
+    has the same mark as one acknowledged by this serializer: only
+    metadata.SERIALIZER, which the inputs token carries, tells them apart."""
     from kofin.sync.backends.api import metadata
     from tests.unit.apifixtures import show_bundle
 
@@ -235,9 +235,9 @@ def test_an_episode_acknowledged_before_it_carried_its_tag_is_built_again(
 def test_a_show_acknowledged_before_it_carried_a_badge_is_built_again(
     store, backend, kodi, monkeypatch
 ):
-    """A show with a download was acknowledged under the same mark when the
-    mark meant the tag alone, so nothing but the serializer's number tells
-    that acknowledgement from one made now (metadata.SERIALIZER)."""
+    """A show with a download acknowledged when the mark meant the tag alone
+    has the same mark as one acknowledged by this serializer: only
+    metadata.SERIALIZER, which the inputs token carries, tells them apart."""
     from kofin.sync.backends.api import metadata
     from tests.unit.apifixtures import SHOW, show_bundle
 
@@ -281,9 +281,9 @@ def scans(kodi):
 
 def test_a_badge_that_moved_ends_the_pass_with_one_library_event(store, backend, kodi):
     """Kodi announces nothing for a setter that changes only art or tags,
-    and a home widget reloads on an announcement alone: the badge was on the
-    row and on no widget. One scan of a directory that is not there, after
-    the last setter, however many rows the download marked."""
+    and a home widget reloads on an announcement alone, so a pass that moved
+    a badge ends with one scan of a directory that is not there, after the
+    last setter, however many rows the download marked."""
     from tests.unit.apifixtures import show_bundle
 
     backend.setup()
@@ -407,10 +407,10 @@ def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
 def test_the_downloaded_music_view_lists_the_finished_songs(
     store, backend, kodi, tmp_path, monkeypatch
 ):
-    """A download keeps its row's plugin URL in this build, so the smart
-    playlist's rule on the downloads folder matched nothing. The view is a
-    playlist of the finished songs in album order, written by the port, and
-    the smart playlist goes."""
+    """A download keeps its row's plugin URL, so no smart playlist rule on
+    the downloads folder can find it. The view is a playlist of the finished
+    songs in album order, written by the port, and a smart playlist left in
+    the folder is removed."""
     from kofin.sync import playlists
     from kofin.sync.backends.api import playlists as api_playlists
     from tests.unit.apifixtures import LIB2, album_bundle

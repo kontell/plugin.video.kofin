@@ -1,8 +1,8 @@
 """Jellyfin stream index <-> Kodi ordinal, and the stream-menu model.
 
-The layout under test throughout is the one measured live (plan §2.8): one
-video, two audio, three subtitles of which the last is image-based, plus a
-sidecar subtitle file the server found beside the media.
+The layout under test throughout: two audio, three embedded subtitles of
+which the last is image-based, plus a sidecar subtitle file the server found
+beside the media.
 """
 
 import pytest
@@ -99,10 +99,9 @@ def test_transcode_attaches_the_resolved_track_and_the_sidecar_only():
 
     Kodi opens every attached subtitle while building the demuxer, not when
     one is picked, and each embedded track is extracted on demand by the
-    server. Attaching all of them made a film with several stall for
-    20 seconds per track the server could not produce (measured live: one
-    ground for 48 s and then answered 400). Track 4 stays reachable through
-    the menu, which restarts into it; the image one was never attachable.
+    server, so every attachment delays the start. Track 4 stays reachable
+    through the menu, which fetches it onto the running playback; an image
+    track cannot be attached.
     """
     assert [
         (item.stream_index, item.url)
@@ -114,9 +113,8 @@ def test_transcode_attaches_the_resolved_track_and_the_sidecar_only():
 
 
 def test_the_fallback_prefers_a_forced_track():
-    """The server often selects nothing, and a film with twenty tracks and no
-    default is exactly the case that used to attach all twenty. Forced first,
-    because that is what forced means."""
+    """The server often selects nothing. Forced first, because that is what
+    forced means."""
     layout = source(text_sub(3), text_sub(4, IsForced=True), text_sub(5))
     assert streams.preferred_embedded(layout["MediaStreams"], None, "eng") == 4
 
@@ -268,11 +266,10 @@ def test_subtitle_ordinal_direct_play_with_no_sidecar_is_the_container_order():
 
 
 def test_subtitle_ordinal_regression_12_angry_men():
-    """The live case: one sidecar plus 20 embedded PGS tracks.
+    """One sidecar plus 20 embedded PGS tracks.
 
-    Measured on Piers via Player.GetProperties — Kodi listed the sidecar at 0,
-    Korean at 12 and Norwegian at 13. Asking for Jellyfin 17 (Norwegian) used
-    to return 12, so the viewer got Korean.
+    Kodi lists the sidecar at 0 and the embedded tracks after it in container
+    order, so Jellyfin 17 (Norwegian) is Kodi 13, not 12 (Korean).
     """
     langs = "eng zho zho dan nld fin fra deu isl ita jpn kor nor pol por por spa spa swe jpn"
     layout = streams.summarize(
@@ -324,9 +321,9 @@ def test_selectable_on_direct_play_is_everything():
 
 
 def test_selectable_on_a_transcode_is_every_track():
-    """Only one embedded track is attached now, so the others are reached by
-    restarting into them — an answer, and one the menu labels. Hiding them
-    would leave the viewer with no way to that subtitle at all."""
+    """Only one embedded track is attached, so the others are reached through
+    the menu, which labels what each costs. Hiding them would leave the viewer
+    with no way to that subtitle at all."""
     selectable = streams.selectable_subtitles(SUMMARY, [3, 6], "Transcode")
     assert [stream["Index"] for stream in selectable] == [3, 4, 5, 6]
 
@@ -342,9 +339,8 @@ def test_a_transcode_text_track_that_is_not_attached_is_fetched():
 
 
 def test_the_two_costs_are_told_apart():
-    """Conflating them mislabelled a plain SRT "burned in", made its restart
-    ask the server for a burn-in, and charged a five-second gap for something
-    that needs no new stream at all."""
+    """A burn-in needs a new stream and a fetch does not, so a text track is
+    never treated as a burn-in."""
     # An image track: pixels in the video, so only a new stream can carry it.
     assert streams.burns_in(image_sub(5), "Transcode")
     assert not streams.needs_fetch(image_sub(5), "Transcode", [3])
@@ -374,16 +370,14 @@ def test_the_two_costs_are_told_apart():
         ),
         (streams.summarize(source(audio(1))), [], "Transcode", streams.OFFER_NONE),
         # A text subtitle that is not attached is still offered: picking it
-        # restarts into a stream that has it, which is a real answer. Before
-        # only one embedded track was attached, an unattached one could do
-        # nothing and was hidden.
+        # fetches it onto the running playback.
         (
             streams.summarize(source(audio(1), text_sub(3))),
             [],
             "Transcode",
             streams.OFFER_SUBTITLE,
         ),
-        # Nothing to offer means no subtitle streams at all.
+        # Direct play offers every subtitle in the container.
         (
             streams.summarize(source(audio(1), audio(2), text_sub(3))),
             [],
@@ -434,9 +428,9 @@ def test_audio_index_at_inverts_the_ordinal():
 
 def test_a_burned_in_subtitle_is_the_selected_encode_one():
     """A burn profile flips *every* image subtitle to Encode, not only the one
-    asked for (measured against 10.11) — so Encode alone is a set of
-    candidates, and the index the playback was resolved with is what says which
-    of them is on screen."""
+    asked for (Jellyfin 10.11) — so Encode alone is a set of candidates, and
+    the index the playback was resolved with is what says which of them is on
+    screen."""
     burned = streams.summarize(
         source(
             audio(1),

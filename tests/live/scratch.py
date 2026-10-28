@@ -3,10 +3,10 @@
 
 Play state, cast and library removal are tested against libraries of
 generated clips, never against a real one: a movie, a show of two seasons and
-two albums, made with ffmpeg under ``SCRATCH_ROOT`` (a directory the server
-can read) and granted to the users the rigs sync as. ``scratch_library.sh``
-is the recipe for versions, extras, collections, favourites and season plots,
-and shares the library names.
+five albums, made with ffmpeg under ``SCRATCH_ROOT`` (a directory the server
+can read) and granted to the users the test Kodis sync as.
+``scratch_library.sh`` is the recipe for versions, extras, collections,
+favourites and season plots, and shares the library names.
 
 The server is ``JELLYFIN_URL`` with ``JELLYFIN_API_KEY``; neither is printed.
 
@@ -185,9 +185,7 @@ def _ours(folder, key):
 
 def _retime_clips():
     """Drop the video clips made at another length, so that they are made
-    again. ``clip`` skips a file that is there, and a clip under five minutes
-    is marked played by the server at any stop: one left from an earlier run
-    fails the very scenarios the length exists for."""
+    again: ``clip`` skips a file that is there."""
     with open(MARKER, encoding="utf-8") as handle:
         made = json.load(handle)
     if made.get("video_seconds") == VIDEO_SECONDS:
@@ -309,7 +307,7 @@ def libraries():
         data["lib_" + key] = existing.get(name, "")
     save(data)
     # A library made while another is being scanned is not always scanned
-    # itself (the music one was left empty), so the scan is asked for.
+    # itself, so the scan is asked for.
     api("POST", "/Library/Refresh")
     _await_scan(data)
     print(

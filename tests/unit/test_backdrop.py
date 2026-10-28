@@ -1,5 +1,5 @@
-"""L1: the server backdrop lands in addon_data, and the bundled asset is
-never touched.
+"""The server backdrop lands in addon_data, and the bundled asset is never
+touched.
 """
 
 import json

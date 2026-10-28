@@ -1,14 +1,13 @@
-"""The route golden (shell refactor phase 2, P2.0).
+"""The route golden.
 
 Every listing route driven over one canned server world, its output —
 each row's path, label, folder flag, art, properties and info, plus the
 route's ``setContent`` and ``endOfDirectory`` outcome — hashed per route
-and the hashes pinned here. P2.1 (the ``listing()`` wrapper and
-``structural_rows()``) and P2.2 must not move a byte of it; the 62 tests
-in ``test_browse.py`` keep the coverage job, this keeps the identity job.
+and the hashes pinned here. ``test_browse.py`` covers behaviour; this
+pins the rendering byte for byte.
 
 When a hash moves on purpose, ``pytest -k golden -s`` prints the actual
-table to paste in; a move nobody intended is a finding, not a rename.
+table to paste in; a move nobody intended is a bug, not a rename.
 """
 
 import hashlib
@@ -330,10 +329,9 @@ ROUTES = {
     "music_genres": _browse(view=V_MUSIC, type="music", folder="genres"),
 }
 
-# The before build's hashes (P2.0, `8b27bf8`). Regenerate deliberately with
-# ``pytest tests/unit/test_browse_golden.py -k table -s``. Identical hashes
-# across several movie nodes are expected: the world answers every /Items
-# query with the same two films, and what is pinned is the rendering.
+# Identical hashes across several movie nodes are expected: the world answers
+# every /Items query with the same two films, and what is pinned is the
+# rendering.
 EXPECTED = {
     "continue_watching": "e1b8a9bc9a9dbcb2",
     "extras": "bb00cb24bbca4699",

@@ -151,7 +151,7 @@ def test_the_service_starts_the_queue_so_the_first_track_finds_a_warm_interprete
 ):
     """Player().play returns only after Kodi has resolved the first track,
     and that resolve then needs an interpreter other than the one this
-    script holds: a cold one, 10 s of a 13 s start on a Raspberry Pi 3."""
+    script holds: a cold one."""
     api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
     _play(monkeypatch, api)
     assert "StartQueue" in kodi

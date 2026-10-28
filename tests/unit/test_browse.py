@@ -55,9 +55,8 @@ def test_node_query_music_albums():
 
 
 def test_node_query_fields_follow_boundedness():
-    """MediaStreams rides only bounded listings: on a whole-library node it
-    multiplied the payload 3.6x and the server time 3x (perf plan W2.1), and
-    music never reads stream details at all (_fill_music)."""
+    """MediaStreams rides only bounded listings, and never music's, which
+    reads no stream details (listitems._fill_music)."""
     unbounded = ["all", "unwatched", "favorites", "sets", "genre-g1"]
     for node in unbounded:
         assert "MediaStreams" not in node_query("movies", node, "v1")["Fields"], node
@@ -70,9 +69,8 @@ def test_node_query_fields_follow_boundedness():
 
 
 def test_bounded_fields_carry_cast_only_on_request():
-    """People is 7-25 ms of server time per row -- 0.6 s on a 25-row listing,
-    42 s on a whole library -- so it rides only the bounded listings, and only
-    when the viewer turned browseCast on (off by default)."""
+    """People costs the server time per row, so it rides only the bounded
+    listings, and only with browseCast on (off by default)."""
     FakeAddon.store["browseCast"] = "false"
     assert browse.bounded_fields() == browse.BROWSE_FIELDS_STREAMS
     assert "People" not in node_query("movies", "recent", "v1")["Fields"]
@@ -82,9 +80,6 @@ def test_bounded_fields_carry_cast_only_on_request():
     assert "People" in node_query("movies", "recent", "v1")["Fields"]
     assert "People" in node_query("tvshows", "inprogressepisodes", "v1")["Fields"]
     # Never on a whole-library node and never on music, whatever the setting.
-    # A viewer sees cast under Recently added and not under All, which is the
-    # stated trade: People costs the server ~25 ms a row, so All (1,778 films)
-    # measured 0.66 s -> 44.0 s and a 417-film genre 0.28 s -> 10.4 s.
     assert "People" not in node_query("movies", "all", "v1")["Fields"]
     assert "People" not in node_query("movies", "unwatched", "v1")["Fields"]
     assert "People" not in node_query("movies", "favorites", "v1")["Fields"]
@@ -95,9 +90,7 @@ def test_bounded_fields_carry_cast_only_on_request():
 
 def test_search_is_bounded_so_it_carries_what_bounded_listings_carry(directory):
     """SEARCH_LIMIT bounds both of these, so they take the same field list as a
-    node with a Limit -- cast included when it is asked for. They were left on
-    the plain list when browseCast landed, which showed as cast under Recently
-    added but not in a search result for the same film."""
+    node with a Limit -- cast included when it is asked for."""
     FakeAddon.store["browseCast"] = "true"
     assert browse._search_query("movies", "dune")["Fields"] == browse.bounded_fields()
 
@@ -223,7 +216,7 @@ def test_collection_type_infers_recordings_when_jellyfin_omits_enum():
     assert node_icon("recordings") == "DefaultPVRRecordings.png"
 
 
-# --- TV extras (phase 3: plugin browse over SpecialFeatures) -----------------
+# --- TV extras (plugin browse over SpecialFeatures) --------------------------
 
 
 class ExtrasApi:
@@ -266,10 +259,8 @@ FEATURE = {
     "ImageTags": {},
 }
 
-# Carries the count because kofin now asks for it and filters on it itself:
-# the server's HasSpecialFeature filter does not work for series (see
-# browse.specials_only), so a DTO that arrived without it is not evidence of
-# anything.
+# Carries the count because kofin filters on it itself: the server's
+# HasSpecialFeature filter does not work for series (browse.specials_only).
 SERIES_DTO = {
     "Id": "series1",
     "Name": "The Show",
@@ -591,10 +582,9 @@ ALBUM_DTO = {
 
 
 def test_recent_albums_come_from_latest_not_from_album_dates(monkeypatch, directory):
-    """An album's DateCreated is when the scanner last created its row -- a
-    rescan re-created 25 A-artists within one second on the test library -- so
+    """An album's DateCreated is when the scanner last created its row, so
     sorting albums by it lists a scan, not arrivals. Latest sorts the songs and
-    groups them by album, which is the web client's answer too."""
+    groups them by album, as the web client does."""
     api = LatestApi([ALBUM_DTO])
     monkeypatch.setattr(browse, "_api", lambda: api)
 
@@ -630,8 +620,7 @@ def test_continue_watching_lists_the_server_order(monkeypatch, directory):
     assert ["id=m1" in paths[0], "id=e1" in paths[1]] == [True, True]
     assert all("mode=play" in path for path in paths)
     assert [folder for _path, _li, folder in directory["entries"]] == [False, False]
-    # A 25-row listing keeps stream details (BROWSE_FIELDS_STREAMS): bounded
-    # payload, and resume rows are where codec/HDR flags are most looked at.
+    # Bounded, so it keeps stream details.
     assert api.resume_calls == [(browse.BROWSE_FIELDS_STREAMS, 25)]
     assert directory["category"] == "string-30049"
 
@@ -737,7 +726,7 @@ def test_root_art_icon_and_thumb(monkeypatch, directory, recording_art):
     assert syncplay.getArt("thumb") == syncplay.getArt("icon")
 
 
-# --- sub-section rows get the root's icon treatment (PR #39) -----------------
+# --- sub-section rows get the root's icon treatment --------------------------
 
 
 def _by_folder(entries):
@@ -770,7 +759,7 @@ def test_node_menu_rows_carry_stock_art_on_both_keys(
 
 def test_node_menu_leaves_content_empty(recording_art, directory):
     """With "files" the skin switches to ListWatchedIconVar and ignores
-    setArt(icon) outright, which is what left these menus glyphless."""
+    setArt(icon)."""
     browse._node_menu(Request("plugin://x", 1, {}), ExtrasApi(), "movies", "v1")
     assert directory["content"] == ""
 
@@ -815,9 +804,7 @@ def test_genre_rows_carry_stock_art_on_both_keys(recording_art, directory):
 
 def test_whos_watching_label_reads_the_published_names(monkeypatch):
     """The root renders the label from the property the service maintains
-    (connect-time restore, picker confirm) — no /Sessions round trip per
-    root render, which also hung the offline root for the call's whole
-    retry ladder (perf plan W1.4)."""
+    (connect-time restore, picker confirm), with no /Sessions call."""
     from kofin.core import state
 
     monkeypatch.setattr(
@@ -855,9 +842,8 @@ def test_root_lists_whos_watching_unless_the_shortlist_is_empty(monkeypatch, dir
 
 
 def test_add_items_reads_the_resume_offset_once_per_listing(monkeypatch, directory):
-    """One settings read for the whole page, however many rows it has — the
-    per-row read built a fresh Addon each time and dominated large listings
-    (perf plan W1.1)."""
+    """One settings read for the whole page, however many rows it has: each
+    read builds a fresh Addon."""
     reads = []
     monkeypatch.setattr(
         browse.settings, "resume_offset", lambda: reads.append(1) or 0.0
@@ -884,11 +870,9 @@ def test_add_items_reads_the_resume_offset_once_per_listing(monkeypatch, directo
 def test_every_root_row_gets_a_backdrop_including_library_rows(
     monkeypatch, directory, recording_art
 ):
-    """The library rows are the ones this is really about. They carry a
-    Primary image, so they *look* covered -- but a Jellyfin UserView has no
-    BackdropImageTags, so art_for never sets fanart for one and they bypass
-    structural_art entirely. Live, that left the background empty on exactly
-    the rows the addon root is mostly made of."""
+    """The library rows carry a Primary image, but a Jellyfin UserView has no
+    BackdropImageTags, so art_for sets no fanart for one and they bypass
+    structural_art."""
     FakeAddon.store["syncPlayEnabled"] = "true"
     monkeypatch.setattr(
         "kofin.syncplay.offer.external_player_configured", lambda: False
@@ -931,9 +915,8 @@ def test_backdrop_fills_a_row_that_has_none(recording_art):
 
 
 def test_media_rows_never_take_the_addon_backdrop(recording_art, directory):
-    """A DVR recording is the case this is about: Primary thumbnail, no
-    BackdropImageTags, so art_for sets no fanart and every row in the library
-    drew the addon's own artwork as if it were the recording's."""
+    """A row with a Primary thumbnail and no BackdropImageTags, such as a DVR
+    recording, keeps an empty fanart rather than the addon's own artwork."""
     browse._add_items(
         Request("plugin://x", 1, {}),
         ExtrasApi(),
@@ -980,9 +963,7 @@ def test_structural_rows_in_a_listing_still_take_the_backdrop(recording_art, dir
 
 def test_series_without_specials_are_filtered_here_not_by_the_server():
     """HasSpecialFeature=true matches no series at all on 10.11, even one whose
-    folder holds two extras that /SpecialFeatures returns and whose
-    SpecialFeatureCount reads 2 — verified before and after a full library
-    rescan. Trusting it meant the Extras node could never appear for TV."""
+    SpecialFeatureCount reads 2 and whose /SpecialFeatures lists extras."""
     items = [
         {"Id": "a", "SpecialFeatureCount": 2},
         {"Id": "b", "SpecialFeatureCount": 0},
@@ -993,7 +974,7 @@ def test_series_without_specials_are_filtered_here_not_by_the_server():
 
 def test_the_specials_probe_asks_for_counts_not_artwork(directory):
     """It runs on every TV node menu, so it fetches the counts and nothing
-    else: 36 KB and 38 ms against a 78-series view."""
+    else."""
     api = ExtrasApi(view_series=[SERIES_DTO])
     browse._view_has_specials(api, "v1")
     params = api.items_params[0]
@@ -1194,7 +1175,7 @@ def test_node_query_year_and_tag():
 
 def test_node_query_play_history_is_songs():
     """Filters=IsPlayed against MusicAlbum returns nothing, so both history
-    nodes list songs (verified live: 7,176 played of 20,802)."""
+    nodes list songs."""
     for node, sort in (("lastplayed", "DatePlayed"), ("topsongs", "PlayCount")):
         query = node_query("music", node, "v1")
         assert query["IncludeItemTypes"] == "Audio", node
@@ -1263,8 +1244,8 @@ def test_a_short_tag_list_stays_flat(monkeypatch, directory):
 
 
 def test_a_long_tag_list_becomes_initials(monkeypatch, directory):
-    """Measured on a real library: 7,794 tags, mostly scraped keywords. A flat
-    menu of that is not a menu, and it costs a ListItem per row."""
+    """Scraped keywords can make thousands of tags, so past TAG_MENU_MAX the
+    menu lists their initials."""
     tags = ["heist", "noir"] + ["tag%03d" % n for n in range(browse.TAG_MENU_MAX)]
     api = FiltersApi(tags=tags)
 
@@ -1280,14 +1261,13 @@ def test_a_long_tag_list_becomes_initials(monkeypatch, directory):
 
 def test_playlists_get_their_own_glyph_and_empty_content():
     """A playlist is a place, not a piece of media. With a media content type
-    the skin draws watched-status overlays and ignores setArt(icon), which is
-    what a playlist listing looked like -- thirteen identical squares."""
+    the skin draws watched-status overlays and ignores setArt(icon)."""
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Playlist"}]) == ""
     # A mixed listing still describes its media.
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Movie"}]) == "movies"
 
 
-# --- the nextepisodes node target (P1.11: previously uncalled) ----------------
+# --- the nextepisodes node target --------------------------------------------
 
 
 def test_next_episodes_lists_the_next_up_feed(monkeypatch, directory):

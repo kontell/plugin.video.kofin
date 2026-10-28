@@ -1,9 +1,9 @@
 #!/bin/bash
-# The scratch Jellyfin libraries for the versions, extras, collection, favourite and season-plot checks
-# (first the companion gates, docs/companion-addon-plan.md, section 7; now Kodi 23's): fake
-# clips with a versioned movie, extras, a collection pair and a show, created on the server the rig's
-# profile syncs from and granted to that profile's user. Credentials come from ~/.config/kodi-drive/targets.env
-# (never printed); the rig is reached as $KOFIN_RIG_SSH or conor@$KODI_P1D_HOST.
+# The scratch Jellyfin libraries for the versions, extras, collection, favourite and season-plot checks:
+# fake clips with a versioned movie, extras, a collection pair and a show, created on the server the
+# Kodi profile syncs from and granted to that profile's user. Credentials come from
+# ~/.config/kodi-drive/targets.env (never printed); the Kodi host is reached as $KOFIN_RIG_SSH or
+# conor@$KODI_P1D_HOST.
 # Usage: scratch_library.sh media|libraries|policy|state|ids|collection|remove-collection|favorite on|off|season-plot TEXT|rename-version|restore-policy|cleanup
 set -euo pipefail
 T="${TMPDIR:-/tmp}/kofin-scratch"; mkdir -p "$T"

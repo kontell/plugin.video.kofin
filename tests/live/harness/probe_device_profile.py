@@ -1,11 +1,10 @@
-"""Identity oracle for core/deviceprofile (S1-P1.0 / S1-P1.8): build the
-streaming and download DeviceProfiles from the installed add-on's own
-settings and write both as canonical JSON to a file, so a before/after
-byte-comparison needs no truncation-prone log line.
+"""Identity oracle for core/deviceprofile: build the streaming and download
+DeviceProfiles from the installed add-on's own settings and write both as
+canonical JSON to a file, so a before/after byte-comparison needs no
+truncation-prone log line.
 
-RunScript(<file>,<out_path>). The output is one JSON object,
-{"build": ..., "build_download": ...}, dumped with sorted keys; the file's
-sha256 is logged under the kofin-probe prefix for a quick eyeball.
+RunScript(<file>,<out_path>). The file's sha256 is logged under the
+kofin-probe prefix.
 """
 
 import hashlib

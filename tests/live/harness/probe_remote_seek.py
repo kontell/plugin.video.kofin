@@ -1,7 +1,6 @@
 """One-off: drive RemoteHandler.handle('Play', ... StartPositionTicks) and time
-how long handle() blocks the calling thread -- P0.7. On the fix build the seek
-runs on its own thread, so handle() returns at once; before, it polled up to
-10 s on the caller. RunScript(<file>,<item_id>,<seconds>)."""
+how long handle() blocks the calling thread. The seek runs on a thread of its
+own, so handle() should return at once. RunScript(<file>,<item_id>,<seconds>)."""
 
 import sys
 import time

@@ -1,12 +1,12 @@
-"""Movie versions and extras in the API build: files in the movie's folder.
+"""Movie versions and extras: files in the movie's folder.
 
-Kodi groups nothing from a plugin source itself (22.0b2): a plugin item's
-tag takes the NFO branch of RetrieveInfoForMovie, which never reaches the
-similar-video grouping, so a version file imports as a movie of its own
-until the user groups it in the Versions Manager; an extras folder is a
-phantom disc unless Kodi's directory cache knows it. The pass lists the
-folder by name, binds it with folder names on, warms the cache and turns
-"Ignore video extras" off; everything else is the user's.
+Kodi groups nothing from a plugin source itself: a plugin item's tag takes
+the NFO branch of RetrieveInfoForMovie, which never reaches the
+similar-video grouping, so a version file is a version of its movie only
+because its tag says so (kontell/xbmc #8). An extras folder is a phantom
+disc unless Kodi's directory cache knows it. The pass scans the folder by
+name, binds it with folder names on, warms the cache and turns "Ignore video
+extras" off.
 """
 
 from unittest.mock import MagicMock
@@ -253,8 +253,8 @@ def test_the_movie_folder_lists_versions_and_the_extras_folder(store, monkeypatc
         (paths.version_url(key, LIB, "a", "s2"), False),
         (folder + "extras/", True),
     ]
-    # Each file says it is a version of the movie (kontell/xbmc #8), under
-    # the movie's own ids, the movie's own file the default.
+    # Each file says it is a version of the movie, under the movie's own
+    # ids, the movie's own file the default.
     ids = metadata.unique_ids(store.item("a"), key)
     # A further version leaves the refresh token out: Kodi groups a file
     # under a movie only while none of their unique id types differ.
@@ -314,8 +314,8 @@ def test_an_extra_exists_while_its_movie_names_it_and_resolves_to_its_id(store):
 
 def test_clean_reads_a_version_file_s_source_from_the_query(store, monkeypatch):
     """Kodi asks about a version file with the folder as argv[0] and the
-    query, source included, as argv[2]. Read from argv[0], every version
-    file existed and Clean never retired one."""
+    query, source included, as argv[2]: read from argv[0], every version
+    file would exist."""
     from kofin.plugin import router
 
     store.publish([assets_movie()], library=LIB)
@@ -357,7 +357,7 @@ def test_two_extras_titled_alike_are_listed_played_and_kept_apart(store, monkeyp
     monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
     provider.serve(router.Request(folder + "extras/", 1, {}))
     assert listed == [folder + "extras/Trailer.mkv", folder + "extras/Trailer (2).mkv"]
-    # A file the catalogue no longer names is a failed play, never a listing.
+    # A file the catalogue does not name is a failed play, never a listing.
     resolved = []
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, item: resolved.append((h, ok))
@@ -389,8 +389,8 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert kodi.listed == [extras, extras + "VIDEO_TS/", extras + "BDMV/"]
     assert kodi.settings["videolibrary.ignorevideoextras"] is False
     assert not kodi.phantoms
-    # One movie: its further version file is filed as a version of it
-    # (kontell/xbmc #8), with the source's label.
+    # One movie: its further version file is filed as a version of it, with
+    # the source's label.
     (row,) = movie_rows(kodi)
     assert row["file"] == paths.playback_url(key, "Movie", LIB, "a")
     assert kodi.versions[row["movieid"]] == [
@@ -411,7 +411,7 @@ def test_the_extras_folder_of_a_movie_with_extras_is_bound_noupdate(
 ):
     """An extra's URL has no query, so Kodi files it under the add-on's root,
     and a clean asks about a plugin file only through a binding on its
-    folder: without one, Clean library deleted every extra unasked. The scan
+    folder: without one, Clean library deletes every extra unasked. The scan
     that files the extras binds their folder, noupdate so that Update library
     never scans them as movies, and a profile whose extras an earlier build
     filed has them bound once."""
@@ -825,8 +825,8 @@ def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
 
 def test_a_versions_label_is_acknowledged_never_a_file_stem(store, backend, kodi):
     """The acknowledged file list carries the label the folder listing gave
-    the version file, never a raw stem (audit A4-1). The assets token keeps
-    the raw name: a rename still moves it."""
+    the version file, never a raw stem. The assets token keeps the raw name:
+    a rename still moves it."""
 
     def sourced(second):
         item = assets_movie()
@@ -860,7 +860,7 @@ def test_a_versions_label_is_acknowledged_never_a_file_stem(store, backend, kodi
 def test_a_source_named_like_its_file_is_an_untitled_asset(store, monkeypatch):
     """Jellyfin names a source after its file unless a label is known; such a
     name is no version title and would mint a type row per movie in Kodi's
-    Versions picker (audit A4-1)."""
+    Versions picker."""
     from kofin.plugin.router import Request
     from kofin.sync.backends.api import provider
 

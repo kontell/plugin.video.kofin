@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Per-minute visual + state snapshot of all four members during a run.
 #
-# P1D and PIERS share one X display, so an X-level grab cannot tell them apart.
-# Each Kodi's own TakeScreenshot builtin writes to its own screenshot path
+# The two desktop Kodis share one X display, so an X-level grab cannot tell them
+# apart. Each Kodi's own TakeScreenshot builtin writes to its own screenshot path
 # (debug.screenshotpath differs per instance), so the EventServer is the only way
 # to get one image per instance. Android members go through adb screencap.
 set -u
@@ -15,8 +15,8 @@ KD_REMOTE=/media/minipie/bluecon/dev/kodi-drive
 shot_local() {   # name esport remote_dir ts
     local name=$1 esport=$2 dir=$3 ts=$4
     ssh -o BatchMode=yes conor@p1d "mkdir -p '$dir'; find '$dir' -name '*.png' -delete" 2>/dev/null
-    # P1D has services.esallinterfaces=False: the EventServer only accepts
-    # packets from localhost, so the builtin is fired ON the box, not at it.
+    # With services.esallinterfaces off the EventServer only accepts packets
+    # from localhost, so the builtin is fired ON the host, not at it.
     ssh -o BatchMode=yes conor@p1d \
         "KODI_HOST=127.0.0.1 KODI_ESPORT=$esport python3 $KD_REMOTE/bin/kodi-builtin TakeScreenshot" \
         >/dev/null 2>&1
@@ -24,11 +24,9 @@ shot_local() {   # name esport remote_dir ts
     local newest
     newest=$(ssh -o BatchMode=yes conor@p1d "ls -t '$dir'/*.png 2>/dev/null | head -1")
     if [ -z "$newest" ]; then
-        # Known limitation: two Kodis share display :0, and the occluded one
-        # has no renderable surface, so TakeScreenshot writes nothing. Verified
-        # 2026-08-31: both EventServers listen (9777 localhost, 9778 all) and the
-        # screenshot folder is correct, yet only the foreground instance yields a
-        # PNG. The state line below still covers the hidden one.
+        # Two Kodis share display :0, and the occluded one has no renderable
+        # surface, so TakeScreenshot writes nothing; the state line still
+        # covers it.
         echo "$ts $name: no screenshot (occluded on the shared display)" >> "$OUT/state.log"
         return
     fi

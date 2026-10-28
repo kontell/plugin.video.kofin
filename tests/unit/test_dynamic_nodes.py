@@ -1,4 +1,4 @@
-"""The API build's node tree and skin entries (sync/dynamic.py)."""
+"""The node tree and skin entries (sync/dynamic.py)."""
 
 import os
 import xml.etree.ElementTree as ET
@@ -141,7 +141,6 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
         rule = ET.parse(node).getroot().find("rule")
         assert (rule.get("field"), rule.get("operator")) == ("path", "startswith")
         assert rule.find("value").text == library_dir(MOVIES, "movies")
-    # Favourites singles ride along; no downloads single in this build.
     # One smart playlist per synced video library, by the same folder.
     xsp = (
         views_env["profile"]
@@ -155,6 +154,7 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
         "path",
         library_dir(MOVIES, "movies"),
     )
+    # Favourites singles ride along; with downloads off, no downloads single.
     singles = sorted(p.name for p in root.glob("kofin_*.xml"))
     assert singles == [
         "kofin_Favoriteepisodes.xml",
@@ -179,8 +179,8 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
 
 
 def test_favourite_episodes_are_found_by_their_own_tag(views_env):
-    """Kodi 23 keeps an episode's tags and its tag rule matches them
-    (kontell/xbmc #12); a favourite episode carries the tag."""
+    """With episode_tags Kodi keeps an episode's tags and its tag rule
+    matches them; a favourite episode carries the tag."""
     whitelist(MOVIES)
     dynamic.publish(ITEMS, FakeApi())
     root = views_env["profile"] / "library" / "video" / NODE_ROOT
@@ -194,9 +194,9 @@ def test_favourite_episodes_are_found_by_their_own_tag(views_env):
 def test_downloaded_episodes_are_found_by_a_tag_their_show_does_not_carry(
     views_env, monkeypatch
 ):
-    """A tag rule on episodes matches the episode's tags or its show's
-    (kontell/xbmc #12), so the node filters on the episode's own download
-    tag, and a Kodi without episode tags has no such node."""
+    """A tag rule on episodes matches the episode's tags or its show's, so
+    the node filters on the episode's own download tag, and a Kodi without
+    episode_tags has no such node."""
     from kofin.downloads import EPISODE_TAG, TAG
 
     FakeAddon.store["downloadsEnabled"] = "true"
@@ -365,8 +365,8 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     """The Manage menu reads a library's downloads from its folder in the
     music tree. The folder's nodes take the library's songs by the folder they
     are filed under, Kodi's own music nodes are seeded first, and there is no
-    Downloaded folder, whose rule on the downloads folder matches nothing in
-    this build."""
+    Downloaded folder: a download keeps its row's plugin URL, so a path rule
+    on the downloads folder would match nothing."""
     import os
     import shutil
 
@@ -404,7 +404,7 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
         assert rule.find("value").text == paths.library_dir(
             namespace("s" * 32, "u" * 32), MUSIC, "music"
         )
-    # The skin entry stays Kodi's music root, as in the SQL build.
+    # The skin entry stays Kodi's music root.
     assert (
         props()["Kofin.nodes.2.path"] == "ActivateWindow(Music,library://music/,return)"
     )
@@ -473,9 +473,9 @@ def test_the_trees_survive_a_settings_read_that_cannot_answer(views_env, monkeyp
 def test_the_favourite_episodes_node_is_written_only_where_kodi_keeps_episode_tags(
     views_env, monkeypatch
 ):
-    """A tag rule on episodes lists nothing on a Kodi without kontell/xbmc
-    #12, so the single is not written there, and one an earlier Kodi wrote
-    is pruned with the rewrite."""
+    """A tag rule on episodes lists nothing on a Kodi without episode_tags,
+    so the single is not written there, and one an earlier Kodi wrote is
+    pruned with the rewrite."""
     whitelist(MOVIES)
     dynamic.publish(ITEMS, FakeApi())
     root = views_env["profile"] / "library" / "video" / NODE_ROOT

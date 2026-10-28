@@ -81,11 +81,8 @@ def wired(monkeypatch):
 
 
 def test_repair_asks_nothing_beyond_the_picker(wired):
-    """The confirmation here borrowed the *removal* copy — "Remove %s from the
-    Kodi library? The items are deleted from this device only." — so repairing
-    read as though it would leave the library gone. The picker is already the
-    decision and a repair rebuilds from the server, so there is nothing
-    destructive to confirm."""
+    """The picker is already the decision and a repair rebuilds from the
+    server, so there is nothing destructive to confirm."""
     dialog, notified = wired
     dialog.multiselect_result = [1]  # first real library
 
@@ -188,9 +185,8 @@ def test_delete_stays_off_without_the_opt_in(delete_wired):
 
 
 def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeypatch):
-    """This toast passed neither an icon nor a sound, so Kodi's defaults made a
-    failed deletion the one notification in kofin that showed the info glyph
-    *and* beeped."""
+    """The toast names the error level and passes no sound, so Kodi's
+    defaults (the info glyph and a beep) do not apply."""
     import xbmcgui
 
     from kofin.core.http import JellyfinError
@@ -215,7 +211,7 @@ def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeyp
     assert raised == [(xbmcgui.NOTIFICATION_ERROR, {})]
 
 
-# --- download routes (plan W1.10) --------------------------------------------
+# --- download routes --------------------------------------------------------
 
 
 class FakeDownloadApi:
@@ -315,7 +311,7 @@ def test_download_season_confirms_then_notifies_the_children(download_wired):
                 "Ids": ["e1", "e3"],
                 "Types": ["", ""],
                 # The container the user actually picked, so the manager can
-                # answer it once (D6).
+                # answer it once.
                 "Request": "sea1",
                 "RequestName": "Season 1",
             },
@@ -494,7 +490,7 @@ def _rows(root, free):
 def test_download_size_lists_each_category_with_a_total(
     tmp_path, download_wired, monkeypatch
 ):
-    """D1: the button answers where the downloads are and what they weigh."""
+    """The button answers where the downloads are and what they weigh."""
     root = tmp_path / "dl"
     (root / "Movies" / "The Movie (2019)").mkdir(parents=True)
     (root / "Movies" / "The Movie (2019)" / "f.mkv").write_bytes(b"x" * (2 * 1024**2))
@@ -507,10 +503,9 @@ def test_download_size_lists_each_category_with_a_total(
     assert str(root) in heading  # the folder is half the question
     assert len(rows) == 5  # three categories, total, free
     # The size is in the row's own label, not label2: label2 renders as
-    # nothing in Estuary's select layout (measured on the rig, S-D1). The
-    # label half is empty here because these are Kodi's own string ids and
-    # Kodistubs answers "" for every one of them — the live gate is what
-    # proves "Movies"/"TV shows"/"Music" render.
+    # nothing in Estuary's select layout. The label half is empty here
+    # because these are Kodi's own string ids and Kodistubs answers "" for
+    # every one of them.
     assert [row.split(":")[-1].strip() for row in rows] == [
         "2 MB",
         "0 MB",
@@ -680,8 +675,8 @@ def test_download_playlist_keeps_only_the_leaves(download_wired):
             {
                 "Ids": ["t1", "m1"],
                 "Types": ["Audio", "Movie"],
-                # The case D6 exists for: these two leaves have different
-                # parents, so only the request identifies what was chosen.
+                # These two leaves have different parents, so only the
+                # request identifies what was chosen.
                 "Request": "pl1",
                 "RequestName": "Road Trip",
             },
@@ -741,10 +736,8 @@ def test_manage_download_shows_cancel_changes_nothing(download_wired, monkeypatc
 def test_a_transcoded_album_is_sized_by_its_target_not_its_flacs(
     download_wired, monkeypatch
 ):
-    """The confirmation quoted MediaSources[0].Size — the lossless original
-    — for tracks the music transcode was about to re-encode, offering a
-    12-track album at its FLAC weight when it would land at a fraction of
-    it."""
+    """With the music transcode on, a track is sized at the target bitrate,
+    not at MediaSources[0].Size, the lossless original."""
     album = {"Id": "al1", "Type": "MusicAlbum"}
     # A 5-minute track: 300 s at 128 kbps is ~4.8 MB, against a 50 MB FLAC.
     tracks = [
@@ -817,8 +810,8 @@ def _sized_request(download_wired, size, item_type="Movie"):
 
 
 def test_a_small_request_queues_without_asking(download_wired, monkeypatch):
-    """Whatever the count. The old rule asked about every container, so
-    thirty three-minute tracks needed an answer."""
+    """Whatever the count: the request is sized against free space, not
+    asked about for being a container."""
     from kofin.downloads import files
 
     notified, dialog, Request = _sized_request(download_wired, 1024**3)
@@ -831,8 +824,7 @@ def test_a_small_request_queues_without_asking(download_wired, monkeypatch):
 
 
 def test_a_big_single_item_asks(download_wired, monkeypatch):
-    """The case the container rule missed entirely: one 40 GB film went in
-    silence because a Movie is not a container."""
+    """Size decides, not the container type, so one big film asks."""
     from kofin.downloads import files
 
     notified, dialog, Request = _sized_request(download_wired, 40 * 1024**3)
@@ -935,7 +927,7 @@ def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
     assert notified == []
 
 
-# --- the resume reset (docs/dynamic-libraries-plan.md W2) ----------------------
+# --- the resume reset ---------------------------------------------------------
 
 
 @pytest.fixture
@@ -1002,8 +994,8 @@ def test_reset_resume_without_an_id_does_nothing(reset_wired):
 
 def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_path):
     """The plugin process opens kofin.db for the id map and asks Kodi for the
-    title; it never opens MyVideos itself (assessment P3). Unmapped shows and
-    unanswered calls fall back to the id so the picker still lists them."""
+    title; it never opens MyVideos itself. Unmapped shows and unanswered
+    calls fall back to the id so the picker still lists them."""
     import json
 
     from kofin.sync import private as sync_db
@@ -1044,7 +1036,7 @@ def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_
         sync_db.reset_overrides()
 
 
-# --- update libraries (P1.11: previously uncalled) ----------------------------
+# --- update libraries ---------------------------------------------------------
 
 
 def _update_wired(monkeypatch, picked, confirm=True):

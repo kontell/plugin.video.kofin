@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Offline analysis of a two-member audio capture (docs/syncplay-music-shakedown.md §6.1).
+"""Offline analysis of a two-member audio capture.
 
-Turns two recordings of two Kodi instances on one host into the §6.4 metrics that
+Turns two recordings of two Kodi instances on one host into the metrics that
 JSON-RPC cannot reach: **Δ** including the sink latency a player never reports,
 **TSG** (the silence at a track boundary) to the sample, and **dropouts** inside a
 track. Both captures come off one clock, so their difference is the true audible

@@ -1,6 +1,5 @@
-"""The downloads IPC wire format (shell refactor P2.4): the pairing and
-origin rules that used to live inline in Service.onNotification, and that
-test_service still exercises end to end."""
+"""The downloads IPC wire format: the ids, types, origin and request a
+download message carries."""
 
 from kofin.downloads import store, wire
 
@@ -10,7 +9,6 @@ def test_types_pair_positionally_before_blank_ids_are_dropped():
         {"Ids": ["a", "", "c"], "Types": ["Movie", "Episode", "Audio"]}
     )
     assert parsed.ids == ["a", "c"]
-    # the blank's type went with the blank
     assert parsed.media_types == ["Movie", "Audio"]
     assert parsed.origin == store.ORIGIN_USER
 
@@ -23,9 +21,8 @@ def test_a_short_or_absent_types_list_leaves_kinds_unknown():
 
 
 def test_a_request_is_optional_and_defaults_to_none_at_all():
-    """D6: a plugin process left over from before the add-on update sends
-    no Request, and a row without one announces per item exactly as every
-    row did before."""
+    """A payload without a Request, as the automatic paths and an older
+    plugin process send it, parses to an empty request."""
     parsed = wire.parse_add({"Ids": ["a"]})
     assert parsed.request_id == "" and parsed.request_name == ""
 
@@ -49,10 +46,9 @@ def test_item_id_is_a_string_or_empty():
 
 
 def test_remove_reads_a_list_and_still_reads_a_bare_id():
-    """The batch is the shape a container removal sends. The single Id is
-    what the service's own automatic paths send, and what a plugin process
-    from before an add-on update would send — reading it is what keeps a
-    mid-session update from silently dropping a removal."""
+    """A removal names a list of ids; a bare Id, the shape an older plugin
+    process sends, is read as well, so a mid-session add-on update drops no
+    removal."""
     assert wire.item_ids({"Ids": ["a", "b"]}) == ["a", "b"]
     assert wire.item_ids({"Ids": [1, 2]}) == ["1", "2"]
     assert wire.item_ids({"Ids": ["a", "", None]}) == ["a"]

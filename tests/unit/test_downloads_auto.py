@@ -1,4 +1,4 @@
-"""L1 units for the automatic download policy (plan W4.1/W4.4)."""
+"""L1 units for the automatic download policy."""
 
 import pytest
 
@@ -112,7 +112,7 @@ def test_queue_new_movies_skips_a_bulk_import_entirely(env, monkeypatch):
     assert toasts  # and it says so
 
 
-# -- subscriptions and the episode/album arms (plan W4.6) ---------------------
+# -- subscriptions and the episode/album arms ---------------------------------
 
 
 def test_show_subscriptions_round_trip():
@@ -226,8 +226,7 @@ def test_queue_new_content_runs_every_arm(env, monkeypatch):
 
 
 def test_bulk_thresholds_fall_back_to_their_defaults(env):
-    """An unset slider (a profile that predates them) behaves as it always
-    did — the constants are the defaults, not a second set of numbers."""
+    """An unset slider reads as the module constant it defaults to."""
     assert auto.new_movies_limit() == auto.NEW_MOVIES_BATCH_LIMIT
     assert auto.new_episodes_limit() == auto.NEW_EPISODES_BATCH_LIMIT
     assert auto.new_albums_limit() == auto.NEW_ALBUMS_BATCH_LIMIT

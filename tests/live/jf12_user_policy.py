@@ -1,20 +1,10 @@
 #!/usr/bin/env python3
-"""What Jellyfin answers a user who can see no library (audit F2's trigger).
+"""What Jellyfin answers a user who can see no library.
 
 Creates a throwaway user on jf12 with ``EnableAllFolders=False``, no
 ``EnabledFolders`` and no Live TV, queries ``/UserViews``, ``/Library/
 MediaFolders`` and a recursive ``/Items`` as that user, prints the shapes,
 and deletes the user again. Nothing else on the server is touched.
-
-Verified answer on jf12 v12 (2026-08-29)::
-
-    /UserViews             -> 200 {'Items': 0, 'TotalRecordCount': 0}
-    /Library/MediaFolders  -> 403
-    /Items (recursive)     -> 200 {'Items': 0, 'TotalRecordCount': 0}
-
-which is exactly the shape ``sync/views.py`` treated as a complete listing
-before H3. With Live TV still granted the user gets one view (the Live TV
-one) — the reason H3's floor gates on the whitelist, not on "no views".
 
     tests/live/jf12_user_policy.py [--keep-livetv]
 """

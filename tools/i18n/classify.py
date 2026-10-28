@@ -14,9 +14,6 @@ import sys
 
 from po_lib import parse_entries
 
-# Codec, container and HDR tokens: brand names that stay as they are in every
-# language. Entries that pair a token with descriptor words ("Dolby Vision with
-# HDR10 fallback") are deliberately NOT here -- the descriptor needs translating.
 PASSTHROUGH = {
     # The server plugin's name, on its Library status row.
     "#30886",  # KofinSyncQueue
@@ -55,10 +52,8 @@ PASSTHROUGH = {
     "#30604",  # 480p
     "#30605",  # 1440p
     # Bitrate spinner values: a number and an SI unit. Locales differ on the
-    # capitalisation (MBit/s) and the decimal separator (0,5), but these sit in
-    # a spinner beside the numbers they filter, where matching the rest of the
-    # list matters more than matching local typography -- and it spares every
-    # locale 23 translations that carry no meaning.
+    # capitalisation (MBit/s) and the decimal separator (0,5), but in a spinner
+    # matching the rest of the list matters more than local typography.
     *("#%d" % n for n in range(30183, 30206)),
     # Jellyfin feature name, used as a menu heading and a settings group label
     "#30550",  # SyncPlay

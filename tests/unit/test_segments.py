@@ -1,5 +1,5 @@
-"""L1: the segment engine — boundary-crossing timing, the Play Next decision
-matrix, overlay lifetime, and the near-end prompt (phase-3 plan §5 steps 2-3).
+"""The segment engine — boundary-crossing timing, the Play Next decision
+matrix, overlay lifetime, and the near-end prompt.
 
 The engine state is driven directly through ``segment_tick`` with an injected
 clock — no checker thread, no real dialogs.
@@ -269,7 +269,7 @@ def test_format_span():
 
 def test_prompt_hide_at_takes_a_share_of_the_segment():
     assert prompt_hide_at(100.0, 200.0, 50.0, 100.0) == 150.0
-    # 100% is the old behaviour: up for the whole segment.
+    # 100% is up for the whole segment.
     assert prompt_hide_at(100.0, 200.0, 100.0, 100.0) == 200.0
 
 
@@ -369,11 +369,8 @@ def test_auto_skip_fires_on_boundary_crossing(engine):
 
 def test_auto_skip_fires_for_every_break_of_one_type(engine):
     # Three commercial breaks are three skips. The dedup key is the segment's
-    # own (start, end), so the type is never an identity: the fork keyed its
-    # segment map by type and so skipped only the *last* break of each type
-    # (jellyfin/jellyfin-kodi#1177), which any SponsorBlock-derived commercial
-    # run hits on every item. deconflict() guards the same property one layer
-    # up; this is the engine's half of it.
+    # own (start, end), so the type is never an identity; deconflict() guards
+    # the same property one layer up.
     engine.arm(
         [
             seg("Commercial", 100, 220),
@@ -455,9 +452,9 @@ def test_fresh_start_ignores_stale_transition_position(engine):
 
 
 def test_fresh_start_waits_for_a_resume_seek_to_land(engine):
-    """The live failure: Kodi reports 0 while it seeks to the resume point, and
-    an intro beginning at 0.0 fired against that phantom zero -- the flash of
-    Skip Intro on every resume. The engine has to wait for the real position.
+    """Kodi reports 0 while it seeks to the resume point, and an intro
+    beginning at 0.0 would fire against that phantom zero, so the engine
+    waits for the real position.
     """
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 0, 88.4)])
@@ -485,8 +482,7 @@ def test_fresh_start_gives_up_waiting_rather_than_disarming_the_item(engine):
 
 
 def test_resume_into_a_segment_offers_no_skip(engine):
-    # Resuming mid-credits is the viewer asking to pick up exactly there. The
-    # prompt used to open and auto-close a moment later, which is all they saw.
+    # Resuming mid-credits is the viewer asking to pick up exactly there.
     engine.arm([seg("Credits", 1300, 1380)], next_episode=None)
     engine.player._item["CurrentPosition"] = 1341.0  # resumed here
     engine.segments._fresh_start = True
@@ -751,7 +747,7 @@ def test_user_seek_echo_of_our_own_skip_is_ignored(engine):
     assert engine.segments._pending_jump
 
 
-# --- the unified Play Next dialog (S3.3 decision surface) --------------------
+# --- the unified Play Next dialog --------------------------------------------
 
 
 def test_credits_ask_with_next_episode_offers_all_three(engine):
@@ -761,9 +757,9 @@ def test_credits_ask_with_next_episode_offers_all_three(engine):
     assert overlay.skip_label == "string-30482"
     assert overlay.next_label == "string-30486"
     assert overlay.next_info == "Up next: S02E05. The Next One"
-    # A Play Next offer stands to the end of the video, not the segment end —
-    # this is the autoplay deadline, and it must stay put now that a separate
-    # field decides when the window closes.
+    # A Play Next offer stands to the end of the video, not the segment end:
+    # this is the autoplay deadline, and a separate field decides when the
+    # window closes.
     assert engine.segments._overlay_end == 1500.0
     overlay.on_play_next()
     # Play Next starts the next episode from the beginning, never a resume point.

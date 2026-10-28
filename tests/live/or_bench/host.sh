@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run a command on the bench device through one persistent ssh master, so a
-# session already authenticated survives the device dropping its storage
-# (seen once on the Pi 3's SD card: sshd then refuses new logins).
+# session already authenticated survives the device dropping its storage,
+# after which sshd refuses new logins.
 #   KOFIN_BENCH_HOST=root@<device> tests/live/or_bench/host.sh '<command>'
 : "${KOFIN_BENCH_HOST:?set KOFIN_BENCH_HOST to user@device}"
 # One socket per destination: a master left over from another device must

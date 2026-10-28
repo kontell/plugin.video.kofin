@@ -3,13 +3,12 @@
 import os
 from pathlib import Path
 
-# Path components skipped wherever they appear: VCS, virtualenvs, caches.
+# Path components skipped wherever they appear: agent config, VCS,
+# virtualenvs, caches.
 EXCLUDE_ANYWHERE = {
     "CLAUDE.md",
-    # Sits alongside CLAUDE.md rather than in EXCLUDE_TOP because agent config
-    # can be directory-scoped, and it holds local settings that must never
-    # reach an installed addon. It is gitignored, but the build copies the
-    # working tree, so being ignored is not enough on its own.
+    # Agent config can be directory-scoped and holds local settings. It is
+    # gitignored, but the build copies the working tree.
     ".claude",
     ".codex",
     ".agents",
@@ -24,8 +23,8 @@ EXCLUDE_ANYWHERE = {
     ".pytest_cache",
     ".DS_Store",
 }
-# Repo-root entries that are development-only (mirrors dev-install.sh, plus the
-# build's own output dir and common editor/CI folders).
+# Repo-root entries that are development-only, with the build's own output dir
+# and common editor/CI folders.
 EXCLUDE_TOP = {
     "docs",
     "tests",
@@ -43,10 +42,8 @@ EXCLUDE_TOP = {
     ".idea",
 }
 # Suffixes never shipped: byte-compiled Python, and the stray SQLite files a
-# test run can leave in the repo root. The databases are gitignored for
-# exactly that reason, but this build copies the *working tree* — a shipped
-# kofin.db is 70-odd KB of somebody's test data riding into every install
-# (found in the 0.13.0 zip).
+# test run can leave in the repo root, which are gitignored but would ride in
+# with the working tree.
 EXCLUDE_SUFFIX = (".pyc", ".pyo", ".db", ".db-wal", ".db-shm")
 
 

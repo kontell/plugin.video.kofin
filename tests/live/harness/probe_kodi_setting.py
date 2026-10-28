@@ -1,8 +1,9 @@
-"""S1-P1.6 live probe: the kodi_setting absent/FAILED split (C3).
+"""Live probe of kodi_setting's split between an absent setting and a failed
+call.
 
-RunScript(<file>). Logs the raw answer for videoplayer.queuetimesize —
-the real tenths on Piers, None ("setting absent") on Omega — and asserts
-the value is not the FAILED sentinel on a healthy Kodi.
+RunScript(<file>). Logs the raw answer for videoplayer.queuetimesize — the
+real tenths on Piers, None ("setting absent") on Omega — and whether it is
+the FAILED sentinel, which a healthy Kodi never answers.
 """
 
 import sys

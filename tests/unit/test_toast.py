@@ -1,5 +1,5 @@
-"""L1 units for the toast helper: which icon a level resolves to, and that a
-toast can never take its caller down with it."""
+"""The toast helper: which icon a level resolves to, and that a toast can
+never take its caller down with it."""
 
 import os
 
@@ -75,8 +75,7 @@ def test_show_defaults(kodi):
     assert call["heading"] == "Kofin"
     assert call["message"] == "hello"
     assert call["time"] == toast.DEFAULT_TIME_MS
-    # Kodi's own default is sound=True, which is how two error toasts ended up
-    # beeping while the other fourteen did not.
+    # Kodi's own default is sound=True.
     assert call["sound"] is False
 
 

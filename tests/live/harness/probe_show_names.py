@@ -1,6 +1,6 @@
-"""One-off: run plugin/actions._show_names against the real box and log the
-result, to check P0.5 (titles come over JSON-RPC; the plugin opens no
-MyVideos). RunScript(<file>,<series_id>,<series_id>,...)."""
+"""One-off: run plugin/actions._show_names inside Kodi and log the result, to
+check that titles come over JSON-RPC and the plugin opens no MyVideos.
+RunScript(<file>,<series_id>,<series_id>,...)."""
 
 import sys, xbmc, xbmcvfs
 
