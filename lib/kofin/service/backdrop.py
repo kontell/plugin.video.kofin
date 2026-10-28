@@ -1,28 +1,22 @@
 """The addon backdrop: the server's splashscreen, or the bundled artwork.
 
 ``addon.xml`` names ``resources/media/fanart.jpeg`` as the addon's fanart, and
-that file is never touched. Kodi reads the manifest once at install/scan time
-and keys cached textures on the source URL, so an asset rewritten in place
-would keep rendering the old bytes until its own hash check fell due. The
-server's splashscreen goes to addon_data instead, under a name that is its
-content hash (``fanart-<sha256>.webp``), and :func:`profile_path` hands the
-current one to the listings (``browse.with_backdrop``), which fall back to the
-bundled file while the setting is off or nothing has been fetched yet. A new
-image is a new URL, so no cache needs invalidating.
-
-What keeps the fetch cheap:
+that file is never rewritten: Kodi keys cached textures on the source URL, so
+an asset rewritten in place would keep rendering the old bytes. The server's
+splashscreen goes to addon_data under a name that is its content hash
+(``fanart-<sha256>.webp``), and :func:`profile_path` hands the current one to
+the listings (``browse.with_backdrop``), which fall back to the bundled file
+while the setting is off or nothing has been fetched yet. A new image is a new
+URL, so no cache needs invalidating.
 
 * **A daily floor gates the fetch.** ``_connect`` runs on every service start
-  and every reconnect, and a flapping server would otherwise re-download a
-  700KB image each time. The splashscreen endpoint serves no ETag or
-  Last-Modified, so there is no conditional GET to make. The settings toggle
-  passes ``force`` so that switching it on acts at once.
+  and every reconnect, and the splashscreen endpoint serves no ETag or
+  Last-Modified, so there is no conditional GET to make.
 * **The write is atomic.** Kodi may be reading the file to cache it; a
   partial write would cache a truncated image under a name that says it is
   complete.
 
-The image is taken in the one encoding the endpoint can usefully be asked
-for; :meth:`Api.splashscreen` records why that is WebP and why it is not Jpg.
+:meth:`Api.splashscreen` records why the image is taken as WebP.
 """
 
 import hashlib
@@ -120,8 +114,6 @@ def _apply_profile(api: Optional[Api], now: float, force: bool) -> None:
     data = api.splashscreen()
     if not data:
         return
-    # Content-addressed URLs need no texture-cache mutation. Only Kofin's
-    # profile is writable; addon.xml continues to name its bundled image.
     directory = settings.addon_data_path()
     os.makedirs(directory, exist_ok=True)
     digest = _digest(data)

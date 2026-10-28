@@ -15,10 +15,8 @@ The chosen set is also written to the hidden ``whoIsWatching`` setting so the
 service can re-attach those users when a new session comes up after a Kodi
 restart or websocket reconnect. Jellyfin sessions do not survive either.
 
-The picker runs in the **service**, like SyncPlay's menu: ``show_picker``
-blocks on a dialog, so the service runs it on a dedicated worker thread; the
-route handlers stay in ``plugin/adduser.py`` and call into this module
-(shell refactor P1.5).
+The picker runs in the **service**, like SyncPlay's menu; the route handlers
+stay in ``plugin/adduser.py`` and call into this module.
 """
 
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -46,10 +44,8 @@ WHO_IS_WATCHING = "whoIsWatching"
 # and they are safe as sentinels because a Jellyfin user id is a 32-character
 # hex GUID.
 #
-# *Empty* has to keep meaning "everyone": that is what shipped before the "All"
-# row existed, so an add-on update must not silently switch the feature off —
-# and neither must an unreadable settings store, which reads every key empty
-# (settings.get_addon).
+# Empty reads as everyone: installs from before the "All" row hold it, and an
+# unreadable settings store reads every key empty (settings.get_addon).
 SHORTLIST = "whoIsWatchingShortlist"
 SHORTLIST_ALL = "all"  # the dialog's first row, and the shipped default
 SHORTLIST_NOBODY = "none"  # nothing selected — the feature is off
@@ -188,7 +184,7 @@ def restore_additional_users(api: Api, device_id: str) -> None:
 
     Also the connect-time publisher of ``state.PROP_WHO_NAMES``: the session
     is fetched before the desired-set check (not after) because the root
-    listing's label now renders from that property alone, and a session that
+    listing's label renders from that property alone, and a session that
     already carries co-watchers — say, attached by another client — must show
     them even when this device saved none.
     """
@@ -321,15 +317,11 @@ def show_picker(api: Api, creds: Credentials) -> None:
         LOG.warning("session user change failed: %s", error)
 
     if changed:
-        # Publish before the refresh below, so the redrawn root reads the new
-        # names; server truth rather than the picked set, because a partial
-        # failure above leaves any local reconstruction guessing.
+        # Before the refresh below, so the redrawn root reads the new names.
         _publish_from_server(api, creds.device_id)
 
     if changed and xbmc.getCondVisibility("Window.IsMedia"):
         # Redraw the addon root so the "Who's watching?" entry re-reads the
-        # session and shows the updated additional-user names. Guarded because
-        # this now runs in the service: with no media window up there is no
-        # container for the builtin to act on (same policy as sync's widget
-        # refresh in sync/library.py).
+        # session and shows the updated additional-user names. Only with a
+        # media window up; otherwise there is no container to refresh.
         xbmc.executebuiltin("Container.Refresh")
