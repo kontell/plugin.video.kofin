@@ -1013,9 +1013,6 @@ def test_reset_resume_without_an_id_does_nothing(reset_wired):
     assert (api.calls, cleared, builtins) == ([], [], [])
 
 
-# --- _show_names: the picker's titles without a MyVideos open ----------------
-
-
 # --- update libraries ---------------------------------------------------------
 
 
