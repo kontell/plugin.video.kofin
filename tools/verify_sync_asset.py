@@ -9,10 +9,8 @@ Checks, in the order they would invalidate the study:
    1.000 s grid, or every timing read inherits the error.
 3. **Timing precision through a matched filter** — inject known integer and
    fractional offsets and recover them. The residual is the floor on every Δ this
-   asset can measure and no §10 threshold may be set near it; the gate is 1 ms,
-   thirty times below §10's tightest bar (30 ms), and the measured floor is the
-   number that matters.
-4. **Survival through a lossy encode** — arm D's downloads transcode FLAC to
+   asset can measure, so no pass threshold may be set near it; the gate is 1 ms.
+4. **Survival through a lossy encode** — music downloads transcode FLAC to
    Opus 128 by default, so members can be compared across codecs only if the
    marker's timing survives one.
 """

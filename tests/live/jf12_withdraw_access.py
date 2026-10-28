@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Withdraw, and put back, a real jf12 user's library access (fixes plan S-H3).
+"""Withdraw, and put back, a real jf12 user's library access.
 
-``withdraw NAME`` saves the user's current policy beside this script's
-results directory and sets EnableAllFolders=False, EnabledFolders=[] and no
+``withdraw NAME`` saves the user's current policy under the results directory
+beside this script and sets EnableAllFolders=False, EnabledFolders=[] and no
 Live TV — the shape that answers /UserViews with zero items. ``restore NAME``
 writes the saved policy back and deletes the save. Nothing else on the
 server is touched; the media rule (no item deletes, no library writes) holds.

@@ -1,11 +1,10 @@
 """RunScript(deploy_tree.py,<src dir>,<dest special:// path>) — copy an add-on
 tree into Kodi's own addons directory from inside Kodi.
 
-The on-device write path for Android rigs (Bravia, the Tab): adb can push to
-/sdcard but not into Kodi's addons directory, and Kodi's Python can. Walks
-``src`` with xbmcvfs, copies every file (creating directories as it goes) and
-leaves ``<src>/.deployed`` naming the count, which the driver polls for. The
-add-on still needs a disable→enable bounce afterwards, from the driver.
+On Android adb can push to /sdcard but not into Kodi's addons directory, and
+Kodi's Python can. ``<src>/.deployed`` names the file count once the copy is
+done, for the driver to poll. The add-on still needs a disable→enable bounce
+afterwards.
 """
 
 import sys

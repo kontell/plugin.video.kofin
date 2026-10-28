@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live check for SyncPlay fine sync (docs/syncplay-fine-sync.md §6).
+"""Live check for SyncPlay fine sync.
 
 Two Kodi members, one group, the timecode episode. The driver speaks to the
 Jellyfin server *as each member's own session* — kofin's Client name, the
@@ -10,18 +10,18 @@ command reaches kofin through its own websocket exactly as a real one would.
 Positions are sampled over JSON-RPC; residuals are injected by holding a tempo
 on one member through its own ``Player.SetTempo`` for less than the scheduler's
 foreign-tempo grace (kofin's scheduler then has something to close); the
-scheduler's own log lines are read back from each box. In the inject
+scheduler's own log lines are read back from each member. In the inject
 scenarios each member's GUI is watched as well (``OsdWatch``): a pulse plays
-as a correction (kontell/xbmc #38), so once the injection's own seek bar has
-gone nothing may show a tempo or a seek.
+as a correction, so once the injection's own seek bar has gone nothing may
+show a tempo or a seek.
 
     tests/live/syncplay_fine_sync.py \\
-        --server https://jelly.konell.xyz --item <episode id> \\
+        --server https://SERVER --item <episode id> \\
         --member A=127.0.0.1:8080,settings=<path>,log=<path> \\
-        --member B=192.168.1.150:8080,adb=<serial>,settings=<path>,log=<path> \\
+        --member B=HOST:8080,adb=<serial>,settings=<path>,log=<path> \\
         preflight join play steady inject-ahead inject-behind inject-seek cut leave
 
-Credentials never leave the two boxes' own settings files; nothing here is
+Credentials never leave the members' own settings files; nothing here is
 written to the repository.
 """
 
@@ -52,9 +52,8 @@ class Member(object):
         self.name = name
         self.host = rest.split(",")[0]
         self.adb = fields.get("adb")
-        # A member on another machine that is not an Android box: P1D's native
-        # Kodi and the Piers flatpak are reachable only this way, and without it
-        # half the music rig cannot be driven into a group at all.
+        # A member on another machine that is not an Android device, reached
+        # over ssh.
         self.ssh = fields.get("ssh")
         self.settings_path = os.path.expanduser(fields["settings"])
         self.log_path = os.path.expanduser(fields["log"])
@@ -68,7 +67,7 @@ class Member(object):
         )["System.FriendlyName"]
         self.log_start = None
 
-    # -- files on the box ------------------------------------------------
+    # -- files on the member ---------------------------------------------
 
     def read(self, path):
         if self.adb:
@@ -90,7 +89,7 @@ class Member(object):
         if self.ssh:
             # Through stdin, not an argument: a tempo value is small but the
             # same path writes settings, and quoting a payload into a remote
-            # shell is how a harness corrupts the box it is measuring.
+            # shell is how a harness corrupts the device it is measuring.
             subprocess.run(
                 ["ssh", "-o", "BatchMode=yes", self.ssh, "cat > '%s'" % path],
                 input=text,

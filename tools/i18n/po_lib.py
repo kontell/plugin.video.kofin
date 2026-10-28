@@ -84,11 +84,9 @@ def render(header: str, translations, path: Path = EN) -> str:
     deliberately non-ascending msgctxt order identical across locales.
     Rebuilding it from parsed entries would reorder them.
 
-    Comments are the exception: they stay in en_gb and are not copied out. They
-    are section markers and notes to whoever is *writing* a translation, and
-    translations are written in tr/<locale>.json -- so in a generated file they
-    are 74 lines nobody reads, repeated 26 times, that turn a four-line string
-    addition into a hundred-line diff.
+    Comments are the exception and stay in en_gb: they are notes to whoever is
+    *writing* a translation, which happens in tr/<locale>.json, and copied into
+    every locale they would only inflate each string addition's diff.
     """
     lines = path.read_text(encoding="utf-8").splitlines()
     out = header.splitlines()

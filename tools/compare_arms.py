@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Paired arm A vs arm D comparison for the music shakedown (§9).
+"""Paired arm A vs arm D comparison for the music shakedown.
 
-Arm A's rows were sampled before the item key was corrected, so its stored key is
-the whole playing URL; the Jellyfin item id is re-extracted from it here. Arm D's
-rows already carry the corrected key (a filename stem, since a repointed song has
-no item id anywhere in its path). Keys are only ever compared *within* an arm, so
-the two derivations never meet.
+Arm A's rows store the whole playing URL as the item key; the Jellyfin item id is
+re-extracted from it here. Arm D's rows carry a filename stem, since a repointed
+song has no item id anywhere in its path. Keys are only ever compared *within* an
+arm, so the two derivations never meet.
 """
 
 import json, os, re, statistics, sys

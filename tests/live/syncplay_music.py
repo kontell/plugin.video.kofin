@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Live driver for the SyncPlay music shakedown (docs/syncplay-music-shakedown.md).
+"""Live driver for the SyncPlay music shakedown.
 
-Shares the box plumbing with ``syncplay_fine_sync.py`` — the same ``Member``
+Shares the device plumbing with ``syncplay_fine_sync.py`` — the same ``Member``
 (settings, token, log grep, adb) — and adds what music needs and video did not.
 
 **Why this is not just the video sampler with a different item.** Two things
@@ -12,23 +12,22 @@ break when the item is three minutes long instead of forty-five:
    length — a number that looks like catastrophic desync and is an artefact.
    Every delta here is qualified by "both members report the same item", and the
    samples where they do not become their own series: **straddle**, which is a
-   metric in its own right (§6.4) rather than something to filter away.
+   metric in its own right rather than something to filter away.
 
-2. *Read holes are normal, not failure.* ``playback.py:270`` records that around
-   a held music boundary ``isPlaying``/``getTime`` intermittently report no media
-   for media that is right there. The sampler must survive that and count it; a
-   hole rate is evidence about the boundary, and a sampler that aborted on one
-   would be unable to measure the very thing the study is about.
+2. *Read holes are normal, not failure.* Around a held music boundary
+   ``isPlaying``/``getTime`` intermittently report no media for media that is
+   right there. The sampler must survive that and count it; a hole rate is
+   evidence about the boundary.
 
 Each sample is **one batched JSON-RPC round trip per member** (properties and
-item together, against a cached player id). Three separate calls at 4 Hz across
-four members is 48 requests a second, and on a box whose radio quantises to
-~100 ms the read uncertainty would swamp the 30 ms bar §10 sets.
+item together, against a cached player id): separate calls multiply the
+requests, and on a member whose radio quantises its round trips the read
+uncertainty would swamp the delta being measured.
 
     tests/live/syncplay_music.py --selftest
     tests/live/syncplay_music.py \\
-        --member A=192.168.1.112:8080,settings=<path>,log=<path> \\
-        --member B=192.168.1.198:8080,adb=<serial>,settings=<path>,log=<path> \\
+        --member A=HOST:8080,settings=<path>,log=<path> \\
+        --member B=HOST:8080,adb=<serial>,settings=<path>,log=<path> \\
         [--inject 1.1:0.6] sample --seconds 120
 
 ``--inject RATE:SECONDS`` holds a tempo on the first member through its own
@@ -95,28 +94,23 @@ class MusicMember(Member):
 
         ``item_key`` is the **Jellyfin item id**, pulled out of the playing URL.
 
-        Neither obvious choice works. The Kodi library id differs per box (the
-        Tab built its library separately and numbers the same album differently),
-        and the whole file path differs per *member and per play*: inside a group
-        kofin resolves to
+        Neither obvious choice works. The Kodi library id differs per member,
+        since each Kodi numbers its own library, and the whole file path differs
+        per *member and per play*: inside a group kofin resolves to
         ``…/Audio/<itemId>/stream.flac?static=true&mediaSourceId=…&deviceId=…&playSessionId=…``
-        so two members never share a URL. Measured 2026-08-31 — a whole-path key
-        qualified 0 of 3545 paired samples in M1, which reads as total desync and
-        is purely an artefact of the key.
+        so two members never share a URL.
 
         The item id is the one identifier every member agrees on, and it appears
         in both URL forms (a direct library URL and a plugin route). It is the
         first 32-hex token in the path; ``mediaSourceId`` and ``playSessionId``
         are also 32-hex but come later in the query, so first-match is correct.
 
-        **Arm D carries no item id at all.** A downloaded song is repointed to a
-        local file under each member's own downloads root, and the roots differ
-        (``/home/conor/kofin-downloads`` vs the flatpak's sandbox vs
-        ``/storage/…`` on Android), as does the container — FLAC where
-        ``downloadsMusicTranscode`` is off, Opus where it is on. What survives all
-        of that is the **filename stem**: ``01 Marker 01``. So the fallback is the
-        basename without its extension, which is identical on every member in
-        both arms.
+        **A downloaded song carries no item id at all.** It plays from a local
+        file under each member's own downloads root, and the roots differ per
+        platform, as does the container — FLAC where ``downloadsMusicTranscode``
+        is off, Opus where it is on. What survives all of that is the **filename
+        stem**: ``01 Marker 01``. So the fallback is the basename without its
+        extension, which is identical on every member.
         """
         self.samples += 1
         if self._playerid is None:
@@ -169,8 +163,8 @@ class MusicMember(Member):
         if found:
             key = found.group(0)
         elif path:
-            # Arm D: a local file. Root and container differ per member; the
-            # filename stem does not.
+            # A download: a local file. Root and container differ per member;
+            # the filename stem does not.
             key = os.path.splitext(os.path.basename(path.split("?", 1)[0]))[0]
         if not key:
             key = detail.get("id")
@@ -203,7 +197,7 @@ def sample(members, seconds, hz=4.0):
 
 
 # ---------------------------------------------------------------------------
-# metrics (§6.4). Pure functions of the rows, so they self-test without a box.
+# metrics. Pure functions of the rows, so they self-test without a device.
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +225,7 @@ def straddle(rows, names):
 
     This is the boundary cost seen from outside: how long the group is split
     across two tracks. It is not an error in the sampler and must never be
-    silently dropped — §2 predicts it is where music's whole penalty lives.
+    silently dropped.
     """
     spans, start = [], None
     for host_s, row in rows:
@@ -254,9 +248,8 @@ def straddle(rows, names):
 def boundaries(rows, name):
     """(host_s, from_key, to_key) each time one member's item changes.
 
-    Resolution is the sample interval, so this locates a boundary; §6.1's capture
-    times it. The two channels answer different questions and neither replaces
-    the other.
+    Resolution is the sample interval, so this locates a boundary; the audio
+    capture (``tools/analyse_capture.py``) times it.
     """
     out, prev = [], None
     for host_s, row in rows:
