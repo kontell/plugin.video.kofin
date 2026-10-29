@@ -82,6 +82,14 @@ PAGERS = 3
 # applied when the server has sent nothing newer. The server's own entry
 # for the stop arrives within a second or two and replaces the held one.
 HELD_USERDATA_GRACE = 20.0
+
+# A pass waits until nothing has been published for PASS_SETTLE and no event
+# is queued unread, and no longer than PASS_SETTLE_MAX after its work
+# appeared: one change often comes as two publishes (the outbox's re-read of
+# an edit and the server's echo of it, a moment apart), and every pass costs
+# seconds whatever it holds.
+PASS_SETTLE = 1.0
+PASS_SETTLE_MAX = 3.0
 # What a viewer asks for by name: the bar is up from the request to the end
 # of the work (progress.Progress.attend).
 ATTENDED = ("SyncLibrary", "UpdateLibrary", "RepairLibrary", "RemoveLibrary")
@@ -349,6 +357,12 @@ class Library(threading.Thread):
         # entry and when the item was first seen no longer playing.
         self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
+        # Kodi announced a music scan or clean (CheckMusic).
+        self._music_unchecked = False
+        # When kofin last published to the catalogue, and when the work now
+        # pending was first seen (PASS_SETTLE).
+        self._published_at = 0.0
+        self._pending_since: Optional[float] = None
         # What catch-ups bring that the catalogue did not hold, until the
         # pass has filed it and a toast may go up (announce.Arrivals).
         self.arrivals = announce.Arrivals()
@@ -377,6 +391,7 @@ class Library(threading.Thread):
             "SyncPlaylists",
             "SyncMusicPlaylists",
             "CleanupMusicPlaylists",
+            "CheckMusic",
         ):
             self._queue.put((command, data or {}))
 
@@ -1004,6 +1019,7 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
+            self._published_at = time.monotonic()
         # Only now. A release has no queue behind it: dropped before a
         # publish that failed, its entry was gone for good.
         for item_id in settled:
@@ -1028,6 +1044,7 @@ class Library(threading.Thread):
                     item["UserData"] = known.get("UserData") or {}
                 break
         self.store.publish(items, **placement)
+        self._published_at = time.monotonic()
 
     def announce_new_content(self):
         """Announce what the pass filed of the new content catch-ups brought."""
@@ -1212,6 +1229,11 @@ class Library(threading.Thread):
             else:
                 self._playlists_due = True
             return
+        if command == "CheckMusic":
+            # Kodi scanned or cleaned its music library: the next pass that
+            # touches music compares every song with Kodi's rows.
+            self._music_unchecked = True
+            return
         if command in ("SyncMusicPlaylists", "CleanupMusicPlaylists"):
             # Queued by the switch going on or off: the playlists pass
             # writes or removes the files by the switch as it reads then.
@@ -1240,8 +1262,25 @@ class Library(threading.Thread):
 
     # -- native application -----------------------------------------------------------
 
+    def _settling(self) -> bool:
+        """Whether the pending work waits for more of the same change."""
+        now = time.monotonic()
+        if self._pending_since is None:
+            self._pending_since = now
+        recent = now - self._published_at < PASS_SETTLE or not self._queue.empty()
+        return recent and now - self._pending_since < PASS_SETTLE_MAX
+
     def apply(self, native):
-        if self.store.has_pending() or self._repair:
+        if self._music_unchecked:
+            native.music_checked.clear()
+            self._music_unchecked = False
+        pending = self.store.has_pending()
+        if not pending:
+            self._pending_since = None
+        elif not self._repair and self._settling():
+            return
+        if pending or self._repair:
+            self._pending_since = None
             self._status(settings.localized(30401))
             populated = {kind: self.store.populated(kind) for kind in HAS_CONTENT}
             began = time.monotonic()

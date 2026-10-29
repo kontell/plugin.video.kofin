@@ -15,6 +15,7 @@ payload.
 import hashlib
 import json
 import time
+from collections import abc
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
@@ -116,6 +117,59 @@ class Mapping:
 # rebuild (library.rebuild_stale). It is below every real format, and it is
 # in the store because the removal outlives a service restart.
 REBUILDING = 0
+
+
+class Placements(abc.Mapping):
+    """The catalogue's placements at one generation, read by the item: a
+    pass's own items up front (``preload``), any other as it is asked for,
+    and every one at once for a caller that walks the map, or after
+    ``WHOLE_AFTER`` single reads, when a caller is reading most of it. A
+    pass that holds a few items reads a few rows, where the whole map is
+    every item of every library."""
+
+    WHOLE_AFTER = 200
+
+    def __init__(self, store, generation, item_ids: Iterable[str] = ()):
+        self._store = store
+        self._generation = generation
+        self._known: Dict[str, Optional[Entry]] = {}
+        self._whole: Optional[Dict[str, Entry]] = None
+        self._misses = 0
+        self.preload(item_ids)
+
+    def preload(self, item_ids: Iterable[str]) -> None:
+        if self._whole is not None:
+            return
+        wanted = [i for i in item_ids if i not in self._known]
+        if not wanted:
+            return
+        found = self._store.entries_of(wanted, self._generation)
+        for item_id in wanted:
+            self._known[item_id] = found.get(item_id)
+
+    def whole(self) -> Dict[str, Entry]:
+        if self._whole is None:
+            self._whole = self._store.entries_at(self._generation)
+        return self._whole
+
+    def __getitem__(self, item_id: str) -> Entry:
+        if self._whole is not None:
+            return self._whole[item_id]
+        if item_id not in self._known:
+            self._misses += 1
+            if self._misses > self.WHOLE_AFTER:
+                return self.whole()[item_id]
+            self.preload([item_id])
+        found = self._known[item_id]
+        if found is None:
+            raise KeyError(item_id)
+        return found
+
+    def __iter__(self):
+        return iter(self.whole())
+
+    def __len__(self) -> int:
+        return len(self.whole())
 
 
 class Store(Catalogue):
@@ -465,8 +519,15 @@ class Store(Catalogue):
                 raise ValueError("directory not initialized")
             current, pinned = row
             following = current + 1
-            live = {e.item_id: e for e in self._entries(cursor, "removed IS NULL", ())}
             incoming = {m.item_id for m in media}
+            if library is None and not complete_libraries and not complete_boxsets:
+                # Only a complete listing deletes by absence; a batch of
+                # changes needs no placement but its own.
+                live = self._live_entries(cursor, incoming | set(removed))
+            else:
+                live = {
+                    e.item_id: e for e in self._entries(cursor, "removed IS NULL", ())
+                }
             deleting = {i for i in removed if i in live}
             for item_id, entry in live.items():
                 if item_id in incoming:
@@ -585,6 +646,19 @@ class Store(Catalogue):
         ).fetchall()
         return [Entry(*row) for row in rows]
 
+    def _live_entries(self, cursor, item_ids) -> Dict[str, Entry]:
+        ids = sorted(item_ids)
+        found: Dict[str, Entry] = {}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            for entry in self._entries(
+                cursor,
+                "removed IS NULL AND item_id IN (%s)" % ",".join("?" * len(chunk)),
+                chunk,
+            ):
+                found[entry.item_id] = entry
+        return found
+
     def _generation(self, cursor, pinned):
         row = cursor.execute(
             "SELECT current, pinned FROM api_root WHERE namespace=?",
@@ -607,6 +681,44 @@ class Store(Catalogue):
                 where += " AND kind=?"
                 params += (kind,)
             return {e.item_id: e for e in self._entries(db.cursor, where, params)}
+
+    def placements(self, item_ids: Iterable[str] = ()) -> "Placements":
+        """Membership at the pinned generation, read by the item: ``item_ids``
+        now, the rest as it is asked for (``Placements``)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, True)
+        return Placements(self, generation, item_ids)
+
+    def entries_of(self, item_ids: Iterable[str], generation) -> Dict[str, Entry]:
+        """The placements of ``item_ids`` at ``generation``, a few hundred to
+        a query."""
+        ids = sorted(set(item_ids))
+        found: Dict[str, Entry] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for entry in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?) AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [generation, generation] + chunk,
+                ):
+                    found[entry.item_id] = entry
+        return found
+
+    def entries_at(self, generation) -> Dict[str, Entry]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            return {
+                e.item_id: e
+                for e in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?)",
+                    (generation, generation),
+                )
+            }
 
     def entry(self, item_id) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""
@@ -657,13 +769,15 @@ class Store(Catalogue):
         """The last known placement of every item with a pending removal."""
         with Database() as db:
             self._prepare(db.cursor)
+            # From the pending removals (api_item_status): joined the other
+            # way, SQLite walks every placement with a subquery each.
             rows = db.cursor.execute(
-                """SELECT e.item_id, e.kind, e.library, e.parent_id FROM api_item i
-                JOIN api_entry e ON e.namespace=i.namespace AND e.item_id=i.item_id
-                WHERE i.namespace=? AND i.operation='remove' AND i.status='pending'
+                """SELECT e.item_id, e.kind, e.library, e.parent_id FROM api_entry e
+                WHERE e.namespace=? AND e.item_id IN (SELECT item_id FROM api_item
+                    WHERE namespace=? AND status='pending' AND operation='remove')
                 AND e.added=(SELECT MAX(added) FROM api_entry x
                     WHERE x.namespace=e.namespace AND x.item_id=e.item_id)""",
-                (self.namespace,),
+                (self.namespace, self.namespace),
             ).fetchall()
             return {row[0]: Entry(*row) for row in rows}
 
@@ -896,6 +1010,44 @@ class Store(Catalogue):
         return {
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
+
+    def placed_in(self, kind, library, parent_ids: Iterable[str]) -> List[str]:
+        """The items of ``kind`` the catalogue places now under ``parent_ids``
+        of ``library``, a few hundred parents to a query (api_entry_parent)."""
+        parents = sorted(set(parent_ids))
+        found: List[str] = []
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(parents), 500):
+                chunk = parents[start : start + 500]
+                found.extend(
+                    row[0]
+                    for row in db.cursor.execute(
+                        "SELECT item_id FROM api_entry WHERE namespace=? AND kind=?"
+                        " AND parent_id IN (%s) AND library=? AND removed IS NULL"
+                        % ",".join("?" * len(chunk)),
+                        [self.namespace, kind] + chunk + [library],
+                    )
+                )
+        return found
+
+    def mappings_of(self, item_ids: Iterable[str]) -> Dict[str, Mapping]:
+        """The mappings of ``item_ids``, a few hundred to a query; an item
+        with no mapping is left out."""
+        ids = list(item_ids)
+        found: Dict[str, Mapping] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for row in db.cursor.execute(
+                    "SELECT item_id, kodi_id, applied, kind FROM api_native"
+                    " WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ):
+                    found[row[0]] = Mapping(row[1], json.loads(row[2] or "{}"), row[3])
+        return found
 
     def mapped_to(self, kind, kodi_id) -> List[str]:
         """The items of ``kind`` acknowledged against Kodi's row ``kodi_id``."""

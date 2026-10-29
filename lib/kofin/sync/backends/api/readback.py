@@ -8,13 +8,15 @@ is ours and the file name names the item. Readings are cached for the pass
 that made them and dropped whenever a scan or a removal could have changed
 them.
 
-A library's songs are read in one listing (paged, 5,000 to a page) and split
-by directory here: the pass asks for one directory at a time and must not
-pay a call each time.
+A music directory is read on its own, one filtered listing, until a pass
+asks for the whole library (``folders``, ``songs_in`` from
+``WHOLE_LIBRARY_FOLDERS`` directories on); then every song is read in one
+listing (paged, 5,000 to a page), split by directory here, and every
+directory is answered from it.
 """
 
 import time
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from kofin.core.log import Logger
 from . import paths
@@ -41,8 +43,11 @@ class Readback:
         # that reads them: a property Kodi does not name is never asked for.
         self.features: FrozenSet[str] = frozenset()
         self._scopes: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
-        # library -> directory key -> item id -> row
+        # library -> directory key -> item id -> row, for a library read
+        # whole; (library, directory key) -> item id -> row, for a directory
+        # read alone.
         self._folders: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+        self._directories: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
         # scope key -> Kodi id -> full row, for scopes mostly being compared
         self._full: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
         # scope key -> item id -> the rows Kodi holds for the item's version
@@ -52,6 +57,7 @@ class Readback:
     def clear(self):
         self._scopes.clear()
         self._folders.clear()
+        self._directories.clear()
         self._full.clear()
         self._versions.clear()
 
@@ -180,10 +186,14 @@ class Readback:
         artists by name, which is all Kodi matches them by.
         """
         if kind == "Audio":
-            songs = self._songs(library)
             if not parent_id:
-                return songs
-            return self._folders[library].get(parent_id, {})
+                return self._songs(library)
+            if library in self._folders:
+                return self._folders[library].get(parent_id, {})
+            key = (library, parent_id)
+            if key not in self._directories:
+                self._directories[key] = self.directory(library, parent_id)
+            return self._directories[key]
         cache_key = (kind, library, parent_id)
         if cache_key in self._scopes:
             return self._scopes[cache_key]
@@ -293,6 +303,18 @@ class Readback:
         self._songs(library)
         return self._folders[library]
 
+    # A directory alone costs Kodi one filtered listing, the library a
+    # listing of every song and a parse of each one's URL; from this many
+    # directories on, the library is read whole.
+    WHOLE_LIBRARY_FOLDERS = 32
+
+    def songs_in(self, library, folders: Iterable[str]) -> None:
+        """Read the songs of ``folders`` for the pass: the whole library in
+        one listing when they are many, each directory alone otherwise, when
+        ``scope`` first asks for it."""
+        if len(set(folders)) >= self.WHOLE_LIBRARY_FOLDERS:
+            self._songs(library)
+
     def directory(self, library, folder) -> Dict[str, Dict[str, Any]]:
         """One music directory's owned rows, read now and not cached: the
         confirmation after a scan, and the one lookup a playback needs."""
@@ -352,6 +374,8 @@ class Readback:
         if kind == "Audio":
             self._scopes.pop(("Audio", library, ""), None)
             self._folders.pop(library, None)
+            for key in [k for k in self._directories if k[0] == library]:
+                self._directories.pop(key, None)
             return
         self._scopes.pop((kind, library, parent_id), None)
         self._full.pop((kind, library, parent_id), None)
@@ -435,6 +459,8 @@ class Readback:
             if ("Audio", library, "") in self._scopes:
                 self._scopes[("Audio", library, "")][cache_key] = row
                 self._folders[library].setdefault(parent_id, {})[cache_key] = row
+            elif (library, parent_id) in self._directories:
+                self._directories[(library, parent_id)][cache_key] = row
             return
         scope_key = (kind, library, parent_id)
         if scope_key in self._scopes:

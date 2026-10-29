@@ -281,6 +281,94 @@ def test_server_userdata_patches_without_a_rescan(store, backend, kodi):
     assert not store.pending()
 
 
+def test_a_play_count_reads_only_its_own_rows(store, backend, kodi, monkeypatch):
+    """A play's user data is one song: its publish reads that song's
+    placement, the pass reads that song's mapping and its own directory
+    back from Kodi, and no song of the library beyond it, once the library
+    has been compared whole since the service started."""
+    from kofin.sync.backends.api import musicpass
+    from kofin.sync.backends.api.readback import Readback
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    wheres, mappings, mappings_of, lost, whole, directories = [], [], [], [], [], []
+    entries = Store._entries
+    monkeypatch.setattr(
+        Store,
+        "_entries",
+        lambda self, cursor, where, params: wheres.append(where)
+        or entries(self, cursor, where, params),
+    )
+    all_mappings, some_mappings = Store.mappings, Store.mappings_of
+    monkeypatch.setattr(
+        Store,
+        "mappings",
+        lambda self, **kw: mappings.append(kw) or all_mappings(self, **kw),
+    )
+    monkeypatch.setattr(
+        Store,
+        "mappings_of",
+        lambda self, ids: mappings_of.append(sorted(ids)) or some_mappings(self, ids),
+    )
+    monkeypatch.setattr(
+        musicpass.MusicPass,
+        "lost_songs",
+        lambda self, *args: lost.append(args) or [],
+    )
+    songs, directory = Readback._songs, Readback.directory
+    monkeypatch.setattr(
+        Readback,
+        "_songs",
+        lambda self, library: whole.append(library) or songs(self, library),
+    )
+    monkeypatch.setattr(
+        Readback,
+        "directory",
+        lambda self, library, folder: directories.append(folder)
+        or directory(self, library, folder),
+    )
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    assert wheres == ["removed IS NULL AND item_id IN (?)"]
+    backend.reconcile()
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
+    assert mappings == []
+    assert mappings_of == [["tc31"], ["tc31"]]
+    assert lost == [] and whole == []
+    # Read to plan the patch and again to confirm it.
+    assert directories == [ALBUM, ALBUM]
+
+
+def test_kodis_music_scan_makes_the_next_pass_compare_every_song(store, backend, kodi):
+    """A song Kodi dropped outside a pass (the viewer's own clean or rescan)
+    is found by the next pass after Kodi announces it, whatever that pass
+    came for."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    del kodi.songs[owned_songs(kodi)["tc32"]["songid"]]
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert "tc32" not in owned_songs(kodi)
+    backend.music_checked.clear()
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert "tc32" in owned_songs(kodi)
+
+
+def test_the_check_command_empties_the_checked_libraries_before_the_pass(
+    store, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    native = SimpleNamespace(music_checked={LIB})
+    w.command("CheckMusic", None)
+    w.apply(native)
+    assert native.music_checked == set()
+
+
 def test_song_removal_is_the_directory_listed_without_it(store, backend, kodi):
     store.publish(
         album_bundle(songs=3) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB
@@ -1220,3 +1308,184 @@ def test_container_of_takes_the_first_name_kodi_knows():
     assert paths.container_of({"Container": "mov,mp4,m4a,3gp,3g2,mj2"}) == "mp4"
     assert paths.container_of({"MediaSources": [{"Container": "FLAC"}]}) == "flac"
     assert paths.container_of({"Container": "ra"}) == paths.FALLBACK_CONTAINER
+
+
+def test_a_small_pass_without_movies_binds_stamps_and_trims_nothing(
+    store, backend, kodi, monkeypatch
+):
+    """Only a pass that filed movies can leave a movie folder unbound, the
+    feature stamp is written when it moved, and a small pass frees too
+    little to collect for; a pass that read a library whole still does."""
+    from kofin.core import memory
+    from kofin.sync.backends.api.native import Native
+    from kofin.sync.backends.api.store import Store
+
+    # Two albums: a scan of one is not a scan of every directory.
+    store.publish(
+        album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
+    )
+    backend.reconcile()
+    bound, stamped, released = [], [], []
+    monkeypatch.setattr(Native, "bind_movie_folders", lambda self: bound.append(1))
+    remember = Store.remember_features
+    monkeypatch.setattr(
+        Store,
+        "remember_features",
+        lambda self, *args: stamped.append(1) or remember(self, *args),
+    )
+    monkeypatch.setattr(memory, "release", lambda: released.append(1) or True)
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert (bound, stamped, released) == ([], [], [])
+    backend.music_checked.clear()
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert (bound, stamped, released) == ([], [], [1])
+    # A scan reads every album payload of the library.
+    store.publish([song("tc31", ALBUM, 1, Name="Renamed")])
+    backend.reconcile()
+    assert released == [1, 1]
+    store.publish([movie()], library=LIB2)
+    backend.reconcile()
+    assert bound == [1]
+
+
+def test_a_pass_waits_for_a_change_to_settle_and_no_longer_than_the_cap(
+    store, monkeypatch
+):
+    """An edit's re-read and the server's echo of it land a moment apart:
+    the pass starts once nothing has been published for PASS_SETTLE and no
+    event waits in the queue, or at PASS_SETTLE_MAX after the work appeared,
+    whichever comes first."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    monkeypatch.setattr(library, "PASS_SETTLE", 1.0)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    passes = []
+    native = SimpleNamespace(
+        music_checked=set(), reconcile=lambda repair=False: passes.append(clock[0])
+    )
+    monkeypatch.setattr(w, "_status", lambda *a: None)
+    monkeypatch.setattr(w, "_bar", lambda: SimpleNamespace(working=lambda *a: None))
+    monkeypatch.setattr(w, "flush_pending_reload", lambda: None)
+    monkeypatch.setattr(w.store, "has_pending", lambda: True)
+    w._published_at = clock[0]
+    w.apply(native)
+    clock[0] += 0.6
+    w.apply(native)
+    assert passes == []
+    clock[0] += 0.5
+    w.apply(native)
+    assert passes == [101.1]
+    # An event queued and not read yet holds it too.
+    passes.clear()
+    clock[0] += 5.0
+    w._queue.put(("userdata", []))
+    w.apply(native)
+    assert passes == []
+    w._queue.get_nowait()
+    w.apply(native)
+    assert len(passes) == 1
+    # Published again and again: the cap starts it anyway.
+    passes.clear()
+    for _ in range(8):
+        clock[0] += 0.5
+        w._published_at = clock[0]
+        w.apply(native)
+    assert len(passes) == 1
+
+
+def test_a_song_the_removals_listing_dropped_is_found_in_a_light_pass(
+    store, backend, kodi
+):
+    """A removal re-lists the directories it shed songs from; when that is
+    every directory of the library, a kept song the listing dropped is found
+    by the lost-song check even though this pass planned no scan of its own
+    (a play count is all it holds)."""
+    bundle = album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u")
+    store.publish(bundle, library=LIB)
+    backend.reconcile()
+    kept = "u%s1" % ALBUM2[:2]
+    gone = {"t%s2" % ALBUM[:2], "u%s2" % ALBUM2[:2]}
+    listing = [item for item in bundle if item["Id"] not in gone]
+    for item in listing:
+        if item["Id"] == "t%s1" % ALBUM[:2]:
+            item["UserData"] = {"Played": True, "PlayCount": 2}
+    directory = paths.music_dir(store.namespace, LIB, ALBUM2)
+    kodi.listings[directory] = []
+    store.publish(listing, library=LIB)
+    backend.reconcile()
+    assert kept not in owned_songs(kodi)
+    assert kept in {item.item_id for item, _, _ in store.pending()}
+    del kodi.listings[directory]
+    backend.reconcile()
+    assert kept in owned_songs(kodi)
+
+
+def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
+    store, backend, kodi, monkeypatch
+):
+    """The library counts as compared only once its scan and the lost-song
+    check after it have run."""
+    from kofin.sync.backends.api import musicpass
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    backend.music_checked.clear()
+
+    def scan(self, library, folders, expected=0):
+        raise RuntimeError("scan failed")
+
+    monkeypatch.setattr(musicpass.MusicPass, "scan", scan)
+    store.publish([song("t%s1" % ALBUM[:2], ALBUM, 1, UserData={"PlayCount": 2})])
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert LIB not in backend.music_checked
+
+
+def test_a_play_count_pass_reads_no_placement_but_its_own(
+    store, backend, kodi, monkeypatch
+):
+    """The pass reads the placements of what it holds; only a removal, which
+    decides whether a library goes whole, reads every one."""
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=3), library=LIB)
+    backend.reconcile()
+    wholes = []
+    entries_at = Store.entries_at
+    monkeypatch.setattr(
+        Store,
+        "entries_at",
+        lambda self, generation: wholes.append(generation)
+        or entries_at(self, generation),
+    )
+    singles = []
+    entries_of = Store.entries_of
+    monkeypatch.setattr(
+        Store,
+        "entries_of",
+        lambda self, ids, generation: singles.append(sorted(ids))
+        or entries_of(self, ids, generation),
+    )
+    tc31 = "t%s1" % ALBUM[:2]
+    store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert owned_songs(kodi)[tc31]["playcount"] == 2
+    assert wholes == [] and singles == [[tc31]]
+    # The whole check reads every placement at once, not one at a time.
+    backend.music_checked.clear()
+    singles.clear()
+    store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert len(wholes) == 1 and singles == [[tc31]]
+    wholes.clear()
+    listing = [i for i in album_bundle(songs=3) if i["Id"] != "t%s3" % ALBUM[:2]]
+    store.publish(listing, library=LIB)
+    backend.reconcile()
+    assert len(wholes) == 1

@@ -630,6 +630,14 @@ def test_broken_syncplay_never_suppresses_the_sync_kick():
     assert service.library.commands == ["FastSync"]
 
 
+def test_kodis_music_scan_and_clean_ask_the_library_for_a_whole_check():
+    service = Service()
+    service.library = FakeLibrary()
+    service.onNotification("xbmc", "AudioLibrary.OnScanFinished", "")
+    service.onNotification("xbmc", "AudioLibrary.OnCleanFinished", "")
+    assert service.library.commands == ["CheckMusic", "CheckMusic"]
+
+
 def test_shutdown_stops_syncplay():
     service = Service()
     manager = RecordingSyncPlay()

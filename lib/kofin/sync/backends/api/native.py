@@ -13,6 +13,7 @@ directories, in which order and under what bar is ``musicpass`` and
 """
 
 import time
+from collections import abc
 from contextlib import contextmanager
 from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
 
@@ -24,10 +25,10 @@ from kofin.sync.catalogue import BackendMismatch
 from . import capabilities, metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
-from .patch import Applier
+from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
-from .store import Store
+from .store import Entry, Store
 
 LOG = Logger(__name__)
 
@@ -131,6 +132,10 @@ class Native:
         # The pass's music work and what it reads once for it; a new one
         # for every pass (reconcile).
         self.music = MusicPass(self)
+        # The music libraries whose every song has been compared with Kodi's
+        # rows since the service started, a repair, or a music scan or clean
+        # of Kodi's (MusicPass.check_due).
+        self.music_checked: Set[str] = set()
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
@@ -789,10 +794,12 @@ class Native:
             repair = True
         self.readback.clear()
         self.music = MusicPass(self)
+        if repair:
+            self.music_checked.clear()
         applier = Applier(self)
         completed = False
+        large = repair
         try:
-            entries = self.store.entries()
             self.payloads = PayloadWindow(self.store)
             pending: Dict[str, Tuple[int, str, Dict]] = {
                 item_id: (generation, operation, payload)
@@ -802,6 +809,11 @@ class Native:
                 for item_id, record in self.store.records(payloads=False).items():
                     if item_id not in pending:
                         pending[item_id] = (record.generation, "upsert", {})
+            # The pending items' placements; the rest are read as asked for,
+            # and a repair, which holds every item, reads them all at once.
+            entries = self.store.placements(() if repair else pending)
+            if repair:
+                entries.whole()
             errors: List[Exception] = []
             # A removed collection's movies must let go of its set before the
             # set can; they rejoin this pass as upserts.
@@ -813,6 +825,7 @@ class Native:
             for item_id, generation, operation, _ in self.store.pending_work():
                 if operation == "upsert" and item_id not in pending:
                     pending[item_id] = (generation, operation, {})
+            entries.preload(pending)
             sets = self.store.records(kind="BoxSet")
             boxsets = [r.item for r in sets.values()]
             collections = metadata.collections_of(boxsets)
@@ -832,6 +845,7 @@ class Native:
                     loader=self.payloads,
                 )
             self.progress.begin(len(upserts))
+            large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
 
             self.scan_music(upserts, errors, entries)
             video = self.plan_video(upserts, errors)
@@ -850,7 +864,12 @@ class Native:
             if early:
                 applier.run(upserts, {}, set(), repair, errors, kinds=early)
             self.scan_video(video)
-            movies = {i for i, e in entries.items() if e.kind == "Movie"}
+            # Only a collection's planning asks which ids are movies.
+            movies = (
+                {i for i, e in entries.items() if e.kind == "Movie"}
+                if any(r.kind == "BoxSet" for r in upserts.values())
+                else set()
+            )
             applier.run(
                 upserts,
                 collections,
@@ -863,10 +882,14 @@ class Native:
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
             self.retire_assets(applier.asset_folders)
-            try:
-                self.bind_movie_folders()
-            except Exception:
-                LOG.exception("movie folder bindings not completed")
+            if any(r.kind == "Movie" for r in upserts.values()):
+                # Only a pass that filed movies can leave a folder unbound;
+                # an older profile's are bound once a service generation
+                # (Library.apply).
+                try:
+                    self.bind_movie_folders()
+                except Exception:
+                    LOG.exception("movie folder bindings not completed")
             # Applier.run leaves no acknowledgement queued; this is that,
             # said here.
             applier.commit()
@@ -883,7 +906,8 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
-            self.store.remember_features(self.features, metadata.SERIALIZER)
+            if stamped != self.features or serializer != metadata.SERIALIZER:
+                self.store.remember_features(self.features, metadata.SERIALIZER)
         finally:
             applier.commit()
             self.progress.close()
@@ -891,9 +915,11 @@ class Native:
             self.music.forget()
             # The pass's tables are the largest Python objects in the
             # process; hand the heap back before Kodi's scanner needs the
-            # page cache (core/memory.py).
+            # page cache (core/memory.py). A small pass frees too little to
+            # pay a collection for.
             del applier
-            memory.release()
+            if large or self.music.read_library:
+                memory.release()
             try:
                 self.release_all()
             except Exception:
@@ -933,7 +959,10 @@ class Native:
             pending[item_id] = (record.generation, "upsert", {})
 
     def scan_music(
-        self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
+        self,
+        upserts: Dict[str, Record],
+        errors,
+        entries: Optional[abc.Mapping[str, Entry]] = None,
     ):
         """Have Kodi list the music directories that need it, a library at a
         time. The pass scans music before video (reconcile)."""

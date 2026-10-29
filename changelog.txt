@@ -1,3 +1,10 @@
+v0.96.3
+- Library nodes and playlists are off unless switched on.
+- Play counts and watched marks reach the library faster.
+- Downloads no longer slow Kodi down on slow storage.
+- Kodi's "Ignore video extras on scan" setting is left as it is.
+- Settings reorganised.
+
 v0.96.2
 - A movie's original title reaches Kodi.
 - Jellyfin actions works on shows, seasons, sets, albums and artists.

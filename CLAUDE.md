@@ -227,11 +227,21 @@ What remains is kofin's own:
   read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
   the count (`provider._known_entries`); until the store or that readback answers,
   `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
-- **The pass finds applied songs Kodi lost.** Nothing pending names a song a half-failed
-  listing, a stopped scan or a user's interrupted rescan removed, so `MusicPass.directories`
-  compares every acknowledged song with the readback, puts the missing ones back to pending
-  and into the pass, and scans their directory. Songs whose album's payload moved join the
-  same comparison, because `song_tags` takes the album's artists and MusicBrainz ids.
+- **The pass finds applied songs Kodi lost, when something can have lost them.** Nothing
+  pending names a song a half-failed listing, a stopped scan or a user's interrupted rescan
+  removed, so `MusicPass.directories` compares every acknowledged song with the readback, puts
+  the missing ones back to pending and into the pass, and scans their directory. Songs whose
+  album's payload moved join the same comparison, because `song_tags` takes the album's
+  artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
+  Bravia), so it runs only when due (`MusicPass.check_due`): a library's first music pass
+  after the service starts, a repair, the pass after Kodi announces a music scan or clean
+  (`AudioLibrary.OnScanFinished`/`OnCleanFinished`, the `CheckMusic` command), an album that
+  moved, and a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Any other
+  pass compares its own songs, each read with its directory (`Readback.scope` reads a music
+  directory alone until the library has been read whole). After a scan, `lost_songs` covers
+  every directory the pass re-listed, the removal's scans included, and reads those directories
+  alone unless every directory was re-listed. A library counts as checked only once its scan
+  and that check have run.
 - **`song_tags` is total.** It is both the listing and the hash the pass compares; a track
   number that does not parse is the missing-field zero (`metadata._int`), never an error, or
   one song skips the scan of every directory in its library on every pass.
@@ -279,6 +289,28 @@ What remains is kofin's own:
   a playlist reconcile of 2,163 tracks took 4 min 37 s. The hold is the thread's and ends with
   the `with`, which is what keeps it out of the no-module-state rule; the plugin's
   process-wide pool is the other spelling and stays the plugin's.
+- **A small pass reads only its own rows.** The pass's placements are a `Placements` map: the
+  pending items' read up front, any other by the item, and every one only for a caller that
+  walks the map (a removal deciding whether a library goes whole, a collection's planning) or
+  reads past `WHOLE_AFTER` items one at a time. `store.publish` without a complete listing reads
+  only the named items' placements, the applier preloads every mapping only for a pass of
+  `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
+  library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
+  scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
+  every mapping 2.2 s), and one song's play count paid five of them, plus the whole library read
+  back: 22 s from the song's end to the bar going.
+- **A pass waits for its change to settle, and skips what a small pass does not need.**
+  `Library.apply` starts a pass once nothing has been published for `PASS_SETTLE` and no event
+  waits in the queue, at most `PASS_SETTLE_MAX` after the work appeared: marking an episode
+  watched publishes the outbox's re-read and, half a second later, the server's echo with the
+  season, and each pass costs seconds whatever it holds (two of 2.9 and 3.2 s on the Bravia
+  became one of 1.9 s). After the pass, movie folders are bound only when it filed movies, the
+  feature stamp is written only when it moved, and the heap is collected and trimmed only after
+  a large pass, a whole music read or a music scan (which reads every album payload). The
+  folders of an older profile's movies are still bound once a service generation, when nothing
+  is pending (`Library.apply`). `store.tombstones` starts from the pending removals:
+  joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
+  on the LibreELEC box on every pass.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
@@ -576,8 +608,8 @@ What remains is kofin's own:
   the listing item's tag, which carries none, and a plugin path's parent walk never reaches the
   bound library root. A show's folder is bound, so shows were fine; every movie in a folder of
   its own (0.91.0) was not. `Native.bind_movie_folders` binds every movie folder of the catalogue
-  with `noupdate`, which Kodi's own Update library skips — after every pass and, since a pass
-  plans pending rows only, once per service generation when nothing is pending
+  with `noupdate`, which Kodi's own Update library skips — after a pass that filed movies and,
+  since a pass plans pending rows only, once per service generation when nothing is pending
   (`library.apply`), so an older profile's rows are bound without a Repair; once per profile
   every folder is re-bound with the flag (`apiMovieBindings`), for the folders an earlier
   build bound without it. A scan by name lifts the flag around the scan, which the scanner
