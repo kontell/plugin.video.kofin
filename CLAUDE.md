@@ -303,7 +303,9 @@ What remains is kofin's own:
   season, and each pass costs seconds whatever it holds (two of 2.9 and 3.2 s on the Bravia
   became one of 1.9 s). After the pass, movie folders are bound only when it filed movies, the
   feature stamp is written only when it moved, and the heap is collected and trimmed only after
-  a large pass or a whole music read. `store.tombstones` starts from the pending removals:
+  a large pass, a whole music read or a music scan (which reads every album payload). The
+  folders of an older profile's movies are still bound once a service generation, when nothing
+  is pending (`Library.apply`). `store.tombstones` starts from the pending removals:
   joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
   on the LibreELEC box on every pass.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
@@ -603,8 +605,8 @@ What remains is kofin's own:
   the listing item's tag, which carries none, and a plugin path's parent walk never reaches the
   bound library root. A show's folder is bound, so shows were fine; every movie in a folder of
   its own (0.91.0) was not. `Native.bind_movie_folders` binds every movie folder of the catalogue
-  with `noupdate`, which Kodi's own Update library skips — after every pass and, since a pass
-  plans pending rows only, once per service generation when nothing is pending
+  with `noupdate`, which Kodi's own Update library skips — after a pass that filed movies and,
+  since a pass plans pending rows only, once per service generation when nothing is pending
   (`library.apply`), so an older profile's rows are bound without a Repair; once per profile
   every folder is re-bound with the flag (`apiMovieBindings`), for the folders an earlier
   build bound without it. A scan by name lifts the flag around the scan, which the scanner

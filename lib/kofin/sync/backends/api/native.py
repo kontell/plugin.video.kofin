@@ -907,7 +907,7 @@ class Native:
             # page cache (core/memory.py). A small pass frees too little to
             # pay a collection for.
             del applier
-            if large or self.music.read_whole:
+            if large or self.music.read_library:
                 memory.release()
             try:
                 self.release_all()
