@@ -100,13 +100,8 @@ PROGRESS_EVERY_CHUNKS = 32
 
 # A body is synced to storage every SYNC_BYTES and its pages dropped from the
 # cache behind it. After a sync that took longer than its window took to
-# arrive, storage is the slower of the two and the worker rests as long as the
-# sync took, at most SYNC_REST_SECONDS, so storage stays idle at least half the
-# time. A download that writes at the storage's full rate holds up every other
-# writer in Kodi, its log among them, and every thread that logs waits on the
-# log: unsynced, the network fills the kernel's dirty limit far faster than a
-# TV's flash drains it, and synced without the rest, Kodi's own writes still
-# queue behind each sync.
+# arrive, the worker rests as long as the sync took, at most
+# SYNC_REST_SECONDS.
 SYNC_BYTES = 8 * 1024 * 1024
 SYNC_REST_SECONDS = 2.0
 
