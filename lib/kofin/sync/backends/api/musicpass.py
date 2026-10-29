@@ -20,7 +20,7 @@ from kofin.core.log import Logger
 from . import metadata, paths, progress, walk
 from .readback import artist_key
 from .records import Record
-from .store import Entry, Mapping
+from .store import Entry, Mapping, Placements
 
 LOG = Logger(__name__)
 
@@ -260,6 +260,7 @@ class MusicPass:
             self.read_library = True
             held = self.native.readback.folders(library)
             mappings = self.song_mappings(library)
+            _read_every(entries)
         else:
             held = {
                 folder: self.native.readback.scope("Audio", library, folder)
@@ -268,6 +269,8 @@ class MusicPass:
             mappings = self.store.mappings_of(
                 self.store.placed_in("Audio", library, folders)
             )
+            if isinstance(entries, Placements):
+                entries.preload(mappings)
         lost: List[str] = []
         for item_id, known in mappings.items():
             if known.kodi_id is None:
@@ -317,6 +320,7 @@ class MusicPass:
         if whole:
             self.read_library = True
             mappings = self.song_mappings(library)
+            _read_every(entries)
             held = self.native.readback.folders(library)
             uninvited: List[str] = []
             for item_id, known in mappings.items():
@@ -429,3 +433,10 @@ class MusicPass:
             or len({r.parent_id for r in songs.values()})
             >= self.native.readback.WHOLE_LIBRARY_FOLDERS
         )
+
+
+def _read_every(entries) -> None:
+    """Every placement at once, for a caller about to read most of them one
+    by one; a plain dict already holds them."""
+    if isinstance(entries, Placements):
+        entries.whole()

@@ -1465,11 +1465,26 @@ def test_a_play_count_pass_reads_no_placement_but_its_own(
         lambda self, generation: wholes.append(generation)
         or entries_at(self, generation),
     )
+    singles = []
+    entries_of = Store.entries_of
+    monkeypatch.setattr(
+        Store,
+        "entries_of",
+        lambda self, ids, generation: singles.append(sorted(ids))
+        or entries_of(self, ids, generation),
+    )
     tc31 = "t%s1" % ALBUM[:2]
     store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
     backend.reconcile()
     assert owned_songs(kodi)[tc31]["playcount"] == 2
-    assert wholes == []
+    assert wholes == [] and singles == [[tc31]]
+    # The whole check reads every placement at once, not one at a time.
+    backend.music_checked.clear()
+    singles.clear()
+    store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert len(wholes) == 1 and singles == [[tc31]]
+    wholes.clear()
     listing = [i for i in album_bundle(songs=3) if i["Id"] != "t%s3" % ALBUM[:2]]
     store.publish(listing, library=LIB)
     backend.reconcile()
