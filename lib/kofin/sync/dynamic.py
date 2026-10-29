@@ -186,11 +186,10 @@ def publish(items, server):
     singles: List[Dict] = []
     try:
         if key is None:
-            LOG.warning("settings unreadable; video node tree left as it is")
+            LOG.debug("settings unreadable; video node tree left as it is")
             # The skin entries describe the tree as it stands.
             nodes = video.tree_written()
-            if nodes:
-                singles = video.single_nodes(capabilities.has("episode_tags"))
+            singles = video.written_singles()
         elif entries:
             kodisetup.seed_default_nodes("video")
             singles = video.single_nodes(capabilities.has("episode_tags"))
@@ -206,7 +205,7 @@ def publish(items, server):
     try:
         libraries = music_entries(views, whitelist, key)
         if libraries is None:
-            LOG.warning("settings unreadable; music node tree left as it is")
+            LOG.debug("settings unreadable; music node tree left as it is")
         else:
             if libraries:
                 kodisetup.seed_default_nodes("music")

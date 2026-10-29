@@ -339,12 +339,15 @@ def test_a_settings_read_that_cannot_answer_leaves_the_skin_entries_on_the_tree(
     views_env,
 ):
     """With the switch unreadable the tree stays as it is, and the entries
-    describe it: into the tree while it is on disk, browse entries while it
-    is not."""
+    describe it: into the tree while it is on disk, its singles taken from
+    its files since the downloads switch reads off too, and browse entries
+    while it is not."""
+    FakeAddon.store["downloadsEnabled"] = "true"
     whitelist(MOVIES, MUSIC)
     dynamic.publish(ITEMS, FakeApi())
     written = props()
     assert written["Kofin.nodes.1.content"].endswith("/all.xml")
+    assert any(v.endswith("kofin_DownloadedMovies.xml") for v in written.values())
     stored = dict(FakeAddon.store)
     # The settings document did not load: the switch reads its default.
     FakeAddon.store = {dynamic.SETTING: "false"}
