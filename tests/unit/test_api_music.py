@@ -1308,3 +1308,51 @@ def test_container_of_takes_the_first_name_kodi_knows():
     assert paths.container_of({"Container": "mov,mp4,m4a,3gp,3g2,mj2"}) == "mp4"
     assert paths.container_of({"MediaSources": [{"Container": "FLAC"}]}) == "flac"
     assert paths.container_of({"Container": "ra"}) == paths.FALLBACK_CONTAINER
+
+
+def test_a_song_the_removals_listing_dropped_is_found_in_a_light_pass(
+    store, backend, kodi
+):
+    """A removal re-lists the directories it shed songs from; when that is
+    every directory of the library, a kept song the listing dropped is found
+    by the lost-song check even though this pass planned no scan of its own
+    (a play count is all it holds)."""
+    bundle = album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u")
+    store.publish(bundle, library=LIB)
+    backend.reconcile()
+    kept = "u%s1" % ALBUM2[:2]
+    gone = {"t%s2" % ALBUM[:2], "u%s2" % ALBUM2[:2]}
+    listing = [item for item in bundle if item["Id"] not in gone]
+    for item in listing:
+        if item["Id"] == "t%s1" % ALBUM[:2]:
+            item["UserData"] = {"Played": True, "PlayCount": 2}
+    directory = paths.music_dir(store.namespace, LIB, ALBUM2)
+    kodi.listings[directory] = []
+    store.publish(listing, library=LIB)
+    backend.reconcile()
+    assert kept not in owned_songs(kodi)
+    assert kept in {item.item_id for item, _, _ in store.pending()}
+    del kodi.listings[directory]
+    backend.reconcile()
+    assert kept in owned_songs(kodi)
+
+
+def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
+    store, backend, kodi, monkeypatch
+):
+    """The library counts as compared only once its scan and the lost-song
+    check after it have run."""
+    from kofin.sync.backends.api import musicpass
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    backend.music_checked.clear()
+
+    def scan(self, library, folders, expected=0):
+        raise RuntimeError("scan failed")
+
+    monkeypatch.setattr(musicpass.MusicPass, "scan", scan)
+    store.publish([song("t%s1" % ALBUM[:2], ALBUM, 1, UserData={"PlayCount": 2})])
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert LIB not in backend.music_checked

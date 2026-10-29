@@ -8,9 +8,11 @@ is ours and the file name names the item. Readings are cached for the pass
 that made them and dropped whenever a scan or a removal could have changed
 them.
 
-A library's songs are read in one listing (paged, 5,000 to a page) and split
-by directory here: the pass asks for one directory at a time and must not
-pay a call each time.
+A music directory is read on its own, one filtered listing, until a pass
+asks for the whole library (``folders``, ``songs_in`` from
+``WHOLE_LIBRARY_FOLDERS`` directories on); then every song is read in one
+listing (paged, 5,000 to a page), split by directory here, and every
+directory is answered from it.
 """
 
 import time

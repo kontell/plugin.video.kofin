@@ -917,6 +917,26 @@ class Store(Catalogue):
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
 
+    def placed_in(self, kind, library, parent_ids: Iterable[str]) -> List[str]:
+        """The items of ``kind`` the catalogue places now under ``parent_ids``
+        of ``library``, a few hundred parents to a query (api_entry_parent)."""
+        parents = sorted(set(parent_ids))
+        found: List[str] = []
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(parents), 500):
+                chunk = parents[start : start + 500]
+                found.extend(
+                    row[0]
+                    for row in db.cursor.execute(
+                        "SELECT item_id FROM api_entry WHERE namespace=? AND kind=?"
+                        " AND parent_id IN (%s) AND library=? AND removed IS NULL"
+                        % ",".join("?" * len(chunk)),
+                        [self.namespace, kind] + chunk + [library],
+                    )
+                )
+        return found
+
     def mappings_of(self, item_ids: Iterable[str]) -> Dict[str, Mapping]:
         """The mappings of ``item_ids``, a few hundred to a query; an item
         with no mapping is left out."""

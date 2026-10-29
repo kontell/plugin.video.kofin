@@ -238,7 +238,10 @@ What remains is kofin's own:
   (`AudioLibrary.OnScanFinished`/`OnCleanFinished`, the `CheckMusic` command), an album that
   moved, and a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Any other
   pass compares its own songs, each read with its directory (`Readback.scope` reads a music
-  directory alone until the library has been read whole).
+  directory alone until the library has been read whole). After a scan, `lost_songs` covers
+  every directory the pass re-listed, the removal's scans included, and reads those directories
+  alone unless every directory was re-listed. A library counts as checked only once its scan
+  and that check have run.
 - **`song_tags` is total.** It is both the listing and the hash the pass compares; a track
   number that does not parse is the missing-field zero (`metadata._int`), never an error, or
   one song skips the scan of every directory in its library on every pass.
