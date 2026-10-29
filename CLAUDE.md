@@ -227,11 +227,18 @@ What remains is kofin's own:
   read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
   the count (`provider._known_entries`); until the store or that readback answers,
   `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
-- **The pass finds applied songs Kodi lost.** Nothing pending names a song a half-failed
-  listing, a stopped scan or a user's interrupted rescan removed, so `MusicPass.directories`
-  compares every acknowledged song with the readback, puts the missing ones back to pending
-  and into the pass, and scans their directory. Songs whose album's payload moved join the
-  same comparison, because `song_tags` takes the album's artists and MusicBrainz ids.
+- **The pass finds applied songs Kodi lost, when something can have lost them.** Nothing
+  pending names a song a half-failed listing, a stopped scan or a user's interrupted rescan
+  removed, so `MusicPass.directories` compares every acknowledged song with the readback, puts
+  the missing ones back to pending and into the pass, and scans their directory. Songs whose
+  album's payload moved join the same comparison, because `song_tags` takes the album's
+  artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
+  Bravia), so it runs only when due (`MusicPass.check_due`): a library's first music pass
+  after the service starts, a repair, the pass after Kodi announces a music scan or clean
+  (`AudioLibrary.OnScanFinished`/`OnCleanFinished`, the `CheckMusic` command), an album that
+  moved, and a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Any other
+  pass compares its own songs, each read with its directory (`Readback.scope` reads a music
+  directory alone until the library has been read whole).
 - **`song_tags` is total.** It is both the listing and the hash the pass compares; a track
   number that does not parse is the missing-field zero (`metadata._int`), never an error, or
   one song skips the scan of every directory in its library on every pass.
@@ -284,8 +291,8 @@ What remains is kofin's own:
   `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
   scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
-  every mapping 2.2 s), and one song's play count paid five of them: 22 s from the song's end to
-  the bar going, 11.6 s after. What is left is the lost-song readback of the whole library.
+  every mapping 2.2 s), and one song's play count paid five of them, plus the whole library read
+  back: 22 s from the song's end to the bar going.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still

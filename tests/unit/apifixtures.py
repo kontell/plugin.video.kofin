@@ -395,6 +395,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._held_userdata = {}
     w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()
+    w._music_unchecked = False
     selections = (
         selected
         if isinstance(selected, list) and selected and isinstance(selected[0], list)

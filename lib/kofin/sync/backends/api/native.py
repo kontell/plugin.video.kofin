@@ -131,6 +131,10 @@ class Native:
         # The pass's music work and what it reads once for it; a new one
         # for every pass (reconcile).
         self.music = MusicPass(self)
+        # The music libraries whose every song has been compared with Kodi's
+        # rows since the service started, a repair, or a music scan or clean
+        # of Kodi's (MusicPass.check_due).
+        self.music_checked: Set[str] = set()
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
@@ -789,6 +793,8 @@ class Native:
             repair = True
         self.readback.clear()
         self.music = MusicPass(self)
+        if repair:
+            self.music_checked.clear()
         applier = Applier(self)
         completed = False
         try:

@@ -193,7 +193,10 @@ class MusicPass:
         Two kinds of applied song join the comparison uninvited: one Kodi
         does not hold (as ``lost_songs``), and one whose album's payload
         moved, since its tags take the album's artists and MusicBrainz ids.
-        Either goes back to pending and into this pass.
+        Either goes back to pending and into this pass. That whole check
+        reads every song of the library, so it runs when something can
+        have changed what Kodi holds (``check_due``); otherwise only the
+        pass's own songs are compared, each read with its directory.
         """
         songs = {
             r.item_id: r
@@ -201,31 +204,42 @@ class MusicPass:
             if r.kind == "Audio" and r.library == library
         }
         folders: Set[str] = set()
-        mappings = self.song_mappings(library)
-        held = self.native.readback.folders(library)
         changed_albums = {
             r.item_id
             for r in upserts.values()
             if r.kind == "MusicAlbum" and r.library == library
         }
-        uninvited: List[str] = []
-        for item_id, known in mappings.items():
-            if item_id in songs or known.kodi_id is None:
-                continue
-            placed = entries.get(item_id)
-            if placed is None or placed.kind != "Audio" or placed.library != library:
-                continue
-            if (
-                item_id not in held.get(placed.parent_id, {})
-                or placed.parent_id in changed_albums
-            ):
-                uninvited.append(item_id)
-        if uninvited:
-            songs.update(
-                self.store.records(
-                    kind="Audio", library=library, item_ids=uninvited, payloads=False
+        whole = self.check_due(library, songs, changed_albums)
+        if whole:
+            mappings = self.song_mappings(library)
+            held = self.native.readback.folders(library)
+            uninvited: List[str] = []
+            for item_id, known in mappings.items():
+                if item_id in songs or known.kodi_id is None:
+                    continue
+                placed = entries.get(item_id)
+                if (
+                    placed is None
+                    or placed.kind != "Audio"
+                    or placed.library != library
+                ):
+                    continue
+                if (
+                    item_id not in held.get(placed.parent_id, {})
+                    or placed.parent_id in changed_albums
+                ):
+                    uninvited.append(item_id)
+            if uninvited:
+                songs.update(
+                    self.store.records(
+                        kind="Audio",
+                        library=library,
+                        item_ids=uninvited,
+                        payloads=False,
+                    )
                 )
-            )
+        else:
+            mappings = self.store.mappings_of(songs)
         revived: Dict[str, Record] = {}
         if songs:
             # The bar names the phase and the log times it.
@@ -282,6 +296,8 @@ class MusicPass:
                 len(folders),
                 len(revived),
             )
+        if not whole:
+            return folders
         for folder, rows in self.native.readback.folders(library).items():
             for item_id in rows:
                 placed = entries.get(item_id)
@@ -293,4 +309,18 @@ class MusicPass:
                 ):
                     folders.add(folder)
                     break
+        self.native.music_checked.add(library)
         return folders
+
+    def check_due(self, library, songs: Dict[str, Record], changed_albums) -> bool:
+        """Whether this pass compares every song of the library with Kodi's
+        rows: once a library after the service starts, after a repair or a
+        music scan or clean of Kodi's (``Native.music_checked`` emptied),
+        when an album's payload moved, and when the pass's songs span enough
+        directories that the library is read whole anyway."""
+        return (
+            library not in self.native.music_checked
+            or bool(changed_albums)
+            or len({r.parent_id for r in songs.values()})
+            >= self.native.readback.WHOLE_LIBRARY_FOLDERS
+        )

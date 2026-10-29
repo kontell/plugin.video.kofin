@@ -751,6 +751,15 @@ class Applier:
         patches, self._deferred = self._deferred, []
         for library in sorted({p.record.library for p in patches}):
             self.readback.forget(kind, library)
+            if kind == "Audio":
+                self.readback.songs_in(
+                    library,
+                    (
+                        p.record.parent_id
+                        for p in patches
+                        if p.record.library == library
+                    ),
+                )
         for patch in patches:
             record = patch.record
             try:

@@ -138,6 +138,8 @@ class Service(xbmc.Monitor):
         "Player.OnPlay": "_kodi_player_play",
         "Player.OnStop": "_kodi_player_stop",
         "VideoLibrary.OnUpdate": "_kodi_library_update",
+        "AudioLibrary.OnScanFinished": "_kodi_music_changed",
+        "AudioLibrary.OnCleanFinished": "_kodi_music_changed",
     }
     _IPC_HANDLERS: Dict[str, str] = {
         ipc.RESTART: "_ipc_restart",
@@ -1036,6 +1038,13 @@ class Service(xbmc.Monitor):
         # worker re-reads the gate itself, and its poll is the cover
         # for every stop that never reaches here.
         self.downloads.wake()
+
+    def _kodi_music_changed(self, data: str) -> None:
+        """Kodi finished a music scan or clean, its own or kofin's: either can
+        have dropped a song kofin filed, so the next pass that touches music
+        compares every one."""
+        if self.library is not None:
+            self.library.enqueue_command("CheckMusic")
 
     def _kodi_library_update(self, data: str) -> None:
         if not self.credentials.is_logged_in:
