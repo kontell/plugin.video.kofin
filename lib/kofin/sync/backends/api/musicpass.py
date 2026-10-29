@@ -39,8 +39,10 @@ class MusicPass:
         # (library, folder) pairs whose directory this pass has re-listed,
         # and (library, "*") when that was every directory of the library.
         self.rescanned: Set[Tuple[str, str]] = set()
-        # Whether this pass read a library's every song (check_due).
-        self.read_whole = False
+        # Whether this pass read a whole library's rows: every song for the
+        # comparison (check_due, lost_songs) or every album payload for a
+        # scan; the pass hands that heap back (Native.reconcile).
+        self.read_library = False
         self._album_items: Dict[str, Dict[str, Dict]] = {}
         self._song_mappings: Dict[str, Dict[str, Mapping]] = {}
         self._tag_hashes: Dict[str, str] = {}
@@ -200,6 +202,7 @@ class MusicPass:
         """
         if not folders:
             return
+        self.read_library = True
         every = walk.root_folders(self.store, library)
         rows = walk.rows(self.store, library, folders, self.album_items(library))
         # The applier reads the album payloads again after the scan; held
@@ -254,7 +257,7 @@ class MusicPass:
         Kodi kept the hash of the listing that lost them)."""
         everywhere = (library, "*") in self.rescanned
         if everywhere:
-            self.read_whole = True
+            self.read_library = True
             held = self.native.readback.folders(library)
             mappings = self.song_mappings(library)
         else:
@@ -312,7 +315,7 @@ class MusicPass:
         }
         whole = self.check_due(library, songs, changed_albums)
         if whole:
-            self.read_whole = True
+            self.read_library = True
             mappings = self.song_mappings(library)
             held = self.native.readback.folders(library)
             uninvited: List[str] = []
