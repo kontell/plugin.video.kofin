@@ -1320,7 +1320,10 @@ def test_a_small_pass_without_movies_binds_stamps_and_trims_nothing(
     from kofin.sync.backends.api.native import Native
     from kofin.sync.backends.api.store import Store
 
-    store.publish(album_bundle(songs=2), library=LIB)
+    # Two albums: a scan of one is not a scan of every directory.
+    store.publish(
+        album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
+    )
     backend.reconcile()
     bound, stamped, released = [], [], []
     monkeypatch.setattr(Native, "bind_movie_folders", lambda self: bound.append(1))
