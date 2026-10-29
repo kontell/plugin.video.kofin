@@ -11,11 +11,13 @@ bar across its parts. ``native`` keeps the scanner itself: the waits, the
 hold and ``Native.scan``.
 """
 
+import collections
 import time
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from kofin.core.log import Logger
 from . import metadata, paths, progress, walk
+from .readback import artist_key
 from .records import Record
 from .store import Entry, Mapping
 
@@ -41,12 +43,29 @@ class MusicPass:
         self._album_items: Dict[str, Dict[str, Dict]] = {}
         self._song_mappings: Dict[str, Dict[str, Mapping]] = {}
         self._tag_hashes: Dict[str, str] = {}
+        # Libraries whose every song this pass compared with Kodi's rows.
+        self._compared: Set[str] = set()
+        # For the applier, per library: the album directories with a live
+        # song, the artists a live album credits, and the Kodi album id each
+        # album's songs were filed under -- read once a pass, not once a row.
+        self._song_folders: Dict[str, Set[str]] = {}
+        self._credited: Dict[str, Set[str]] = {}
+        self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
+        # Kodi's album and artist rows are not per library: two libraries
+        # (or two albums of one) may share a row, and one of ours owns it.
+        self._album_owners: Optional[Dict[int, str]] = None
+        self._artist_owners: Optional[Dict[str, str]] = None
 
     def forget(self):
         """Drop what the pass read; what it re-listed stays on record."""
         self._album_items = {}
         self._song_mappings = {}
         self._tag_hashes = {}
+        self._song_folders = {}
+        self._credited = {}
+        self._album_ids = {}
+        self._album_owners = None
+        self._artist_owners = None
 
     def song_mappings(self, library) -> Dict[str, Mapping]:
         """The library's song mappings, read once a pass: nothing between
@@ -68,6 +87,68 @@ class MusicPass:
                 ).items()
             }
         return self._album_items[library]
+
+    def song_folders(self, library) -> Set[str]:
+        if library not in self._song_folders:
+            self._song_folders[library] = set(self.store.folders("Audio", library))
+        return self._song_folders[library]
+
+    def credited(self, library) -> Set[str]:
+        """The artist ids the library's live albums credit."""
+        if library not in self._credited:
+            artists: Set[str] = set()
+            for item in self.album_items(library).values():
+                for credits in (item.get("AlbumArtists"), item.get("ArtistItems")):
+                    for credit in credits or []:
+                        if isinstance(credit, dict) and credit.get("Id"):
+                            artists.add(str(credit["Id"]))
+            self._credited[library] = artists
+        return self._credited[library]
+
+    def artist_owner(self, record: Record) -> str:
+        """Kodi keeps one artist per name; of our artists sharing a name the
+        first by id owns the row's art and description."""
+        if self._artist_owners is None:
+            owners: Dict[str, str] = {}
+            for item_id, found in sorted(
+                self.store.records(kind="MusicArtist").items()
+            ):
+                owners.setdefault(artist_key(found.item.get("Name")), item_id)
+            self._artist_owners = owners
+        return self._artist_owners.get(
+            artist_key(record.item.get("Name")), record.item_id
+        )
+
+    def album_ids(self, library) -> Dict[str, Optional[int]]:
+        if library not in self._album_ids:
+            ids: Dict[str, Optional[int]] = {}
+            for folder, rows in sorted(self.native.readback.folders(library).items()):
+                counted = collections.Counter(
+                    row.get("albumid") for row in rows.values() if row.get("albumid")
+                )
+                if counted:
+                    ids[folder] = counted.most_common(1)[0][0]
+            self._album_ids[library] = ids
+        return self._album_ids[library]
+
+    def album_id(self, record: Record) -> Optional[int]:
+        """Kodi's id for the album the record's songs were filed under: the
+        one most of them share."""
+        return self.album_ids(record.library).get(record.item_id)
+
+    def album_owner(self, albumid) -> Optional[str]:
+        """Of our albums Kodi merged into one row, the first by id owns the
+        row's art and description; the others are mapped and left."""
+        if self._album_owners is None:
+            owners: Dict[int, str] = {}
+            for library in self.store.libraries("Audio"):
+                for folder, found in sorted(self.album_ids(library).items()):
+                    if found is not None and (
+                        found not in owners or folder < owners[found]
+                    ):
+                        owners[found] = folder
+            self._album_owners = owners
+        return self._album_owners.get(albumid)
 
     def tag_hash(self, record: Record) -> str:
         """A song's tag hash, computed once a pass."""
@@ -91,16 +172,22 @@ class MusicPass:
             if r.kind == "Audio" and r.library == library and r.parent_id in folders
         )
         self.scan(library, folders, expected=expected)
-        if not folders:
-            # No scan ran, so none lost a song.
-            return
-        lost = self.lost_songs(library, folders, entries)
-        if lost:
-            self.store.invalidate(lost)
-            LOG.warning(
-                "music: %d acknowledged songs missing after the scan; pending again",
-                len(lost),
-            )
+        # Every directory of the library this pass re-listed, the removal's
+        # scans before this one included: none other can have lost a song.
+        rescanned = {folder for lib, folder in self.rescanned if lib == library}
+        if rescanned:
+            lost = self.lost_songs(library, rescanned, entries)
+            if lost:
+                self.store.invalidate(lost)
+                LOG.warning(
+                    "music: %d acknowledged songs missing after the scan;"
+                    " pending again",
+                    len(lost),
+                )
+        # Only now: a scan that raised leaves the library to be compared
+        # whole again.
+        if library in self._compared:
+            self.native.music_checked.add(library)
 
     def scan(self, library, folders: Set[str], expected=0):
         """Have Kodi list the changed album directories again.
@@ -165,9 +252,20 @@ class MusicPass:
         to pending for the next pass to re-list their directory (salted, if
         Kodi kept the hash of the listing that lost them)."""
         everywhere = (library, "*") in self.rescanned
-        held = self.native.readback.folders(library)
+        if everywhere:
+            self.read_whole = True
+            held = self.native.readback.folders(library)
+            mappings = self.song_mappings(library)
+        else:
+            held = {
+                folder: self.native.readback.scope("Audio", library, folder)
+                for folder in folders
+            }
+            mappings = self.store.mappings_of(
+                self.store.placed_in("Audio", library, folders)
+            )
         lost: List[str] = []
-        for item_id, known in self.song_mappings(library).items():
+        for item_id, known in mappings.items():
             if known.kodi_id is None:
                 continue
             placed = entries.get(item_id)
@@ -312,7 +410,7 @@ class MusicPass:
                 ):
                     folders.add(folder)
                     break
-        self.native.music_checked.add(library)
+        self._compared.add(library)
         return folders
 
     def check_due(self, library, songs: Dict[str, Record], changed_albums) -> bool:

@@ -11,7 +11,6 @@ details call each to confirm, so the kinds the scanner derives are patched
 in batches and then read back in one listing per library.
 """
 
-import collections
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
@@ -112,18 +111,8 @@ class Applier:
         self.collections: Dict[str, str] = {}
         self.movies: Set[str] = set()
         self.local: Set[str] = set()
-        # Music, per library: the album directories with a live song, the
-        # artists a live album credits, and the Kodi album id each album's
-        # songs were filed under -- read once a pass, not once a row.
-        self._song_folders: Dict[str, Set[str]] = {}
         # Per show: the season numbers with an importable episode.
         self._seasons_with_episodes: Dict[str, Set[int]] = {}
-        self._credited: Dict[str, Set[str]] = {}
-        self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
-        # Kodi's album and artist rows are not per library: two libraries
-        # (or two albums of one) may share a row, and one of ours owns it.
-        self._album_owners: Optional[Dict[int, str]] = None
-        self._artist_owners: Optional[Dict[str, str]] = None
         self._deferred: List[Patch] = []
         self._rpc_seconds = 0.0
         self._failures: List[Tuple[str, int, str]] = []
@@ -274,76 +263,6 @@ class Applier:
                 self._rpc_seconds,
             )
 
-    # -- music lookups -------------------------------------------------------
-
-    def song_folders(self, library) -> Set[str]:
-        if library not in self._song_folders:
-            self._song_folders[library] = set(self.store.folders("Audio", library))
-        return self._song_folders[library]
-
-    def albums(self, library) -> Dict[str, Dict[str, Any]]:
-        """The library's album payloads, read once a pass and shared with
-        the directory picker (MusicPass.album_items)."""
-        items: Dict[str, Dict[str, Any]] = self.native.music.album_items(library)
-        return items
-
-    def credited(self, library) -> Set[str]:
-        """The artist ids the library's live albums credit."""
-        if library not in self._credited:
-            artists: Set[str] = set()
-            for item in self.albums(library).values():
-                for credits in (item.get("AlbumArtists"), item.get("ArtistItems")):
-                    for credit in credits or []:
-                        if isinstance(credit, dict) and credit.get("Id"):
-                            artists.add(str(credit["Id"]))
-            self._credited[library] = artists
-        return self._credited[library]
-
-    def artist_owner(self, record: Record) -> str:
-        """Kodi keeps one artist per name; of our artists sharing a name the
-        first by id owns the row's art and description."""
-        if self._artist_owners is None:
-            owners: Dict[str, str] = {}
-            for item_id, found in sorted(
-                self.store.records(kind="MusicArtist").items()
-            ):
-                owners.setdefault(artist_key(found.item.get("Name")), item_id)
-            self._artist_owners = owners
-        return self._artist_owners.get(
-            artist_key(record.item.get("Name")), record.item_id
-        )
-
-    def album_ids(self, library) -> Dict[str, Optional[int]]:
-        if library not in self._album_ids:
-            ids: Dict[str, Optional[int]] = {}
-            for folder, rows in sorted(self.readback.folders(library).items()):
-                counted = collections.Counter(
-                    row.get("albumid") for row in rows.values() if row.get("albumid")
-                )
-                if counted:
-                    ids[folder] = counted.most_common(1)[0][0]
-            self._album_ids[library] = ids
-        return self._album_ids[library]
-
-    def album_id(self, record: Record) -> Optional[int]:
-        """Kodi's id for the album the record's songs were filed under: the
-        one most of them share."""
-        return self.album_ids(record.library).get(record.item_id)
-
-    def album_owner(self, albumid) -> Optional[str]:
-        """Of our albums Kodi merged into one row, the first by id owns the
-        row's art and description; the others are mapped and left."""
-        if self._album_owners is None:
-            owners: Dict[int, str] = {}
-            for library in self.store.libraries("Audio"):
-                for folder, found in sorted(self.album_ids(library).items()):
-                    if found is not None and (
-                        found not in owners or folder < owners[found]
-                    ):
-                        owners[found] = folder
-            self._album_owners = owners
-        return self._album_owners.get(albumid)
-
     def row_for(self, record: Record):
         kind = record.kind
         if kind == "Audio":
@@ -351,7 +270,7 @@ class Applier:
                 record.item_id
             )
         if kind == "MusicAlbum":
-            albumid = self.album_id(record)
+            albumid = self.native.music.album_id(record)
             if albumid is None:
                 return None
             return self.readback.scope("MusicAlbum", record.library).get(albumid)
@@ -389,13 +308,13 @@ class Applier:
             return not self.season_has_episodes(record)
         if kind == "MusicAlbum":
             # An album Kodi derives exists only through songs of ours in it.
-            return record.item_id not in self.song_folders(record.library)
+            return record.item_id not in self.native.music.song_folders(record.library)
         if kind == "MusicArtist":
             # An artist no live album credits -- a guest on a track, or one
             # whose albums are outside the selection -- has no row of ours to
             # find by name; one whose albums have rows but whose name Kodi
             # spells otherwise has none either.
-            if record.item_id not in self.credited(record.library):
+            if record.item_id not in self.native.music.credited(record.library):
                 return True
             return self.row_for(record) is None
         if kind == "BoxSet":
@@ -610,14 +529,14 @@ class Applier:
                 # pass: the row still carries the old ones.
                 raise RuntimeError("song awaits its directory's rescan")
         elif kind == "MusicAlbum":
-            owner = self.album_owner(kodi_id)
+            owner = self.native.music.album_owner(kodi_id)
             if owner is not None and owner != record.item_id:
                 # Kodi merged two of our albums into one row; the first owns
                 # its art and description, the other is mapped and left.
                 self.ack(record.item_id, record.generation, kodi_id, {}, kind)
                 return None
         elif kind == "MusicArtist":
-            if self.artist_owner(record) != record.item_id:
+            if self.native.music.artist_owner(record) != record.item_id:
                 self.ack(record.item_id, record.generation, kodi_id, {}, kind)
                 return None
         compare = merge(kind, desired, row, previous.get("owned", {}))
