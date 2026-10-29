@@ -20,7 +20,7 @@ from kofin.core.log import Logger
 from . import metadata, paths, progress, walk
 from .readback import artist_key
 from .records import Record
-from .store import Entry, Mapping
+from .store import Entry, Mapping, Placements
 
 LOG = Logger(__name__)
 
@@ -39,8 +39,10 @@ class MusicPass:
         # (library, folder) pairs whose directory this pass has re-listed,
         # and (library, "*") when that was every directory of the library.
         self.rescanned: Set[Tuple[str, str]] = set()
-        # Whether this pass read a library's every song (check_due).
-        self.read_whole = False
+        # Whether this pass read a whole library's rows: every song for the
+        # comparison (check_due, lost_songs) or every album payload for a
+        # scan; the pass hands that heap back (Native.reconcile).
+        self.read_library = False
         self._album_items: Dict[str, Dict[str, Dict]] = {}
         self._song_mappings: Dict[str, Dict[str, Mapping]] = {}
         self._tag_hashes: Dict[str, str] = {}
@@ -200,6 +202,7 @@ class MusicPass:
         """
         if not folders:
             return
+        self.read_library = True
         every = walk.root_folders(self.store, library)
         rows = walk.rows(self.store, library, folders, self.album_items(library))
         # The applier reads the album payloads again after the scan; held
@@ -254,9 +257,10 @@ class MusicPass:
         Kodi kept the hash of the listing that lost them)."""
         everywhere = (library, "*") in self.rescanned
         if everywhere:
-            self.read_whole = True
+            self.read_library = True
             held = self.native.readback.folders(library)
             mappings = self.song_mappings(library)
+            _read_every(entries)
         else:
             held = {
                 folder: self.native.readback.scope("Audio", library, folder)
@@ -265,6 +269,8 @@ class MusicPass:
             mappings = self.store.mappings_of(
                 self.store.placed_in("Audio", library, folders)
             )
+            if isinstance(entries, Placements):
+                entries.preload(mappings)
         lost: List[str] = []
         for item_id, known in mappings.items():
             if known.kodi_id is None:
@@ -312,8 +318,9 @@ class MusicPass:
         }
         whole = self.check_due(library, songs, changed_albums)
         if whole:
-            self.read_whole = True
+            self.read_library = True
             mappings = self.song_mappings(library)
+            _read_every(entries)
             held = self.native.readback.folders(library)
             uninvited: List[str] = []
             for item_id, known in mappings.items():
@@ -426,3 +433,10 @@ class MusicPass:
             or len({r.parent_id for r in songs.values()})
             >= self.native.readback.WHOLE_LIBRARY_FOLDERS
         )
+
+
+def _read_every(entries) -> None:
+    """Every placement at once, for a caller about to read most of them one
+    by one; a plain dict already holds them."""
+    if isinstance(entries, Placements):
+        entries.whole()
