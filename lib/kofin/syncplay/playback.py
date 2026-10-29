@@ -106,7 +106,7 @@ class PlaybackController(object):
             return
 
         if self._is_repeat(command):
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/%s ] at %s already applied, ignoring the repeat",
                 command.get("Command"),
                 command.get("When"),
@@ -117,7 +117,7 @@ class PlaybackController(object):
         delay = (fire_local_ms - utils.local_ms()) / 1000.0
 
         self.cancel_pending()
-        LOG.info(
+        LOG.debug(
             "[ syncplay/%s ] at %s (%+.0fms)",
             command.get("Command"),
             command.get("When"),
@@ -153,7 +153,7 @@ class PlaybackController(object):
             # A transcode seek snaps to a segment and its restart costs more
             # than the scheduling lead, so pre-aligning makes the start both
             # later and further out. Resume where we are instead.
-            LOG.info("[ syncplay/align ] skipped: transcoding")
+            LOG.debug("[ syncplay/align ] skipped: transcoding")
             return
 
         target_ms = utils.ticks_to_ms(command.get("PositionTicks") or 0)
@@ -169,7 +169,7 @@ class PlaybackController(object):
         if self._leave_to_fine_sync(offset_ms, "to the start position"):
             return
 
-        LOG.info("[ syncplay/align ] %+.0fms to the start position", offset_ms)
+        LOG.debug("[ syncplay/align ] %+.0fms to the start position", offset_ms)
 
         with self._player_lock, self.manager.programmatic():
             self._seek_and_settle(target_ms)
@@ -191,7 +191,7 @@ class PlaybackController(object):
         if not self.tempo.can_close(offset_ms):
             return False
 
-        LOG.info("[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where)
+        LOG.debug("[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where)
         return True
 
     @staticmethod
@@ -247,7 +247,7 @@ class PlaybackController(object):
                     # Do not set last_command: this Unpause has not run, and
                     # the Ready re-issue carries the same When.
                     self._deferred_unpause = command
-                    LOG.info("Unpause while still loading, deferring to ready flow")
+                    LOG.debug("Unpause while still loading, deferring to ready flow")
                     return
                 self._deferred_unpause = None
                 self._do_unpause(
@@ -271,7 +271,7 @@ class PlaybackController(object):
                 self._reference = None
                 self._do_stop()
             else:
-                LOG.info("Unknown SyncPlay command: %s", name)
+                LOG.debug("Unknown SyncPlay command: %s", name)
                 return
             self.last_command = command
         except Exception as error:
@@ -284,11 +284,11 @@ class PlaybackController(object):
         phase = self.manager.phase
 
         if phase == Phase.LOADING:
-            LOG.info("Unpause while still loading, deferring to ready flow")
+            LOG.debug("Unpause while still loading, deferring to ready flow")
             return
 
         if phase not in FOLLOWING:
-            LOG.info("Unpause with nothing followed, ignoring")
+            LOG.debug("Unpause with nothing followed, ignoring")
             return
 
         # Shared-start Unpause fires at When. A zap / late Unpause carries a
@@ -331,7 +331,7 @@ class PlaybackController(object):
                     # the audible skip a seek is; past it, the seek is the
                     # cheaper sound (syncplay/tempo.py, MUSIC_BUDGET_MS).
                     if self.tempo.can_close(behind_ms):
-                        LOG.info(
+                        LOG.debug(
                             "[ syncplay/align ] %+.0fms at the resume: "
                             "left to fine sync",
                             behind_ms,
@@ -354,7 +354,7 @@ class PlaybackController(object):
                 # transcode (see _prealign_unpause).
                 if abs(behind_ms) > utils.UNPAUSE_ALIGN_MS:
                     if self.manager.is_transcoding():
-                        LOG.info(
+                        LOG.debug(
                             "[ syncplay/align ] %+.0fms carried: transcoding",
                             behind_ms,
                         )
@@ -389,7 +389,7 @@ class PlaybackController(object):
 
         # Logged whether or not it acts: the residual is what the threshold is
         # chosen from.
-        LOG.info(
+        LOG.debug(
             "[ syncplay/resumed ] residual %+.0fms (threshold %.0fms)",
             behind_ms,
             utils.POST_RESUME_ALIGN_MS,
@@ -404,7 +404,7 @@ class PlaybackController(object):
             if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
                 self._live_hold(-behind_ms)
             else:
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
                     behind_ms,
                 )
@@ -415,13 +415,13 @@ class PlaybackController(object):
             # left to it — a few seconds at a raised rate instead of a visible
             # cut; the scheduler measures again once the resume has played
             # through the queue.
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
                 behind_ms,
             )
             return
 
-        LOG.info("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
+        LOG.debug("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
         # Aimed ahead by seek_lag_ms: the group moves on while the seek lands.
         self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
 
@@ -448,7 +448,7 @@ class PlaybackController(object):
                 pos = None
 
             if pos is not None and last_pos is not None and pos > last_pos + 0.1:
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/unpause ] resumed after %d nudge(s), %.0f ms",
                     nudges,
                     utils.local_ms() - started,
@@ -465,7 +465,7 @@ class PlaybackController(object):
             if now - last_nudge > utils.UNPAUSE_NUDGE_INTERVAL_MS and (
                 pos is None or self._is_paused() or frozen_reads >= 2
             ):
-                LOG.info("[ syncplay/unpause ] nudging the player")
+                LOG.debug("[ syncplay/unpause ] nudging the player")
                 self.player.pause()
                 nudges += 1
                 last_nudge = now
@@ -506,7 +506,7 @@ class PlaybackController(object):
             xbmc.sleep(utils.RESUME_VERIFY_STEP_MS)
 
             if self._position_ms() > before + 20:
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/unpause ] playing after %.0fms (%s ask%s)",
                     utils.local_ms() - started,
                     attempts,
@@ -555,7 +555,7 @@ class PlaybackController(object):
             # Transcode, and the reload path below would Player.Open the
             # same channel. Kodi does not restart it, OnAVStarted never
             # fires, and the 45s load watchdog leaves the group.
-            LOG.info("[ syncplay/seek ] skipped: live item, pulses only")
+            LOG.debug("[ syncplay/seek ] skipped: live item, pulses only")
             self.report_ready()
             return
 
@@ -565,7 +565,7 @@ class PlaybackController(object):
             # SEEK_SETTLE_TIMEOUT and the settle would read the position
             # before the seek. The reload reports Ready through the normal
             # load flow, so nothing is reported here.
-            LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
+            LOG.debug("[ syncplay/seek ] transcoding: reloading at the target")
             self.manager.reload_current_item()
             return
 
@@ -642,7 +642,7 @@ class PlaybackController(object):
 
             # Where a load lands: a transcode can begin away from the
             # requested start, since the server is still writing its playlist.
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/landed ] %.1fs, wanted %.1fs (%+.0fms)%s",
                 landed_ms / 1000.0,
                 target_ms / 1000.0,
@@ -763,7 +763,7 @@ class PlaybackController(object):
         self._presentation = None
 
     def _loop(self):
-        LOG.info("--->[ syncplay loop ]")
+        LOG.debug("--->[ syncplay loop ]")
 
         while not self._loop_stop.wait(0.25):
             try:
@@ -788,7 +788,7 @@ class PlaybackController(object):
             except Exception as error:
                 LOG.exception("SyncPlay loop error: %s", error)
 
-        LOG.info("---<[ syncplay loop ]")
+        LOG.debug("---<[ syncplay loop ]")
 
     def _watch_buffering(self):
         """Debounced Player.Caching -> Buffering/Ready reports (§7)."""
@@ -798,7 +798,7 @@ class PlaybackController(object):
             # A recovery Ready must go out even if the group paused us in
             # the meantime, or the server keeps waiting on this member.
             if not caching:
-                LOG.info("[ syncplay/recovered ]")
+                LOG.debug("[ syncplay/recovered ]")
                 self._buffering_reported = False
                 self._caching_since = None
                 self.report_ready()
@@ -816,7 +816,7 @@ class PlaybackController(object):
                 self._caching_since = now
 
             if now - self._caching_since > utils.BUFFERING_DEBOUNCE:
-                LOG.info("[ syncplay/buffering ]")
+                LOG.debug("[ syncplay/buffering ]")
                 self._buffering_reported = True
                 self.report_buffering()
         else:
@@ -969,7 +969,7 @@ class PlaybackController(object):
 
         raw_ms = group_ms - utils.LIVE_PTS_EPOCH_S * 1000.0
         self._live_origin_server_ms = raw_ms - player_ms
-        LOG.info(
+        LOG.debug(
             "[ syncplay/live ] join clock rebound to the group (player %.1fs)",
             player_ms / 1000.0,
         )
@@ -1075,7 +1075,7 @@ class PlaybackController(object):
         self._live_hold_ms = hold_ms
         self._live_hold_seq += 1
         self.tempo.cancel("hold")
-        LOG.info(
+        LOG.debug(
             "[ syncplay/live ] %.1fs ahead of the group: holding for it",
             hold_ms / 1000.0,
         )
@@ -1098,7 +1098,7 @@ class PlaybackController(object):
 
         self.ensure_playing()
         self.tempo.note_settle()
-        LOG.info("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
+        LOG.debug("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
 
     def correct_position(self):
         """The fine-sync scheduler found a residual beyond what a pulse can
@@ -1160,7 +1160,7 @@ class PlaybackController(object):
         if self._skip_live_seek():
             if not self._live_seek_logged:
                 self._live_seek_logged = True
-                LOG.info("[ syncplay/align ] skipped: live item, pulses only")
+                LOG.debug("[ syncplay/align ] skipped: live item, pulses only")
 
             return
 

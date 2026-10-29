@@ -43,9 +43,11 @@ def library_dir(library, media):
 @pytest.fixture(autouse=True)
 def views_env(monkeypatch, tmp_path):
     """A profile directory behind every special:// path the node writers
-    touch, and kofin.db beside it, with a user logged in."""
+    touch, and kofin.db beside it, with a user logged in who has switched
+    the presentation on."""
     FakeAddon.store = {}
     logged_in()
+    FakeAddon.store[dynamic.SETTING] = "true"
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
@@ -309,24 +311,67 @@ def test_the_switch_takes_the_tree_and_playlists_down_and_publishes_browse_entri
     assert props()["Kofin.nodes.1.content"].endswith("/all.xml")
 
 
-def test_only_an_explicit_off_switches_the_presentation_off(monkeypatch):
-    """Off deletes files: an empty read (a settings document that did not
-    load) and a build without the setting both read as on."""
-    from kofin.core import settings
-
-    FakeAddon.store = {}
+def test_an_unreadable_switch_is_neither_on_nor_off(monkeypatch):
+    """Off deletes files and on writes them outside addon_data: a settings
+    document that did not load, which reads the switch as its default, an
+    empty read and a build without the setting are None, on which neither
+    happens."""
+    FakeAddon.store = {dynamic.SETTING: "false"}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
-    assert dynamic.wanted() is True
-    FakeAddon.store[dynamic.SETTING] = "false"
+    assert dynamic.wanted() is None
+    FakeAddon.store["deviceId"] = "d" * 32
     assert dynamic.wanted() is False
     FakeAddon.store[dynamic.SETTING] = "true"
     assert dynamic.wanted() is True
+    FakeAddon.store[dynamic.SETTING] = ""
+    assert dynamic.wanted() is None
 
-    def missing(_setting):
-        raise TypeError("no such setting")
+    def missing(self, setting_id):
+        if setting_id == dynamic.SETTING:
+            raise TypeError("no such setting")
+        return self.store.get(setting_id, "")
 
-    monkeypatch.setattr(settings, "get_str", missing)
-    assert dynamic.wanted() is True
+    monkeypatch.setattr(FakeAddon, "getSetting", missing)
+    assert dynamic.wanted() is None
+
+
+def test_a_settings_read_that_cannot_answer_leaves_the_skin_entries_on_the_tree(
+    views_env,
+):
+    """With the switch unreadable the tree stays as it is, and the entries
+    describe it: into the tree while it is on disk, its singles taken from
+    its files since the downloads switch reads off too, and browse entries
+    while it is not."""
+    FakeAddon.store["downloadsEnabled"] = "true"
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    written = props()
+    assert written["Kofin.nodes.1.content"].endswith("/all.xml")
+    assert any(v.endswith("kofin_DownloadedMovies.xml") for v in written.values())
+    stored = dict(FakeAddon.store)
+    # The settings document did not load: the switch reads its default.
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    assert (root / ("kofinmovies" + MOVIES) / "all.xml").is_file()
+    assert props() == written
+    FakeAddon.store = dict(stored, **{dynamic.SETTING: "false"})
+    dynamic.publish(ITEMS, FakeApi())
+    assert not root.exists()
+    browsing = props()
+    assert "Kofin.nodes.1.content" not in browsing
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    dynamic.publish(ITEMS, FakeApi())
+    assert props() == browsing
+
+
+def test_an_unreadable_switch_writes_no_tree(views_env):
+    del FakeAddon.store[dynamic.SETTING]
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (views_env["profile"] / "library" / "video" / NODE_ROOT).exists()
+    assert not (views_env["profile"] / "library" / "music" / NODE_ROOT).exists()
+    assert not list((views_env["profile"] / "playlists" / "video").iterdir())
 
 
 def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(

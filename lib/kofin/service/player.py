@@ -212,7 +212,7 @@ class Player(xbmc.Player):
         if not lines:
             return
         state.publish_lyrics([[start, text] for start, text in lines], jellyfin_id)
-        LOG.info("--> lyrics %s (%d lines)", jellyfin_id, len(lines))
+        LOG.debug("--> lyrics %s (%d lines)", jellyfin_id, len(lines))
 
     def _reset_lyrics(self) -> None:
         """Release the overlay. Called from finalize, so lyrics never outlive
@@ -241,7 +241,7 @@ class Player(xbmc.Player):
             self._item = claimed
         state.set_playing_id(claimed["Id"])
         self._publish_streams(claimed)
-        LOG.info("--> play %s (%s)", claimed["Id"], claimed["PlayMethod"])
+        LOG.debug("--> play %s (%s)", claimed["Id"], claimed["PlayMethod"])
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
         self._start_segment_engine(claimed)
@@ -372,7 +372,7 @@ class Player(xbmc.Player):
             self._item = None
         if item is None:
             return
-        LOG.info("<-- stop %s", item["Id"])
+        LOG.debug("<-- stop %s", item["Id"])
         stop_data = {
             "ItemId": item["Id"],
             "MediaSourceId": item["MediaSourceId"],
@@ -479,7 +479,7 @@ class Player(xbmc.Player):
         if row is None or row.state != downloads_store.DONE:
             return False
         if settings.get_bool("downloadsDeleteAutomatically"):
-            LOG.info("removing watched download %s (automatic)", item_id)
+            LOG.debug("removing watched download %s (automatic)", item_id)
             ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": [item_id]})
             return True
         # Off the callback thread, as the delete prompt.
@@ -515,7 +515,7 @@ class Player(xbmc.Player):
             return
         # No refresh from here: the server's own library-changed event drives
         # the removal out of the Kodi database through the normal sync path.
-        LOG.info("deleted %s after watching", item["Id"])
+        LOG.debug("deleted %s after watching", item["Id"])
 
     # -- stream selection ------------------------------------------------------
 
@@ -599,7 +599,7 @@ class Player(xbmc.Player):
                     LOG.debug("audio track %s already current", ordinal)
                 else:
                     self.setAudioStream(ordinal)
-                    LOG.info("--> audio track %s (Jellyfin default)", ordinal)
+                    LOG.debug("--> audio track %s (Jellyfin default)", ordinal)
 
         wanted = item.get("SubtitleStreamIndex")
         if wanted is None or int(wanted) < 0:
@@ -612,7 +612,7 @@ class Player(xbmc.Player):
             # a second subtitle over the first, which is what an auto-selected
             # attached track would be here.
             self.showSubtitles(False)
-            LOG.info("--> subtitle %s is burned in; Kodi's own left off", wanted)
+            LOG.debug("--> subtitle %s is burned in; Kodi's own left off", wanted)
             return
         ordinal = streams.subtitle_ordinal(media_streams, wanted, attached, method)
         if ordinal is None:
@@ -622,7 +622,7 @@ class Player(xbmc.Player):
             return
         self.setSubtitleStream(ordinal)
         self.showSubtitles(True)
-        LOG.info("--> subtitle track %s (Jellyfin default)", ordinal)
+        LOG.debug("--> subtitle track %s (Jellyfin default)", ordinal)
 
     # -- segment engine: lifecycle -------------------------------------------
 
@@ -682,7 +682,7 @@ class Player(xbmc.Player):
                 outcome = "aborted"
                 break
             waited += 0.5
-        LOG.info("claim %s after %.2fs (%s)", outcome, waited, kind)
+        LOG.debug("claim %s after %.2fs (%s)", outcome, waited, kind)
         return claimed
 
     def _set_paused(self, paused: bool) -> None:

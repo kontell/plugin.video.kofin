@@ -131,7 +131,7 @@ def enter(argv: list[str]) -> str | None:
         xbmc.log(
             "[kofin] kofin.plugin.gate: %s is being built %d times over already;"
             " this request is turned away" % (url, FLIGHTS),
-            xbmc.LOGINFO,
+            xbmc.LOGDEBUG,
         )
         xbmcplugin.endOfDirectory(int(argv[1]), succeeded=False, cacheToDisc=False)
     return token

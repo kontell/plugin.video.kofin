@@ -227,8 +227,8 @@ class Service(xbmc.Monitor):
 
     def run(self) -> bool:
         """Run until abort or restart; returns True when a rebuild is wanted."""
-        LOG.info("--->>> kofin service %s", addon_version())
-        LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        LOG.debug("--->>> kofin service %s", addon_version())
+        LOG.debug("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
         self._settle_left_tempo()
         try:
             self._prepare_api_backend()
@@ -253,7 +253,7 @@ class Service(xbmc.Monitor):
                     break
         finally:
             self._shutdown()
-        LOG.info("---<<< kofin service")
+        LOG.debug("---<<< kofin service")
         return self._restart_requested and not self.abortRequested()
 
     def _prepare_api_backend(self) -> None:
@@ -280,14 +280,14 @@ class Service(xbmc.Monitor):
         with open(target + ".part", "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
-        LOG.info(
+        LOG.debug(
             "API movie backend: interfaces=%s private_state=%s",
             report["interfaces_passed"],
             report["private_state"],
         )
         # Once, here: a feature this Kodi lacks is off by name, never an error
         # per item or per pass.
-        LOG.info("Kodi features %s", capabilities.summary(report))
+        LOG.debug("Kodi features %s", capabilities.summary(report))
         state.set_feature_tempo((report.get("features") or {}).get("tempo") is True)
         if report["private_state"] != "ready":
             apistatus.write(
@@ -386,7 +386,7 @@ class Service(xbmc.Monitor):
         try:
             self.api.probe_info()
         except JellyfinError as error:
-            LOG.info("socket dropped and the server does not answer (%s)", error)
+            LOG.debug("socket dropped and the server does not answer (%s)", error)
             self._go_offline()
             return
         LOG.debug("socket dropped but the server answers; staying online")
@@ -419,7 +419,7 @@ class Service(xbmc.Monitor):
             state.set_online(False)
             return
 
-        LOG.info("connected to %s (%s)", info.get("ServerName"), info.get("Version"))
+        LOG.debug("connected to %s (%s)", info.get("ServerName"), info.get("Version"))
         self._backoff.succeeded()
         self._online = True
         state.set_online(True)
@@ -525,7 +525,7 @@ class Service(xbmc.Monitor):
                 self._new_api, self._refresh_downloads, self._stopping
             )
             self.downloads.start()
-            LOG.info("download manager started")
+            LOG.debug("download manager started")
         except Exception:
             LOG.exception("download manager failed to start")
             self.downloads = None
@@ -597,7 +597,7 @@ class Service(xbmc.Monitor):
             # The announce is what tells provider add-ons to (re)register
             # with this service generation — no persistence.
             manager.publish_session_state(announce=True)
-            LOG.info("SyncPlay manager started")
+            LOG.debug("SyncPlay manager started")
         except Exception:
             LOG.exception("SyncPlay manager failed to start")
             self.syncplay = None
@@ -740,7 +740,7 @@ class Service(xbmc.Monitor):
     def _register_capabilities(self) -> None:
         try:
             self.api.post_capabilities(CAPABILITIES)
-            LOG.info("capabilities registered")
+            LOG.debug("capabilities registered")
         except JellyfinError as error:
             LOG.warning("capabilities registration failed: %s", error)
 
@@ -782,7 +782,7 @@ class Service(xbmc.Monitor):
                 return
             self._announce_next_connect = True
             # Toasts leave no trace in kodi.log; this line does.
-            LOG.info("websocket down for %.0f s; announcing the loss", down_for)
+            LOG.debug("websocket down for %.0f s; announcing the loss", down_for)
             self._connection_toast(30416, level=toast.WARNING)
 
     def _on_ws_connected(self) -> None:
@@ -873,7 +873,7 @@ class Service(xbmc.Monitor):
             return
         if not rows:
             return
-        LOG.info("replaying %d parked userdata change(s)", len(rows))
+        LOG.debug("replaying %d parked userdata change(s)", len(rows))
         for row in rows:
             if self._stopping.is_set() or self.abortRequested():
                 return
@@ -882,7 +882,7 @@ class Service(xbmc.Monitor):
                 payload = pending.resolve(row, current)
                 if payload:
                     self.api.update_user_data(row.jellyfin_id, payload)
-                    LOG.info("replayed userdata for %s: %s", row.jellyfin_id, payload)
+                    LOG.debug("replayed userdata for %s: %s", row.jellyfin_id, payload)
                 pending.remove(row.jellyfin_id)
             except JellyfinError as error:
                 attempts = pending.record_attempt(row.jellyfin_id)
@@ -911,7 +911,7 @@ class Service(xbmc.Monitor):
         if library is None or not library.startup_done:
             return
 
-        LOG.info("websocket reconnected; catching up on missed changes")
+        LOG.debug("websocket reconnected; catching up on missed changes")
         library.enqueue_command("Reconnected")
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
@@ -921,7 +921,7 @@ class Service(xbmc.Monitor):
         # Handled ahead of the library events: neither carries a payload the
         # sync cares about.
         if message_type in SERVER_LIFECYCLE_MESSAGES:
-            LOG.info("[ %s ]", message_type)
+            LOG.debug("[ %s ]", message_type)
             with self._conn_toast_lock:
                 # An announced restart or shutdown is the downtime notice:
                 # the grace-expiry toast stands down, and the reconnect that
@@ -936,7 +936,7 @@ class Service(xbmc.Monitor):
         library = self.library
         if library is not None and library.startup_done:
             if message_type == "LibraryChanged":
-                LOG.info("[ LibraryChanged ] %s", log.mask(str(data)))
+                LOG.debug("[ LibraryChanged ] %s", log.mask(str(data)))
                 library.added(data.get("ItemsAdded") or [])
                 library.updated(data.get("ItemsUpdated") or [])
                 library.removed(data.get("ItemsRemoved") or [])
@@ -946,7 +946,7 @@ class Service(xbmc.Monitor):
                     # A co-watcher's own viewing, not ours. See own_userdata.
                     LOG.debug("[ UserDataChanged ] ignored: another user's")
                     return
-                LOG.info("[ UserDataChanged ] %s", log.mask(str(data)))
+                LOG.debug("[ UserDataChanged ] %s", log.mask(str(data)))
                 library.userdata(data.get("UserDataList") or [])
                 return
 
@@ -1012,7 +1012,7 @@ class Service(xbmc.Monitor):
             # empty catch-up costs one request. The screensaver itself
             # never pauses sync, so there is nothing to "resume" here, only
             # to re-check.
-            LOG.info("screensaver deactivated; catching up")
+            LOG.debug("screensaver deactivated; catching up")
             self.library.enqueue_command("FastSync")
         # Independent of the sync kick above: a broken manager must never
         # suppress the library catch-up, and vice versa.
@@ -1045,11 +1045,11 @@ class Service(xbmc.Monitor):
     # -- kofin's IPC, one handler per message ----------------------------------
 
     def _ipc_restart(self, name: str, payload: Dict[str, Any]) -> None:
-        LOG.info("restart requested")
+        LOG.debug("restart requested")
         self._restart_requested = True
 
     def _ipc_auth_changed(self, name: str, payload: Dict[str, Any]) -> None:
-        LOG.info("auth changed; restarting service cycle")
+        LOG.debug("auth changed; restarting service cycle")
         self._restart_requested = True
 
     def _ipc_syncplay_menu(self, name: str, payload: Dict[str, Any]) -> None:
@@ -1225,7 +1225,7 @@ class Service(xbmc.Monitor):
         # LIBRARY_JOIN_SECONDS, which is ample time for the successor to have
         # started, and by here the properties would be its.
         if self._superseded():
-            LOG.warning("a newer service generation is live; leaving it its state")
+            LOG.debug("a newer service generation is live; leaving it its state")
             return
         state.clear_all()
 

@@ -238,14 +238,14 @@ def browse_url(view, node=None):
 # --- what goes in the tree ------------------------------------------------------
 
 
-def single_nodes(episode_tags=True):
+def single_nodes(episode_tags=True, downloads=None):
     """The tag-filtered singles beside the library nodes: the favorites
     for movies and shows always, for episodes while this Kodi keeps an
     episode's tags (``episode_tags``: a tag rule lists nothing on a Kodi
-    without it), the Downloads set while the feature is
-    on, its episodes on the same condition as the favorites. One list for
-    both the node files and the window properties, so the two surfaces
-    cannot disagree."""
+    without it), the Downloads set while the feature is on (``downloads``,
+    read from the settings when None), its episodes on the same condition
+    as the favorites. One list for both the node files and the window
+    properties, so the two surfaces cannot disagree."""
     singles = [
         {"Name": localized(30358), "Tag": "Favorite movies", "Media": "movies"},
         {"Name": localized(30359), "Tag": "Favorite tvshows", "Media": "tvshows"},
@@ -254,11 +254,12 @@ def single_nodes(episode_tags=True):
         singles.append(
             {"Name": localized(30360), "Tag": "Favorite episodes", "Media": "episodes"}
         )
-    try:
-        downloads = settings.get_bool("downloadsEnabled")
-    except TypeError:
-        # getSettingBool raises TypeError on a setting it cannot find.
-        downloads = False
+    if downloads is None:
+        try:
+            downloads = settings.get_bool("downloadsEnabled")
+        except TypeError:
+            # getSettingBool raises TypeError on a setting it cannot find.
+            downloads = False
     if downloads:
         from kofin.downloads import EPISODE_TAG, TAG as DOWNLOADS_TAG
 
@@ -464,10 +465,28 @@ def write_tree(entries, singles):
         order += 1
 
     for name in fs.remove_managed_entries(root, keep=keep):
-        LOG.info("--[ nodes ] pruned stale %s", name)
+        LOG.debug("--[ nodes ] pruned stale %s", name)
 
 
 # --- taking it down ------------------------------------------------------------
+
+
+def tree_written():
+    """Whether the generated tree is on disk: its root's index, which
+    ``write_tree`` writes first and ``delete_tree`` removes."""
+    return os.path.isfile(os.path.join(node_root_path(), "index.xml"))
+
+
+def written_singles():
+    """The singles whose files are in the tree, in ``single_nodes`` order:
+    what the tree offers while the settings that choose them cannot be
+    read."""
+    root = node_root_path()
+    return [
+        single
+        for single in single_nodes(episode_tags=True, downloads=True)
+        if os.path.isfile(os.path.join(root, single_file(single)))
+    ]
 
 
 def delete_tree():

@@ -108,7 +108,7 @@ class RemoteHandler:
         if not ordered:
             return
         command = data.get("PlayCommand", "PlayNow")
-        LOG.info("remote %s of %d item(s)", command, len(ordered))
+        LOG.debug("remote %s of %d item(s)", command, len(ordered))
 
         # Remote Play carries no media kind; the catalogue picks the queue.
         playlist = xbmc.PlayList(
@@ -181,7 +181,7 @@ class RemoteHandler:
             except RuntimeError:
                 LOG.debug("seek with nothing playing")
         else:
-            LOG.info("unhandled playstate command %s", command)
+            LOG.debug("unhandled playstate command %s", command)
 
     # -- GeneralCommand -----------------------------------------------------------
 
@@ -225,9 +225,9 @@ class RemoteHandler:
             )
         elif name in ("SetAudioStreamIndex", "SetSubtitleStreamIndex"):
             # Jellyfin stream indexes need source-mapping; deferred.
-            LOG.info("%s not yet mapped", name)
+            LOG.debug("%s not yet mapped", name)
         else:
-            LOG.info("unhandled general command %s", name)
+            LOG.debug("unhandled general command %s", name)
 
     def _rpc(self, method: str, params: JsonDict) -> None:
         kodirpc.call(method, params)

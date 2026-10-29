@@ -96,7 +96,7 @@ def login(request: Request) -> None:
 
     ipc.notify(ipc.AUTH_CHANGED)
     _notification(_text(30016) % result.user_name)
-    LOG.info("signed in to %s as %s", server_name, result.user_name)
+    LOG.debug("signed in to %s as %s", server_name, result.user_name)
 
 
 def _authenticate(
@@ -139,7 +139,7 @@ def _login_quick_connect(
         return None
 
     progress = xbmcgui.DialogProgress()
-    progress.create("Quick Connect", _text(30015) % code)
+    progress.create(_text(30011), _text(30015) % code)
     monitor = xbmc.Monitor()
     started = time.time()
     try:
@@ -178,7 +178,7 @@ def logout(request: Request) -> None:
     Credentials.clear()
     ipc.notify(ipc.AUTH_CHANGED)
     _notification(_text(30020))
-    LOG.info("signed out")
+    LOG.debug("signed out")
 
 
 def test_connection(request: Request) -> None:

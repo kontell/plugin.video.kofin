@@ -184,7 +184,7 @@ def test_a_show_cast_change_refreshes_the_show_alone(store, backend, kodi, monke
     store.publish([series(People=[{"Name": "Recast", "Type": "Actor"}])])
     kodi.calls.clear()
     lines = []
-    monkeypatch.setattr(patch.LOG, "info", lambda msg, *a: lines.append(msg % a))
+    monkeypatch.setattr(patch.LOG, "debug", lambda msg, *a: lines.append(msg % a))
     backend.reconcile()
     assert methods(kodi, "VideoLibrary.RefreshTVShow") == [
         {"tvshowid": show, "ignorenfo": False, "refreshepisodes": False}

@@ -60,9 +60,6 @@ class Logger:
     def debug(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGDEBUG, msg, args)
 
-    def info(self, msg: object, *args: Any) -> None:
-        self._write(xbmc.LOGINFO, msg, args)
-
     def warning(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGWARNING, msg, args)
 

@@ -339,7 +339,7 @@ def test_the_claim_wait_is_logged_with_its_outcome(monkeypatch):
     player, api = make_player(monkeypatch)
     lines = []
     monkeypatch.setattr(
-        player_mod.LOG, "info", lambda msg, *args: lines.append(msg % args)
+        player_mod.LOG, "debug", lambda msg, *args: lines.append(msg % args)
     )
 
     queue_item()

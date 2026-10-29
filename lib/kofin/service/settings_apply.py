@@ -109,7 +109,7 @@ class SettingsApplier:
                 # pending, and a later genuine edit must still register.
                 continue
             self.snapshot[setting_id] = new
-            LOG.info("setting %s changed: %r -> %r; applying", setting_id, old, new)
+            LOG.debug("setting %s changed: %r -> %r; applying", setting_id, old, new)
             try:
                 handler(old, new)
             except Exception:
@@ -152,7 +152,7 @@ class SettingsApplier:
     # -- handlers -------------------------------------------------------------
 
     def _ssl_verify_changed(self, old: str, new: str) -> None:
-        LOG.info("sslVerify changed; restarting service cycle")
+        LOG.debug("sslVerify changed; restarting service cycle")
         self.service._restart_requested = True
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
@@ -347,7 +347,7 @@ class SettingsApplier:
                 self._removal_worker, confirm_and_dispatch, "kofin-library-removal"
             )
             if worker is None:
-                LOG.info("a library removal is already awaiting confirmation")
+                LOG.debug("a library removal is already awaiting confirmation")
                 return
             self._removal_worker = worker
             return
@@ -409,5 +409,5 @@ class SettingsApplier:
         restored_csv = ",".join(restored)
         self.snapshot["librarySelection"] = restored_csv
         settings.set_str("librarySelection", restored_csv)
-        LOG.info("library removal declined; selection restored")
+        LOG.debug("library removal declined; selection restored")
         return []

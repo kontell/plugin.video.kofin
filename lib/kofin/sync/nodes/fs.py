@@ -48,7 +48,7 @@ def delete_file(path: str, label: str = "node") -> None:
         os.remove(path)
     except FileNotFoundError:
         return
-    LOG.info("DELETE %s %s", label, path)
+    LOG.debug("DELETE %s %s", label, path)
 
 
 def remove_empty(root: str) -> bool:

@@ -91,7 +91,7 @@ def expand(api: Api, item: JsonDict, shuffle: bool) -> List[JsonDict]:
     rows = list(body.get("Items") or [])
     total = int(body.get("TotalRecordCount") or 0)
     if total > len(rows):
-        LOG.info(
+        LOG.debug(
             "play all: %s holds %d tracks; queuing the first %d",
             item_id,
             total,
@@ -151,7 +151,7 @@ def queue_and_play(tracks: List[JsonDict], server: str) -> None:
     for track in tracks:
         if not state.owns_queue(owner):
             # A newer Play all cleared the playlist and is filling it.
-            LOG.info("play all: a newer request took the queue")
+            LOG.debug("play all: a newer request took the queue")
             return
         playlist.add(listitems.path_for(track), listitems.build(track, server))
     if not asked:
@@ -175,9 +175,9 @@ def play_all(request: Request) -> None:
         toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
         return
     if not tracks:
-        LOG.info("play all: nothing playable under %s", item_id)
+        LOG.debug("play all: nothing playable under %s", item_id)
         return
-    LOG.info(
+    LOG.debug(
         "play all: %d tracks under %s (%s)",
         len(tracks),
         item_id,

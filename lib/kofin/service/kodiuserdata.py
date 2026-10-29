@@ -108,7 +108,7 @@ class KodiUserData:
             try:
                 self._apply(*job)
             except JellyfinError as error:
-                LOG.info("userdata push failed (%s); parking it for replay", error)
+                LOG.debug("userdata push failed (%s); parking it for replay", error)
                 self._park(*job)
             except Exception:
                 LOG.exception("kodi userdata push failed")

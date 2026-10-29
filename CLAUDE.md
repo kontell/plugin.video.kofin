@@ -460,9 +460,10 @@ What remains is kofin's own:
   tells the extras directory, a file in it and a disc-probe folder below it apart: the
   directory is listed, a probe answers empty (`native._prepare_scan` lists the folder and its
   `VIDEO_TS/` and `BDMV/` through `Files.GetDirectory` right before the scan, so the directory
-  cache answers Kodi's probe), and a file goes to the play route or fails as a play. The pass
-  turns `videolibrary.ignorevideoextras` off once (`allow_extras`), with a toast, since Kodi
-  drops the folder before looking at it while that is on. **The folder `extras/` is bound,
+  cache answers Kodi's probe), and a file goes to the play route or fails as a play. Kodi
+  drops the folder before looking at it while `videolibrary.ignorevideoextras` is on (its
+  default), and that setting is the viewer's: the pass never changes it, and the folder is
+  scanned once either way. **The folder `extras/` is bound,
   `noupdate`, or Clean library deletes every extra unasked:** an extra's URL has no query, so
   Kodi files it under the add-on's root (`CVideoDatabase::SplitPath`), where a clean finds no
   binding and asks nothing. The scan that files a movie's extras binds the folder
@@ -559,8 +560,16 @@ What remains is kofin's own:
   **`libraryNodes` is the one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,
-  which is Kodi's). Only an explicit `false` is off — an empty read is a settings document
-  that did not load, and off deletes files.
+  which is Kodi's). It is off by default, since everything it writes is outside
+  addon_data, and only an explicit value from a store that answered counts: a settings
+  document that did not load reads a boolean as its default, which is off, so `wanted` reads
+  through the `deviceId` canary (`dynamic._answering`). On None nothing is written or taken
+  down, and the skin entries follow the tree on disk, its singles included. The Jellyfin
+  playlists follow the switch in the playlists pass, never in the command that queued it: the
+  pass stays due while the switch cannot be read, a named playlist's update falls to it while
+  it cannot, and a service that starts with the switch off and playlist
+  states on record runs it (`api_playlists.owed`), which is how a profile whose stored
+  default moved loses them.
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
   loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows
@@ -834,6 +843,9 @@ What remains is kofin's own:
 - `kofin.menu.who` and `kofin.menu.syncplay` are the skin-facing mirrors of those two root
   entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
   publishes on `mark_ready` and whenever the two settings change.
+- **Kofin logs at debug.** The official repository allows `xbmc.log` at the debug level only,
+  so `Logger` has no `info`; `warning` and `error` are for faults (a failed request, a refused
+  call, a thread that will not stop), and an expected event, however notable, is debug.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Comments

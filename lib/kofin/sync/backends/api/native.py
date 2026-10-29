@@ -36,9 +36,6 @@ LOG = Logger(__name__)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
-# Kodi drops an extras folder from a movies listing while this is on (its
-# default); the pass turns it off when a folder with extras is first scanned.
-EXTRAS_SETTING = "videolibrary.ignorevideoextras"
 ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
 # A video scan expected to file at least this many rows runs with Kodi's
 # "Download actor thumbnails" off (Native.without_actor_thumbs).
@@ -139,7 +136,6 @@ class Native:
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
-        self._extras_allowed = False
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
@@ -267,7 +263,7 @@ class Native:
             dict.fromkeys(folders if force else [p for p in folders if p not in bound])
         )
         if wanted:
-            LOG.info(
+            LOG.debug(
                 "binding %d %s folder(s)%s",
                 len(wanted),
                 content,
@@ -334,7 +330,7 @@ class Native:
             return
         force = state not in (MOVIE_BINDINGS_STATE, EXTRAS_BINDINGS_STATE)
         if force:
-            LOG.info("binding every movie folder with noupdate, once")
+            LOG.debug("binding every movie folder with noupdate, once")
         self.bind_folders("movies", folders, force=force, noupdate=True)
         if state != EXTRAS_BINDINGS_STATE:
             dirs = sorted(
@@ -516,7 +512,7 @@ class Native:
                     busy=lambda: self._scanning(scanner),
                     on_poll=watch,
                 )
-                LOG.info(
+                LOG.debug(
                     "%s scan of %s took %.1f s",
                     scanner,
                     paths.describe(directory),
@@ -580,7 +576,7 @@ class Native:
         if not folders:
             return
         if "asset_clean" not in self.features:
-            LOG.info(
+            LOG.debug(
                 "%d movie folder(s) lost a version or an extra; the rows are left "
                 "for a Clean library of the viewer's (Kodi 22 keeps them until the "
                 "movie leaves)",
@@ -590,7 +586,7 @@ class Native:
         for folder in sorted(folders):
             try:
                 self.clean(folder)
-                LOG.info("retired the dropped versions and extras of %s", folder)
+                LOG.debug("retired the dropped versions and extras of %s", folder)
             except InterruptedError:
                 raise
             except Exception:
@@ -611,24 +607,6 @@ class Native:
         finally:
             self._async_pending = not self._idle("video")
         self.readback.clear()
-
-    def allow_extras(self):
-        """Turn Kodi's "Ignore video extras on scan" off, once: while it is
-        on the scanner drops an extras folder from the listing before
-        anything looks at it (VideoInfoScanner.cpp, m_ignoreVideoExtras)."""
-        if self._extras_allowed:
-            return
-        reply = rpc("Settings.GetSettingValue", {"setting": EXTRAS_SETTING})
-        if isinstance(reply, dict) and reply.get("value") is True:
-            rpc("Settings.SetSettingValue", {"setting": EXTRAS_SETTING, "value": False})
-            LOG.info(
-                "Kodi setting %s turned off: movie extras are imported", EXTRAS_SETTING
-            )
-            # Kodi's own setting, for every source: the user is told once.
-            from kofin.core import settings, toast
-
-            toast.show(settings.localized(30858))
-        self._extras_allowed = True
 
     @contextmanager
     def without_actor_thumbs(self, rows):
@@ -665,7 +643,7 @@ class Native:
                         self.store.release_setting(ACTOR_THUMBS_SETTING)
                         raise
                     held = True
-                    LOG.info(
+                    LOG.debug(
                         "Kodi setting %s off for a scan of %d rows",
                         ACTOR_THUMBS_SETTING,
                         rows,
@@ -700,7 +678,7 @@ class Native:
                 continue
             self.store.release_setting(setting)
             self._refused_settings.discard(setting)
-            LOG.info("Kodi setting %s back to %r", setting, value)
+            LOG.debug("Kodi setting %s back to %r", setting, value)
         self.settings_owed = owed
 
     def _prepare_scan(self, directory):
@@ -791,7 +769,7 @@ class Native:
         # written where the row already matches.
         stamped = self.store.features_applied()
         if stamped is not None and stamped != self.features and not repair:
-            LOG.info(
+            LOG.debug(
                 "Kodi's features changed since the last pass (on: %s): comparing "
                 "every row",
                 ", ".join(sorted(self.features)) or "none",
@@ -802,7 +780,7 @@ class Native:
         # row that never changes again keeps the state the old build gave it.
         serializer = self.store.serializer_applied()
         if stamped is not None and serializer != metadata.SERIALIZER and not repair:
-            LOG.info(
+            LOG.debug(
                 "the desired state changed since the last pass (serializer %s, "
                 "now %d): comparing every row",
                 serializer,
@@ -1055,8 +1033,6 @@ class Native:
                         directories.extend(
                             f for f in asset_folders if f not in directories
                         )
-                        if self._extras_folders:
-                            self.allow_extras()
                 else:
                     directories.append(root)
                     expected[root] = sum(

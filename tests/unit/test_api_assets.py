@@ -5,8 +5,9 @@ the NFO branch of RetrieveInfoForMovie, which never reaches the
 similar-video grouping, so a version file is a version of its movie only
 because its tag says so (kontell/xbmc #8). An extras folder is a phantom
 disc unless Kodi's directory cache knows it. The pass scans the folder by
-name, binds it with folder names on, warms the cache and turns "Ignore video
-extras" off.
+name, binds it with folder names on and warms the cache. Kodi files the
+extras only while its "Ignore video extras on scan" is off, and that setting
+is the viewer's: the tests here run with it off.
 """
 
 from unittest.mock import MagicMock
@@ -32,6 +33,11 @@ def kodi23(monkeypatch):
     """Every feature on, for the listings and answers served here; the
     Piers side of versions and extras is test_api_piers.py's."""
     monkeypatch.setattr(capabilities, "features", lambda: ALL)
+
+
+@pytest.fixture(autouse=True)
+def extras_allowed(kodi):
+    kodi.settings["videolibrary.ignorevideoextras"] = False
 
 
 def assets_movie(**values):
@@ -384,10 +390,9 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert kodi.scanned == [root, folder]
     assert kodi.bindings[folder] == "movies" and kodi.dirnames[folder] is True
     # Kodi's directory cache was warmed for the extras folder and the disc
-    # folders probed below it, and "Ignore video extras" turned off, first.
+    # folders probed below it, first.
     extras = folder + paths.EXTRAS
     assert kodi.listed == [extras, extras + "VIDEO_TS/", extras + "BDMV/"]
-    assert kodi.settings["videolibrary.ignorevideoextras"] is False
     assert not kodi.phantoms
     # One movie: its further version file is filed as a version of it, with
     # the source's label.
@@ -404,6 +409,29 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert not store.pending()
     backend.reconcile()
     assert kodi.scanned == [root, folder]
+
+
+def test_kodi_ignoring_extras_is_left_alone_and_scans_the_folder_once(
+    store, backend, kodi
+):
+    """Kodi's default: the extras folder is dropped from the listing. The
+    setting stays the viewer's, the versions are filed, and the folder is
+    not scanned again for extras Kodi will not take."""
+    kodi.settings["videolibrary.ignorevideoextras"] = True
+    backend.setup()
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    folder = folder_of(store)
+    assert not methods(kodi, "Settings.SetSettingValue")
+    assert kodi.settings["videolibrary.ignorevideoextras"] is True
+    (row,) = movie_rows(kodi)
+    assert kodi.versions[row["movieid"]]
+    assert kodi.extras == {} and not kodi.phantoms
+    assert not store.pending()
+    scanned = list(kodi.scanned)
+    assert folder in scanned
+    backend.reconcile()
+    assert kodi.scanned == scanned
 
 
 def test_the_extras_folder_of_a_movie_with_extras_is_bound_noupdate(
@@ -638,7 +666,6 @@ def test_a_movie_without_versions_or_extras_never_scans_its_folder(
     backend.reconcile()
     assert kodi.scanned == [root]
     assert kodi.listed == []
-    assert kodi.settings["videolibrary.ignorevideoextras"] is True
     assert store.mapping("a").applied["assets"] == ""
     assert not store.pending()
 

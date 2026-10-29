@@ -31,4 +31,4 @@ def forget_companion():
     folder = os.path.join(private.addon_data_path(), "companion")
     if os.path.isdir(folder):
         shutil.rmtree(folder, ignore_errors=True)
-        LOG.info("removed the companion add-on's requests")
+        LOG.debug("removed the companion add-on's requests")

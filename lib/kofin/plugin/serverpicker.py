@@ -71,7 +71,9 @@ def _verify(transport: Http, found: discovery.Found) -> Candidate:
             # ValueError as well as the transport's own taxonomy: a body that
             # is not JSON means whatever answered is not the server, and one
             # bad address must not take the whole listing down with it.
-            LOG.info("discovery: %s unreachable at %s (%s)", found.name, address, error)
+            LOG.debug(
+                "discovery: %s unreachable at %s (%s)", found.name, address, error
+            )
             continue
         return Candidate(found=found, address=address, info=info, reachable=True)
     return Candidate(found=found, address=found.address, info=None, reachable=False)
@@ -136,7 +138,7 @@ def _scan_with_progress(transport: Http) -> Optional[List[Candidate]]:
         LOG.error("discovery scan failed: %s", failure)
 
     if cancelled:
-        LOG.info("discovery: cancelled")
+        LOG.debug("discovery: cancelled")
         return None
     return [probe.result() for probe in probes]
 
@@ -180,7 +182,7 @@ def find_servers(request: Request) -> None:
 
     picked = candidates[choice]
     settings.set_str("serverAddress", picked.address)
-    LOG.info("discovery: server address set to %s", picked.address)
+    LOG.debug("discovery: server address set to %s", picked.address)
     if not picked.reachable:
         toast.show(_text(30831) % picked.found.name, toast.WARNING, time_ms=6000)
     xbmc.executebuiltin("Addon.OpenSettings(plugin.video.kofin)")

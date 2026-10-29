@@ -263,5 +263,5 @@ def _save(api: Api, config: JsonDict, field: Field, value: Any) -> JsonDict:
         LOG.warning("jellyfin settings: saving %s failed: %s", field.key, error)
         toast.show(settings.localized(STR_SAVE_FAILED), toast.ERROR, time_ms=4000)
         return config
-    LOG.info("jellyfin settings: %s -> %r", field.key, value)
+    LOG.debug("jellyfin settings: %s -> %r", field.key, value)
     return changed

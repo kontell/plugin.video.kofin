@@ -65,7 +65,7 @@ Not gaps, but the behaviour differences an upgrade from main shows.
 
 - Every movie's URL sits in a folder of its own, and every folder carries a scraper binding with `noupdate`; a profile from the one-directory layout needs the Movies library deselected and reselected.
 - Import runs through Kodi's scanner: Kodi's own scanning dialog for video, kofin's bar for enumeration, scans and the pass; one scan at a time; the music scanner is held while a pass writes.
-- Kodi's "Ignore video extras on scan" is turned off once for the extras import, with a toast, and "Download actor thumbnails" is off for the length of a large video scan.
+- Movie extras are imported only while Kodi's "Ignore video extras on scan" is off, which is the user's to set; "Download actor thumbnails" is off for the length of a large video scan.
 - One setting on the Sync tab, "Library nodes and playlists", switches the node tree, the smart playlists and the Jellyfin playlists together; main has the playlist toggle alone.
 - Kodi's shipped Movies and TV shows nodes are seeded beside kofin's at the first publish; the home screen's categories rows appear after one Kodi restart.
 - The download badge key is `kofindownloaded` on the row where main's writers stamp `kofin.downloaded`; a skin reads both while the branches coexist.

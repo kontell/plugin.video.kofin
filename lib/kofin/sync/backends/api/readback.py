@@ -89,7 +89,7 @@ class Readback:
         if len(rows) != total:
             raise RuntimeError("partial native readback")
         if total >= PAGE:
-            LOG.info(
+            LOG.debug(
                 "read back %d %s in %.1f s",
                 total,
                 table.list_key,

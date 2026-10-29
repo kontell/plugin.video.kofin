@@ -62,7 +62,7 @@ def test_logger_lazy_formatting_survives_bad_args(monkeypatch):
     lines = []
     monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
     logger = log.Logger("test")
-    logger.info("one %s", "arg")
-    logger.info("bad %d", "not-a-number")
+    logger.debug("one %s", "arg")
+    logger.debug("bad %d", "not-a-number")
     assert "one arg" in lines[0]
     assert "not-a-number" in lines[1]

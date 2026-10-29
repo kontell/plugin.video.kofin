@@ -369,7 +369,7 @@ class SegmentEngine:
             self._segments = segments
             self._segments_loaded = True
             if segments:
-                LOG.info(
+                LOG.debug(
                     "segments for %s: %s",
                     item["Id"],
                     [segment["Type"] for segment in segments],
@@ -399,7 +399,7 @@ class SegmentEngine:
             if episode.get("Id") == item["Id"]:
                 if index + 1 < len(listing):
                     nxt: JsonDict = listing[index + 1]
-                    LOG.info("next episode resolved: %s", nxt.get("Id"))
+                    LOG.debug("next episode resolved: %s", nxt.get("Id"))
                     return nxt
                 return None  # season/series finale
         return None
@@ -491,7 +491,7 @@ class SegmentEngine:
                     # Seek dropped: re-issue.
                     self._settle_retries -= 1
                     self._settle_ticks = SEEK_SETTLE_TICKS
-                    LOG.info(
+                    LOG.debug(
                         "auto-skip seek retry -> %.1f (still at %.1f)",
                         self._settle_target,
                         now,
@@ -583,7 +583,7 @@ class SegmentEngine:
             return  # never two overlays at once
         if crossed_into(self._prev_pos, now, self._near_end_at, self._runtime):
             self._near_end_prompted = True
-            LOG.info("near-end Play Next prompt at %.1f", now)
+            LOG.debug("near-end Play Next prompt at %.1f", now)
             self._open_overlay(None, ("playnext", "close"), now)
 
     def _compute_near_end(self) -> None:
@@ -603,7 +603,7 @@ class SegmentEngine:
         mode = self._segment_mode(segment_type)
         offer_next = segment_type == "Credits" and self._play_next_on_offer()
         auto_seek, buttons = plan_for_crossing(segment_type, mode, offer_next)
-        LOG.info(
+        LOG.debug(
             "segment %s [%.1f-%.1f] at %.2f: mode=%d auto=%s buttons=%s",
             segment_type,
             segment["Start"],
@@ -642,7 +642,7 @@ class SegmentEngine:
             return
         self._begin_settle(target, notify=str(segment["Type"]))
         self.player.seekTime(target)
-        LOG.info("auto-skip %s -> %.1f", segment["Type"], target)
+        LOG.debug("auto-skip %s -> %.1f", segment["Type"], target)
 
     def _segment_mode(self, segment_type: str) -> int:
         setting_id = SEGMENT_MODE_SETTINGS.get(segment_type)
@@ -797,7 +797,7 @@ class SegmentEngine:
             return
         self._begin_settle(seek_to)
         self.player.seekTime(seek_to)
-        LOG.info("user skipped to %.1f", seek_to)
+        LOG.debug("user skipped to %.1f", seek_to)
 
     def _overlay_play_next(self) -> None:
         self._start_next_episode()
@@ -809,7 +809,7 @@ class SegmentEngine:
         from kofin.core.urls import plugin_url
         from kofin.service.libraryclaim import library_video_path
 
-        LOG.info("play next episode %s", nxt.get("Id"))
+        LOG.debug("play next episode %s", nxt.get("Id"))
         # Kodi highlights a playing row by exact path; noresume starts at zero.
         item_id = str(nxt["Id"])
         url = library_video_path(item_id, "episode") or plugin_url(

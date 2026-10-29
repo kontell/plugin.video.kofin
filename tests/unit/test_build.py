@@ -27,13 +27,13 @@ def test_package_excludes_repo_docs():
     assert '"$SRC/tools/build.py" --stage "$KOFIN_STAGE"' in script
 
 
-def test_library_nodes_and_nfo_export_default_on():
+def test_library_nodes_default_off_and_nfo_export_on():
     root = ET.parse(os.path.join(REPO_ROOT, "resources", "settings.xml")).getroot()
     defaults = {
         setting.get("id"): (setting.findtext("default") or "")
         for setting in root.iter("setting")
     }
-    assert defaults["libraryNodes"] == "true"
+    assert defaults["libraryNodes"] == "false"
     assert defaults["downloadsExportMetadata"] == "true"
 
 

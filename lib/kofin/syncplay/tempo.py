@@ -442,7 +442,7 @@ def settle_left_rate(reason="", correction=None):
         return False  # still owed: the next resume, tick or start tries again
 
     state.clear_syncplay_pulse()
-    LOG.info("[ syncplay/pulse ] %.3fx left in force%s; back to 1.0x", current, reason)
+    LOG.debug("[ syncplay/pulse ] %.3fx left in force%s; back to 1.0x", current, reason)
     return True
 
 
@@ -546,7 +546,7 @@ class PulseScheduler(object):
 
             if not self._unarmed_logged:
                 self._unarmed_logged = True
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/tempo ] %s is live audio; command-only sync",
                     claim.get("Id"),
                 )
@@ -575,7 +575,7 @@ class PulseScheduler(object):
             self.profile = video_profile()
             self.actuator = KodiTempo(VIDEO_PLAYER, self._takes_correction())
 
-        LOG.info(
+        LOG.debug(
             "[ syncplay/tempo ] fine sync armed for %s "
             "(%s: budget %.0fms, up to %.1f%%%s%s)",
             claim.get("Id"),
@@ -804,7 +804,7 @@ class PulseScheduler(object):
             # converge on — the commands keep it tuned together.
             if not self._session_time_logged:
                 self._session_time_logged = True
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/tempo ] live group is on session time; "
                     "no pulses until a source clock is shared"
                 )
@@ -854,7 +854,7 @@ class PulseScheduler(object):
         ):
             self._seek_blackout_until = now + SEEK_BLACKOUT_S
             self._window = []
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/align ] %+.0fms is beyond the pulse budget: seeking",
                 residual,
             )
@@ -899,7 +899,7 @@ class PulseScheduler(object):
         if not KodiTempo.enabled():
             if not self._disabled_logged:
                 self._disabled_logged = True
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/pulse ] %+.0fms left: the item cannot take a tempo now",
                     residual,
                 )
@@ -910,7 +910,7 @@ class PulseScheduler(object):
         if fitted is None:
             if not self._end_logged:
                 self._end_logged = True
-                LOG.info(
+                LOG.debug(
                     "[ syncplay/pulse ] %+.0fms left: too close to the end for a pulse",
                     residual,
                 )
@@ -962,7 +962,7 @@ class PulseScheduler(object):
             )
             return
 
-        LOG.info(
+        LOG.debug(
             "[ syncplay/pulse ] %+.0fms: %.3fx for %.1fs%s (applied after %.0fms)",
             residual,
             rate,
@@ -1055,7 +1055,7 @@ class PulseScheduler(object):
 
         if self._live and pulse["rate"] > 1.0:
             self._edge_pulses += 1
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/pulse ] Kodi returned to 1.0x at the live edge (%d of %d)",
                 self._edge_pulses,
                 utils.LIVE_EDGE_PULSES,
@@ -1064,7 +1064,7 @@ class PulseScheduler(object):
             if self._edge_pulses >= utils.LIVE_EDGE_PULSES:
                 self._give_up_edge()
         else:
-            LOG.info("[ syncplay/pulse ] Kodi returned to 1.0x; pulse over")
+            LOG.debug("[ syncplay/pulse ] Kodi returned to 1.0x; pulse over")
 
         self._settle(pulse, now, measured=False)
 
@@ -1073,7 +1073,7 @@ class PulseScheduler(object):
         A group's speed is 1.0: put it back."""
         if not self._foreign_logged:
             self._foreign_logged = True
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/tempo ] %.3fx set outside fine sync; back to 1.0x", current
             )
 
@@ -1104,7 +1104,7 @@ class PulseScheduler(object):
         self._measure = None
         started, start_ms = pulse["start"]
         moved = (self.controller._position_ms() - start_ms) - (now - started) * 1000.0
-        LOG.info(
+        LOG.debug(
             "[ syncplay/pulse ] moved %+.0fms (wanted %+.0fms)",
             moved,
             (pulse["rate"] - 1.0) * pulse["seconds"] * 1000.0,
@@ -1112,7 +1112,7 @@ class PulseScheduler(object):
 
     def _give_up_edge(self):
         self._gave_up = True
-        LOG.warning(
+        LOG.debug(
             "[ syncplay/pulse ] giving up: at the live edge — Kodi ended %d forward "
             "pulses in a row; this member follows the feed",
             self._edge_pulses,
@@ -1130,7 +1130,7 @@ class PulseScheduler(object):
             return False
 
         self._return_to_one(now)
-        LOG.info("[ syncplay/pulse ] cut by %s", reason)
+        LOG.debug("[ syncplay/pulse ] cut by %s", reason)
         profile = self.profile
         self._settle_until = now + (profile.settle_s if profile else SETTLE_S)
 
@@ -1258,23 +1258,23 @@ class TempoSession(object):
             return
 
         if not settings.get_bool("syncPlayTempo"):
-            LOG.info("[ syncplay/tempo ] fine sync is off in settings")
+            LOG.debug("[ syncplay/tempo ] fine sync is off in settings")
             return
 
         # Without the tempo feature this member keeps to the group's commands.
         if not capabilities.has("tempo"):
-            LOG.info(
+            LOG.debug(
                 "[ syncplay/tempo ] fine sync needs Kodi's tempo set; this Kodi "
                 "plays on the group's commands"
             )
             return
 
         self.active = True
-        LOG.info("[ syncplay/tempo ] fine sync armed (Kodi's tempo)")
+        LOG.debug("[ syncplay/tempo ] fine sync armed (Kodi's tempo)")
 
     def end(self):
         if not self.active:
             return
 
         self.active = False
-        LOG.info("[ syncplay/tempo ] fine sync disarmed")
+        LOG.debug("[ syncplay/tempo ] fine sync disarmed")

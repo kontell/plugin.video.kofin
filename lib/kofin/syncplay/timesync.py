@@ -51,7 +51,7 @@ class TimeSync(threading.Thread):
         self._ws = None  # the dedicated time-sync socket, when advertised
 
     def run(self):
-        LOG.info("--->[ syncplay timesync ]")
+        LOG.debug("--->[ syncplay timesync ]")
 
         while not self._stop_event.is_set():
             try:
@@ -68,7 +68,7 @@ class TimeSync(threading.Thread):
             self._kick_event.wait(interval)
             self._kick_event.clear()
 
-        LOG.info("---<[ syncplay timesync ]")
+        LOG.debug("---<[ syncplay timesync ]")
 
     def stop(self):
         self._stop_event.set()
@@ -154,7 +154,7 @@ class TimeSync(threading.Thread):
             LOG.debug("Time-sync socket connect failed: %s", error)
             return None
 
-        LOG.info("Time sync on dedicated socket %s", url)
+        LOG.debug("Time sync on dedicated socket %s", url)
         return self._ws
 
     def _close_ws(self):

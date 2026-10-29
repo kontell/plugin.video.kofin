@@ -172,7 +172,7 @@ def clear_library(native, library, kinds, rows=0):
                     gone, "%s %d / %d" % (heading, max(0, min(gone, rows)), rows)
                 )
         worker.join()
-        LOG.info(
+        LOG.debug(
             "library %s cleared in %.1f s; the longest %.0f s wait took %.1f s",
             library,
             time.monotonic() - began,
@@ -239,7 +239,7 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 kinds,
                 rows=sum(1 for i in members if placement[i].kind in COUNTED),
             )
-            LOG.info(
+            LOG.debug(
                 "library %s: %d item(s) cleared from Kodi in %.1f s",
                 library,
                 len(members),

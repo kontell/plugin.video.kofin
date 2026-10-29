@@ -162,7 +162,7 @@ def trigger_next(api: Any, item: JsonDict) -> bool:
     if not wanted:
         return False
     ipc.notify(ipc.DOWNLOAD_ADD, {"Ids": wanted, "Origin": "auto:%s" % series_id})
-    LOG.info("auto-next queued %d episode(s) of %s", len(wanted), series_id)
+    LOG.debug("auto-next queued %d episode(s) of %s", len(wanted), series_id)
     return True
 
 
@@ -218,7 +218,7 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
         ]
         if wanted:
             push(series_id, wanted)
-            LOG.info(
+            LOG.debug(
                 "subscription queued %d new episode(s) of %s", len(wanted), series_id
             )
 
@@ -233,7 +233,7 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
         return queued
     cap = new_episodes_limit()
     if len(rest) > cap:
-        LOG.info(
+        LOG.debug(
             "auto-episodes skipped a bulk import of %d; the cap is %d",
             len(rest),
             cap,
@@ -244,7 +244,7 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
         wanted = [entry.item_id for entry in rest if entry.series_id == series_id]
         push(series_id, wanted)
     if queued:
-        LOG.info("auto-episodes queued %d newly added episode(s)", queued)
+        LOG.debug("auto-episodes queued %d newly added episode(s)", queued)
     return queued
 
 
@@ -263,7 +263,7 @@ def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
         return 0
     cap = new_albums_limit()
     if len(albums) > cap:
-        LOG.info(
+        LOG.debug(
             "auto-albums skipped a bulk import of %d; the cap is %d",
             len(albums),
             cap,
@@ -298,7 +298,7 @@ def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
         live.update(wanted)
         queued += len(wanted)
     if queued:
-        LOG.info("auto-albums queued %d track(s)", queued)
+        LOG.debug("auto-albums queued %d track(s)", queued)
     return queued
 
 
@@ -341,7 +341,7 @@ def queue_new_movies(entries: Iterable[Any]) -> int:
         return 0
     cap = new_movies_limit()
     if len(movie_ids) > cap:
-        LOG.info(
+        LOG.debug(
             "auto-movies skipped a bulk import of %d; the cap is %d",
             len(movie_ids),
             cap,
@@ -353,5 +353,5 @@ def queue_new_movies(entries: Iterable[Any]) -> int:
     if not wanted:
         return 0
     ipc.notify(ipc.DOWNLOAD_ADD, {"Ids": wanted, "Origin": ORIGIN_NEW_MOVIES})
-    LOG.info("auto-movies queued %d newly added movie(s)", len(wanted))
+    LOG.debug("auto-movies queued %d newly added movie(s)", len(wanted))
     return len(wanted)

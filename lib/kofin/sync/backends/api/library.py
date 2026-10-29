@@ -433,6 +433,13 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("held Kodi settings not restored; the next pass retries")
         self._settings_due = time.monotonic() + SETTINGS_RETRY
+        # The applier hears only the changes made while the service runs,
+        # and Kodi moves a stored default to a new one as it loads the
+        # settings: the switch can read off with playlists still written.
+        try:
+            self._playlists_due = api_playlists.owed()
+        except Exception:
+            LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
         # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():
@@ -559,7 +566,7 @@ class Library(threading.Thread):
             if stale:
                 # A library missing from the server's views is skipped by
                 # the listing and stays stale for the next catch-up.
-                LOG.info(
+                LOG.debug(
                     "listing %d librar%s again for fields their last listing lacked",
                     len(stale),
                     "y" if len(stale) == 1 else "ies",
@@ -604,7 +611,7 @@ class Library(threading.Thread):
             try:
                 self.changefeed = changefeed.detect(self.api)
             except Exception as error:
-                LOG.info("no change-feed companion detected (%s)", error)
+                LOG.debug("no change-feed companion detected (%s)", error)
                 self.changefeed = None
             # For the status dialog: a found feed is kept for the thread's
             # life, a missing one is looked for again on every call, and the
@@ -691,7 +698,7 @@ class Library(threading.Thread):
                     on_page=lambda done, total, kind=kind: bar.track(kind, done, total),
                     api_factory=getattr(self, "api_factory", None),
                 )
-                LOG.info(
+                LOG.debug(
                     "enumerated %d %s in %.1f s",
                     len(found),
                     kind,
@@ -742,7 +749,7 @@ class Library(threading.Thread):
             complete_libraries=committed,
             complete_boxsets=complete and movies_selected,
         )
-        LOG.info(
+        LOG.debug(
             "published %d items in %.1f s",
             len(items) + len(boxsets),
             time.monotonic() - began,
@@ -823,7 +830,7 @@ class Library(threading.Thread):
         if changefeed.retention_overrun(
             watermark, change_set.envelope.retention_cutoff
         ):
-            LOG.warning("sync queue retention exceeded; scheduling a full enumeration")
+            LOG.debug("sync queue retention exceeded; scheduling a full enumeration")
             self._full_due = True
         removed = [r.id for r in change_set.records if r.status == "Removed"]
         self.store.invalidate(self._removed_collection_members(removed))
@@ -1082,7 +1089,7 @@ class Library(threading.Thread):
                 ).fetchall()
                 if key in whitelist
             ]
-        LOG.info("synced libraries: %s", ", ".join(names) or "none")
+        LOG.debug("synced libraries: %s", ", ".join(names) or "none")
         try:
             from kofin.sync.dynamic import publish
 
@@ -1138,7 +1145,7 @@ class Library(threading.Thread):
                 # Nothing was ever filed for it; whatever comes is current.
                 self.store.set_scanner_format(library, current)
         if rebuild:
-            LOG.info(
+            LOG.debug(
                 "repair: %d library(ies) filed before scanner format %d;"
                 " their rows are removed and imported again: %s",
                 len(rebuild),
@@ -1198,22 +1205,17 @@ class Library(threading.Thread):
         if command == "SyncPlaylists":
             playlist_id = (data or {}).get("Id") or ""
             if playlist_id:
-                api_playlists.apply(self.api, self.store, playlist_id)
+                if api_playlists.apply(self.api, self.store, playlist_id) is None:
+                    # The whole pass is owed until the switch can be read.
+                    self._playlists_due = True
                 self.reconcile_subscriptions(playlist_id)
             else:
                 self._playlists_due = True
             return
-        if command == "SyncMusicPlaylists":
+        if command in ("SyncMusicPlaylists", "CleanupMusicPlaylists"):
+            # Queued by the switch going on or off: the playlists pass
+            # writes or removes the files by the switch as it reads then.
             self._playlists_due = True
-            return
-        if command == "CleanupMusicPlaylists":
-            # Queued by the switch going off; by the time it runs the switch
-            # may be on again and the pass may have written the playlists
-            # back, so the setting is read again here.
-            if api_playlists.wanted():
-                LOG.info("playlist cleanup skipped: the switch is on again")
-                return
-            api_playlists.cleanup()
             return
         if command == "FastSync":
             self._catchup_due = 0
@@ -1245,7 +1247,7 @@ class Library(threading.Thread):
             began = time.monotonic()
             try:
                 native.reconcile(repair=self._repair)
-                LOG.info("native pass done in %.1f s", time.monotonic() - began)
+                LOG.debug("native pass done in %.1f s", time.monotonic() - began)
             finally:
                 # A home widget whose last fetch found nothing is deaf to
                 # every later library announcement, and the skin's widget
@@ -1290,8 +1292,12 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlists not reconciled; next enumeration retries")
         else:
+            if stats is None:
+                # Owed until the settings can say which way the switch is.
+                self._playlists_due = True
+                return
             if stats:
-                LOG.info("playlists reconciled: %s", stats)
+                LOG.debug("playlists reconciled: %s", stats)
         self.reconcile_subscriptions()
 
     def reconcile_subscriptions(self, playlist_id=""):
@@ -1330,7 +1336,7 @@ class Library(threading.Thread):
             else:
                 LOG.warning("%s did not flip; reloading anyway", flag)
         self._reload_owed.clear()
-        LOG.info("first content synced; reloading skin for home widgets")
+        LOG.debug("first content synced; reloading skin for home widgets")
         xbmc.executebuiltin("ReloadSkin()")
 
     def flush_local(self):
@@ -1348,7 +1354,7 @@ class Library(threading.Thread):
                 raise
             except HttpError as error:
                 if error.status == 404:
-                    LOG.info(
+                    LOG.debug(
                         "play state of %s not sent: the server no longer has it",
                         item_id,
                     )
