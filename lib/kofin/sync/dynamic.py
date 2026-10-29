@@ -35,6 +35,8 @@ music tree gets Kodi's shipped music nodes the same way.
 
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
+import xbmcaddon
+
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kodisetup, playlists, private
@@ -95,20 +97,30 @@ def node_entries(
     return entries
 
 
+def _answering() -> Optional[xbmcaddon.Addon]:
+    """This add-on's Addon while its settings answer, or None.
+
+    A store Kodi has unregistered and a settings document that did not load
+    both read every string blank and a boolean as its default, so only a
+    store that answered can mean a logout or a switch turned off. The second
+    is told by ``deviceId``, which is never empty once a login has happened
+    (the applier's LOAD_CANARY). Every value is read off the one Addon, as
+    Credentials.load reads its record."""
+    addon = settings.get_addon()
+    if addon is None or not addon.getSetting("deviceId"):
+        return None
+    return addon
+
+
 def login_key() -> Optional[str]:
     """The catalogue's key for the logged-in user, which every path the
     node trees filter on starts with; "" with no login, and None while the
-    settings cannot say who is logged in, since an empty tree deletes files.
-
-    The ids are read off one Addon, as Credentials.load reads its record: a
-    store Kodi has unregistered and a settings document that did not load
-    both read blank, and only a store that answered can mean a logout. The
-    second is told by ``deviceId``, which is never empty once a login has
-    happened (the applier's LOAD_CANARY)."""
+    settings cannot say who is logged in (``_answering``), since an empty
+    tree deletes files."""
     from kofin.sync.backends.api.store import namespace
 
-    addon = settings.get_addon()
-    if addon is None or not addon.getSetting("deviceId"):
+    addon = _answering()
+    if addon is None:
         return None
     try:
         return str(namespace(addon.getSetting("serverId"), addon.getSetting("userId")))
@@ -142,11 +154,14 @@ def music_entries(
 
 def wanted() -> Optional[bool]:
     """Whether the generated presentation is on (``SETTING``), and None
-    while the settings cannot say: an empty read is a settings document that
-    did not load (the applier's canary case, ``service/settings_apply.py``),
-    and on it nothing is written and nothing taken down."""
+    while the settings cannot say: a store that did not answer
+    (``_answering``) or a value that is neither, as from a build without the
+    setting. On None nothing is written and nothing taken down."""
+    addon = _answering()
+    if addon is None:
+        return None
     try:
-        value = settings.get_str(SETTING).strip().lower()
+        value = addon.getSetting(SETTING).strip().lower()
     except TypeError:
         return None
     if value in ("true", "false"):
@@ -172,6 +187,10 @@ def publish(items, server):
     try:
         if key is None:
             LOG.warning("settings unreadable; video node tree left as it is")
+            # The skin entries describe the tree as it stands.
+            nodes = video.tree_written()
+            if nodes:
+                singles = video.single_nodes(capabilities.has("episode_tags"))
         elif entries:
             kodisetup.seed_default_nodes("video")
             singles = video.single_nodes(capabilities.has("episode_tags"))

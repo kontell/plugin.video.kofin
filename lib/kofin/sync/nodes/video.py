@@ -470,6 +470,12 @@ def write_tree(entries, singles):
 # --- taking it down ------------------------------------------------------------
 
 
+def tree_written():
+    """Whether the generated tree is on disk: its root's index, which
+    ``write_tree`` writes first and ``delete_tree`` removes."""
+    return os.path.isfile(os.path.join(node_root_path(), "index.xml"))
+
+
 def delete_tree():
     """Remove the whole generated tree."""
     root = node_root_path()

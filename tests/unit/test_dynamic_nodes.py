@@ -312,24 +312,54 @@ def test_the_switch_takes_the_tree_and_playlists_down_and_publishes_browse_entri
 
 
 def test_an_unreadable_switch_is_neither_on_nor_off(monkeypatch):
-    """Off deletes files and on writes them outside addon_data: an empty
-    read (a settings document that did not load) and a build without the
-    setting are None, on which neither happens."""
-    from kofin.core import settings
-
-    FakeAddon.store = {}
+    """Off deletes files and on writes them outside addon_data: a settings
+    document that did not load, which reads the switch as its default, an
+    empty read and a build without the setting are None, on which neither
+    happens."""
+    FakeAddon.store = {dynamic.SETTING: "false"}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     assert dynamic.wanted() is None
-    FakeAddon.store[dynamic.SETTING] = "false"
+    FakeAddon.store["deviceId"] = "d" * 32
     assert dynamic.wanted() is False
     FakeAddon.store[dynamic.SETTING] = "true"
     assert dynamic.wanted() is True
-
-    def missing(_setting):
-        raise TypeError("no such setting")
-
-    monkeypatch.setattr(settings, "get_str", missing)
+    FakeAddon.store[dynamic.SETTING] = ""
     assert dynamic.wanted() is None
+
+    def missing(self, setting_id):
+        if setting_id == dynamic.SETTING:
+            raise TypeError("no such setting")
+        return self.store.get(setting_id, "")
+
+    monkeypatch.setattr(FakeAddon, "getSetting", missing)
+    assert dynamic.wanted() is None
+
+
+def test_a_settings_read_that_cannot_answer_leaves_the_skin_entries_on_the_tree(
+    views_env,
+):
+    """With the switch unreadable the tree stays as it is, and the entries
+    describe it: into the tree while it is on disk, browse entries while it
+    is not."""
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    written = props()
+    assert written["Kofin.nodes.1.content"].endswith("/all.xml")
+    stored = dict(FakeAddon.store)
+    # The settings document did not load: the switch reads its default.
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    assert (root / ("kofinmovies" + MOVIES) / "all.xml").is_file()
+    assert props() == written
+    FakeAddon.store = dict(stored, **{dynamic.SETTING: "false"})
+    dynamic.publish(ITEMS, FakeApi())
+    assert not root.exists()
+    browsing = props()
+    assert "Kofin.nodes.1.content" not in browsing
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    dynamic.publish(ITEMS, FakeApi())
+    assert props() == browsing
 
 
 def test_an_unreadable_switch_writes_no_tree(views_env):
