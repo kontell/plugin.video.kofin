@@ -1205,7 +1205,9 @@ class Library(threading.Thread):
         if command == "SyncPlaylists":
             playlist_id = (data or {}).get("Id") or ""
             if playlist_id:
-                api_playlists.apply(self.api, self.store, playlist_id)
+                if api_playlists.apply(self.api, self.store, playlist_id) is None:
+                    # The whole pass is owed until the switch can be read.
+                    self._playlists_due = True
                 self.reconcile_subscriptions(playlist_id)
             else:
                 self._playlists_due = True

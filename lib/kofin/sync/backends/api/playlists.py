@@ -209,9 +209,13 @@ def reconcile(
 
 def apply(
     api, store: Store, playlist_id: str, music_root=None, video_root=None
-) -> bool:
-    """One server playlist, written or pruned."""
-    if not wanted() or not playlist_id:
+) -> Optional[bool]:
+    """One server playlist, written or pruned; None while the switch cannot
+    be read."""
+    nodes = wanted()
+    if nodes is None:
+        return None
+    if not nodes or not playlist_id:
         return False
     kinds = enabled_kinds()
     if not kinds:

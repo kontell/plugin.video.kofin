@@ -564,9 +564,10 @@ What remains is kofin's own:
   addon_data, and only an explicit value from a store that answered counts: a settings
   document that did not load reads a boolean as its default, which is off, so `wanted` reads
   through the `deviceId` canary (`dynamic._answering`). On None nothing is written or taken
-  down, and the skin entries follow the tree on disk. The Jellyfin playlists follow the
-  switch in the playlists pass, never in the command that queued it: the pass stays due while
-  the switch cannot be read, and a service that starts with the switch off and playlist
+  down, and the skin entries follow the tree on disk, its singles included. The Jellyfin
+  playlists follow the switch in the playlists pass, never in the command that queued it: the
+  pass stays due while the switch cannot be read, a named playlist's update falls to it while
+  it cannot, and a service that starts with the switch off and playlist
   states on record runs it (`api_playlists.owed`), which is how a profile whose stored
   default moved loses them.
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog

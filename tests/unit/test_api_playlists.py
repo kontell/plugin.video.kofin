@@ -273,6 +273,26 @@ def test_the_switch_commands_leave_the_files_to_the_playlists_pass(store, monkey
     assert w._playlists_due
 
 
+def test_a_named_playlist_the_switch_cannot_say_about_is_owed_to_the_pass(
+    store, monkeypatch
+):
+    """A playlist the server saved while the settings cannot be read is
+    written by the pass once they can; off, it writes nothing and owes
+    nothing."""
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    asked = []
+    monkeypatch.setattr(w, "reconcile_subscriptions", lambda i="": asked.append(i))
+    for switch, owed in ((None, True), (False, False)):
+        monkeypatch.setattr(api_playlists, "wanted", lambda switch=switch: switch)
+        assert api_playlists.apply(None, store, "p") is switch
+        w._playlists_due = False
+        w.command("SyncPlaylists", {"Id": "p"})
+        assert w._playlists_due is owed
+    assert asked == ["p", "p"]
+
+
 def test_with_the_switch_off_the_pass_takes_both_sides_down(
     store, backend, kodi, tmp_path, monkeypatch
 ):
