@@ -42,6 +42,11 @@ LOG = Logger(__name__)
 # (Readback.item); an episode's refresh re-lists its show's scope.
 REFRESH_POLL = 1.0
 
+# A pass of at least this many rows reads every mapping in one query; a
+# smaller one reads only its own, which is most passes: a play, a favourite,
+# a catch-up of a few items.
+PRELOAD_ALL_MAPPINGS = 2000
+
 
 def _with_asset_files(applied, assets, files, previous=None):
     """The acknowledged file list beside the token: the movie's current
@@ -102,6 +107,8 @@ class Applier:
         self._expectations: List[Tuple[str, int, Dict[str, Any]]] = []
         self._mappings: Dict[str, Any] = {}
         self._mappings_loaded = False
+        # The items whose mappings were read, or None when every one was.
+        self._preloaded: Optional[Set[str]] = None
         self.collections: Dict[str, str] = {}
         self.movies: Set[str] = set()
         self.local: Set[str] = set()
@@ -177,7 +184,9 @@ class Applier:
                     self._mappings[item_id] = Mapping(kodi_id, applied or {}, kind)
 
     def mapping(self, item_id):
-        if self._mappings_loaded:
+        if self._mappings_loaded and (
+            self._preloaded is None or item_id in self._preloaded
+        ):
             return self._mappings.get(item_id)
         return self.store.mapping(item_id)
 
@@ -199,7 +208,12 @@ class Applier:
         self.movies = movies
         self.local = {item_id for item_id, _ in self.store.local_pending()}
         if not self._mappings_loaded:
-            self._mappings = self.store.mappings()
+            if len(upserts) >= PRELOAD_ALL_MAPPINGS:
+                self._mappings = self.store.mappings()
+                self._preloaded = None
+            else:
+                self._mappings = self.store.mappings_of(upserts)
+                self._preloaded = set(upserts)
             self._mappings_loaded = True
         queue: List[Patch] = []
         for kind in kinds:

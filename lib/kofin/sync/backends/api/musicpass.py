@@ -17,17 +17,17 @@ from typing import Dict, List, Set, Tuple
 from kofin.core.log import Logger
 from . import metadata, paths, progress, walk
 from .records import Record
-from .store import Entry
+from .store import Entry, Mapping
 
 LOG = Logger(__name__)
 
 
 class MusicPass:
     """One pass's music work, and what it reads once for it: a library's
-    album payloads and the tag hash of every song compared so far. The
-    directory picker and the applier both need them, and a song's hash is
-    a payload walk, a tag build and a digest. ``Native.reconcile`` makes
-    one for each pass."""
+    album payloads, its song mappings and the tag hash of every song
+    compared so far. The directory picker and the applier both need them,
+    and a song's hash is a payload walk, a tag build and a digest.
+    ``Native.reconcile`` makes one for each pass."""
 
     def __init__(self, native):
         self.native = native
@@ -37,12 +37,23 @@ class MusicPass:
         # and (library, "*") when that was every directory of the library.
         self.rescanned: Set[Tuple[str, str]] = set()
         self._album_items: Dict[str, Dict[str, Dict]] = {}
+        self._song_mappings: Dict[str, Dict[str, Mapping]] = {}
         self._tag_hashes: Dict[str, str] = {}
 
     def forget(self):
         """Drop what the pass read; what it re-listed stays on record."""
         self._album_items = {}
+        self._song_mappings = {}
         self._tag_hashes = {}
+
+    def song_mappings(self, library) -> Dict[str, Mapping]:
+        """The library's song mappings, read once a pass: nothing between
+        the directory picker and the lost-song check acknowledges a song."""
+        if library not in self._song_mappings:
+            self._song_mappings[library] = self.store.mappings(
+                kind="Audio", library=library
+            )
+        return self._song_mappings[library]
 
     def album_items(self, library) -> Dict[str, Dict]:
         """The library's album payloads, read once a pass: a song's tag hash
@@ -78,6 +89,9 @@ class MusicPass:
             if r.kind == "Audio" and r.library == library and r.parent_id in folders
         )
         self.scan(library, folders, expected=expected)
+        if not folders:
+            # No scan ran, so none lost a song.
+            return
         lost = self.lost_songs(library, folders, entries)
         if lost:
             self.store.invalidate(lost)
@@ -151,9 +165,7 @@ class MusicPass:
         everywhere = (library, "*") in self.rescanned
         held = self.native.readback.folders(library)
         lost: List[str] = []
-        for item_id, known in self.store.mappings(
-            kind="Audio", library=library
-        ).items():
+        for item_id, known in self.song_mappings(library).items():
             if known.kodi_id is None:
                 continue
             placed = entries.get(item_id)
@@ -189,7 +201,7 @@ class MusicPass:
             if r.kind == "Audio" and r.library == library
         }
         folders: Set[str] = set()
-        mappings = self.store.mappings(kind="Audio", library=library)
+        mappings = self.song_mappings(library)
         held = self.native.readback.folders(library)
         changed_albums = {
             r.item_id

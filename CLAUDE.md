@@ -279,6 +279,13 @@ What remains is kofin's own:
   a playlist reconcile of 2,163 tracks took 4 min 37 s. The hold is the thread's and ends with
   the `with`, which is what keeps it out of the no-module-state rule; the plugin's
   process-wide pool is the other spelling and stays the plugin's.
+- **A small pass reads only its own rows.** `store.publish` without a complete listing reads
+  only the named items' placements, the applier preloads every mapping only for a pass of
+  `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
+  library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
+  scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
+  every mapping 2.2 s), and one song's play count paid five of them: 22 s from the song's end to
+  the bar going, 11.6 s after. What is left is the lost-song readback of the whole library.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still

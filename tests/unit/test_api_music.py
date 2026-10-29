@@ -281,6 +281,51 @@ def test_server_userdata_patches_without_a_rescan(store, backend, kodi):
     assert not store.pending()
 
 
+def test_a_play_count_reads_only_its_own_rows_of_the_catalogue(
+    store, backend, kodi, monkeypatch
+):
+    """A play's user data is one song: its publish reads that song's
+    placement, the applier that song's mapping, and the library's song
+    mappings are read once for the directory picker; with no scan there is
+    no lost-song check."""
+    from kofin.sync.backends.api import musicpass
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    wheres, mappings, mappings_of, lost = [], [], [], []
+    entries = Store._entries
+    monkeypatch.setattr(
+        Store,
+        "_entries",
+        lambda self, cursor, where, params: wheres.append(where)
+        or entries(self, cursor, where, params),
+    )
+    all_mappings, some_mappings = Store.mappings, Store.mappings_of
+    monkeypatch.setattr(
+        Store,
+        "mappings",
+        lambda self, **kw: mappings.append(kw) or all_mappings(self, **kw),
+    )
+    monkeypatch.setattr(
+        Store,
+        "mappings_of",
+        lambda self, ids: mappings_of.append(sorted(ids)) or some_mappings(self, ids),
+    )
+    monkeypatch.setattr(
+        musicpass.MusicPass,
+        "lost_songs",
+        lambda self, *args: lost.append(args) or [],
+    )
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    assert wheres == ["removed IS NULL AND item_id IN (?)"]
+    backend.reconcile()
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
+    assert mappings == [{"kind": "Audio", "library": LIB}]
+    assert mappings_of == [["tc31"]]
+    assert lost == []
+
+
 def test_song_removal_is_the_directory_listed_without_it(store, backend, kodi):
     store.publish(
         album_bundle(songs=3) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB

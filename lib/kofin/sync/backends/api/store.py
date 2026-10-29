@@ -465,8 +465,15 @@ class Store(Catalogue):
                 raise ValueError("directory not initialized")
             current, pinned = row
             following = current + 1
-            live = {e.item_id: e for e in self._entries(cursor, "removed IS NULL", ())}
             incoming = {m.item_id for m in media}
+            if library is None and not complete_libraries and not complete_boxsets:
+                # Only a complete listing deletes by absence; a batch of
+                # changes needs no placement but its own.
+                live = self._live_entries(cursor, incoming | set(removed))
+            else:
+                live = {
+                    e.item_id: e for e in self._entries(cursor, "removed IS NULL", ())
+                }
             deleting = {i for i in removed if i in live}
             for item_id, entry in live.items():
                 if item_id in incoming:
@@ -584,6 +591,19 @@ class Store(Catalogue):
             (self.namespace,) + tuple(params),
         ).fetchall()
         return [Entry(*row) for row in rows]
+
+    def _live_entries(self, cursor, item_ids) -> Dict[str, Entry]:
+        ids = sorted(item_ids)
+        found: Dict[str, Entry] = {}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            for entry in self._entries(
+                cursor,
+                "removed IS NULL AND item_id IN (%s)" % ",".join("?" * len(chunk)),
+                chunk,
+            ):
+                found[entry.item_id] = entry
+        return found
 
     def _generation(self, cursor, pinned):
         row = cursor.execute(
@@ -896,6 +916,24 @@ class Store(Catalogue):
         return {
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
+
+    def mappings_of(self, item_ids: Iterable[str]) -> Dict[str, Mapping]:
+        """The mappings of ``item_ids``, a few hundred to a query; an item
+        with no mapping is left out."""
+        ids = list(item_ids)
+        found: Dict[str, Mapping] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for row in db.cursor.execute(
+                    "SELECT item_id, kodi_id, applied, kind FROM api_native"
+                    " WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ):
+                    found[row[0]] = Mapping(row[1], json.loads(row[2] or "{}"), row[3])
+        return found
 
     def mapped_to(self, kind, kodi_id) -> List[str]:
         """The items of ``kind`` acknowledged against Kodi's row ``kodi_id``."""
