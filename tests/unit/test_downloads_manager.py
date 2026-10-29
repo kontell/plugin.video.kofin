@@ -284,6 +284,88 @@ def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
     assert (tmp_path / "dl" / rel).read_bytes() == b"abcdefgh"
 
 
+def test_the_body_is_synced_a_window_at_a_time_while_the_file_is_open(
+    tmp_path, repoints, monkeypatch
+):
+    """Each window is written through and dropped from the cache, counted
+    from the resume offset, before the file closes, and the worker rests
+    after it as long as the sync took, up to the cap; a refused sync fails
+    nothing."""
+    manager, _ = make_manager(repoints)
+    rests = []
+    monkeypatch.setattr(
+        manager._stop, "wait", lambda timeout=None: rests.append(timeout) or False
+    )
+    monkeypatch.setattr(manager_module, "SYNC_REST_SECONDS", 0.005)
+    rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
+    part = tmp_path / "dl" / rel
+    part.parent.mkdir(parents=True)
+    (part.parent / (part.name + ".part")).write_bytes(b"abcd")
+    monkeypatch.setattr(manager_module, "SYNC_BYTES", 4)
+    synced, dropped = [], []
+
+    def fdatasync(descriptor):
+        threading.Event().wait(0.01)  # longer than the cap
+        os.fstat(descriptor)  # raises once the file is closed
+        synced.append(descriptor)
+        if len(synced) == 2:
+            raise OSError("refused")
+
+    monkeypatch.setattr(os, "fdatasync", fdatasync, raising=False)
+    monkeypatch.setattr(
+        os,
+        "posix_fadvise",
+        lambda descriptor, offset, length, advice: dropped.append((offset, length)),
+        raising=False,
+    )
+    queue_row()
+    store.record_target("m1", rel, "mkv")
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                206,
+                [b"efgh", b"ijkl", b"mnop", b"qr"],
+                {"Content-Range": "bytes 4-17/18"},
+            )
+        ],
+    )
+
+    manager._process(api, store.get("m1"))
+
+    assert store.get("m1").state == store.DONE
+    assert (tmp_path / "dl" / rel).read_bytes() == b"abcdefghijklmnopqr"
+    assert len(synced) == 3
+    assert rests == [0.005] * 3
+    # The refused sync drops nothing; the tail under a window is left to
+    # the kernel.
+    assert dropped == [(4, 4), (12, 4)]
+
+
+def test_a_window_slower_to_arrive_than_to_sync_rests_nothing(
+    tmp_path, repoints, monkeypatch
+):
+    """Where the network is the slower of the two, storage is idle while the
+    next window arrives and the worker never rests."""
+    manager, _ = make_manager(repoints)
+    rests = []
+    monkeypatch.setattr(
+        manager._stop, "wait", lambda timeout=None: rests.append(timeout) or False
+    )
+    monkeypatch.setattr(manager_module, "SYNC_BYTES", 4)
+    monkeypatch.setattr(os, "fdatasync", lambda descriptor: None, raising=False)
+    queue_row()
+    # The empty first chunk puts the delay before every window.
+    stream = FakeStream(200, [b"", b"abcd", b"efgh", b"ijkl"], {"Content-Length": "12"})
+    stream.on_chunk = lambda index: threading.Event().wait(0.02)
+    api = FakeManagerApi(MOVIE_DTO, [stream])
+
+    manager._process(api, store.get("m1"))
+
+    assert store.get("m1").state == store.DONE
+    assert rests == []
+
+
 def test_a_server_that_ignores_the_range_rewrites_from_scratch(tmp_path, repoints):
     manager, _ = make_manager(repoints)
     rel = "Movies/The Movie (2019)/The Movie (2019).mkv"

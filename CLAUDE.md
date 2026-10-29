@@ -583,6 +583,12 @@ What remains is kofin's own:
   build bound without it. A scan by name lifts the flag around the scan, which the scanner
   would otherwise skip too (`ignoreFolder` in `DoScan`), and puts it back in a `finally`.
   Observed on the P1D: Delicatessen's dialog listed no cast unbound and all 20 bound.
+- **A download writes through to storage 8 MiB at a time, and rests while storage is the slower
+  side** (`manager._write_body`). Why, with the numbers, is `kodi-performance`'s section on a
+  large file write stalling Kodi through its log: unsynced, a download on the Bravia stalled the
+  app thread for up to 8.8 s. Two designs were measured and dropped: a sync on a thread beside
+  the network reads left the flash no gap (2.4 s stalls), and resting after every sync cost the
+  P1D up to 40 %.
 - **A download moves nothing of Kodi's.** `downloads/nativeport.py` is the manager's view of
   the library: it leaves the row's plugin URL alone (the resolver plays the local file however
   the item is reached), hands the badge and the "Kofin Downloads" tag to the pass by invalidating
