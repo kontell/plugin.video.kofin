@@ -4,7 +4,7 @@ Times a first import of one Jellyfin library into an empty Kodi on a real device
 
 **It deletes Kodi's music, video and texture databases and kofin's own state on the device.** `box/snapshot.sh` keeps the profile first and `box/restore.sh` puts it back; `box/bench.sh` refuses to run without a snapshot.
 
-Kodi's debug logging must be on: `bench.sh` waits for kofin's service start and pass lines, which kofin logs at debug.
+Turn Kodi's debug logging on before `snapshot.sh`: `bench.sh` restores the snapshot's `guisettings.xml`, then waits for kofin's service start and pass lines, which kofin logs at debug.
 
 ## Use
 
