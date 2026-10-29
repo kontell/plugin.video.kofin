@@ -289,7 +289,10 @@ What remains is kofin's own:
   a playlist reconcile of 2,163 tracks took 4 min 37 s. The hold is the thread's and ends with
   the `with`, which is what keeps it out of the no-module-state rule; the plugin's
   process-wide pool is the other spelling and stays the plugin's.
-- **A small pass reads only its own rows.** `store.publish` without a complete listing reads
+- **A small pass reads only its own rows.** The pass's placements are a `Placements` map: the
+  pending items' read up front, any other by the item, and every one only for a caller that
+  walks the map (a removal deciding whether a library goes whole, a collection's planning) or
+  reads past `WHOLE_AFTER` items one at a time. `store.publish` without a complete listing reads
   only the named items' placements, the applier preloads every mapping only for a pass of
   `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it

@@ -1439,3 +1439,31 @@ def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
     with pytest.raises(RuntimeError):
         backend.reconcile()
     assert LIB not in backend.music_checked
+
+
+def test_a_play_count_pass_reads_no_placement_but_its_own(
+    store, backend, kodi, monkeypatch
+):
+    """The pass reads the placements of what it holds; only a removal, which
+    decides whether a library goes whole, reads every one."""
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=3), library=LIB)
+    backend.reconcile()
+    wholes = []
+    entries_at = Store.entries_at
+    monkeypatch.setattr(
+        Store,
+        "entries_at",
+        lambda self, generation: wholes.append(generation)
+        or entries_at(self, generation),
+    )
+    tc31 = "t%s1" % ALBUM[:2]
+    store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert owned_songs(kodi)[tc31]["playcount"] == 2
+    assert wholes == []
+    listing = [i for i in album_bundle(songs=3) if i["Id"] != "t%s3" % ALBUM[:2]]
+    store.publish(listing, library=LIB)
+    backend.reconcile()
+    assert len(wholes) == 1

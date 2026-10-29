@@ -13,6 +13,7 @@ directories, in which order and under what bar is ``musicpass`` and
 """
 
 import time
+from collections import abc
 from contextlib import contextmanager
 from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
 
@@ -27,7 +28,7 @@ from .musicpass import MusicPass
 from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
-from .store import Store
+from .store import Entry, Store
 
 LOG = Logger(__name__)
 
@@ -799,7 +800,6 @@ class Native:
         completed = False
         large = repair
         try:
-            entries = self.store.entries()
             self.payloads = PayloadWindow(self.store)
             pending: Dict[str, Tuple[int, str, Dict]] = {
                 item_id: (generation, operation, payload)
@@ -809,6 +809,11 @@ class Native:
                 for item_id, record in self.store.records(payloads=False).items():
                     if item_id not in pending:
                         pending[item_id] = (record.generation, "upsert", {})
+            # The pending items' placements; the rest are read as asked for,
+            # and a repair, which holds every item, reads them all at once.
+            entries = self.store.placements(() if repair else pending)
+            if repair:
+                entries.whole()
             errors: List[Exception] = []
             # A removed collection's movies must let go of its set before the
             # set can; they rejoin this pass as upserts.
@@ -820,6 +825,7 @@ class Native:
             for item_id, generation, operation, _ in self.store.pending_work():
                 if operation == "upsert" and item_id not in pending:
                     pending[item_id] = (generation, operation, {})
+            entries.preload(pending)
             sets = self.store.records(kind="BoxSet")
             boxsets = [r.item for r in sets.values()]
             collections = metadata.collections_of(boxsets)
@@ -858,7 +864,12 @@ class Native:
             if early:
                 applier.run(upserts, {}, set(), repair, errors, kinds=early)
             self.scan_video(video)
-            movies = {i for i, e in entries.items() if e.kind == "Movie"}
+            # Only a collection's planning asks which ids are movies.
+            movies = (
+                {i for i, e in entries.items() if e.kind == "Movie"}
+                if any(r.kind == "BoxSet" for r in upserts.values())
+                else set()
+            )
             applier.run(
                 upserts,
                 collections,
@@ -948,7 +959,10 @@ class Native:
             pending[item_id] = (record.generation, "upsert", {})
 
     def scan_music(
-        self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
+        self,
+        upserts: Dict[str, Record],
+        errors,
+        entries: Optional[abc.Mapping[str, Entry]] = None,
     ):
         """Have Kodi list the music directories that need it, a library at a
         time. The pass scans music before video (reconcile)."""

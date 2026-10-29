@@ -140,3 +140,45 @@ def test_payload_hash_leaves_out_the_user_data_key():
     assert hash_matches(payload_hash(keyed), stored)
     assert not hash_matches(_digest(keyed), stored)
     assert not hash_matches("", stored)
+
+
+def test_placements_read_by_the_item_until_a_caller_walks_them(store, monkeypatch):
+    """A pass's own items are read up front and any other by the item, at
+    the pinned generation; walking the map, or reading past WHOLE_AFTER
+    items one at a time, reads every placement once."""
+    from kofin.sync.backends.api.store import Placements
+
+    store.publish([movie("m1"), movie("m2"), movie("m3")], library=LIB)
+    store.pin()
+    store.publish([movie("m1"), movie("m2"), movie("m3"), movie("m4")], library=LIB)
+    wholes, singles = [], []
+    entries_at, entries_of = Store.entries_at, Store.entries_of
+    monkeypatch.setattr(
+        Store,
+        "entries_at",
+        lambda self, generation: wholes.append(generation)
+        or entries_at(self, generation),
+    )
+    monkeypatch.setattr(
+        Store,
+        "entries_of",
+        lambda self, ids, generation: singles.append(sorted(ids))
+        or entries_of(self, ids, generation),
+    )
+    placements = store.placements(["m1", "m2"])
+    assert singles == [["m1", "m2"]]
+    assert placements["m1"].library == LIB and "m2" in placements
+    assert placements.get("m3").item_id == "m3"
+    # Published after the pin: not there at the pinned generation.
+    assert "m4" not in placements and placements.get("m4") is None
+    with pytest.raises(KeyError):
+        placements["m4"]
+    assert singles == [["m1", "m2"], ["m3"], ["m4"]] and wholes == []
+    assert sorted(placements) == ["m1", "m2", "m3"]
+    assert len(wholes) == 1
+    # A caller reading most of the map one item at a time is answered whole.
+    monkeypatch.setattr(Placements, "WHOLE_AFTER", 2)
+    placements = store.placements()
+    for item_id in ("m1", "m2", "m3"):
+        assert placements[item_id].item_id == item_id
+    assert len(wholes) == 2

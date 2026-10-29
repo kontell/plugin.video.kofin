@@ -13,6 +13,7 @@ hold and ``Native.scan``.
 
 import collections
 import time
+from collections import abc
 from typing import Dict, List, Optional, Set, Tuple
 
 from kofin.core.log import Logger
@@ -160,7 +161,7 @@ class MusicPass:
         return found
 
     def import_missing(
-        self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
+        self, upserts: Dict[str, Record], library, entries: abc.Mapping[str, Entry]
     ):
         """Have Kodi list every directory of the library that needs it, and
         put back to pending whatever the scan should have filed and did
@@ -278,7 +279,7 @@ class MusicPass:
         return lost
 
     def directories(
-        self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
+        self, upserts: Dict[str, Record], library, entries: abc.Mapping[str, Entry]
     ) -> Set[str]:
         """The album directories whose listing Kodi must read again.
 

@@ -15,6 +15,7 @@ payload.
 import hashlib
 import json
 import time
+from collections import abc
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
@@ -116,6 +117,59 @@ class Mapping:
 # rebuild (library.rebuild_stale). It is below every real format, and it is
 # in the store because the removal outlives a service restart.
 REBUILDING = 0
+
+
+class Placements(abc.Mapping):
+    """The catalogue's placements at one generation, read by the item: a
+    pass's own items up front (``preload``), any other as it is asked for,
+    and every one at once for a caller that walks the map, or after
+    ``WHOLE_AFTER`` single reads, when a caller is reading most of it. A
+    pass that holds a few items reads a few rows, where the whole map is
+    every item of every library."""
+
+    WHOLE_AFTER = 200
+
+    def __init__(self, store, generation, item_ids: Iterable[str] = ()):
+        self._store = store
+        self._generation = generation
+        self._known: Dict[str, Optional[Entry]] = {}
+        self._whole: Optional[Dict[str, Entry]] = None
+        self._misses = 0
+        self.preload(item_ids)
+
+    def preload(self, item_ids: Iterable[str]) -> None:
+        if self._whole is not None:
+            return
+        wanted = [i for i in item_ids if i not in self._known]
+        if not wanted:
+            return
+        found = self._store.entries_of(wanted, self._generation)
+        for item_id in wanted:
+            self._known[item_id] = found.get(item_id)
+
+    def whole(self) -> Dict[str, Entry]:
+        if self._whole is None:
+            self._whole = self._store.entries_at(self._generation)
+        return self._whole
+
+    def __getitem__(self, item_id: str) -> Entry:
+        if self._whole is not None:
+            return self._whole[item_id]
+        if item_id not in self._known:
+            self._misses += 1
+            if self._misses > self.WHOLE_AFTER:
+                return self.whole()[item_id]
+            self.preload([item_id])
+        found = self._known[item_id]
+        if found is None:
+            raise KeyError(item_id)
+        return found
+
+    def __iter__(self):
+        return iter(self.whole())
+
+    def __len__(self) -> int:
+        return len(self.whole())
 
 
 class Store(Catalogue):
@@ -627,6 +681,44 @@ class Store(Catalogue):
                 where += " AND kind=?"
                 params += (kind,)
             return {e.item_id: e for e in self._entries(db.cursor, where, params)}
+
+    def placements(self, item_ids: Iterable[str] = ()) -> "Placements":
+        """Membership at the pinned generation, read by the item: ``item_ids``
+        now, the rest as it is asked for (``Placements``)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, True)
+        return Placements(self, generation, item_ids)
+
+    def entries_of(self, item_ids: Iterable[str], generation) -> Dict[str, Entry]:
+        """The placements of ``item_ids`` at ``generation``, a few hundred to
+        a query."""
+        ids = sorted(set(item_ids))
+        found: Dict[str, Entry] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for entry in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?) AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [generation, generation] + chunk,
+                ):
+                    found[entry.item_id] = entry
+        return found
+
+    def entries_at(self, generation) -> Dict[str, Entry]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            return {
+                e.item_id: e
+                for e in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?)",
+                    (generation, generation),
+                )
+            }
 
     def entry(self, item_id) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""
