@@ -433,6 +433,13 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("held Kodi settings not restored; the next pass retries")
         self._settings_due = time.monotonic() + SETTINGS_RETRY
+        # The applier hears only the changes made while the service runs,
+        # and Kodi moves a stored default to a new one as it loads the
+        # settings: the switch can read off with playlists still written.
+        try:
+            self._playlists_due = api_playlists.owed()
+        except Exception:
+            LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
         # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():
@@ -1203,16 +1210,10 @@ class Library(threading.Thread):
             else:
                 self._playlists_due = True
             return
-        if command == "SyncMusicPlaylists":
+        if command in ("SyncMusicPlaylists", "CleanupMusicPlaylists"):
+            # Queued by the switch going on or off: the playlists pass
+            # writes or removes the files by the switch as it reads then.
             self._playlists_due = True
-            return
-        if command == "CleanupMusicPlaylists":
-            # Queued by the switch going off; by the time it runs the switch
-            # may be on again, or unreadable, so only an explicit off cleans.
-            if api_playlists.wanted() is not False:
-                LOG.debug("playlist cleanup skipped: the switch is not off")
-                return
-            api_playlists.cleanup()
             return
         if command == "FastSync":
             self._catchup_due = 0
@@ -1289,6 +1290,10 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlists not reconciled; next enumeration retries")
         else:
+            if stats is None:
+                # Owed until the settings can say which way the switch is.
+                self._playlists_due = True
+                return
             if stats:
                 LOG.debug("playlists reconciled: %s", stats)
         self.reconcile_subscriptions()

@@ -188,7 +188,7 @@ def test_the_playlists_follow_the_presentation_switch(store, tmp_path, monkeypat
     api = FakeApi([{"Id": "p", "Name": "Gym", "MediaType": "Audio"}], {"p": []})
     root = tmp_path / "playlists"
     assert api_playlists.SETTING == dynamic.SETTING == "libraryNodes"
-    FakeAddon.store = {dynamic.SETTING: "false"}
+    FakeAddon.store = {dynamic.SETTING: "false", "deviceId": "d" * 32}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     assert api_playlists.wanted() is False
     assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
@@ -249,20 +249,68 @@ def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0
 
 
-def test_a_deferred_cleanup_reads_the_switch_again(store, monkeypatch):
-    """The cleanup is queued by the switch going off; run after it went back
-    on, it must not take the playlists the pass wrote back."""
+def test_the_switch_commands_leave_the_files_to_the_playlists_pass(store, monkeypatch):
+    """Both commands are queued by the switch moving and only mark the pass
+    due, which reads the switch when it runs: a cleanup queued before the
+    switch went back on takes nothing, and a pass that cannot read it stays
+    owed until it can."""
     from tests.unit.apifixtures import Server, worker
 
     w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
-    cleaned = []
-    monkeypatch.setattr(api_playlists, "cleanup", lambda: cleaned.append(True))
+    switch = [None]
+    ran = []
+    monkeypatch.setattr(api_playlists, "wanted", lambda: switch[0])
+    monkeypatch.setattr(w, "reconcile_subscriptions", lambda: ran.append("subs"))
+    w._playlists_due = False
+    w.command("CleanupMusicPlaylists", None)
+    assert w._playlists_due
+    w.playlists_pass()
+    assert w._playlists_due and ran == []
+    switch[0] = True
+    w.playlists_pass()
+    assert not w._playlists_due and ran == ["subs"]
+    w.command("SyncMusicPlaylists", None)
+    assert w._playlists_due
+
+
+def test_with_the_switch_off_the_pass_takes_both_sides_down(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """Off, the pass removes the Jellyfin playlists of both sides and their
+    states, whatever queued it; the Downloaded-music view and the smart
+    playlists, which are the tree's, stay."""
+    from kofin.sync import playlists
+
     monkeypatch.setattr(api_playlists, "wanted", lambda: True)
-    w.command("CleanupMusicPlaylists", None)
-    assert cleaned == []
+    backend.setup()
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    synced(store, (LIB, "music"))
+    api = FakeApi(
+        [{"Id": "p", "Name": "Gym", "MediaType": "Audio", "Etag": "e"}],
+        {"p": [song_item("tc31", "One", 1)]},
+    )
+    music = tmp_path / "playlists" / "music"
+    video = tmp_path / "playlists" / "video"
+    video.mkdir(parents=True)
+    api_playlists.reconcile(api, store, music_root=str(music), video_root=str(video))
+    assert (music / "Gym.m3u8").is_file()
+    (music / playlists.DOWNLOADED_MUSIC_M3U8).write_text("#EXTM3U\n")
+    (video / "Films.m3u8").write_text("#EXTM3U\n")
+    (video / "kofinmovies1.xsp").write_text("<smartplaylist/>")
+    assert not api_playlists.owed()
     monkeypatch.setattr(api_playlists, "wanted", lambda: False)
-    w.command("CleanupMusicPlaylists", None)
-    assert cleaned == [True]
+    assert api_playlists.owed()
+    stats = api_playlists.reconcile(
+        None, store, music_root=str(music), video_root=str(video)
+    )
+    assert stats == {"pruned": 2}
+    assert not (music / "Gym.m3u8").exists()
+    assert (music / playlists.DOWNLOADED_MUSIC_M3U8).is_file()
+    assert [p.name for p in video.iterdir()] == ["kofinmovies1.xsp"]
+    assert not api_playlists.owed()
+    monkeypatch.setattr(api_playlists, "wanted", lambda: None)
+    assert api_playlists.reconcile(None, store) is None
 
 
 def test_a_playlist_without_an_etag_is_resolved_on_every_pass(
@@ -357,3 +405,24 @@ def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
     )
     assert created == [("Mine", ["tc31", "tc32"], "Audio")]
     assert notified == [(actions.ipc.SYNC_PLAYLISTS, {"Id": "p" * 32})]
+
+
+def test_a_service_that_starts_with_the_switch_off_owes_the_playlists_pass(
+    store, monkeypatch
+):
+    """The applier hears no change for a stored default Kodi moved as it
+    loaded the settings, so the library thread asks at its start."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    native = SimpleNamespace(setup=lambda: None, restore_settings=lambda: None)
+    monkeypatch.setattr(library, "Native", lambda *a, **k: native)
+    w._bar = lambda: None
+    w.stop_thread = True
+    for owed in (True, False):
+        monkeypatch.setattr(api_playlists, "owed", lambda owed=owed: owed)
+        w._run(SimpleNamespace(abortRequested=lambda: True))
+        assert w._playlists_due is owed

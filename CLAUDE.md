@@ -561,8 +561,14 @@ What remains is kofin's own:
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,
   which is Kodi's). It is off by default, since everything it writes is outside
-  addon_data, and only an explicit value counts: an empty read is a settings document that did
-  not load, and on it `wanted` is None and nothing is written or taken down.
+  addon_data, and only an explicit value from a store that answered counts: a settings
+  document that did not load reads a boolean as its default, which is off, so `wanted` reads
+  through the `deviceId` canary (`dynamic._answering`). On None nothing is written or taken
+  down, and the skin entries follow the tree on disk. The Jellyfin playlists follow the
+  switch in the playlists pass, never in the command that queued it: the pass stays due while
+  the switch cannot be read, and a service that starts with the switch off and playlist
+  states on record runs it (`api_playlists.owed`), which is how a profile whose stored
+  default moved loses them.
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
   loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows

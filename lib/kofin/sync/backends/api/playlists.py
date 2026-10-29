@@ -175,11 +175,18 @@ def _drop_side(side: str, state, root) -> int:
     return removed
 
 
-def reconcile(api, store: Store, music_root=None, video_root=None) -> Dict[str, int]:
+def reconcile(
+    api, store: Store, music_root=None, video_root=None
+) -> Optional[Dict[str, int]]:
     """Every server playlist of the enabled sides, written and pruned; a
-    side with no synced library left loses its files and states."""
-    if not wanted():
-        return {}
+    side with no synced library left loses its files and states, and with
+    the switch off both sides do. None while the switch cannot be read."""
+    nodes = wanted()
+    if nodes is None:
+        return None
+    if not nodes:
+        removed = cleanup(music_root, video_root)
+        return {"pruned": removed} if removed else {}
     kinds = enabled_kinds()
     with private.Database() as db:
         state = kofindb.JellyfinDatabase(db.cursor)
@@ -224,9 +231,20 @@ def apply(
         )
 
 
-def cleanup() -> None:
-    """The managed playlists go, both sides; the state with them."""
-    playlists.cleanup_managed_playlists()
-    playlists.cleanup_video_playlists()
+def owed() -> bool:
+    """Whether the switch reads off while the state still records
+    playlists, which only the playlists pass takes down."""
+    if wanted() is not False:
+        return False
+    with private.Database() as db:
+        return bool(kofindb.JellyfinDatabase(db.cursor).get_playlist_states())
+
+
+def cleanup(music_root=None, video_root=None) -> int:
+    """The managed playlists go, both sides, and the state with them; the
+    number of files removed."""
+    removed = playlists.cleanup_managed_playlists(music_root)
+    removed += playlists.cleanup_video_playlists(video_root)
     with private.Database() as db:
         kofindb.JellyfinDatabase(db.cursor).remove_playlist_states()
+    return removed
