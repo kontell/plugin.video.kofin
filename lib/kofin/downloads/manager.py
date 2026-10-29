@@ -98,6 +98,18 @@ STALE_DAYS_DEFAULT = 30
 # Store progress roughly every 8 MiB rather than every chunk.
 PROGRESS_EVERY_CHUNKS = 32
 
+# A body is synced to storage every SYNC_BYTES and its pages dropped from the
+# cache behind it. After a sync that took longer than its window took to
+# arrive, storage is the slower of the two and the worker rests as long as the
+# sync took, at most SYNC_REST_SECONDS, so storage stays idle at least half the
+# time. A download that writes at the storage's full rate holds up every other
+# writer in Kodi, its log among them, and every thread that logs waits on the
+# log: unsynced, the network fills the kernel's dirty limit far faster than a
+# TV's flash drains it, and synced without the rest, Kodi's own writes still
+# queue behind each sync.
+SYNC_BYTES = 8 * 1024 * 1024
+SYNC_REST_SECONDS = 2.0
+
 # The longest a finished download waits to become visible while the pool is
 # still busy. Short enough that a long album shows its first tracks well
 # before the last one lands; long enough that a burst of tracks refreshes
@@ -877,7 +889,9 @@ class DownloadManager:
         self, stream: StreamedResponse, part: str, start: int, item_id: str
     ) -> None:
         written = start
+        synced = start
         chunk_count = 0
+        arriving = time.monotonic()
         try:
             with open(part, "ab" if start else "wb") as handle:
                 for chunk in stream.chunks():
@@ -885,6 +899,15 @@ class DownloadManager:
                         raise _Cancelled()
                     handle.write(chunk)
                     written += len(chunk)
+                    if written - synced >= SYNC_BYTES:
+                        handle.flush()
+                        began = time.monotonic()
+                        _sync(handle.fileno(), synced, written - synced)
+                        synced = written
+                        busy = time.monotonic() - began
+                        if busy > began - arriving:
+                            self._stop.wait(min(busy, SYNC_REST_SECONDS))
+                        arriving = time.monotonic()
                     chunk_count += 1
                     if chunk_count % PROGRESS_EVERY_CHUNKS == 0:
                         store.record_progress(item_id, written)
@@ -1506,6 +1529,22 @@ def _watched_locally(row: "store.Download") -> bool:
 
 def _last_touch(row: "store.Download") -> Optional[Tuple[float, bool]]:
     return nativeport.for_build().last_touch(row)
+
+
+def _sync(descriptor: int, offset: int, length: int) -> None:
+    """Write the file through to storage and drop ``length`` bytes from
+    ``offset`` from the page cache. A file system that refuses the sync costs
+    only the pacing."""
+    try:
+        getattr(os, "fdatasync", os.fsync)(descriptor)
+    except OSError as error:
+        LOG.debug("download sync refused: %s", error)
+        return
+    if hasattr(os, "posix_fadvise"):
+        try:
+            os.posix_fadvise(descriptor, offset, length, os.POSIX_FADV_DONTNEED)
+        except OSError:
+            pass
 
 
 def _remove_quietly(path: str) -> None:
