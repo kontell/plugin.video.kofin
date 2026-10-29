@@ -396,6 +396,11 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()
     w._music_unchecked = False
+    w._published_at = 0.0
+    w._pending_since = None
+    # A pass right after a publish, as the tests expect; the settling has
+    # its own test.
+    monkeypatch.setattr(library, "PASS_SETTLE", 0.0)
     selections = (
         selected
         if isinstance(selected, list) and selected and isinstance(selected[0], list)

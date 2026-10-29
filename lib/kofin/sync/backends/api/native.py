@@ -24,7 +24,7 @@ from kofin.sync.catalogue import BackendMismatch
 from . import capabilities, metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
-from .patch import Applier
+from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
 from .store import Store
@@ -797,6 +797,7 @@ class Native:
             self.music_checked.clear()
         applier = Applier(self)
         completed = False
+        large = repair
         try:
             entries = self.store.entries()
             self.payloads = PayloadWindow(self.store)
@@ -838,6 +839,7 @@ class Native:
                     loader=self.payloads,
                 )
             self.progress.begin(len(upserts))
+            large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
 
             self.scan_music(upserts, errors, entries)
             video = self.plan_video(upserts, errors)
@@ -869,10 +871,14 @@ class Native:
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
             self.retire_assets(applier.asset_folders)
-            try:
-                self.bind_movie_folders()
-            except Exception:
-                LOG.exception("movie folder bindings not completed")
+            if any(r.kind == "Movie" for r in upserts.values()):
+                # Only a pass that filed movies can leave a folder unbound;
+                # an older profile's are bound once a service generation
+                # (Library.apply).
+                try:
+                    self.bind_movie_folders()
+                except Exception:
+                    LOG.exception("movie folder bindings not completed")
             # Applier.run leaves no acknowledgement queued; this is that,
             # said here.
             applier.commit()
@@ -889,7 +895,8 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
-            self.store.remember_features(self.features, metadata.SERIALIZER)
+            if stamped != self.features or serializer != metadata.SERIALIZER:
+                self.store.remember_features(self.features, metadata.SERIALIZER)
         finally:
             applier.commit()
             self.progress.close()
@@ -897,9 +904,11 @@ class Native:
             self.music.forget()
             # The pass's tables are the largest Python objects in the
             # process; hand the heap back before Kodi's scanner needs the
-            # page cache (core/memory.py).
+            # page cache (core/memory.py). A small pass frees too little to
+            # pay a collection for.
             del applier
-            memory.release()
+            if large or self.music.read_whole:
+                memory.release()
             try:
                 self.release_all()
             except Exception:

@@ -677,13 +677,15 @@ class Store(Catalogue):
         """The last known placement of every item with a pending removal."""
         with Database() as db:
             self._prepare(db.cursor)
+            # From the pending removals (api_item_status): joined the other
+            # way, SQLite walks every placement with a subquery each.
             rows = db.cursor.execute(
-                """SELECT e.item_id, e.kind, e.library, e.parent_id FROM api_item i
-                JOIN api_entry e ON e.namespace=i.namespace AND e.item_id=i.item_id
-                WHERE i.namespace=? AND i.operation='remove' AND i.status='pending'
+                """SELECT e.item_id, e.kind, e.library, e.parent_id FROM api_entry e
+                WHERE e.namespace=? AND e.item_id IN (SELECT item_id FROM api_item
+                    WHERE namespace=? AND status='pending' AND operation='remove')
                 AND e.added=(SELECT MAX(added) FROM api_entry x
                     WHERE x.namespace=e.namespace AND x.item_id=e.item_id)""",
-                (self.namespace,),
+                (self.namespace, self.namespace),
             ).fetchall()
             return {row[0]: Entry(*row) for row in rows}
 

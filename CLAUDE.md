@@ -293,6 +293,16 @@ What remains is kofin's own:
   scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
   every mapping 2.2 s), and one song's play count paid five of them, plus the whole library read
   back: 22 s from the song's end to the bar going.
+- **A pass waits for its change to settle, and skips what a small pass does not need.**
+  `Library.apply` starts a pass once nothing has been published for `PASS_SETTLE` and no event
+  waits in the queue, at most `PASS_SETTLE_MAX` after the work appeared: marking an episode
+  watched publishes the outbox's re-read and, half a second later, the server's echo with the
+  season, and each pass costs seconds whatever it holds (two of 2.9 and 3.2 s on the Bravia
+  became one of 1.9 s). After the pass, movie folders are bound only when it filed movies, the
+  feature stamp is written only when it moved, and the heap is collected and trimmed only after
+  a large pass or a whole music read. `store.tombstones` starts from the pending removals:
+  joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
+  on the LibreELEC box on every pass.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still

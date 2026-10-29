@@ -1308,3 +1308,86 @@ def test_container_of_takes_the_first_name_kodi_knows():
     assert paths.container_of({"Container": "mov,mp4,m4a,3gp,3g2,mj2"}) == "mp4"
     assert paths.container_of({"MediaSources": [{"Container": "FLAC"}]}) == "flac"
     assert paths.container_of({"Container": "ra"}) == paths.FALLBACK_CONTAINER
+
+
+def test_a_small_pass_without_movies_binds_stamps_and_trims_nothing(
+    store, backend, kodi, monkeypatch
+):
+    """Only a pass that filed movies can leave a movie folder unbound, the
+    feature stamp is written when it moved, and a small pass frees too
+    little to collect for; a pass that read a library whole still does."""
+    from kofin.core import memory
+    from kofin.sync.backends.api.native import Native
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    bound, stamped, released = [], [], []
+    monkeypatch.setattr(Native, "bind_movie_folders", lambda self: bound.append(1))
+    remember = Store.remember_features
+    monkeypatch.setattr(
+        Store,
+        "remember_features",
+        lambda self, *args: stamped.append(1) or remember(self, *args),
+    )
+    monkeypatch.setattr(memory, "release", lambda: released.append(1) or True)
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert (bound, stamped, released) == ([], [], [])
+    backend.music_checked.clear()
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert (bound, stamped, released) == ([], [], [1])
+    store.publish([movie()], library=LIB2)
+    backend.reconcile()
+    assert bound == [1]
+
+
+def test_a_pass_waits_for_a_change_to_settle_and_no_longer_than_the_cap(
+    store, monkeypatch
+):
+    """An edit's re-read and the server's echo of it land a moment apart:
+    the pass starts once nothing has been published for PASS_SETTLE and no
+    event waits in the queue, or at PASS_SETTLE_MAX after the work appeared,
+    whichever comes first."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    monkeypatch.setattr(library, "PASS_SETTLE", 1.0)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    passes = []
+    native = SimpleNamespace(
+        music_checked=set(), reconcile=lambda repair=False: passes.append(clock[0])
+    )
+    monkeypatch.setattr(w, "_status", lambda *a: None)
+    monkeypatch.setattr(w, "_bar", lambda: SimpleNamespace(working=lambda *a: None))
+    monkeypatch.setattr(w, "flush_pending_reload", lambda: None)
+    monkeypatch.setattr(w.store, "has_pending", lambda: True)
+    w._published_at = clock[0]
+    w.apply(native)
+    clock[0] += 0.6
+    w.apply(native)
+    assert passes == []
+    clock[0] += 0.5
+    w.apply(native)
+    assert passes == [101.1]
+    # An event queued and not read yet holds it too.
+    passes.clear()
+    clock[0] += 5.0
+    w._queue.put(("userdata", []))
+    w.apply(native)
+    assert passes == []
+    w._queue.get_nowait()
+    w.apply(native)
+    assert len(passes) == 1
+    # Published again and again: the cap starts it anyway.
+    passes.clear()
+    for _ in range(8):
+        clock[0] += 0.5
+        w._published_at = clock[0]
+        w.apply(native)
+    assert len(passes) == 1

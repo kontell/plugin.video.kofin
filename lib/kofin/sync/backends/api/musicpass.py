@@ -36,6 +36,8 @@ class MusicPass:
         # (library, folder) pairs whose directory this pass has re-listed,
         # and (library, "*") when that was every directory of the library.
         self.rescanned: Set[Tuple[str, str]] = set()
+        # Whether this pass read a library's every song (check_due).
+        self.read_whole = False
         self._album_items: Dict[str, Dict[str, Dict]] = {}
         self._song_mappings: Dict[str, Dict[str, Mapping]] = {}
         self._tag_hashes: Dict[str, str] = {}
@@ -211,6 +213,7 @@ class MusicPass:
         }
         whole = self.check_due(library, songs, changed_albums)
         if whole:
+            self.read_whole = True
             mappings = self.song_mappings(library)
             held = self.native.readback.folders(library)
             uninvited: List[str] = []
