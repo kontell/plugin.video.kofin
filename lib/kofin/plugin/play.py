@@ -102,6 +102,61 @@ def chapter_art(
     return art
 
 
+# Scrub previews: the dialog shows a thumbnail of about this size, and the
+# server keeps a trickplay set per configured width (320 by default).
+SCRUB_PREVIEW_MAX_WIDTH = 480
+
+
+def scrub_previews(
+    api: Api, item: JsonDict, source: JsonDict, method: str
+) -> Optional[Tuple[int, int, int, int, int, List[str]]]:
+    """The server's trickplay tiles for the source played, as the arguments
+    of ``InfoTagVideo.setScrubPreviews()``: interval ms, thumbnail width and
+    height, columns and rows to a tile, and the tile URLs in order.
+
+    ``Trickplay`` on the item is keyed by media source id, then by width.
+    A direct play or stream of the source only: a transcode's timeline is the
+    source's, but its stream is not what the server extracted from. The
+    sharpest set that fits the dialog's preview, else the smallest."""
+    if method not in CHAPTER_METHODS:
+        return None
+    by_source = item.get("Trickplay")
+    if not isinstance(by_source, dict):
+        return None
+    source_id = source.get("Id") or item.get("Id") or ""
+    by_width = by_source.get(source_id)
+    if not isinstance(by_width, dict) or not by_width:
+        return None
+    widths = sorted(int(w) for w in by_width if str(w).isdigit())
+    if not widths:
+        return None
+    fitting = [w for w in widths if w <= SCRUB_PREVIEW_MAX_WIDTH]
+    width = max(fitting) if fitting else widths[0]
+    info = by_width.get(str(width)) or by_width.get(width) or {}
+    try:
+        interval = int(info["Interval"])
+        height = int(info["Height"])
+        columns = int(info["TileWidth"])
+        rows = int(info["TileHeight"])
+        count = int(info["ThumbnailCount"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if min(interval, width, height, columns, rows, count) <= 0:
+        return None
+    tiles = -(-count // (columns * rows))
+    return (
+        interval,
+        width,
+        height,
+        columns,
+        rows,
+        [
+            api.trickplay_tile_url(item["Id"], source_id, width, index)
+            for index in range(tiles)
+        ],
+    )
+
+
 def pick_media_source(
     sources: List[JsonDict], mediasource_id: Optional[str] = None
 ) -> JsonDict:
@@ -766,6 +821,11 @@ def play(request: Request) -> None:
     chapters = chapter_art(api, item, source, method)
     if chapters:
         li.setArt(chapters)
+    previews = scrub_previews(api, item, source, method)
+    tag = li.getVideoInfoTag()
+    if previews and hasattr(tag, "setScrubPreviews"):
+        # Kodi with the scrub dialog (kontell/xbmc video/scrub-previews)
+        tag.setScrubPreviews(*previews)
     li.setPath(url)
     mime = mime_for(source, method)
     if mime:

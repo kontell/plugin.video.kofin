@@ -146,6 +146,62 @@ def test_stream_url_infinite_source_without_transcode_raises():
         )
 
 
+def test_scrub_previews_are_the_servers_tiles_for_the_source_played():
+    """Kodi's scrub dialog (kontell/xbmc video/scrub-previews) steps through
+    the server's trickplay tiles: the set for the source played, at the
+    sharpest width that fits the dialog's preview."""
+
+    class TileApi:
+        def trickplay_tile_url(self, item_id, media_source_id, width, index):
+            return "http://s/%s/%s/%d/%d" % (item_id, media_source_id, width, index)
+
+    api = TileApi()
+    item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Trickplay": {
+            "m1": {
+                "320": {
+                    "Width": 320,
+                    "Height": 180,
+                    "TileWidth": 10,
+                    "TileHeight": 10,
+                    "ThumbnailCount": 250,
+                    "Interval": 10000,
+                },
+                "640": {
+                    "Width": 640,
+                    "Height": 360,
+                    "TileWidth": 5,
+                    "TileHeight": 5,
+                    "ThumbnailCount": 250,
+                    "Interval": 10000,
+                },
+            }
+        },
+    }
+    source = {"Id": "m1"}
+    assert play.scrub_previews(api, item, source, "DirectPlay") == (
+        10000,
+        320,
+        180,
+        10,
+        10,
+        ["http://s/m1/m1/320/0", "http://s/m1/m1/320/1", "http://s/m1/m1/320/2"],
+    )
+    assert play.scrub_previews(api, item, source, "DirectStream")
+    # a transcode's stream is not what the server extracted from; another
+    # source has its own set or none; nothing without a set
+    assert play.scrub_previews(api, item, source, "Transcode") is None
+    assert play.scrub_previews(api, item, {"Id": "m2"}, "DirectPlay") is None
+    assert (
+        play.scrub_previews(api, dict(item, Trickplay={}), source, "DirectPlay") is None
+    )
+    # only widths past the preview's: the smallest
+    wide = {"Id": "m1", "Trickplay": {"m1": {"640": item["Trickplay"]["m1"]["640"]}}}
+    assert play.scrub_previews(api, wide, source, "DirectPlay")[1] == 640
+
+
 def test_chapter_art_is_the_servers_images_on_a_direct_play():
     """Kodi 23's chapters dialog shows a playing item's chapter<n> art
     (kontell/xbmc #11): the server's image for each chapter it has one for,

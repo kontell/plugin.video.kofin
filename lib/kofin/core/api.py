@@ -1,6 +1,7 @@
 """The Jellyfin API surface kofin uses."""
 
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from kofin.core import auth, settings
 from kofin.core.http import (
@@ -888,6 +889,23 @@ class Api:
             index,
             tag,
             max_width,
+        )
+
+    def trickplay_tile_url(
+        self, item_id: str, media_source_id: str, width: int, index: int
+    ) -> str:
+        """Tile ``index`` of the item's trickplay thumbnails of ``width``, a
+        columns × rows sheet of them. Unlike the item images the endpoint is
+        authorized, and a 12.0 server refuses the token as a query parameter,
+        so the URL carries the Authorization header the way Kodi's file layer
+        takes one: after a ``|``, URL-encoded."""
+        return "%s/Videos/%s/Trickplay/%d/%d.jpg?mediaSourceId=%s|Authorization=%s" % (
+            self.server,
+            item_id,
+            width,
+            index,
+            media_source_id,
+            quote(self._header, safe=""),
         )
 
     @property
