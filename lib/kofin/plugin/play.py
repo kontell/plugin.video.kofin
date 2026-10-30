@@ -109,10 +109,11 @@ SCRUB_PREVIEW_MAX_WIDTH = 480
 
 def scrub_previews(
     api: Api, item: JsonDict, source: JsonDict, method: str
-) -> Optional[Tuple[int, int, int, int, int, List[str]]]:
+) -> Optional[Tuple[int, int, int, int, int, List[str], int]]:
     """The server's trickplay tiles for the source played, as the arguments
     of ``InfoTagVideo.setScrubPreviews()``: interval ms, thumbnail width and
-    height, columns and rows to a tile, and the tile URLs in order.
+    height, columns and rows to a tile, the tile URLs in order, and the
+    thumbnail count, since the last tile is part filled.
 
     ``Trickplay`` on the item is keyed by media source id, then by width.
     A direct play or stream of the source only: a transcode's timeline is the
@@ -154,6 +155,7 @@ def scrub_previews(
             api.trickplay_tile_url(item["Id"], source_id, width, index)
             for index in range(tiles)
         ],
+        count,
     )
 
 

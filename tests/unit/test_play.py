@@ -188,6 +188,7 @@ def test_scrub_previews_are_the_servers_tiles_for_the_source_played():
         10,
         10,
         ["http://s/m1/m1/320/0", "http://s/m1/m1/320/1", "http://s/m1/m1/320/2"],
+        250,
     )
     assert play.scrub_previews(api, item, source, "DirectStream")
     # a transcode's stream is not what the server extracted from; another
