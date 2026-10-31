@@ -306,6 +306,20 @@ def test_image_url(api):
     )
 
 
+def test_trickplay_tile_url_carries_the_token_in_its_header(api):
+    """A 12.0 server answers 401 to the token as a query parameter, so it goes
+    as the Authorization header, after the ``|`` Kodi's file layer reads."""
+    from urllib.parse import unquote
+
+    client, _ = api
+    url, _, option = client.trickplay_tile_url("i1", "m1", 320, 7).partition("|")
+    assert url == "http://s:8096/Videos/i1/Trickplay/320/7.jpg?mediaSourceId=m1"
+    name, _, value = option.partition("=")
+    assert name == "Authorization"
+    assert " " not in value and "|" not in value
+    assert 'Token="tok"' in unquote(value)
+
+
 def test_syncplay_endpoints(api):
     """The /SyncPlay/* calls and /GetUtcTime hit the documented routes with
     the documented body shapes."""
