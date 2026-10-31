@@ -203,6 +203,43 @@ def test_scrub_previews_are_the_servers_tiles_for_the_source_played():
     assert play.scrub_previews(api, wide, source, "DirectPlay")[1] == 640
 
 
+def test_a_video_hands_its_previews_to_the_tag(resume_env, monkeypatch):
+    previews = (10000, 320, 180, 10, 10, ["http://s/0"], 100)
+    handed = []
+    resume_env["li"].tag.setScrubPreviews = lambda *args: handed.append(args)
+    monkeypatch.setattr(play, "scrub_previews", lambda *args: previews)
+    run_play({"id": "ep1"}, resume=False)
+    assert handed == [previews]
+
+
+def test_a_refused_set_of_previews_does_not_fail_the_resolve(resume_env, monkeypatch):
+    def refuse(*args):
+        raise TypeError("a count beyond the tiles")
+
+    resume_env["li"].tag.setScrubPreviews = refuse
+    monkeypatch.setattr(play, "scrub_previews", lambda *args: (1, 1, 1, 1, 1, ["t"], 1))
+    run_play({"id": "ep1"}, resume=False)
+    assert resume_env["resolved"] == [resume_env["li"]]
+
+
+def test_a_song_gets_no_video_tag(resume_env):
+    """Kodi creates the video tag on first use and classifies an item with one
+    as video ahead of its music tag, so a song that got one goes to VideoPlayer
+    and its music OSD and PAPlayer's tempo never see it."""
+    asked = []
+    li = resume_env["li"]
+    li.getVideoInfoTag = lambda: asked.append(True) or li.tag
+    resume_env["api"]._item = {
+        "Id": "s1",
+        "Type": "Audio",
+        "Name": "A Song",
+        "RunTimeTicks": 100,
+    }
+    run_play({"id": "s1"}, resume=False)
+    assert resume_env["resolved"] == [li]
+    assert not asked
+
+
 def test_chapter_art_is_the_servers_images_on_a_direct_play():
     """Kodi 23's chapters dialog shows a playing item's chapter<n> art
     (kontell/xbmc #11): the server's image for each chapter it has one for,

@@ -106,10 +106,12 @@ def chapter_art(
 # server keeps a trickplay set per configured width (320 by default).
 SCRUB_PREVIEW_MAX_WIDTH = 480
 
+ScrubPreviews = Tuple[int, int, int, int, int, List[str], int]
+
 
 def scrub_previews(
     api: Api, item: JsonDict, source: JsonDict, method: str
-) -> Optional[Tuple[int, int, int, int, int, List[str], int]]:
+) -> Optional[ScrubPreviews]:
     """The server's trickplay tiles for the source played, as the arguments
     of ``InfoTagVideo.setScrubPreviews()``: interval ms, thumbnail width and
     height, columns and rows to a tile, the tile URLs in order, and the
@@ -157,6 +159,21 @@ def scrub_previews(
         ],
         count,
     )
+
+
+def hand_over_scrub_previews(li: xbmcgui.ListItem, previews: ScrubPreviews) -> None:
+    """Give a video's previews to Kodi, whose scrub dialog (kontell/xbmc
+    video/scrub-previews) reads them off the tag. Never for a song: Kodi
+    creates the video tag on first use and classifies an item with one as
+    video ahead of its music tag, so a song would go to VideoPlayer. A set
+    Kodi refuses costs the previews, not the play."""
+    tag = li.getVideoInfoTag()
+    if not hasattr(tag, "setScrubPreviews"):
+        return
+    try:
+        tag.setScrubPreviews(*previews)
+    except TypeError as error:
+        LOG.warning("scrub previews refused: %s", error)
 
 
 def pick_media_source(
@@ -823,11 +840,10 @@ def play(request: Request) -> None:
     chapters = chapter_art(api, item, source, method)
     if chapters:
         li.setArt(chapters)
-    previews = scrub_previews(api, item, source, method)
-    tag = li.getVideoInfoTag()
-    if previews and hasattr(tag, "setScrubPreviews"):
-        # Kodi with the scrub dialog (kontell/xbmc video/scrub-previews)
-        tag.setScrubPreviews(*previews)
+    if not is_audio:
+        previews = scrub_previews(api, item, source, method)
+        if previews:
+            hand_over_scrub_previews(li, previews)
     li.setPath(url)
     mime = mime_for(source, method)
     if mime:
