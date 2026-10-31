@@ -1,3 +1,6 @@
+v0.96.4
+- Preview thumbnails when scrubbing through a video, on Kodi 23 with the Kontell changes.
+
 v0.96.3
 - Library nodes and playlists are off unless switched on.
 - Play counts and watched marks reach the library faster.
