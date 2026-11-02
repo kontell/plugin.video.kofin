@@ -108,6 +108,7 @@
     <reuselanguageinvoker>true</reuselanguageinvoker>
     <platform>all</platform>
     <license>GPL-3.0-only</license>
+    <website>https://github.com/kontell/plugin.video.kofin/wiki</website>
     <source>https://github.com/kontell/plugin.video.kofin</source>
     <forum>https://forum.kodi.tv/showthread.php?tid=388267</forum>
     <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>

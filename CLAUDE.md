@@ -374,6 +374,10 @@ What remains is kofin's own:
 - **An unplayed song has no `lastplayed` opinion** (`metadata.userdata`). Kodi's song setter
   cannot clear the date, so a desired empty one never matched the readback and failed every
   pass for ever.
+- **A song's mark coming off is never a local edit** (`patch.local_edits`). Kodi has no way to
+  unmark a song, so a played song at zero is a row a scan built again, and the server's count
+  goes back into it. Read as an edit, a music wipe and re-import cleared Played on the server
+  for 5,920 songs of a real library, one write each. A video's mark coming off is a real edit.
 - **A show is refreshed with `refreshepisodes: false`** (`patch.Applier.refresh`). With `true`
   Kodi deletes the show and imports it again under new ids, which is what filled the
   in-progress widget with shows after a cast change. A row's acknowledgement keeps a hash per

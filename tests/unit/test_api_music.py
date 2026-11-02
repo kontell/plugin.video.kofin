@@ -594,6 +594,29 @@ def test_a_song_marked_unplayed_keeps_the_stamp_kodi_cannot_clear(store, backend
     assert not store.pending()
 
 
+def test_a_song_rebuilt_at_zero_keeps_its_played_mark_on_the_server(
+    store, backend, kodi
+):
+    """Kodi has no way to unmark a song, so a played song at zero is a row a
+    scan built again, never the viewer. Read as an edit, a wiped and
+    re-imported library clears the mark of every played song on the server."""
+    items = album_bundle(songs=1)
+    items[2]["UserData"] = {
+        "Played": True,
+        "PlayCount": 4,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    row = next(iter(kodi.songs.values()))
+    assert row["playcount"] == 4
+    row["playcount"] = 0
+    backend.reconcile(repair=True)
+    assert store.local_pending() == []
+    assert row["playcount"] == 4
+    assert not store.pending()
+
+
 def test_music_patch_failure_keeps_the_song_pending(store, backend, kodi):
     items = album_bundle(songs=1)
     items[2]["UserData"] = {"Played": True, "PlayCount": 1}

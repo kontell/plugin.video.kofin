@@ -822,16 +822,23 @@ def local_edits(row, previous, desired):
     A viewer's edit of a play count is the watched mark going on or off. A
     count that differs only in size is Kodi and the server having counted
     differently, and the server's count is then written to Kodi like any
-    other field."""
+    other field.
+
+    A song's mark never comes off in Kodi, which has no way to unmark one: a
+    played song at zero is a row a scan built again, and the server's count
+    goes back into it."""
     edits = {}
     playcount = row.get("playcount", 0) or 0
     watched = bool(playcount)
-    if watched != bool(previous.get("playcount")) and watched != bool(
-        desired["playcount"]
+    song = "resume" not in desired
+    if (
+        watched != bool(previous.get("playcount"))
+        and watched != bool(desired["playcount"])
+        and (watched or not song)
     ):
         edits["playcount"] = playcount
-    if "resume" not in desired:
-        # A song: Kodi's music library keeps no resume point.
+    if song:
+        # Kodi's music library keeps no resume point either.
         return edits
     position = (row.get("resume") or {}).get("position", 0) or 0
     if (
