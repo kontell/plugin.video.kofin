@@ -1858,9 +1858,10 @@ def test_a_count_that_differs_only_in_size_is_not_a_viewers_edit():
     assert edits({"playcount": 2}, {"playcount": 0}, {"playcount": 0}) == {
         "playcount": 2
     }
-    assert edits({"playcount": 0}, {"playcount": 3}, {"playcount": 3}) == {
-        "playcount": 0
-    }
+    video = {"playcount": 3, "resume": {"position": 0}}
+    assert edits({"playcount": 0}, {"playcount": 3}, video) == {"playcount": 0}
+    # A song's mark cannot come off in Kodi: only a rebuilt row reads this way.
+    assert edits({"playcount": 0}, {"playcount": 3}, {"playcount": 3}) == {}
     # The server already says what Kodi says.
     assert edits({"playcount": 1}, {"playcount": 0}, {"playcount": 5}) == {}
 

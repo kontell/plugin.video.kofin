@@ -415,3 +415,13 @@ Record: `tests/live/results/S-D-polish/RESULT.md`, and `tests/live/results/S-D4/
 - [PENDING RELEASE] Publish through the development repository. The approved P1D Piers Flatpak has passing lifecycle and installed-service selected-library sync results.
 
 Reproduction, scope and sanitized results: [phase 3 evidence](research/kofin-or/phase3/README.md).
+
+## Played songs survive a music re-import (run 2026-11-01, P1D Kodi 22 RC1 Flatpak)
+
+A copy of a real profile: 23,735 songs, 8,338 of them played on the server. Kofin reached the server through a proxy that passed reads and refused writes, logging each one, and the server's own played count was read directly throughout.
+
+- [REPRO] Before the fix, the library a wipe and an interrupted re-import left (22,382 songs, 3 played in Kodi): 2,407 songs queued as unplayed and sent as `{"Played": false}`.
+- [REPRO] Before the fix, music wiped with Kofin disabled, then `RepairLibrary` with it enabled: all 8,338 played songs queued and sent as unplayed.
+- [PASS] After the fix, the same two starts: no write of any kind, an empty queue, and all 8,338 played songs back in Kodi. Kodi's play total matches the server's, with a played song that has no server count reading 1.
+- [PASS] After the fix, real edits: a song marked played, a movie marked played and a movie marked unplayed each sent the expected `Played` value, and nothing else was sent. A song's edit goes on the next pass that reads the song; here that was `RepairLibrary`.
+- [PASS] After the fix, both startup updates on with clean on update: no write and the same 8,338 played songs once the library settled, with the video rows unchanged. Kodi 22 crashed in libpython3.14 during three of the four starts this took, which it does with a startup music update and Kofin enabled with or without this change.
