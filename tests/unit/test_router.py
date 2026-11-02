@@ -24,6 +24,7 @@ ACTION_MODES = {
     "testconnection",
     "restart",
     "settings",
+    "readme",
     "adduser",
     "whoshortlist",
     "userprefs",

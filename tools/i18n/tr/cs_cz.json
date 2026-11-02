@@ -498,5 +498,14 @@
   "#30853": "Obsah není stažen",
   "#30854": "Zkontrolujte odebírané playlisty; zrušením výběru zastavíte synchronizaci stahování.",
   "#30855": "Zkontrolujte odebírané hudební knihovny; zrušením výběru zastavíte synchronizaci stahování.",
+  "#30857": "Co Kofin 0.29 znamená pro vaši verzi Kodi a co udělat před aktualizací.",
+  "#30858": "Kodi 21 \"Omega\" zůstává na této verzi. Kofin 0.96 a novější vyžaduje Kodi 22 nebo novější.",
+  "#30859": "Postup aktualizace:",
+  "#30860": "Odhlaste se na kartě Účet.",
+  "#30861": "Spusťte Vyčistit databáze, které se tam zobrazí po odhlášení. Po dokončení se Kodi restartuje.",
+  "#30862": "V seznamu doplňků Kodi otevřete Kofin, vyberte Aktualizovat nebo Verze a nainstalujte nejnovější verzi. Pak se přihlaste a vyberte knihovny k synchronizaci.",
+  "#30863": "Pokud se Kofin již aktualizoval na 0.96 bez vyčištění, synchronizace knihovny zůstane vypnutá. Chcete-li to napravit, proveďte jednu z těchto možností:",
+  "#30864": "Otevřete Kofin v seznamu doplňků Kodi, vyberte Verze a zvolte 0.29. Pak postupujte podle výše uvedených kroků.",
+  "#30865": "Smažte databáze ručně, jak popisuje wiki Kofin.",
   "#30990": "V této zkušební verzi není dostupné"
 }

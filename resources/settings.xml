@@ -104,6 +104,14 @@
           </dependencies>
           <control type="edit" format="string"/>
         </setting>
+        <!-- No <close>, so Back returns here. Logged out as well as in: it
+             says how to reach Clean databases, which only shows logged out. -->
+        <setting id="readme" type="action" label="30856" help="30857">
+          <level>0</level>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=readme)</data>
+          </control>
+        </setting>
         <!-- Playback honour of the account's track preferences. Lives here
              rather than with the player settings because it is about the
              Jellyfin profile, and it is the gate on the button below. -->

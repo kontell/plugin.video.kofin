@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Zkontrolujte odebírané hudební knihovny; zrušením výběru zastavíte synchronizaci stahování."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Co Kofin 0.29 znamená pro vaši verzi Kodi a co udělat před aktualizací."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" zůstává na této verzi. Kofin 0.96 a novější vyžaduje Kodi 22 nebo novější."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Postup aktualizace:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Odhlaste se na kartě Účet."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Spusťte Vyčistit databáze, které se tam zobrazí po odhlášení. Po dokončení se Kodi restartuje."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "V seznamu doplňků Kodi otevřete Kofin, vyberte Aktualizovat nebo Verze a nainstalujte nejnovější verzi. Pak se přihlaste a vyberte knihovny k synchronizaci."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Pokud se Kofin již aktualizoval na 0.96 bez vyčištění, synchronizace knihovny zůstane vypnutá. Chcete-li to napravit, proveďte jednu z těchto možností:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Otevřete Kofin v seznamu doplňků Kodi, vyberte Verze a zvolte 0.29. Pak postupujte podle výše uvedených kroků."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Smažte databáze ručně, jak popisuje wiki Kofin."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "V této zkušební verzi není dostupné"

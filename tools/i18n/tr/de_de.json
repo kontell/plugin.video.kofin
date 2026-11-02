@@ -498,5 +498,14 @@
   "#30853": "Inhalt nicht heruntergeladen",
   "#30854": "Abonnierte Playlists prüfen; Häkchen entfernen, um Downloads nicht mehr zu synchronisieren.",
   "#30855": "Abonnierte Musikbibliotheken prüfen; Häkchen entfernen, um Downloads nicht mehr zu synchronisieren.",
+  "#30857": "Was Kofin 0.29 für deine Kodi-Version bedeutet und was vor einem Upgrade zu tun ist.",
+  "#30858": "Kodi 21 \"Omega\" bleibt bei dieser Version. Kofin 0.96 und neuer benötigen Kodi 22 oder neuer.",
+  "#30859": "So führst du das Upgrade durch:",
+  "#30860": "Melde dich im Tab Konto ab.",
+  "#30861": "Führe Datenbanken bereinigen aus. Das erscheint dort, sobald du abgemeldet bist. Kodi startet danach neu.",
+  "#30862": "Öffne Kofin in Kodis Add-on-Liste, wähle Aktualisieren oder Versionen und installiere die neueste Version. Melde dich anschließend an und wähle die Bibliotheken zum Synchronisieren.",
+  "#30863": "Wenn Kofin ohne Bereinigung bereits auf 0.96 aktualisiert wurde, bleibt die Bibliothekssynchronisierung aus. Das behebst du auf eine dieser Arten:",
+  "#30864": "Öffne Kofin in Kodis Add-on-Liste, wähle Versionen und dann 0.29. Folge anschließend den Schritten oben.",
+  "#30865": "Lösche die Datenbanken von Hand, wie im Kofin-Wiki beschrieben.",
   "#30990": "In dieser Vorabversion nicht verfügbar"
 }

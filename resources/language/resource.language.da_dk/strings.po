@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Hvad Kofin 0.29 betyder for din Kodi-version, og hvad du skal gøre før opgradering."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" bliver på denne version. Kofin 0.96 og nyere kræver Kodi 22 eller nyere."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Sådan opgraderer du:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Log ud under fanen Konto."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Kør Ryd databaserne, som vises der, når du er logget ud. Kodi genstarter, når det er færdigt."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "Åbn Kofin i Kodis liste over tilføjelser, vælg Opdater eller Versioner, og installer den nyeste version. Log derefter ind, og vælg de biblioteker, der skal synkroniseres."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Hvis Kofin allerede er opgraderet til 0.96 uden rydning, forbliver bibliotekssynkronisering slået fra. Gør et af følgende for at løse det:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Åbn Kofin i Kodis liste over tilføjelser, vælg Versioner, og vælg 0.29. Følg derefter trinene ovenfor."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Slet databaserne manuelt som beskrevet på Kofin-wikien."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ikke tilgængelig i denne prøveversion"

@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Revisa las bibliotecas de música suscritas; desmárcalas para dejar de sincronizar las descargas."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Qué significa Kofin 0.29 para tu versión de Kodi y qué hacer antes de actualizar."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" se queda en esta versión. Kofin 0.96 y posteriores necesitan Kodi 22 o superior."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Para actualizar:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Cierra sesión en la pestaña Cuenta."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Ejecuta Limpiar las bases de datos, que aparece ahí al cerrar sesión. Kodi se reinicia al terminar."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "En la lista de complementos de Kodi, abre Kofin, selecciona Actualizar o Versiones e instala la versión más reciente. Después inicia sesión y elige las bibliotecas a sincronizar."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Si Kofin ya se ha actualizado a 0.96 sin limpiar, la sincronización de la biblioteca sigue desactivada. Para solucionarlo, haz una de estas cosas:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Abre Kofin en la lista de complementos de Kodi, selecciona Versiones y elige 0.29. Después sigue los pasos anteriores."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Elimina las bases de datos a mano, como explica la wiki de Kofin."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "No disponible en esta versión preliminar"

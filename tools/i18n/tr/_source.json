@@ -552,5 +552,15 @@
   "#30853": "Content not downloaded",
   "#30854": "Review subscribed playlists; untick to stop syncing downloads.",
   "#30855": "Review subscribed music libraries; untick to stop syncing downloads.",
+  "#30856": "README",
+  "#30857": "What Kofin 0.29 means for your Kodi version, and what to do before upgrading.",
+  "#30858": "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer.",
+  "#30859": "To upgrade:",
+  "#30860": "Log out in the Account tab.",
+  "#30861": "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes.",
+  "#30862": "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync.",
+  "#30863": "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:",
+  "#30864": "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above.",
+  "#30865": "Delete the databases by hand, as described on the Kofin wiki.",
   "#30990": "Not available in this preview"
 }

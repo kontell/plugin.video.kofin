@@ -5,9 +5,39 @@ import pytest
 
 from kofin.core import ipc
 from kofin.core.http import JellyfinError
-from kofin.plugin import actions
+from kofin.plugin import actions, router
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeApi, FakeDialog
+
+
+def test_readme_opens_as_text_from_its_route(monkeypatch):
+    dialog = FakeDialog()
+    monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
+
+    router.dispatch(["plugin://plugin.video.kofin/", "-1", "?mode=readme"])
+
+    assert dialog.textviewers == [
+        (
+            "L30856",
+            "\n".join(
+                (
+                    "L30858",
+                    "",
+                    "L30859",
+                    "1. L30860",
+                    "2. L30861",
+                    "3. L30862",
+                    "",
+                    "L30863",
+                    "- L30864",
+                    "- L30865",
+                    "",
+                    "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions",
+                )
+            ),
+        )
+    ]
 
 
 def test_playlist_subscription_requests_its_own_initial_sync(monkeypatch):

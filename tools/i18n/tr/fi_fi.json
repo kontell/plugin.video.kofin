@@ -498,5 +498,14 @@
   "#30853": "Sisältöä ei ole ladattu",
   "#30854": "Tarkastele tilattuja soittolistoja; poista valinta lopettaaksesi latausten synkronoinnin.",
   "#30855": "Tarkastele tilattuja musiikkikirjastoja; poista valinta lopettaaksesi latausten synkronoinnin.",
+  "#30857": "Mitä Kofin 0.29 tarkoittaa Kodi-versiollesi ja mitä tehdä ennen päivitystä.",
+  "#30858": "Kodi 21 \"Omega\" pysyy tässä versiossa. Kofin 0.96 ja uudemmat vaativat Kodi 22:n tai uudemman.",
+  "#30859": "Päivitä näin:",
+  "#30860": "Kirjaudu ulos Tili-välilehdellä.",
+  "#30861": "Suorita Puhdista tietokannat, joka tulee sinne näkyviin, kun olet kirjautunut ulos. Kodi käynnistyy uudelleen, kun se on valmis.",
+  "#30862": "Avaa Kofin Kodin lisäosaluettelossa, valitse Päivitä tai Versiot ja asenna uusin versio. Kirjaudu sen jälkeen sisään ja valitse synkronoitavat kirjastot.",
+  "#30863": "Jos Kofin on jo päivittynyt versioon 0.96 ilman puhdistusta, kirjaston synkronointi pysyy pois päältä. Korjaa tilanne jommallakummalla tavalla:",
+  "#30864": "Avaa Kofin Kodin lisäosaluettelossa, valitse Versiot ja sitten 0.29. Noudata sen jälkeen yllä olevia vaiheita.",
+  "#30865": "Poista tietokannat käsin Kofin-wikin ohjeiden mukaan.",
   "#30990": "Ei saatavilla tässä esiversiossa"
 }

@@ -2377,6 +2377,50 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr ""
 
+# The README button on the Account tab and what it opens: #30858, then the
+# steps #30860 to #30862 under #30859, then the choices #30864 and #30865 under
+# #30863, then the URL of the wiki page. Update and Versions are Kodi's #24138
+# and #24069, and Account and Clean databases are this add-on's own labels.
+msgctxt "#30856"
+msgid "README"
+msgstr ""
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr ""
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr ""
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr ""
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr ""
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr ""
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr ""
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr ""
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr ""
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr ""
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""
