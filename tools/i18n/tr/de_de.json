@@ -529,5 +529,8 @@
   "#30883": "Entfernen gelöschter Versionen und Extras",
   "#30884": "Feinsynchronisation",
   "#30885": "Kodi importiert ein Special nur mit Episodennummer. Gib ihnen eine auf dem Server oder spiele sie im Kofin-Add-on ab.",
-  "#30887": "Verfügbar"
+  "#30887": "Verfügbar",
+  "#30888": "dieses Profil enthält eine Bibliothek aus einem älteren Kofin",
+  "#30889": "Kofin kann sie nicht verwenden. Beende Kodi und lösche diese Dateien aus %s:",
+  "#30890": "Das leert die gesamte Video- und Musikbibliothek dieses Profils, nicht nur die von Kofin. Kodi legt beim nächsten Start neue Datenbanken an. Wähle danach die Bibliotheken zum Synchronisieren."
 }

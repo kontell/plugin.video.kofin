@@ -529,5 +529,8 @@
   "#30883": "Poistettujen versioiden ja lisämateriaalin poisto",
   "#30884": "Hienosynkronointi",
   "#30885": "Kodi tuo erikoisjakson vain, jos sillä on jaksonumero. Anna niille numero palvelimella tai toista ne Kofin-lisäosasta.",
-  "#30887": "Käytettävissä"
+  "#30887": "Käytettävissä",
+  "#30888": "tässä profiilissa on vanhemman Kofinin kirjasto",
+  "#30889": "Kofin ei voi käyttää sitä. Sulje Kodi ja poista nämä kansiosta %s:",
+  "#30890": "Tämä tyhjentää tämän profiilin koko video- ja musiikkikirjaston, ei vain Kofinin osaa. Kodi luo uudet tietokannat seuraavan käynnistyksen yhteydessä. Valitse sen jälkeen synkronoitavat kirjastot."
 }

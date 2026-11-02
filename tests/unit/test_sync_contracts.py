@@ -3,7 +3,7 @@
 import pytest
 
 from kofin.sync import private
-from kofin.sync.catalogue import Catalogue, BackendMismatch, claim_backend
+from kofin.sync.catalogue import Catalogue, EarlierLibrary, claim_backend
 from kofin.sync.model import MediaItem, Metadata
 
 
@@ -45,7 +45,7 @@ def test_sql_and_api_mappings_are_never_adopted_across_backends(store):
         db.cursor.execute(
             "INSERT INTO view VALUES ('shared', 'Still readable', 'movies')"
         )
-    with pytest.raises(BackendMismatch):
+    with pytest.raises(EarlierLibrary):
         store.stage(media())
     with private.Database() as db:
         assert (
@@ -59,7 +59,7 @@ def test_unmarked_legacy_mappings_require_fresh_state(store):
         db.cursor.execute(
             "INSERT INTO jellyfin(jellyfin_id, kodi_id) VALUES ('old', 42)"
         )
-    with pytest.raises(BackendMismatch):
+    with pytest.raises(EarlierLibrary):
         store.stage(media())
 
 

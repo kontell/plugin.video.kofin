@@ -23,7 +23,7 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
-from kofin.sync.catalogue import BackendMismatch
+from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
 from kofin.sync.downloader import info, library_filter
 from . import announce, capabilities, metadata, progress
 from . import playlists as api_playlists
@@ -420,6 +420,9 @@ class Library(threading.Thread):
             # the one every pass runs on (private.hold_connections).
             with private.hold_connections():
                 self._run(monitor)
+        except EarlierLibrary as error:
+            apistatus.write_earlier(self.store.namespace)
+            LOG.warning("API sync blocked: %s", error)
         except BackendMismatch as error:
             self._status(settings.localized(30420) % str(error))
             LOG.warning("API sync blocked: %s", error)

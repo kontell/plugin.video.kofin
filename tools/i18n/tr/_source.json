@@ -584,5 +584,8 @@
   "#30885": "Kodi imports a special only with an episode number. Give these one on the server, or play them from the Kofin add-on.",
   "#30886": "KofinSyncQueue",
   "#30887": "Available",
+  "#30888": "this profile holds a library from an older Kofin",
+  "#30889": "Kofin cannot use it. Close Kodi and delete these from %s:",
+  "#30890": "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync.",
   "#30990": "Not available in this preview"
 }

@@ -529,5 +529,8 @@
   "#30883": "Remoção de versões e extras removidos",
   "#30884": "Sincronização fina",
   "#30885": "O Kodi só importa um especial se ele tiver número de episódio. Atribua um no servidor ou reproduza-os pelo complemento Kofin.",
-  "#30887": "Disponível"
+  "#30887": "Disponível",
+  "#30888": "este perfil contém uma biblioteca de um Kofin antigo",
+  "#30889": "O Kofin não pode usá-la. Feche o Kodi e apague estes itens de %s:",
+  "#30890": "Isso esvazia toda a biblioteca de vídeo e música deste perfil, não apenas a do Kofin. O Kodi cria novos bancos de dados na próxima inicialização. Depois selecione as bibliotecas para sincronizar."
 }

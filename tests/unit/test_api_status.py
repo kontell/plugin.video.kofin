@@ -2,8 +2,11 @@
 
 import time
 
+import pytest
+
 from kofin.sync import private
 from kofin.sync.backends.api import status
+from kofin.sync.catalogue import EarlierLibrary, claim_backend
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     LIB2,
@@ -341,7 +344,7 @@ def test_a_status_that_cannot_be_written_fails_nothing(store, monkeypatch, tmp_p
     assert status.read() == {}
 
 
-def _dialog(monkeypatch, store, answers):
+def _dialog(monkeypatch, store, answers, text=lambda i: "L%d" % i):
     from kofin.plugin import actions
     from kofin.plugin.router import Request
     from kofin.sync.backends.api import identity
@@ -352,11 +355,91 @@ def _dialog(monkeypatch, store, answers):
     shown = []
     monkeypatch.setattr(status.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a[0]))
-    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(actions.settings, "localized", text)
     monkeypatch.setattr(status.xbmc, "getLocalizedString", lambda i: "K%d" % i)
     monkeypatch.setattr(identity, "current_store", lambda: store)
     actions.library_status(Request("plugin://x", -1, {}))
     return dialog, shown
+
+
+EARLIER = {
+    30420: "Library sync is off: %s",
+    30888: "an older library",
+    30889: "Delete from %s:",
+    30890: "Then sync.",
+}
+
+
+def test_a_library_of_the_sql_build_opens_the_way_out_and_no_report(store, monkeypatch):
+    """The catalogue refuses to be read in this state, so the report could
+    only fail. The instructions are all the button has to give."""
+    monkeypatch.setattr(status.settings, "localized", EARLIER.get)
+    monkeypatch.setattr(status.xbmcvfs, "translatePath", lambda path: "/profile/")
+    with private.Database() as db:
+        claim_backend(db.cursor, "api")
+        db.cursor.execute("UPDATE backend_state SET backend='sql'")
+    with pytest.raises(EarlierLibrary):
+        store.summary()
+    status.write_earlier()
+
+    dialog, _ = _dialog(monkeypatch, store, [], EARLIER.get)
+
+    assert dialog.textviewers == [
+        (
+            "Library sync is off: an older library",
+            "\n".join(
+                (
+                    "Delete from /profile/:",
+                    "",
+                    "Database/MyVideos*.db",
+                    "Database/MyMusic*.db",
+                    "addon_data/plugin.video.kofin/kofin.db*",
+                    "addon_data/plugin.video.kofin/sync.json",
+                    "",
+                    "Then sync.",
+                    "",
+                    "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions",
+                )
+            ),
+        )
+    ]
+
+
+def test_a_library_that_is_off_for_another_reason_still_opens_the_report(
+    store, monkeypatch
+):
+    status.write("Library sync is off: another account's library")
+    dialog, _ = _dialog(monkeypatch, store, [-1])
+    assert dialog.textviewers == []
+
+
+def test_the_library_thread_says_when_kodi_holds_a_library_of_the_sql_build(
+    store, monkeypatch
+):
+    """A kofin.db that was deleted on its own leaves these rows in Kodi, and
+    the thread's first run is what finds them."""
+    from tests.unit.apifixtures import Server, worker
+
+    monkeypatch.setattr(status.settings, "localized", EARLIER.get)
+    thread = worker(store, Server({}), [LIB], monkeypatch)
+
+    def refused(_monitor):
+        raise EarlierLibrary("Kodi still holds a library an earlier Kofin filed")
+
+    monkeypatch.setattr(thread, "_run", refused)
+    thread.run()
+    assert status.read(store.namespace)["earlier"] is True
+
+
+def test_the_way_out_leaves_with_the_state_that_replaces_it(store, monkeypatch):
+    monkeypatch.setattr(status.settings, "localized", EARLIER.get)
+    status.write_earlier()
+    begun = status.read()
+    assert begun["earlier"] is True
+    status.write_earlier()
+    assert status.read() == begun
+    status.write("Done")
+    assert "earlier" not in status.read()
 
 
 def test_the_dialog_is_a_report_whose_first_row_reads_it_again(store, monkeypatch):

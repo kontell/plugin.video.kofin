@@ -529,5 +529,8 @@
   "#30883": "Eltávolított verziók és extrák eltávolítása",
   "#30884": "Finomszinkron",
   "#30885": "A Kodi csak epizódszámmal rendelkező különkiadást importál. Adjon nekik számot a kiszolgálón, vagy játssza le őket a Kofin bővítményből.",
-  "#30887": "Elérhető"
+  "#30887": "Elérhető",
+  "#30888": "ez a profil egy régebbi Kofin médiatárát tartalmazza",
+  "#30889": "A Kofin nem tudja használni. Zárja be a Kodit, és törölje ezeket innen: %s",
+  "#30890": "Ez a profil teljes videó- és zenei médiatárát kiüríti, nem csak a Kofinét. A Kodi a következő indításkor új adatbázisokat hoz létre. Ezután válassza ki a szinkronizálandó médiatárakat."
 }

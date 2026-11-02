@@ -221,6 +221,36 @@ def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
         private.reset_overrides()
 
 
+def test_a_library_of_the_sql_build_stops_the_start_and_says_so(tmp_path, monkeypatch):
+    from kofin.core import settings
+    from kofin.sync import private
+    from kofin.sync.backends.api import status
+    from kofin.sync.backends.api.library import Library
+    from kofin.sync.catalogue import claim_backend
+
+    FakeAddon.store.update(
+        serverAddress="http://fixture.invalid",
+        serverId="server",
+        userId="user",
+        accessToken="fixture",
+        isLoggedIn="true",
+    )
+    monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
+    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    monkeypatch.setattr(settings, "localized", lambda i: {30420: "Off: %s"}.get(i, "x"))
+    _probe_answers(monkeypatch, _kodi23_capture())
+    started = []
+    monkeypatch.setattr(Library, "start", lambda worker: started.append(worker))
+    try:
+        with private.Database() as db:
+            claim_backend(db.cursor, "sql")
+        Service()._prepare_api_backend()
+    finally:
+        private.reset_overrides()
+    assert started == []
+    assert status.read()["earlier"] is True
+
+
 @pytest.mark.parametrize(
     "capture, published", [(_piers_capture, None), (_kodi23_capture, "true")]
 )

@@ -20,6 +20,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
+import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -37,6 +38,16 @@ COUNTED = {
     "mixed": ("Movie", "Episode", "MusicVideo"),
     "music": ("Audio",),
 }
+# What a clean start deletes, relative to the profile. The rest of the
+# wiki's page is for a viewer still on the SQL build, whose Clean databases
+# button left with it, so this build gives only the way that needs no tool.
+CLEAN_START = (
+    "Database/MyVideos*.db",
+    "Database/MyMusic*.db",
+    "addon_data/plugin.video.kofin/kofin.db*",
+    "addon_data/plugin.video.kofin/sync.json",
+)
+MIGRATION_PAGE = "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions"
 
 
 def path() -> str:
@@ -72,20 +83,26 @@ def read(namespace: str = "") -> Dict[str, Any]:
     feed = document.get("feed")
     if isinstance(feed, str):
         found["feed"] = feed
+    if document.get("earlier") is True:
+        found["earlier"] = True
     return found
 
 
-def write(state: str, listing=(), namespace: str = "") -> None:
+def write(state: str, listing=(), namespace: str = "", earlier: bool = False) -> None:
     """Record what the sync is doing, in the words the dialog shows, and the
     names of the libraries whose first listing is under way, for the account
     ``namespace`` (the library thread's store). Written only when either
     changes; ``since`` is when the state began. The feed the library thread
     last detected rides along unchanged, and another account's document is
-    replaced whole."""
+    replaced whole. ``earlier`` says the state is ``write_earlier``'s."""
     current = read(namespace)
     listing = list(listing)
     same = current.get("state") == state
-    if same and (current.get("listing") or []) == listing:
+    if (
+        same
+        and (current.get("listing") or []) == listing
+        and current.get("earlier", False) == earlier
+    ):
         return
     since = current.get("since") if same else None
     document: Dict[str, Any] = {
@@ -95,7 +112,19 @@ def write(state: str, listing=(), namespace: str = "") -> None:
     }
     if "feed" in current:
         document["feed"] = current["feed"]
+    if earlier:
+        document["earlier"] = True
     _store(document, namespace)
+
+
+def write_earlier(namespace: str = "") -> None:
+    """Sync is off over what the SQL build left (``EarlierLibrary``), which
+    the dialog reads as a reason to give the way out instead of the report."""
+    write(
+        settings.localized(30420) % settings.localized(30888),
+        namespace=namespace,
+        earlier=True,
+    )
 
 
 def record_feed(tier: str, namespace: str = "") -> None:
@@ -318,6 +347,21 @@ def off_features(features: Dict[str, bool], text) -> List[str]:
     ]
 
 
+def migration() -> str:
+    """The way out of ``EarlierLibrary``, for a text viewer."""
+    return "\n".join(
+        (
+            settings.localized(30889) % xbmcvfs.translatePath("special://profile/"),
+            "",
+            *CLEAN_START,
+            "",
+            settings.localized(30890),
+            "",
+            MIGRATION_PAGE,
+        )
+    )
+
+
 def show(store) -> None:
     """The report, as a dialog to read: one row per fact, the value in the
     row's own label (a select dialog's plain layout has no second field).
@@ -337,7 +381,14 @@ def show(store) -> None:
     counts the same way. Both lists are read with the rows they explain, so a pass
     that moves either while the report is open cannot make the text
     disagree with the row.
+
+    With sync off over what the SQL build left there is nothing to report,
+    and the catalogue would refuse to be read: the button opens the way out.
     """
+    document = read(store.namespace)
+    if document.get("earlier"):
+        xbmcgui.Dialog().textviewer(document["state"], migration())
+        return
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
     lines: List[str] = []
     off: List[str] = []

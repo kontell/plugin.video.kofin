@@ -529,5 +529,8 @@
   "#30883": "Usuwanie usuniętych wersji i dodatków",
   "#30884": "Dokładna synchronizacja",
   "#30885": "Kodi importuje odcinek specjalny tylko z numerem odcinka. Nadaj im numery na serwerze lub odtwarzaj je z dodatku Kofin.",
-  "#30887": "Dostępny"
+  "#30887": "Dostępny",
+  "#30888": "ten profil zawiera bibliotekę ze starszego Kofina",
+  "#30889": "Kofin nie może jej użyć. Zamknij Kodi i usuń te elementy z %s:",
+  "#30890": "To opróżni całą bibliotekę wideo i muzyki tego profilu, nie tylko Kofina. Kodi utworzy nowe bazy danych przy następnym uruchomieniu. Następnie wybierz biblioteki do synchronizacji."
 }

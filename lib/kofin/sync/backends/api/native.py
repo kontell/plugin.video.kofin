@@ -21,7 +21,7 @@ import xbmc
 
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
-from kofin.sync.catalogue import BackendMismatch
+from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
 from . import capabilities, metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
@@ -177,9 +177,8 @@ class Native:
                     "cannot tell whether an earlier Kofin library is in Kodi"
                 )
             if reply["limits"]["total"]:
-                raise BackendMismatch(
-                    "Kodi still holds a library an earlier Kofin filed; remove it"
-                    " or use a clean profile before switching to OR"
+                raise EarlierLibrary(
+                    "Kodi still holds a library an earlier Kofin filed"
                 )
         self.store.prepare_empty()
 

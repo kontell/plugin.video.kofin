@@ -2356,6 +2356,18 @@ msgctxt "#30887"
 msgid "Available"
 msgstr "Beschikbaar"
 
+msgctxt "#30888"
+msgid "this profile holds a library from an older Kofin"
+msgstr "dit profiel bevat een bibliotheek van een oudere Kofin"
+
+msgctxt "#30889"
+msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
+msgstr "Kofin kan die niet gebruiken. Sluit Kodi en verwijder deze uit %s:"
+
+msgctxt "#30890"
+msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
+msgstr "Dit maakt de hele video- en muziekbibliotheek van dit profiel leeg, niet alleen die van Kofin. Kodi maakt bij de volgende start nieuwe databases aan. Kies daarna de bibliotheken om te synchroniseren."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Niet beschikbaar in deze testversie"
