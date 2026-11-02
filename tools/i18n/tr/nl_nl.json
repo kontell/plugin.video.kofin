@@ -531,6 +531,9 @@
   "#30885": "Kodi importeert een special alleen met een afleveringsnummer. Geef ze er een op de server of speel ze af vanuit de Kofin-add-on.",
   "#30887": "Beschikbaar",
   "#30888": "dit profiel bevat een bibliotheek van een oudere Kofin",
-  "#30889": "Kofin kan die niet gebruiken. Sluit Kodi en verwijder deze uit %s:",
-  "#30890": "Dit maakt de hele video- en muziekbibliotheek van dit profiel leeg, niet alleen die van Kofin. Kodi maakt bij de volgende start nieuwe databases aan. Kies daarna de bibliotheken om te synchroniseren."
+  "#30889": "Kofin kan die niet gebruiken. Ga terug naar Kofin 0.29 om hem op te schonen:",
+  "#30890": "Open Kofin in Kodi's lijst met add-ons, selecteer Versies en kies 0.29.",
+  "#30891": "Meld je in de Kofin-instellingen af op het tabblad Account en voer Databases opschonen uit.",
+  "#30892": "Open Kofin opnieuw als Kodi opnieuw is opgestart, selecteer Versies en kies de nieuwste versie. Meld je daarna aan en kies de bibliotheken om te synchroniseren.",
+  "#30893": "Je kunt ook Kodi sluiten en de video- en muziekdatabases met de hand verwijderen, zoals de Kofin-wiki beschrijft:"
 }

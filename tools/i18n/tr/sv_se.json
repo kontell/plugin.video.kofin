@@ -531,6 +531,9 @@
   "#30885": "Kodi importerar bara ett specialavsnitt som har avsnittsnummer. Ge dem ett på servern eller spela upp dem från Kofin-tillägget.",
   "#30887": "Tillgänglig",
   "#30888": "den här profilen innehåller ett bibliotek från en äldre Kofin",
-  "#30889": "Kofin kan inte använda det. Stäng Kodi och ta bort dessa från %s:",
-  "#30890": "Det tömmer hela video- och musikbiblioteket i den här profilen, inte bara Kofins. Kodi skapar nya databaser nästa gång det startar. Välj sedan bibliotek att synka."
+  "#30889": "Kofin kan inte använda det. Gå tillbaka till Kofin 0.29 för att rensa det:",
+  "#30890": "Öppna Kofin i Kodis lista över tillägg, välj Versioner och välj 0.29.",
+  "#30891": "Logga ut på fliken Konto i Kofins inställningar och kör Rensa databaser.",
+  "#30892": "När Kodi har startat om öppnar du Kofin igen, väljer Versioner och väljer den senaste versionen. Logga sedan in och välj bibliotek att synka.",
+  "#30893": "Du kan också stänga Kodi och ta bort dess video- och musikdatabaser för hand, som Kofin-wikin beskriver:"
 }

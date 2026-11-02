@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "此配置文件包含旧版 Kofin 的媒体库"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin 无法使用它。请关闭 Kodi，然后从 %s 删除以下内容："
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin 无法使用它。要清理它，请返回 Kofin 0.29："
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "这会清空此配置文件的全部视频和音乐媒体库，而不仅是 Kofin 的内容。Kodi 下次启动时会创建新的数据库。然后选择要同步的媒体库。"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "在 Kodi 的插件列表中打开 Kofin，选择“版本”，然后选择 0.29。"
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "在 Kofin 设置的“账户”选项卡中注销，然后运行“清理数据库”。"
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "Kodi 重新启动后，再次打开 Kofin，选择“版本”，然后选择最新版本。接着登录并选择要同步的媒体库。"
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "也可以按照 Kofin wiki 的说明，关闭 Kodi 并手动删除其视频和音乐数据库："
 
 msgctxt "#30990"
 msgid "Not available in this preview"

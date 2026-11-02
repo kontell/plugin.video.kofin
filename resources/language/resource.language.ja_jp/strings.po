@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "このプロファイルには古い Kofin のライブラリがあります"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin はこれを使用できません。Kodi を閉じて、%s から次のファイルを削除してください:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin はこれを使用できません。クリーンアップするには Kofin 0.29 に戻してください:"
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "これによりこのプロファイルのビデオと音楽のライブラリ全体が空になります (Kofin の分だけではありません)。Kodi は次回の起動時に新しいデータベースを作成します。その後、同期するライブラリを選択してください。"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "Kodi のアドオン一覧で Kofin を開き、「バージョン」を選択して 0.29 を選びます。"
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "Kofin の設定の「アカウント」タブでログアウトし、「データベースを消去」を実行します。"
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "Kodi の再起動後、もう一度 Kofin を開き、「バージョン」を選択して最新バージョンを選びます。その後ログインし、同期するライブラリを選択します。"
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "または、Kofin wiki の説明に従って、Kodi を閉じてビデオと音楽のデータベースを手動で削除することもできます:"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

@@ -531,6 +531,9 @@
   "#30885": "Kodi només importa un especial si té número d'episodi. Dona'ls-en un al servidor o reprodueix-los des del complement Kofin.",
   "#30887": "Disponible",
   "#30888": "aquest perfil conté una biblioteca d'un Kofin antic",
-  "#30889": "Kofin no la pot fer servir. Tanca Kodi i elimina això de %s:",
-  "#30890": "Això buida tota la biblioteca de vídeo i música d'aquest perfil, no només la de Kofin. Kodi crea bases de dades noves en tornar a iniciar-se. Després tria les biblioteques per sincronitzar."
+  "#30889": "Kofin no la pot fer servir. Per netejar-la, torna a Kofin 0.29:",
+  "#30890": "Obre Kofin a la llista de complements de Kodi, selecciona Versions i tria 0.29.",
+  "#30891": "A la configuració de Kofin, tanca la sessió a la pestanya Compte i executa Neteja les bases de dades.",
+  "#30892": "Quan Kodi s'hagi reiniciat, torna a obrir Kofin, selecciona Versions i tria la versió més nova. Després inicia la sessió i tria les biblioteques per sincronitzar.",
+  "#30893": "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:"
 }

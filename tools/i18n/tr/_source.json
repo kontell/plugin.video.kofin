@@ -585,7 +585,10 @@
   "#30886": "KofinSyncQueue",
   "#30887": "Available",
   "#30888": "this profile holds a library from an older Kofin",
-  "#30889": "Kofin cannot use it. Close Kodi and delete these from %s:",
-  "#30890": "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync.",
+  "#30889": "Kofin cannot use it. To clean it, go back to Kofin 0.29:",
+  "#30890": "Open Kofin in Kodi's add-on list, select Versions and choose 0.29.",
+  "#30891": "In Kofin's settings, log out on the Account tab and run Clean databases.",
+  "#30892": "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync.",
+  "#30893": "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:",
   "#30990": "Not available in this preview"
 }

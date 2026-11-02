@@ -20,7 +20,6 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
-import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -38,15 +37,7 @@ COUNTED = {
     "mixed": ("Movie", "Episode", "MusicVideo"),
     "music": ("Audio",),
 }
-# What a clean start deletes, relative to the profile. The rest of the
-# wiki's page is for a viewer still on the SQL build, whose Clean databases
-# button left with it, so this build gives only the way that needs no tool.
-CLEAN_START = (
-    "Database/MyVideos*.db",
-    "Database/MyMusic*.db",
-    "addon_data/plugin.video.kofin/kofin.db*",
-    "addon_data/plugin.video.kofin/sync.json",
-)
+# Where the databases to delete are listed, for a viewer not going back.
 MIGRATION_PAGE = "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions"
 
 
@@ -348,15 +339,21 @@ def off_features(features: Dict[str, bool], text) -> List[str]:
 
 
 def migration() -> str:
-    """The way out of ``EarlierLibrary``, for a text viewer."""
+    """The way out of ``EarlierLibrary``, for a text viewer.
+
+    Clean databases left with the SQL build, so the way out goes back to it
+    through Kodi's Versions button, which keeps that version pinned until the
+    newest is picked. A Kodi 23 is offered no such version, which leaves the
+    last line.
+    """
+    steps = enumerate((30890, 30891, 30892), start=1)
     return "\n".join(
         (
-            settings.localized(30889) % xbmcvfs.translatePath("special://profile/"),
+            settings.localized(30889),
             "",
-            *CLEAN_START,
+            *("%d. %s" % (number, settings.localized(text)) for number, text in steps),
             "",
-            settings.localized(30890),
-            "",
+            settings.localized(30893),
             MIGRATION_PAGE,
         )
     )

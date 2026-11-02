@@ -531,6 +531,9 @@
   "#30885": "Kodi importă un episod special doar dacă are număr de episod. Atribuie-le unul pe server sau redă-le din suplimentul Kofin.",
   "#30887": "Disponibil",
   "#30888": "acest profil conține o bibliotecă dintr-un Kofin mai vechi",
-  "#30889": "Kofin nu o poate folosi. Închide Kodi și șterge acestea din %s:",
-  "#30890": "Astfel se golește toată biblioteca video și muzicală a acestui profil, nu doar cea Kofin. Kodi creează baze de date noi la următoarea pornire. Apoi alege bibliotecile de sincronizat."
+  "#30889": "Kofin nu o poate folosi. Pentru a o curăța, revino la Kofin 0.29:",
+  "#30890": "Deschide Kofin în lista de suplimente din Kodi, selectează Versiuni și alege 0.29.",
+  "#30891": "În setările Kofin, deconectează-te din fila Cont și rulează Curăță bazele de date.",
+  "#30892": "După repornirea Kodi, deschide din nou Kofin, selectează Versiuni și alege cea mai nouă versiune. Apoi conectează-te și alege bibliotecile de sincronizat.",
+  "#30893": "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:"
 }
