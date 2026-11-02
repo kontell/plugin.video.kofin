@@ -1,3 +1,10 @@
+v0.29.3
+- A README on the Account tab explains the move to Kofin 0.96
+- Play all starts faster on large albums
+- A second Play all no longer mixes with the first
+- Max streaming bitrate stays available while force direct play is on
+- A library selection made after signing in is no longer applied twice
+
 v0.29.2
 - SyncPlay no longer restarts an item a member stopped or played to the end
 - Kodi no longer crashes when Home is visited often during a large sync
