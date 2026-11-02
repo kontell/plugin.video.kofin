@@ -425,3 +425,10 @@ A copy of a real profile: 23,735 songs, 8,338 of them played on the server. Kofi
 - [PASS] After the fix, the same two starts: no write of any kind, an empty queue, and all 8,338 played songs back in Kodi. Kodi's play total matches the server's, with a played song that has no server count reading 1.
 - [PASS] After the fix, real edits: a song marked played, a movie marked played and a movie marked unplayed each sent the expected `Played` value, and nothing else was sent. A song's edit goes on the next pass that reads the song; here that was `RepairLibrary`.
 - [PASS] After the fix, both startup updates on with clean on update: no write and the same 8,338 played songs once the library settled, with the video rows unchanged. Kodi 22 crashed in libpython3.14 during three of the four starts this took. A startup music update with Kofin enabled crashes it the same way without this change.
+
+## Library status on a library of the SQL build (run 2026-11-02, P1D Kodi 22 RC1 Flatpak)
+
+- [REPRO] Before the fix, a profile whose `kofin.db` is marked `sql`: **Library status** raised `BackendMismatch` from `store.summary()` and showed Kodi's script error.
+- [PASS] After the fix, the same profile: **Library status** opened the migration instructions in a text viewer on two starts, with no Python error logged, and Back returned to the settings.
+- [PASS] After the clean start in the instructions: the service reported `private_state=ready`, **Library status** opened the report, and the music import ran.
+- [PENDING] A profile with `kofin.db` deleted but the SQL build's rows still in Kodi: the same instructions, once the library thread has found them.

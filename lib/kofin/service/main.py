@@ -292,10 +292,7 @@ class Service(xbmc.Monitor):
         LOG.debug("Kodi features %s", capabilities.summary(report))
         state.set_feature_tempo((report.get("features") or {}).get("tempo") is True)
         if report["private_state"] != "ready":
-            apistatus.write(
-                settings.localized(30420)
-                % "Fresh native library required; see OR migration guide"
-            )
+            apistatus.write_earlier()
         elif not self._api_interfaces:
             apistatus.write(settings.localized(30420) % "; ".join(report["errors"]))
         elif self.credentials.is_logged_in:

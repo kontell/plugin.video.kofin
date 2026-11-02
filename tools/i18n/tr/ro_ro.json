@@ -529,5 +529,8 @@
   "#30883": "Eliminarea versiunilor și extrelor șterse",
   "#30884": "Sincronizare fină",
   "#30885": "Kodi importă un episod special doar dacă are număr de episod. Atribuie-le unul pe server sau redă-le din suplimentul Kofin.",
-  "#30887": "Disponibil"
+  "#30887": "Disponibil",
+  "#30888": "acest profil conține o bibliotecă dintr-un Kofin mai vechi",
+  "#30889": "Kofin nu o poate folosi. Închide Kodi și șterge acestea din %s:",
+  "#30890": "Astfel se golește toată biblioteca video și muzicală a acestui profil, nu doar cea Kofin. Kodi creează baze de date noi la următoarea pornire. Apoi alege bibliotecile de sincronizat."
 }

@@ -1,3 +1,7 @@
+v0.96.5
+- Importing music again no longer clears played marks on the server.
+- Library status gives the migration steps when a library from an older Kofin blocks sync.
+
 v0.96.4
 - Preview thumbnails when scrubbing through a video, on Kodi 23 with the Kontell changes.
 

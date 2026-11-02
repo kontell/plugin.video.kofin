@@ -529,5 +529,8 @@
   "#30883": "Rimozione di versioni ed extra eliminati",
   "#30884": "Sincronizzazione fine",
   "#30885": "Kodi importa uno speciale solo se ha un numero di episodio. Assegnane uno sul server o riproducili dall'add-on Kofin.",
-  "#30887": "Disponibile"
+  "#30887": "Disponibile",
+  "#30888": "questo profilo contiene una libreria di un Kofin precedente",
+  "#30889": "Kofin non può usarla. Chiudi Kodi ed elimina questi elementi da %s:",
+  "#30890": "Questo svuota l'intera libreria video e musicale di questo profilo, non solo quella di Kofin. Kodi crea nuovi database al prossimo avvio. Poi scegli le librerie da sincronizzare."
 }

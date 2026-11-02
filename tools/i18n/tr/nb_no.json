@@ -529,5 +529,8 @@
   "#30883": "Fjerning av fjernede versjoner og ekstramateriale",
   "#30884": "Finsynkronisering",
   "#30885": "Kodi importerer bare en spesialepisode som har episodenummer. Gi dem et på serveren, eller spill dem av fra Kofin-tillegget.",
-  "#30887": "Tilgjengelig"
+  "#30887": "Tilgjengelig",
+  "#30888": "denne profilen inneholder et bibliotek fra en eldre Kofin",
+  "#30889": "Kofin kan ikke bruke det. Lukk Kodi og slett disse fra %s:",
+  "#30890": "Dette tømmer hele video- og musikkbiblioteket i denne profilen, ikke bare Kofins. Kodi lager nye databaser neste gang det starter. Velg deretter bibliotekene som skal synkroniseres."
 }

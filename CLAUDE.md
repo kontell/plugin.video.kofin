@@ -352,7 +352,10 @@ What remains is kofin's own:
   SQL build's two read-only lines, `syncStatus` and `syncedLibraries`, are gone. The
   state is written by a listing as well as by the pass, with the names of the libraries
   listed for the first time: the catalogue has no row of one until its listing is published,
-  and a first selection read "Done" for as long as the server was being asked.
+  and a first selection read "Done" for as long as the server was being asked. With sync off
+  over what the SQL build left (`catalogue.EarlierLibrary`) the document says so and the button
+  opens the migration instructions: the catalogue refuses to be read in that state, so the
+  report could only fail, and the one state that needed its message raised a Python error.
 - **Kodi's player owns the row of what it plays.** The server counts a play when it starts
   (and marks a song played there and then), so its user data for the playing item, written
   to Kodi during the play, was counted again by Kodi's own player at the end: one play of a

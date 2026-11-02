@@ -529,5 +529,8 @@
   "#30883": "Odstraňování odebraných verzí a bonusů",
   "#30884": "Jemná synchronizace",
   "#30885": "Kodi importuje speciál, jen pokud má číslo epizody. Přidělte jim je na serveru, nebo je přehrajte z doplňku Kofin.",
-  "#30887": "K dispozici"
+  "#30887": "K dispozici",
+  "#30888": "tento profil obsahuje knihovnu ze starší verze Kofin",
+  "#30889": "Kofin ji nemůže použít. Zavřete Kodi a smažte z %s toto:",
+  "#30890": "Tím se vyprázdní celá knihovna videa a hudby tohoto profilu, nejen ta z Kofin. Kodi při dalším spuštění vytvoří nové databáze. Pak vyberte knihovny k synchronizaci."
 }

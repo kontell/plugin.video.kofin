@@ -2356,6 +2356,18 @@ msgctxt "#30887"
 msgid "Available"
 msgstr "可用"
 
+msgctxt "#30888"
+msgid "this profile holds a library from an older Kofin"
+msgstr "此設定檔包含舊版 Kofin 的媒體庫"
+
+msgctxt "#30889"
+msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
+msgstr "Kofin 無法使用它。請關閉 Kodi，然後從 %s 刪除以下內容："
+
+msgctxt "#30890"
+msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
+msgstr "這會清空此設定檔的全部視訊和音樂媒體庫，而不僅是 Kofin 的內容。Kodi 下次啟動時會建立新的資料庫。然後選擇要同步的媒體庫。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此預覽版暫不支援"

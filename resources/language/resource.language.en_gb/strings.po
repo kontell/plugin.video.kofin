@@ -2534,6 +2534,21 @@ msgctxt "#30887"
 msgid "Available"
 msgstr ""
 
+# The reason in #30420, and the instructions the Library status button opens
+# when that is why sync is off. %s in #30889 is the profile's folder; the
+# files follow it, and the URL of the wiki page follows #30890.
+msgctxt "#30888"
+msgid "this profile holds a library from an older Kofin"
+msgstr ""
+
+msgctxt "#30889"
+msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
+msgstr ""
+
+msgctxt "#30890"
+msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
+msgstr ""
+
 # 30990 — retired: the preview notice. Kept, never reused, for the reason
 # given at #30744.
 msgctxt "#30990"

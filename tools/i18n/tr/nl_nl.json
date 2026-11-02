@@ -529,5 +529,8 @@
   "#30883": "Verwijderen van verwijderde versies en extra's",
   "#30884": "Fijnsynchronisatie",
   "#30885": "Kodi importeert een special alleen met een afleveringsnummer. Geef ze er een op de server of speel ze af vanuit de Kofin-add-on.",
-  "#30887": "Beschikbaar"
+  "#30887": "Beschikbaar",
+  "#30888": "dit profiel bevat een bibliotheek van een oudere Kofin",
+  "#30889": "Kofin kan die niet gebruiken. Sluit Kodi en verwijder deze uit %s:",
+  "#30890": "Dit maakt de hele video- en muziekbibliotheek van dit profiel leeg, niet alleen die van Kofin. Kodi maakt bij de volgende start nieuwe databases aan. Kies daarna de bibliotheken om te synchroniseren."
 }

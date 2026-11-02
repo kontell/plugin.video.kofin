@@ -8,7 +8,7 @@ from kofin.sync import private
 from kofin.sync.backends.api import metadata, native, patch, paths
 from kofin.sync.backends.api.native import Native
 from kofin.sync.backends.api.store import Store, namespace
-from kofin.sync.catalogue import BackendMismatch
+from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     LIB2,
@@ -941,7 +941,7 @@ def test_first_run_gate_refuses_what_an_earlier_kofin_filed(
     item twice, and nothing would ever take the first copy away."""
     held = kodi.songs if table == "songs" else kodi.rows[table]
     held[900] = dict(row, uniqueid={}, albumid=0)
-    with pytest.raises(BackendMismatch, match="earlier Kofin"):
+    with pytest.raises(EarlierLibrary, match="earlier Kofin"):
         backend.setup()
     assert not store.prepared()
     held.clear()
@@ -952,8 +952,10 @@ def test_first_run_gate_refuses_what_an_earlier_kofin_filed(
 def test_first_run_gate_refuses_another_namespace(store, backend, kodi):
     backend.setup()
     other = Native(Store(namespace("another", "user")))
-    with pytest.raises(BackendMismatch, match="another"):
+    with pytest.raises(BackendMismatch, match="another") as raised:
         other.setup()
+    # Not a library the migration instructions would help with.
+    assert not isinstance(raised.value, EarlierLibrary)
 
 
 def test_a_library_that_is_not_kofins_is_no_reason_to_refuse(store, backend, kodi):

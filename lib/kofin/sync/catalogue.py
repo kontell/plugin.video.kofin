@@ -17,6 +17,12 @@ class BackendMismatch(Exception):
     """A branch switch requires a fresh native library and cleared mappings."""
 
 
+class EarlierLibrary(BackendMismatch):
+    """What the SQL build left, in ``kofin.db`` or in Kodi's library. This
+    build adopts none of it, and the way out is the same from all of it: the
+    Library status button gives the instructions (``status.show``)."""
+
+
 def claim_backend(cursor, backend: str) -> None:
     if backend not in ("sql", "api"):
         raise ValueError("unknown backend")
@@ -28,7 +34,7 @@ def claim_backend(cursor, backend: str) -> None:
     ).fetchone()
     if row is not None:
         if row != (backend, 1):
-            raise BackendMismatch(
+            raise EarlierLibrary(
                 "sync state belongs to another backend/version; start with fresh sync state"
             )
         return
@@ -36,7 +42,7 @@ def claim_backend(cursor, backend: str) -> None:
     # available; only an adapter claiming these mappings is refused.
     legacy = cursor.execute("SELECT 1 FROM jellyfin LIMIT 1").fetchone()
     if legacy and backend != "sql":
-        raise BackendMismatch("legacy SQL mappings require a fresh library")
+        raise EarlierLibrary("legacy SQL mappings require a fresh library")
     cursor.execute("INSERT INTO backend_state VALUES (1, ?, 1)", (backend,))
 
 
