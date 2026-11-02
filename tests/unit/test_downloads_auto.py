@@ -48,18 +48,78 @@ def test_next_episode_ids_walks_forward_filtering(env):
             episode("e1"),  # before current: never considered
             episode("e2"),  # current
             episode("e3", played=True),  # watched: skipped
-            episode("e4"),  # live in the store: skipped
+            episode("e4"),  # live in the store: counts, nothing to queue
             episode("e5", downloadable=False),  # server refuses: skipped
             episode("e6"),
             episode("e7"),
             episode("e8"),
         ]
     )
-    assert auto.next_episode_ids(api, "s1", "e2", 2) == ["e6", "e7"]
+    assert auto.next_episode_ids(api, "s1", "e2", 2) == ["e6"]
+    assert auto.next_episode_ids(api, "s1", "e2", 3) == ["e6", "e7"]
     # The 10.11 arity rule: two SortBys, two SortOrders.
     params = api.item_params[0]
     assert params["SortBy"] == "ParentIndexNumber,IndexNumber"
     assert params["SortOrder"] == "Ascending,Ascending"
+
+
+def test_the_keep_is_reached_with_nothing_to_queue(env):
+    for held in ("e3", "e4"):
+        store.queue(store.Download(jellyfin_id=held, queued_at=100))
+    api = FakeAutoApi([episode("e2"), episode("e3"), episode("e4"), episode("e5")])
+
+    assert auto.next_episode_ids(api, "s1", "e2", 2) == []
+
+
+def test_the_keep_is_held_and_not_grown_as_a_show_is_watched(env):
+    """Each episode watched moves the window one on, so it queues one."""
+    for held in ("e3", "e4"):
+        store.queue(store.Download(jellyfin_id=held, queued_at=100))
+    api = FakeAutoApi([episode("e%d" % index) for index in range(3, 9)])
+
+    assert auto.next_episode_ids(api, "s1", "e3", 2) == ["e5"]
+
+
+def test_the_gap_nearest_the_current_episode_is_filled_first(env):
+    store.queue(store.Download(jellyfin_id="e4", queued_at=100))
+    api = FakeAutoApi([episode("e2"), episode("e3"), episode("e4"), episode("e5")])
+
+    assert auto.next_episode_ids(api, "s1", "e2", 2) == ["e3"]
+
+
+def test_a_held_episode_counts_though_the_server_now_refuses_it(env):
+    store.queue(store.Download(jellyfin_id="e3", queued_at=100))
+    api = FakeAutoApi([episode("e2"), episode("e3", downloadable=False), episode("e4")])
+
+    assert auto.next_episode_ids(api, "s1", "e2", 1) == []
+
+
+def test_a_watched_download_does_not_count_towards_the_keep(env):
+    store.queue(store.Download(jellyfin_id="e3", queued_at=100))
+    api = FakeAutoApi([episode("e2"), episode("e3", played=True), episode("e4")])
+
+    assert auto.next_episode_ids(api, "s1", "e2", 1) == ["e4"]
+
+
+def test_a_failed_download_is_asked_for_again(env):
+    store.queue(store.Download(jellyfin_id="e3", queued_at=100))
+    store.fail("e3", "boom")
+    api = FakeAutoApi([episode("e2"), episode("e3"), episode("e4")])
+
+    assert auto.next_episode_ids(api, "s1", "e2", 1) == ["e3"]
+
+
+def test_trigger_next_queues_nothing_when_the_keep_is_held(env):
+    FakeAddon.store["downloadsAutoNext"] = "true"
+    for held in ("e3", "e4"):
+        store.queue(store.Download(jellyfin_id=held, queued_at=100))
+    store.queue(store.Download(jellyfin_id="e2", queued_at=100))
+    store.claim()
+    store.finish("e2", "Shows/S/Season 01/e2.mkv", "mkv", 1)
+    api = FakeAutoApi([episode("e2"), episode("e3"), episode("e4"), episode("e5")])
+
+    assert auto.trigger_next(api, {"Id": "e2", "SeriesId": "s1"}) is False
+    assert env == []
 
 
 def test_trigger_next_gates_then_queues_with_the_series_origin(env):

@@ -81,12 +81,13 @@ def _live_ids() -> set:
 
 
 def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> List[str]:
-    """The next ``keep`` unwatched, downloadable episodes after the current.
+    """What to queue so that the next ``keep`` unwatched episodes are held.
 
     A paged listing in airing order — ``ParentIndexNumber,IndexNumber``,
     both SortOrders stated (the 10.11 arity rule) — walked forward from the
-    current episode. Not NextUp: at 80% it still answers the current
-    episode.
+    current episode. An episode already in the store fills a place of the
+    keep with nothing to queue. Not NextUp: at 80% it still answers the
+    current episode.
     """
     if keep <= 0:
         return []
@@ -114,6 +115,7 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
     following = False
     live = _live_ids()
     wanted: List[str] = []
+    ahead = 0
     for episode in episodes:
         episode_id = str(episode.get("Id") or "")
         if not following:
@@ -121,12 +123,12 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
             continue
         if (episode.get("UserData") or {}).get("Played"):
             continue
-        if episode.get("CanDownload") is False:
-            continue
-        if episode_id in live:
-            continue
-        wanted.append(episode_id)
-        if len(wanted) >= keep:
+        if episode_id not in live:
+            if episode.get("CanDownload") is False:
+                continue
+            wanted.append(episode_id)
+        ahead += 1
+        if ahead >= keep:
             break
     return wanted
 
