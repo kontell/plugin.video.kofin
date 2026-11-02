@@ -737,7 +737,7 @@ def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
 # -- auto-next and the remove-after-watching offer ----------------------------
 
 
-def test_auto_next_fires_once_at_eighty_percent(monkeypatch):
+def test_auto_next_fires_once_at_half_way(monkeypatch):
     player, _api = make_player(monkeypatch)
     from kofin.service import player as player_module
 
@@ -750,14 +750,14 @@ def test_auto_next_fires_once_at_eighty_percent(monkeypatch):
         "Type": "Episode",
         "SeriesId": "s1",
         "Runtime": 1000 * 10_000_000,
-        "CurrentPosition": 750.0,
+        "CurrentPosition": 450.0,
         "MediaSourceId": "src",
         "PlaySessionId": "ps",
     }
     player._maybe_auto_next()
-    assert fired == []  # 75%: not yet
+    assert fired == []  # 45%: not yet
 
-    player._item["CurrentPosition"] = 810.0
+    player._item["CurrentPosition"] = 510.0
     player._maybe_auto_next()
     player._maybe_auto_next()
     assert fired == [1]  # once, latched

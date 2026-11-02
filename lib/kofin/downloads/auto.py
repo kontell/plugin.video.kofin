@@ -3,7 +3,7 @@
 Both triggers end in the same guarded ``DOWNLOAD_ADD`` the context menu
 uses, carrying an ``auto`` origin so the retention sweep knows what the
 system fetched on its own; neither ever touches the manager directly. The
-callers own *when* — the player's 80% latch, the library's new-content
+callers own *when* — the player's trigger latch, the library's new-content
 drain — and this module owns *what*: which ids, which gates, which cap.
 """
 
@@ -18,7 +18,7 @@ LOG = Logger(__name__)
 JsonDict = Dict[str, Any]
 
 # The playback fraction that triggers the next-episode lookup.
-NEXT_TRIGGER_RATIO = 0.8
+NEXT_TRIGGER_RATIO = 0.5
 
 # A sync cycle adding more than this many items queues none of them: a
 # server-side bulk import is almost never "I want all of this offline", and
@@ -86,8 +86,8 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
     A paged listing in airing order — ``ParentIndexNumber,IndexNumber``,
     both SortOrders stated (the 10.11 arity rule) — walked forward from the
     current episode. An episode already in the store fills a place of the
-    keep with nothing to queue. Not NextUp: at 80% it still answers the
-    current episode.
+    keep with nothing to queue. Not NextUp: at the trigger it still answers
+    the current episode.
     """
     if keep <= 0:
         return []
@@ -134,7 +134,7 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
 
 
 def trigger_next(api: Any, item: JsonDict) -> bool:
-    """The 80% crossing of a downloaded episode: queue the keep-ahead.
+    """A downloaded episode crossing the trigger: queue the keep-ahead.
 
     True when something was queued. The caller latches its one-shot before
     calling — a failed resolve must not retry every tick.

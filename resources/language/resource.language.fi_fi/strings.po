@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "Lataa seuraavat jaksot automaattisesti"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "Kun katsot ladattua jaksoa, sarjan seuraavat katsomattomat jaksot asetetaan latausjonoon 80% kohdalla."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "Kun katsot ladattua jaksoa, sarjan seuraavat katsomattomat jaksot asetetaan latausjonoon 50% kohdalla."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"
