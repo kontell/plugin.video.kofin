@@ -365,8 +365,11 @@ def _dialog(monkeypatch, store, answers, text=lambda i: "L%d" % i):
 EARLIER = {
     30420: "Library sync is off: %s",
     30888: "an older library",
-    30889: "Delete from %s:",
-    30890: "Then sync.",
+    30889: "Go back:",
+    30890: "Pick it.",
+    30891: "Clean it.",
+    30892: "Come forward.",
+    30893: "Or delete by hand:",
 }
 
 
@@ -374,7 +377,6 @@ def test_a_library_of_the_sql_build_opens_the_way_out_and_no_report(store, monke
     """The catalogue refuses to be read in this state, so the report could
     only fail. The instructions are all the button has to give."""
     monkeypatch.setattr(status.settings, "localized", EARLIER.get)
-    monkeypatch.setattr(status.xbmcvfs, "translatePath", lambda path: "/profile/")
     with private.Database() as db:
         claim_backend(db.cursor, "api")
         db.cursor.execute("UPDATE backend_state SET backend='sql'")
@@ -389,15 +391,13 @@ def test_a_library_of_the_sql_build_opens_the_way_out_and_no_report(store, monke
             "Library sync is off: an older library",
             "\n".join(
                 (
-                    "Delete from /profile/:",
+                    "Go back:",
                     "",
-                    "Database/MyVideos*.db",
-                    "Database/MyMusic*.db",
-                    "addon_data/plugin.video.kofin/kofin.db*",
-                    "addon_data/plugin.video.kofin/sync.json",
+                    "1. Pick it.",
+                    "2. Clean it.",
+                    "3. Come forward.",
                     "",
-                    "Then sync.",
-                    "",
+                    "Or delete by hand:",
                     "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions",
                 )
             ),

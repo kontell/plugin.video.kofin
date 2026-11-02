@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "questo profilo contiene una libreria di un Kofin precedente"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin non può usarla. Chiudi Kodi ed elimina questi elementi da %s:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin non può usarla. Per pulirla, torna a Kofin 0.29:"
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "Questo svuota l'intera libreria video e musicale di questo profilo, non solo quella di Kofin. Kodi crea nuovi database al prossimo avvio. Poi scegli le librerie da sincronizzare."
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "Apri Kofin nell'elenco degli add-on di Kodi, seleziona Versioni e scegli 0.29."
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "Nelle impostazioni di Kofin, esci dalla scheda Account ed esegui Pulisci i database."
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "Quando Kodi si è riavviato, riapri Kofin, seleziona Versioni e scegli la versione più recente. Poi accedi e scegli le librerie da sincronizzare."
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "In alternativa, chiudi Kodi ed elimina manualmente i suoi database video e musicali, come spiega la wiki di Kofin:"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

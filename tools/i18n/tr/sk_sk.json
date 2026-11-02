@@ -531,6 +531,9 @@
   "#30885": "Kodi importuje špeciál, len ak má číslo epizódy. Priraďte im ho na serveri alebo ich prehrajte z doplnku Kofin.",
   "#30887": "K dispozícii",
   "#30888": "tento profil obsahuje knižnicu zo staršej verzie Kofin",
-  "#30889": "Kofin ju nemôže použiť. Zatvorte Kodi a odstráňte z %s toto:",
-  "#30890": "Tým sa vyprázdni celá knižnica videa a hudby tohto profilu, nielen tá z Kofin. Kodi pri ďalšom spustení vytvorí nové databázy. Potom vyberte knižnice na synchronizáciu."
+  "#30889": "Kofin ju nemôže použiť. Ak ju chcete vyčistiť, vráťte sa na Kofin 0.29:",
+  "#30890": "Otvorte Kofin v zozname doplnkov Kodi, vyberte Verzie a zvoľte 0.29.",
+  "#30891": "V nastaveniach Kofin sa na karte Účet odhláste a spustite Vyčistiť databázy.",
+  "#30892": "Po reštarte Kodi znova otvorte Kofin, vyberte Verzie a zvoľte najnovšiu verziu. Potom sa prihláste a vyberte knižnice na synchronizáciu.",
+  "#30893": "Prípadne zatvorte Kodi a odstráňte jeho databázy videa a hudby ručne, ako popisuje wiki Kofin:"
 }

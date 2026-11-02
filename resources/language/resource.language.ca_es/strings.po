@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "aquest perfil conté una biblioteca d'un Kofin antic"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin no la pot fer servir. Tanca Kodi i elimina això de %s:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin no la pot fer servir. Per netejar-la, torna a Kofin 0.29:"
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "Això buida tota la biblioteca de vídeo i música d'aquest perfil, no només la de Kofin. Kodi crea bases de dades noves en tornar a iniciar-se. Després tria les biblioteques per sincronitzar."
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "Obre Kofin a la llista de complements de Kodi, selecciona Versions i tria 0.29."
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "A la configuració de Kofin, tanca la sessió a la pestanya Compte i executa Neteja les bases de dades."
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "Quan Kodi s'hagi reiniciat, torna a obrir Kofin, selecciona Versions i tria la versió més nova. Després inicia la sessió i tria les biblioteques per sincronitzar."
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

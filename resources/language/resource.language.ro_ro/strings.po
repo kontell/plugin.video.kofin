@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "acest profil conține o bibliotecă dintr-un Kofin mai vechi"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin nu o poate folosi. Închide Kodi și șterge acestea din %s:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin nu o poate folosi. Pentru a o curăța, revino la Kofin 0.29:"
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "Astfel se golește toată biblioteca video și muzicală a acestui profil, nu doar cea Kofin. Kodi creează baze de date noi la următoarea pornire. Apoi alege bibliotecile de sincronizat."
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "Deschide Kofin în lista de suplimente din Kodi, selectează Versiuni și alege 0.29."
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "În setările Kofin, deconectează-te din fila Cont și rulează Curăță bazele de date."
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "După repornirea Kodi, deschide din nou Kofin, selectează Versiuni și alege cea mai nouă versiune. Apoi conectează-te și alege bibliotecile de sincronizat."
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

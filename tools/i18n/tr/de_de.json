@@ -531,6 +531,9 @@
   "#30885": "Kodi importiert ein Special nur mit Episodennummer. Gib ihnen eine auf dem Server oder spiele sie im Kofin-Add-on ab.",
   "#30887": "Verfügbar",
   "#30888": "dieses Profil enthält eine Bibliothek aus einem älteren Kofin",
-  "#30889": "Kofin kann sie nicht verwenden. Beende Kodi und lösche diese Dateien aus %s:",
-  "#30890": "Das leert die gesamte Video- und Musikbibliothek dieses Profils, nicht nur die von Kofin. Kodi legt beim nächsten Start neue Datenbanken an. Wähle danach die Bibliotheken zum Synchronisieren."
+  "#30889": "Kofin kann sie nicht verwenden. Geh zum Bereinigen zurück zu Kofin 0.29:",
+  "#30890": "Öffne Kofin in Kodis Add-on-Liste, wähle Versionen und dann 0.29.",
+  "#30891": "Melde dich in den Kofin-Einstellungen im Tab Konto ab und führe Datenbanken bereinigen aus.",
+  "#30892": "Öffne Kofin nach dem Neustart von Kodi erneut, wähle Versionen und dann die neueste Version. Melde dich anschließend an und wähle die Bibliotheken zum Synchronisieren.",
+  "#30893": "Alternativ kannst du Kodi beenden und seine Video- und Musikdatenbanken von Hand löschen, wie im Kofin-Wiki beschrieben:"
 }

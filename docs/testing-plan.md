@@ -431,4 +431,5 @@ A copy of a real profile: 23,735 songs, 8,338 of them played on the server. Kofi
 - [REPRO] Before the fix, a profile whose `kofin.db` is marked `sql`: **Library status** raised `BackendMismatch` from `store.summary()` and showed Kodi's script error.
 - [PASS] After the fix, the same profile: **Library status** opened the migration instructions in a text viewer on two starts, with no Python error logged, and Back returned to the settings.
 - [PASS] After the clean start in the instructions: the service reported `private_state=ready`, **Library status** opened the report, and the music import ran.
+- [PASS] The instructions reworded to go back to 0.29 first, on a throwaway profile marked `sql`: the text viewer opened with every line in order, no script error was logged, and Back closed it.
 - [PENDING] A profile with `kofin.db` deleted but the SQL build's rows still in Kodi: the same instructions, once the library thread has found them.

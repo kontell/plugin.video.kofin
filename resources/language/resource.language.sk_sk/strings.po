@@ -2361,12 +2361,24 @@ msgid "this profile holds a library from an older Kofin"
 msgstr "tento profil obsahuje knižnicu zo staršej verzie Kofin"
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
-msgstr "Kofin ju nemôže použiť. Zatvorte Kodi a odstráňte z %s toto:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
+msgstr "Kofin ju nemôže použiť. Ak ju chcete vyčistiť, vráťte sa na Kofin 0.29:"
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
-msgstr "Tým sa vyprázdni celá knižnica videa a hudby tohto profilu, nielen tá z Kofin. Kodi pri ďalšom spustení vytvorí nové databázy. Potom vyberte knižnice na synchronizáciu."
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr "Otvorte Kofin v zozname doplnkov Kodi, vyberte Verzie a zvoľte 0.29."
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr "V nastaveniach Kofin sa na karte Účet odhláste a spustite Vyčistiť databázy."
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr "Po reštarte Kodi znova otvorte Kofin, vyberte Verzie a zvoľte najnovšiu verziu. Potom sa prihláste a vyberte knižnice na synchronizáciu."
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
+msgstr "Prípadne zatvorte Kodi a odstráňte jeho databázy videa a hudby ručne, ako popisuje wiki Kofin:"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

@@ -531,6 +531,9 @@
   "#30885": "O Kodi só importa um especial se tiver número de episódio. Atribua-lhes um no servidor ou reproduza-os a partir do extra Kofin.",
   "#30887": "Disponível",
   "#30888": "este perfil contém uma biblioteca de um Kofin antigo",
-  "#30889": "O Kofin não a pode usar. Feche o Kodi e elimine estes itens de %s:",
-  "#30890": "Isto esvazia toda a biblioteca de vídeo e música deste perfil, não apenas a do Kofin. O Kodi cria novas bases de dados no próximo arranque. Depois selecione as bibliotecas a sincronizar."
+  "#30889": "O Kofin não a pode usar. Para a limpar, volte ao Kofin 0.29:",
+  "#30890": "Abra o Kofin na lista de extras do Kodi, selecione Versões e escolha 0.29.",
+  "#30891": "Nas definições do Kofin, termine a sessão no separador Conta e execute Limpar as bases de dados.",
+  "#30892": "Quando o Kodi reiniciar, abra novamente o Kofin, selecione Versões e escolha a versão mais recente. Depois inicie sessão e selecione as bibliotecas a sincronizar.",
+  "#30893": "Também pode fechar o Kodi e eliminar manualmente as bases de dados de vídeo e música, como explica a wiki do Kofin:"
 }

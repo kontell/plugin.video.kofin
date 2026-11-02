@@ -531,6 +531,9 @@
   "#30885": "Kodi tuo erikoisjakson vain, jos sillä on jaksonumero. Anna niille numero palvelimella tai toista ne Kofin-lisäosasta.",
   "#30887": "Käytettävissä",
   "#30888": "tässä profiilissa on vanhemman Kofinin kirjasto",
-  "#30889": "Kofin ei voi käyttää sitä. Sulje Kodi ja poista nämä kansiosta %s:",
-  "#30890": "Tämä tyhjentää tämän profiilin koko video- ja musiikkikirjaston, ei vain Kofinin osaa. Kodi luo uudet tietokannat seuraavan käynnistyksen yhteydessä. Valitse sen jälkeen synkronoitavat kirjastot."
+  "#30889": "Kofin ei voi käyttää sitä. Palaa sen puhdistamiseksi Kofin 0.29:ään:",
+  "#30890": "Avaa Kofin Kodin lisäosaluettelossa, valitse Versiot ja sitten 0.29.",
+  "#30891": "Kirjaudu ulos Kofinin asetusten Tili-välilehdellä ja suorita Puhdista tietokannat.",
+  "#30892": "Kun Kodi on käynnistynyt uudelleen, avaa Kofin uudelleen, valitse Versiot ja sitten uusin versio. Kirjaudu sen jälkeen sisään ja valitse synkronoitavat kirjastot.",
+  "#30893": "Voit myös sulkea Kodin ja poistaa sen video- ja musiikkitietokannat käsin Kofin-wikin ohjeiden mukaan:"
 }

@@ -2535,18 +2535,31 @@ msgid "Available"
 msgstr ""
 
 # The reason in #30420, and the instructions the Library status button opens
-# when that is why sync is off. %s in #30889 is the profile's folder; the
-# files follow it, and the URL of the wiki page follows #30890.
+# when that is why sync is off: #30889, the numbered steps #30890 to #30892,
+# and #30893, which the URL of the wiki page follows. Versions is Kodi's #24069,
+# and Account and Clean databases are labels the viewer has on screen.
 msgctxt "#30888"
 msgid "this profile holds a library from an older Kofin"
 msgstr ""
 
 msgctxt "#30889"
-msgid "Kofin cannot use it. Close Kodi and delete these from %s:"
+msgid "Kofin cannot use it. To clean it, go back to Kofin 0.29:"
 msgstr ""
 
 msgctxt "#30890"
-msgid "This empties the whole video and music library of this profile, not only Kofin's. Kodi makes new databases when it next starts. Then choose the libraries to sync."
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29."
+msgstr ""
+
+msgctxt "#30891"
+msgid "In Kofin's settings, log out on the Account tab and run Clean databases."
+msgstr ""
+
+msgctxt "#30892"
+msgid "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync."
+msgstr ""
+
+msgctxt "#30893"
+msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
 msgstr ""
 
 # 30990 — retired: the preview notice. Kept, never reused, for the reason

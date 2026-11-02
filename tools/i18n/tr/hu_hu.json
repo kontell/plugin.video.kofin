@@ -531,6 +531,9 @@
   "#30885": "A Kodi csak epizódszámmal rendelkező különkiadást importál. Adjon nekik számot a kiszolgálón, vagy játssza le őket a Kofin bővítményből.",
   "#30887": "Elérhető",
   "#30888": "ez a profil egy régebbi Kofin médiatárát tartalmazza",
-  "#30889": "A Kofin nem tudja használni. Zárja be a Kodit, és törölje ezeket innen: %s",
-  "#30890": "Ez a profil teljes videó- és zenei médiatárát kiüríti, nem csak a Kofinét. A Kodi a következő indításkor új adatbázisokat hoz létre. Ezután válassza ki a szinkronizálandó médiatárakat."
+  "#30889": "A Kofin nem tudja használni. A kitakarításhoz térjen vissza a Kofin 0.29-es verziójára:",
+  "#30890": "Nyissa meg a Kofint a Kodi bővítménylistájában, válassza a Verziók gombot, majd a 0.29-et.",
+  "#30891": "A Kofin beállításaiban jelentkezzen ki a Fiók lapon, és futtassa az Adatbázisok kitakarítása műveletet.",
+  "#30892": "Miután a Kodi újraindult, nyissa meg ismét a Kofint, válassza a Verziók gombot, majd a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat.",
+  "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:"
 }
