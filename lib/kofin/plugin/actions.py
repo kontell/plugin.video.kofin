@@ -15,6 +15,7 @@ from kofin.plugin.listitems import play_path
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
+MIGRATION_PAGE = "https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions"
 
 
 def _api() -> Api:
@@ -116,6 +117,31 @@ def delete_item(request: Request) -> None:
 
 def open_settings(request: Request) -> None:
     xbmc.executebuiltin("Addon.OpenSettings(plugin.video.kofin)")
+
+
+def readme(request: Request) -> None:
+    """Account tab button: which Kodi stays on this version, and the way to
+    0.96, which cannot use a library this version filed."""
+    text = settings.localized
+    xbmcgui.Dialog().textviewer(
+        text(30856),
+        "\n".join(
+            (
+                text(30858),
+                "",
+                text(30859),
+                "1. " + text(30860),
+                "2. " + text(30861),
+                "3. " + text(30862),
+                "",
+                text(30863),
+                "- " + text(30864),
+                "- " + text(30865),
+                "",
+                MIGRATION_PAGE,
+            )
+        ),
+    )
 
 
 # -- Library tab buttons -------------------------------------------------------

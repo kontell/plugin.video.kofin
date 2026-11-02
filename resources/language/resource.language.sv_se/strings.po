@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Granska prenumererade musikbibliotek; avmarkera för att sluta synkronisera nedladdningar."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Vad Kofin 0.29 betyder för din Kodi-version och vad du ska göra innan du uppgraderar."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" stannar på den här versionen. Kofin 0.96 och senare kräver Kodi 22 eller senare."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Så här uppgraderar du:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Logga ut på fliken Konto."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Kör Rensa databaser, som visas där när du har loggat ut. Kodi startar om när det är klart."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "Öppna Kofin i Kodis lista över tillägg, välj Uppdatera eller Versioner och installera den senaste versionen. Logga sedan in och välj bibliotek att synka."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Om Kofin redan har uppgraderats till 0.96 utan rensning förblir bibliotekssynken av. Gör något av följande för att åtgärda det:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Öppna Kofin i Kodis lista över tillägg, välj Versioner och välj 0.29. Följ sedan stegen ovan."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Ta bort databaserna för hand, som Kofin-wikin beskriver."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Inte tillgängligt i denna förhandsversion"

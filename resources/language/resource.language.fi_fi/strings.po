@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Tarkastele tilattuja musiikkikirjastoja; poista valinta lopettaaksesi latausten synkronoinnin."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Mitä Kofin 0.29 tarkoittaa Kodi-versiollesi ja mitä tehdä ennen päivitystä."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" pysyy tässä versiossa. Kofin 0.96 ja uudemmat vaativat Kodi 22:n tai uudemman."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Päivitä näin:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Kirjaudu ulos Tili-välilehdellä."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Suorita Puhdista tietokannat, joka tulee sinne näkyviin, kun olet kirjautunut ulos. Kodi käynnistyy uudelleen, kun se on valmis."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "Avaa Kofin Kodin lisäosaluettelossa, valitse Päivitä tai Versiot ja asenna uusin versio. Kirjaudu sen jälkeen sisään ja valitse synkronoitavat kirjastot."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Jos Kofin on jo päivittynyt versioon 0.96 ilman puhdistusta, kirjaston synkronointi pysyy pois päältä. Korjaa tilanne jommallakummalla tavalla:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Avaa Kofin Kodin lisäosaluettelossa, valitse Versiot ja sitten 0.29. Noudata sen jälkeen yllä olevia vaiheita."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Poista tietokannat käsin Kofin-wikin ohjeiden mukaan."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ei saatavilla tässä esiversiossa"

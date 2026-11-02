@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Δείτε τις συνδρομημένες μουσικές βιβλιοθήκες· αποεπιλέξτε για να σταματήσει ο συγχρονισμός λήψεων."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Τι σημαίνει το Kofin 0.29 για την έκδοση του Kodi σας και τι να κάνετε πριν από την αναβάθμιση."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Το Kodi 21 \"Omega\" παραμένει σε αυτή την έκδοση. Το Kofin 0.96 και νεότερα χρειάζονται Kodi 22 ή νεότερο."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "Για αναβάθμιση:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Αποσυνδεθείτε από την καρτέλα Λογαριασμός."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Εκτελέστε τον Καθαρισμό βάσεων δεδομένων, που εμφανίζεται εκεί μόλις αποσυνδεθείτε. Το Kodi επανεκκινείται όταν ολοκληρωθεί."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "Στη λίστα προσθέτων του Kodi, ανοίξτε το Kofin, επιλέξτε Ενημέρωση ή Εκδόσεις και εγκαταστήστε τη νεότερη έκδοση. Στη συνέχεια συνδεθείτε και επιλέξτε τις βιβλιοθήκες για συγχρονισμό."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Αν το Kofin έχει ήδη αναβαθμιστεί σε 0.96 χωρίς καθαρισμό, ο συγχρονισμός της βιβλιοθήκης παραμένει ανενεργός. Για να το διορθώσετε, κάντε ένα από τα εξής:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Ανοίξτε το Kofin στη λίστα προσθέτων του Kodi, επιλέξτε Εκδόσεις και διαλέξτε την 0.29. Στη συνέχεια ακολουθήστε τα παραπάνω βήματα."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Διαγράψτε χειροκίνητα τις βάσεις δεδομένων, όπως περιγράφει το wiki του Kofin."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Δεν διατίθεται σε αυτή τη δοκιμαστική έκδοση"

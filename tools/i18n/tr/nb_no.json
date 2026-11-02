@@ -498,5 +498,14 @@
   "#30853": "Innhold ikke lastet ned",
   "#30854": "Se gjennom abonnerte spillelister; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
   "#30855": "Se gjennom abonnerte musikkbiblioteker; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
+  "#30857": "Hva Kofin 0.29 betyr for Kodi-versjonen din, og hva du må gjøre før du oppgraderer.",
+  "#30858": "Kodi 21 \"Omega\" blir på denne versjonen. Kofin 0.96 og nyere krever Kodi 22 eller nyere.",
+  "#30859": "Slik oppgraderer du:",
+  "#30860": "Logg ut på Konto-fanen.",
+  "#30861": "Kjør Rydd databasene, som vises der når du er logget ut. Kodi starter på nytt når det er ferdig.",
+  "#30862": "Åpne Kofin i Kodis liste over tillegg, velg Oppdater eller Versjoner og installer den nyeste versjonen. Logg deretter inn og velg bibliotekene som skal synkroniseres.",
+  "#30863": "Hvis Kofin allerede er oppgradert til 0.96 uten rydding, forblir biblioteksynkronisering av. Gjør ett av følgende for å fikse det:",
+  "#30864": "Åpne Kofin i Kodis liste over tillegg, velg Versjoner og velg 0.29. Følg deretter trinnene ovenfor.",
+  "#30865": "Slett databasene manuelt, slik Kofin-wikien beskriver.",
   "#30990": "Ikke tilgjengelig i denne prøveversjonen"
 }

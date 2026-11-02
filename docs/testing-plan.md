@@ -399,3 +399,8 @@ Record: `tests/live/results/S-D-polish/RESULT.md`, and `tests/live/results/S-D4/
 - [REPRO] Before fix: Frasier S01E01 → Play Next S01E02 opened `?mode=play&id=355c…&fromstart=1`; the synced S01E02 row had a different path with `dbid=1581`. The unhighlighted browsing row is the reported symptom; Kodi's `CFileItem::IsSamePath` explains the mismatch.
 - [PASS] After fix: Play Next opened the exact `VideoLibrary.GetEpisodeDetails(1581).file` path with `noresume`; `Player.GetItem` reported episode 1581 at that path. In `videodb://tvshows/titles/49/1/`, `Container.ListItemAbsolute(2).IsPlaying` was `True` for "02. Space Quest" and `False` for its neighbours. The service claimed the play normally and logged no overlay action failure.
 - [UNIT] The segment engine checks the synced-path and dynamic-listing fallback commands; the mapping and Kodi file lookup have separate tests. A future live regression gate should repeat the same path and `IsPlaying` checks for a downloaded next episode and an unsynced dynamic listing.
+
+## README button on the Account tab (run 2026-11-02, P1D Kodi 22 RC1 Flatpak, Estuary)
+
+- [PASS] Logged in, the button sits directly above **Use Jellyfin's default tracks**. Logged out, it still shows.
+- [PASS] `?mode=readme` opened the text in Kodi's text viewer, headed README, with every line of the English text in order.

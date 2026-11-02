@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Nézd át a követett zenei könyvtárakat; a kijelölés törlésével leáll a letöltések szinkronizálása."
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Mit jelent a Kofin 0.29 az Ön Kodi-verziójára nézve, és mi a teendő a frissítés előtt."
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "A Kodi 21 \"Omega\" ezen a verzión marad. A Kofin 0.96 és újabb verziókhoz Kodi 22 vagy újabb szükséges."
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "A frissítés menete:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "Jelentkezzen ki a Fiók lapon."
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "Futtassa az Adatbázisok kitakarítása műveletet, amely a kijelentkezés után jelenik meg ott. A Kodi a befejezéskor újraindul."
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "A Kodi bővítménylistájában nyissa meg a Kofint, válassza a Frissítés vagy a Verziók gombot, és telepítse a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat."
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "Ha a Kofin kitakarítás nélkül már 0.96-ra frissült, a médiatár szinkronizálása kikapcsolva marad. A javításhoz válasszon egyet az alábbiak közül:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Nyissa meg a Kofint a Kodi bővítménylistájában, válassza a Verziók gombot és a 0.29-et, majd kövesse a fenti lépéseket."
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Törölje kézzel az adatbázisokat, ahogy a Kofin wiki leírja."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ebben az előzetes verzióban nem érhető el"

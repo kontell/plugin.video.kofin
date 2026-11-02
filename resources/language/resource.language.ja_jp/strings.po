@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "登録中の音楽ライブラリを確認します。チェックを外すとダウンロードの同期を停止します。"
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Kofin 0.29 と Kodi のバージョンの関係、およびアップグレード前に行うこと。"
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" はこのバージョンのままです。Kofin 0.96 以降には Kodi 22 以降が必要です。"
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "アップグレードの手順:"
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "「アカウント」タブでログアウトします。"
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "ログアウトすると表示される「データベースを消去」を実行します。完了すると Kodi が再起動します。"
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "Kodi のアドオン一覧で Kofin を開き、「アップデート」または「バージョン」を選択して最新バージョンをインストールします。その後ログインし、同期するライブラリを選択します。"
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "消去せずに Kofin が 0.96 にアップグレードされた場合、ライブラリ同期は無効のままです。次のいずれかを行ってください:"
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "Kodi のアドオン一覧で Kofin を開き、「バージョン」を選択して 0.29 を選び、上記の手順に従います。"
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "Kofin wiki の説明に従って、データベースを手動で削除します。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "このプレビュー版では利用できません"

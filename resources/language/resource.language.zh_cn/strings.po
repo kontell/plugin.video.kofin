@@ -2228,6 +2228,46 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "查看已订阅的音乐库；取消勾选即可停止同步下载。"
 
+msgctxt "#30856"
+msgid "README"
+msgstr "README"
+
+msgctxt "#30857"
+msgid "What Kofin 0.29 means for your Kodi version, and what to do before upgrading."
+msgstr "Kofin 0.29 对你的 Kodi 版本意味着什么，以及升级前要做什么。"
+
+msgctxt "#30858"
+msgid "Kodi 21 \"Omega\" stays on this version. Kofin 0.96 and later need Kodi 22 or newer."
+msgstr "Kodi 21 \"Omega\" 继续使用此版本。Kofin 0.96 及更高版本需要 Kodi 22 或更高版本。"
+
+msgctxt "#30859"
+msgid "To upgrade:"
+msgstr "升级步骤："
+
+msgctxt "#30860"
+msgid "Log out in the Account tab."
+msgstr "在“账户”选项卡中注销。"
+
+msgctxt "#30861"
+msgid "Run Clean databases, which appears there once you are logged out. Kodi restarts when it finishes."
+msgstr "运行“清理数据库”，注销后它会显示在那里。完成后 Kodi 会重新启动。"
+
+msgctxt "#30862"
+msgid "In Kodi's add-on list, open Kofin, select Update or Versions and install the newest version. Then log in and choose the libraries to sync."
+msgstr "在 Kodi 的插件列表中打开 Kofin，选择“更新”或“版本”，然后安装最新版本。接着登录并选择要同步的媒体库。"
+
+msgctxt "#30863"
+msgid "If Kofin has already upgraded to 0.96 without a clean, library sync stays off. To fix that, do one of these:"
+msgstr "如果 Kofin 未经清理就已升级到 0.96，媒体库同步将保持关闭。要解决此问题，请执行以下操作之一："
+
+msgctxt "#30864"
+msgid "Open Kofin in Kodi's add-on list, select Versions and choose 0.29, then follow the steps above."
+msgstr "在 Kodi 的插件列表中打开 Kofin，选择“版本”并选择 0.29，然后按上述步骤操作。"
+
+msgctxt "#30865"
+msgid "Delete the databases by hand, as described on the Kofin wiki."
+msgstr "按照 Kofin wiki 的说明手动删除数据库。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此预览版暂不支持"

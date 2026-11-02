@@ -498,5 +498,14 @@
   "#30853": "Contenido no descargado",
   "#30854": "Revisa las listas de reproducción suscritas; desmárcalas para dejar de sincronizar las descargas.",
   "#30855": "Revisa las bibliotecas de música suscritas; desmárcalas para dejar de sincronizar las descargas.",
+  "#30857": "Qué significa Kofin 0.29 para tu versión de Kodi y qué hacer antes de actualizar.",
+  "#30858": "Kodi 21 \"Omega\" se queda en esta versión. Kofin 0.96 y posteriores necesitan Kodi 22 o superior.",
+  "#30859": "Para actualizar:",
+  "#30860": "Cierra sesión en la pestaña Cuenta.",
+  "#30861": "Ejecuta Limpiar las bases de datos, que aparece ahí al cerrar sesión. Kodi se reinicia al terminar.",
+  "#30862": "En la lista de complementos de Kodi, abre Kofin, selecciona Actualizar o Versiones e instala la versión más reciente. Después inicia sesión y elige las bibliotecas a sincronizar.",
+  "#30863": "Si Kofin ya se ha actualizado a 0.96 sin limpiar, la sincronización de la biblioteca sigue desactivada. Para solucionarlo, haz una de estas cosas:",
+  "#30864": "Abre Kofin en la lista de complementos de Kodi, selecciona Versiones y elige 0.29. Después sigue los pasos anteriores.",
+  "#30865": "Elimina las bases de datos a mano, como explica la wiki de Kofin.",
   "#30990": "No disponible en esta versión preliminar"
 }

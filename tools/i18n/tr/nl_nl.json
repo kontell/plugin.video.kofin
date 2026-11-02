@@ -498,5 +498,14 @@
   "#30853": "Inhoud niet gedownload",
   "#30854": "Bekijk gevolgde afspeellijsten; vink ze uit om het synchroniseren van downloads te stoppen.",
   "#30855": "Bekijk gevolgde muziekbibliotheken; vink ze uit om het synchroniseren van downloads te stoppen.",
+  "#30857": "Wat Kofin 0.29 betekent voor jouw Kodi-versie en wat je moet doen voor je upgradet.",
+  "#30858": "Kodi 21 \"Omega\" blijft op deze versie. Kofin 0.96 en nieuwer hebben Kodi 22 of nieuwer nodig.",
+  "#30859": "Zo upgrade je:",
+  "#30860": "Meld je af op het tabblad Account.",
+  "#30861": "Voer Databases opschonen uit, dat daar verschijnt zodra je bent afgemeld. Kodi start opnieuw op als het klaar is.",
+  "#30862": "Open Kofin in Kodi's lijst met add-ons, selecteer Update of Versies en installeer de nieuwste versie. Meld je daarna aan en kies de bibliotheken om te synchroniseren.",
+  "#30863": "Als Kofin al zonder opschonen naar 0.96 is geüpgraded, blijft bibliotheeksync uit. Doe een van deze dingen om dat op te lossen:",
+  "#30864": "Open Kofin in Kodi's lijst met add-ons, selecteer Versies en kies 0.29. Volg daarna de stappen hierboven.",
+  "#30865": "Verwijder de databases met de hand, zoals de Kofin-wiki beschrijft.",
   "#30990": "Niet beschikbaar in deze testversie"
 }

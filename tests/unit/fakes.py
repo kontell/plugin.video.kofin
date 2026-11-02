@@ -108,6 +108,7 @@ class FakeDialog:
         self.multiselects = []  # (heading, choices, preselect)
         self.selects = []  # (heading, choices, preselect)
         self.yesnos = []  # (heading, message)
+        self.textviewers = []  # (heading, text)
         self.notifications = []  # message
 
     def multiselect(self, heading, choices, **kwargs):
@@ -127,6 +128,9 @@ class FakeDialog:
 
     def ok(self, *args, **kwargs):
         pass
+
+    def textviewer(self, heading, text, **kwargs):
+        self.textviewers.append((heading, text))
 
     def notification(self, heading=None, message=None, *args, **kwargs):
         self.notifications.append(message)

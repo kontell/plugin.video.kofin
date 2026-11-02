@@ -498,5 +498,14 @@
   "#30853": "A tartalom nincs letöltve",
   "#30854": "Nézd át a követett lejátszási listákat; a kijelölés törlésével leáll a letöltések szinkronizálása.",
   "#30855": "Nézd át a követett zenei könyvtárakat; a kijelölés törlésével leáll a letöltések szinkronizálása.",
+  "#30857": "Mit jelent a Kofin 0.29 az Ön Kodi-verziójára nézve, és mi a teendő a frissítés előtt.",
+  "#30858": "A Kodi 21 \"Omega\" ezen a verzión marad. A Kofin 0.96 és újabb verziókhoz Kodi 22 vagy újabb szükséges.",
+  "#30859": "A frissítés menete:",
+  "#30860": "Jelentkezzen ki a Fiók lapon.",
+  "#30861": "Futtassa az Adatbázisok kitakarítása műveletet, amely a kijelentkezés után jelenik meg ott. A Kodi a befejezéskor újraindul.",
+  "#30862": "A Kodi bővítménylistájában nyissa meg a Kofint, válassza a Frissítés vagy a Verziók gombot, és telepítse a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat.",
+  "#30863": "Ha a Kofin kitakarítás nélkül már 0.96-ra frissült, a médiatár szinkronizálása kikapcsolva marad. A javításhoz válasszon egyet az alábbiak közül:",
+  "#30864": "Nyissa meg a Kofint a Kodi bővítménylistájában, válassza a Verziók gombot és a 0.29-et, majd kövesse a fenti lépéseket.",
+  "#30865": "Törölje kézzel az adatbázisokat, ahogy a Kofin wiki leírja.",
   "#30990": "Ebben az előzetes verzióban nem érhető el"
 }
