@@ -139,11 +139,14 @@ class Native:
         # rows since the service started, a repair, or a music scan or clean
         # that was not the pass's own (MusicPass.check_due).
         self.music_checked: Set[str] = set()
-        # The music scans and cleans heard on the monitor so far, and the
-        # scans of the pass's own not yet matched to one of them
-        # (note_music_changes).
+        # The music scans and cleans heard on the monitor so far, the scans
+        # of the pass's own not yet matched to one of them, and this pass's
+        # directory scans per library, which count as its own only once their
+        # directories have been checked for lost songs (note_music_changes,
+        # credit_music_scans).
         self._music_heard = 0
         self._own_music_scans = 0
+        self._unchecked_scans: Dict[str, int] = {}
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
@@ -535,7 +538,11 @@ class Native:
                     raise
             finally:
                 if scanner == "music" and finished() > serial:
-                    self._own_music_scans += 1
+                    library = location.library if location else None
+                    if library:
+                        self._unchecked_scans[library] = (
+                            self._unchecked_scans.get(library, 0) + 1
+                        )
                 self._async_pending = not self._idle(scanner)
                 if saved is not None:
                     self.progress.restore(saved)
@@ -769,10 +776,14 @@ class Native:
 
         Kodi announces the end of every scan it runs, the hold's included,
         and the announcement names no directory: the pass counts the scans
-        it ran, and takes that many announcements as theirs. Its own scans
-        lose no song unchecked, since the pass checks every directory it
-        re-listed (MusicPass.import_missing), and kofin never cleans music.
+        it ran, and takes that many announcements as theirs. A directory
+        scan counts only once the pass has checked the directories it
+        re-listed for lost songs (credit_music_scans); one the pass did not
+        get to check, a scan that failed part way or a removal's in a pass
+        that filed nothing in the library, is a change like any other.
+        kofin never cleans music.
         """
+        self._unchecked_scans.clear()
         heard = self.monitor.music_finished + self.monitor.music_cleaned
         new = heard - self._music_heard
         self._music_heard = heard
@@ -780,6 +791,11 @@ class Native:
         self._own_music_scans -= own
         if new > own:
             self.music_checked.clear()
+
+    def credit_music_scans(self, library):
+        """The library's directory scans this pass ran have had their
+        directories checked for lost songs: they are the pass's own."""
+        self._own_music_scans += self._unchecked_scans.pop(library, 0)
 
     # -- the pass ------------------------------------------------------------
 

@@ -238,7 +238,10 @@ What remains is kofin's own:
   that was not the pass's own (`Native.note_music_changes`), an album that moved, and a pass
   whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Kodi announces the end of
   every scan, the hold's included, and names no directory, so the pass hears them on its own
-  Monitor and takes as many as it ran for its own. Taken for a viewer's, the hold's alone
+  Monitor and takes as many as it ran for its own: the hold, and each directory scan once
+  `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
+  not check, one that failed part way or a removal's in a pass that filed nothing in the
+  library, counts as a viewer's. Taken for a viewer's, the hold's alone
   has the pass after every song written compare the whole library: 9 to 14 s after a track
   on the Bravia, against 1 to 3 s. Any other
   pass compares its own songs, each read with its directory (`Readback.scope` reads a music

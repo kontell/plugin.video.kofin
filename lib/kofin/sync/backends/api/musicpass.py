@@ -187,6 +187,8 @@ class MusicPass:
                     " pending again",
                     len(lost),
                 )
+        # Every directory this pass re-listed has been checked.
+        self.native.credit_music_scans(library)
         # Only now: a scan that raised leaves the library to be compared
         # whole again.
         if library in self._compared:

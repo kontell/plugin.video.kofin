@@ -396,6 +396,66 @@ def test_the_passs_own_scans_leave_the_library_checked(
     assert whole == []
 
 
+def test_a_scan_that_fails_part_way_has_the_next_pass_compare_every_song(
+    store, backend, kodi, monkeypatch
+):
+    """The parts a failed scan finished re-listed their directories, and the
+    pass never checked them for lost songs: their announcements are not the
+    pass's own."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    scan = backend.scan
+
+    def finished_then_failed(directories, scanner="video", **kwargs):
+        scan(directories, scanner, **kwargs)
+        if scanner == "music":
+            # The finished part's listing lost a song it should have
+            # re-filed, and a later part was refused.
+            del kodi.songs[owned_songs(kodi)["tc31"]["songid"]]
+            raise RuntimeError("Kodi refused AudioLibrary.Scan")
+
+    monkeypatch.setattr(backend, "scan", finished_then_failed)
+    store.publish(album_bundle(songs=3), library=LIB)
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert "tc31" not in owned_songs(kodi)
+    monkeypatch.setattr(backend, "scan", scan)
+    store.publish([song("tc32", ALBUM, 2, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert "tc31" in owned_songs(kodi)
+
+
+def test_a_removals_scan_has_the_next_pass_compare_every_song(
+    store, backend, kodi, monkeypatch
+):
+    """A pass that only removes songs scans their directories without
+    checking what else the listing kept."""
+    from kofin.core import kodirpc
+
+    store.publish(
+        album_bundle(songs=3) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB
+    )
+    backend.reconcile()
+    call = kodirpc.call
+
+    def scan_loses_a_song(method, params):
+        result = call(method, params)
+        if method == "AudioLibrary.Scan" and "tc32" in owned_songs(kodi):
+            del kodi.songs[owned_songs(kodi)["tc32"]["songid"]]
+        return result
+
+    monkeypatch.setattr(kodirpc, "call", scan_loses_a_song)
+    store.publish([], removed=["tc33"])
+    backend.reconcile()
+    assert set(owned_songs(kodi)) == {"tc31", "ud41"}
+    monkeypatch.setattr(kodirpc, "call", call)
+    store.publish(
+        [song("ud41", ALBUM2, 1, ARTIST2, UserData={"Played": True, "PlayCount": 2})]
+    )
+    backend.reconcile()
+    assert set(owned_songs(kodi)) == {"tc31", "tc32", "ud41"}
+
+
 def test_one_song_is_written_without_holding_the_scanner(store, backend, kodi):
     """One setter refreshes the home widgets once, as the end of a hold
     would, and the hold is a scan of its own."""
