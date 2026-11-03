@@ -169,14 +169,26 @@ def wanted() -> Optional[bool]:
     return None
 
 
-def publish(items, server):
+def publish_from(api):
+    """Publish the server's libraries as the user has them: every synced
+    one, hidden from My Media or not, and of the rest those Jellyfin's home
+    screen shows."""
+    every = api.views(include_hidden=True).get("Items", [])
+    shown = {item.get("Id") for item in api.views().get("Items", [])}
+    publish(every, api, hidden={item.get("Id") for item in every} - shown)
+
+
+def publish(items, server, hidden=frozenset()):
+    """``hidden`` names the libraries the user hid from My Media: one that is
+    not synced is left out of the entries, as Jellyfin leaves it out."""
+    whitelist = [
+        x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
+    ]
+    items = [i for i in items if i.get("Id") not in hidden or i["Id"] in whitelist]
     views = [
         View(i["Id"], i.get("Name", ""), i.get("CollectionType") or "mixed")
         for i in items
         if i.get("Id") and i.get("CollectionType") != "livetv"
-    ]
-    whitelist = [
-        x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
     nodes = wanted()
     key: Optional[str] = None

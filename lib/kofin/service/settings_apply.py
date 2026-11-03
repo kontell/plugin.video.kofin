@@ -275,12 +275,12 @@ class SettingsApplier:
         is asked of a server that is not there.
         """
         try:
-            from kofin.sync.dynamic import publish
+            from kofin.sync.dynamic import publish_from
 
             service = self.service
             api = getattr(service, "api", None)
             if api is not None and getattr(service, "_online", False):
-                publish(api.views().get("Items", []), api)
+                publish_from(api)
         except Exception:
             LOG.exception("node regeneration after a settings change failed")
 

@@ -535,5 +535,7 @@
   "#30890": "Deschide Kofin în lista de suplimente din Kodi, selectează Versiuni și alege 0.29.",
   "#30891": "În setările Kofin, deconectează-te din fila Cont și rulează Curăță bazele de date.",
   "#30892": "După repornirea Kodi, deschide din nou Kofin, selectează Versiuni și alege cea mai nouă versiune. Apoi conectează-te și alege bibliotecile de sincronizat.",
-  "#30893": "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:"
+  "#30893": "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:",
+  "#30894": "Nu mai este pe server",
+  "#30895": "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi"
 }

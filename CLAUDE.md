@@ -417,6 +417,18 @@ What remains is kofin's own:
   Only the shows Kodi could have merged with
   a leaving one are invalidated (`_merged_shows`), not every show, and the clear runs on a
   thread of its own for the bar's sake, where a stop waits for it.
+- **A selected library leaves Kodi by an untick or by the server's word, never by its
+  absence.** The sync, the picker and the node tree list the user's libraries with
+  `includeHidden=true` (`Api.views`): hiding a library from My Media is Jellyfin's home screen
+  setting, and without the flag a hidden library stopped syncing and the picker's next OK took
+  it out of Kodi. Kofin's browse root keeps Jellyfin's default, and so do the skin entries of
+  the libraries that are not synced (`dynamic.publish_from`). The picker keeps a selected id it
+  did not list. A selected library a listing that succeeded leaves out is asked for by id:
+  Jellyfin answers 404 for one deleted and for one the user can no longer see, and two 404s
+  `MISSING_CONFIRM` apart remove it as an untick would, with one notification and no dialog
+  (`Library.settle_missing`). Any other answer keeps it, and Library status names it until it
+  leaves. The whitelist moves before the selection is written, so the settings applier finds
+  nothing to confirm.
 - **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
   `_stream_source`): read off the first source alone, every such row was filed with a stub
   video stream and no audio or subtitle. A stream's default, forced and hearing-impaired

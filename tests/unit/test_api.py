@@ -552,3 +552,12 @@ def test_cultures_reads_the_localization_list(api):
         "GET",
         "http://s:8096/Localization/Cultures",
     )
+
+
+def test_views_ask_for_hidden_libraries_only_when_told(api):
+    client, transport = api
+    client.views()
+    client.views(include_hidden=True)
+    assert "includeHidden" not in transport.calls[0]["params"]
+    assert transport.calls[1]["params"]["includeHidden"] == "true"
+    assert transport.calls[1]["params"]["userId"] == "uid"

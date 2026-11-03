@@ -535,5 +535,7 @@
   "#30890": "Nyissa meg a Kofint a Kodi bővítménylistájában, válassza a Verziók gombot, majd a 0.29-et.",
   "#30891": "A Kofin beállításaiban jelentkezzen ki a Fiók lapon, és futtassa az Adatbázisok kitakarítása műveletet.",
   "#30892": "Miután a Kodi újraindult, nyissa meg ismét a Kofint, válassza a Verziók gombot, majd a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat.",
-  "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:"
+  "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:",
+  "#30894": "Már nincs a kiszolgálón",
+  "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból"
 }

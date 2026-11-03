@@ -431,9 +431,9 @@ class Service(xbmc.Monitor):
         if self.ws is None:
             self._start_websocket()
         try:
-            from kofin.sync.dynamic import publish
+            from kofin.sync.dynamic import publish_from
 
-            publish(self.api.views().get("Items", []), self.api)
+            publish_from(self.api)
         except Exception:
             LOG.exception("dynamic library entries unavailable")
         self._start_library()

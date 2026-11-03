@@ -2562,6 +2562,14 @@ msgctxt "#30893"
 msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
 msgstr ""
 
+msgctxt "#30894"
+msgid "No longer on the server"
+msgstr ""
+
+msgctxt "#30895"
+msgid "%s is no longer on the server and was removed from the library"
+msgstr ""
+
 # 30990 — retired: the preview notice. Kept, never reused, for the reason
 # given at #30744.
 msgctxt "#30990"

@@ -503,7 +503,7 @@ def test_a_selected_library_the_server_no_longer_lists_is_tried_once(
     monkeypatch.setattr(w, "catch_up", lambda: caught.append(True))
     views = []
     original = server.views
-    server.views = lambda: views.append(True) or original()
+    server.views = lambda **kwargs: views.append(True) or original(**kwargs)
     w.refresh()
     w._catchup_due = 0
     w.refresh()

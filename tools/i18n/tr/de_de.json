@@ -535,5 +535,7 @@
   "#30890": "Öffne Kofin in Kodis Add-on-Liste, wähle Versionen und dann 0.29.",
   "#30891": "Melde dich in den Kofin-Einstellungen im Tab Konto ab und führe Datenbanken bereinigen aus.",
   "#30892": "Öffne Kofin nach dem Neustart von Kodi erneut, wähle Versionen und dann die neueste Version. Melde dich anschließend an und wähle die Bibliotheken zum Synchronisieren.",
-  "#30893": "Alternativ kannst du Kodi beenden und seine Video- und Musikdatenbanken von Hand löschen, wie im Kofin-Wiki beschrieben:"
+  "#30893": "Alternativ kannst du Kodi beenden und seine Video- und Musikdatenbanken von Hand löschen, wie im Kofin-Wiki beschrieben:",
+  "#30894": "Nicht mehr auf dem Server",
+  "#30895": "%s ist nicht mehr auf dem Server und wurde aus der Bibliothek entfernt"
 }

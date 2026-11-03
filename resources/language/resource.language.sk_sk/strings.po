@@ -2380,6 +2380,14 @@ msgctxt "#30893"
 msgid "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:"
 msgstr "Prípadne zatvorte Kodi a odstráňte jeho databázy videa a hudby ručne, ako popisuje wiki Kofin:"
 
+msgctxt "#30894"
+msgid "No longer on the server"
+msgstr "Už nie je na serveri"
+
+msgctxt "#30895"
+msgid "%s is no longer on the server and was removed from the library"
+msgstr "Knižnica %s už nie je na serveri a bola odstránená z Kodi"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "V tejto skúšobnej verzii nie je dostupné"

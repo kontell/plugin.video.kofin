@@ -535,5 +535,7 @@
   "#30890": "Obre Kofin a la llista de complements de Kodi, selecciona Versions i tria 0.29.",
   "#30891": "A la configuració de Kofin, tanca la sessió a la pestanya Compte i executa Neteja les bases de dades.",
   "#30892": "Quan Kodi s'hagi reiniciat, torna a obrir Kofin, selecciona Versions i tria la versió més nova. Després inicia la sessió i tria les biblioteques per sincronitzar.",
-  "#30893": "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:"
+  "#30893": "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:",
+  "#30894": "Ja no és al servidor",
+  "#30895": "%s ja no és al servidor i s'ha eliminat de la biblioteca"
 }

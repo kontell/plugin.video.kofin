@@ -9,6 +9,7 @@ import pytest
 from kofin.sync.backends.api import capabilities
 
 from kofin.core import kodirpc
+from kofin.core.http import HttpError
 from kofin.sync import private
 from kofin.sync.backends.api import announce, native
 from kofin.sync.backends.api.library import Library
@@ -325,9 +326,18 @@ class Server:
         self.music = None
         self.updated = []
         self.deleted = set()
+        # Libraries the user hid from My Media, and ids answering 404.
+        self.hidden = set()
+        self.gone = set()
 
-    def views(self):
-        return {"Items": self.views_list}
+    def views(self, include_hidden=False):
+        return {
+            "Items": [
+                view
+                for view in self.views_list
+                if include_hidden or view["Id"] not in self.hidden
+            ]
+        }
 
     def all_items(self):
         for items in self.libraries.values():
@@ -335,6 +345,8 @@ class Server:
         yield from self.boxsets
 
     def item(self, item_id):
+        if item_id in self.gone:
+            raise HttpError(404, "GET /Items/%s -> 404" % item_id)
         for item in self.all_items():
             if item["Id"] == item_id:
                 return copy.deepcopy(item)
@@ -393,6 +405,8 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._settings_due = 0.0
     w.changefeed = feed
     w._unsynced_tried = set()
+    w._listed = None
+    w._missing = {}
     w._rebuilding = set()
     w._first_attended = False
     # Listing a library again for new fields has its own tests.

@@ -30,6 +30,7 @@ TEXT = {
     30867: "Repair to add codec details",
     30868: "Kodi cannot import",
     30885: "Number them.",
+    30894: "No longer on the server",
 }
 LABELS = {"Movie": "Movies", "Episode": "Episodes", "Audio": "Songs"}
 
@@ -629,3 +630,18 @@ def test_the_document_is_read_for_the_account_that_wrote_it(store, monkeypatch):
         "feed": "official",
     }
     assert status.read("other") == {}
+
+
+def test_a_library_the_server_no_longer_lists_is_named_until_it_leaves(
+    store, monkeypatch
+):
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    status.record_missing(["Films"])
+    assert "No longer on the server:  Films" in _rows(store, status.read())
+    # The sync's own writes carry the record along.
+    status.write("Updating library")
+    assert status.read()["missing"] == ["Films"]
+    status.record_missing([])
+    assert "missing" not in status.read()
+    assert not [r for r in _rows(store, status.read()) if r.startswith("No longer")]

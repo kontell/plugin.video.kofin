@@ -21,7 +21,7 @@ class FakeApi:
     def media_folders(self):
         return {"Items": self.folders}
 
-    def views(self):
+    def views(self, include_hidden=False):
         return {"Items": []}
 
 
@@ -530,3 +530,26 @@ def test_the_favourite_episodes_node_is_written_only_where_kodi_keeps_episode_ta
     assert not (root / "kofin_Favoriteepisodes.xml").exists()
     assert (root / "kofin_Favoritemovies.xml").is_file()
     assert "Favorite episodes" not in " ".join(props().values())
+
+
+def test_a_hidden_library_keeps_its_entries_only_while_it_is_synced(views_env):
+    """The home screen leaves out a library hidden from My Media, and so do
+    the skin entries, unless it is synced: then it is in Kodi's library."""
+
+    class HidingApi(FakeApi):
+        def views(self, include_hidden=False):
+            return {"Items": [i for i in ITEMS if include_hidden or i["Id"] != MOVIES]}
+
+    def titles():
+        return {
+            v for k, v in props().items() if k.count(".") == 3 and k.endswith(".title")
+        }
+
+    whitelist(MOVIES)
+    dynamic.publish_from(HidingApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    assert (root / ("kofinmovies" + MOVIES)).is_dir()
+    assert "Movies" in titles()
+    whitelist()
+    dynamic.publish_from(HidingApi())
+    assert "Movies" not in titles() and "Shows" in titles()

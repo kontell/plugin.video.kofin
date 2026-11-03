@@ -590,5 +590,7 @@
   "#30891": "In Kofin's settings, log out on the Account tab and run Clean databases.",
   "#30892": "When Kodi has restarted, open Kofin again, select Versions and choose the newest version. Then log in and choose the libraries to sync.",
   "#30893": "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:",
+  "#30894": "No longer on the server",
+  "#30895": "%s is no longer on the server and was removed from the library",
   "#30990": "Not available in this preview"
 }

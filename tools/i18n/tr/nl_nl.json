@@ -535,5 +535,7 @@
   "#30890": "Open Kofin in Kodi's lijst met add-ons, selecteer Versies en kies 0.29.",
   "#30891": "Meld je in de Kofin-instellingen af op het tabblad Account en voer Databases opschonen uit.",
   "#30892": "Open Kofin opnieuw als Kodi opnieuw is opgestart, selecteer Versies en kies de nieuwste versie. Meld je daarna aan en kies de bibliotheken om te synchroniseren.",
-  "#30893": "Je kunt ook Kodi sluiten en de video- en muziekdatabases met de hand verwijderen, zoals de Kofin-wiki beschrijft:"
+  "#30893": "Je kunt ook Kodi sluiten en de video- en muziekdatabases met de hand verwijderen, zoals de Kofin-wiki beschrijft:",
+  "#30894": "Niet meer op de server",
+  "#30895": "%s staat niet meer op de server en is uit de bibliotheek verwijderd"
 }
