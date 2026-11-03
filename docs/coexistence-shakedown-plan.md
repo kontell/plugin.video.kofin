@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-11-03 |
-| **Status** | Planned. Round 1 not run. |
+| **Status** | Rounds 1 and 2 run; round 3 and A7 on stock Piers running. Results in section 8 |
 | **Started by** | #389, fixed for TV shows in #401 |
 | **Rig** | `ref/build/kodi-dev` instance 5, headless, the jf12 test server as `kofin-test` |
 | **Builds** | Kodi 23 with the kontell changes (`app-release`, `71c9d22187`) and stock Piers (`app-piers150`, `846211c81d`) |
-| **Driver** | `ref/notes/kofin-side-by-side-2026-11-03/` (`side_by_side.py`, `verify.py`), to grow into `coexist.py` |
+| **Driver** | `ref/notes/kofin-side-by-side-2026-11-03/coexist.py`, beside `side_by_side.py` and `verify.py` |
 
 ---
 
@@ -45,7 +45,7 @@ Each scenario runs against one of these, added to Kodi as a video or music sourc
 
 - **S1, local with NFOs** (`metadata.local`). A folder per title, with `tvshow.nfo`, `movie.nfo` and episode NFOs carrying the IMDb id the server gives the title. Short `testsrc2` clips from ffmpeg stand in for the media. This is the #389 rig's source.
 - **S2, local and scraped.** The same folders without NFOs, bound to the TMDb scrapers both builds ship (`metadata.tvshows.themoviedb.org.python`, `metadata.themoviedb.org.python`). A scraper writes its own default id and its own art, which is a different merge from an NFO. It needs the rig to reach TMDb.
-- **S3, local music.** One album of the jf12 music library (`/media/bluecon/music`), copied with its tags, so its MusicBrainz ids match the album Kofin files from the server. A second, untagged copy covers the artist-and-title match.
+- **S3, local music.** A copy of the scratch album Kofin files from the server (section 6), with the same tags and MusicBrainz ids, under file names of its own. A second, untagged copy covers the artist-and-title match.
 
 Each scenario runs twice where the order matters: **K-first**, with Kofin's import and then the other source's scan, and **L-first**, the other way round. A scenario's state is read back from Kodi over JSON-RPC and from a read-only copy of `MyVideos`/`MyMusic`, for what JSON-RPC doesn't show: `tvshowlinkpath`, `album_artist`, the `files` row holding a play count.
 
@@ -105,7 +105,7 @@ Each finding goes to an issue, or straight to a PR where the fix is as small as 
 
 ## 6. The driver
 
-`coexist.py` grows out of `side_by_side.py` and `verify.py`:
+`coexist.py` grew out of `side_by_side.py` and `verify.py`. Kofin syncs three scratch libraries on jf12 rather than jf12's own: Coexist Shows, Coexist Movies and Coexist Music, made of synthetic clips and tagged tones under jf12's state folder (`coexist.py setup`, `setup-s2`). A title leaves the server by having its file moved aside and its library refreshed, and comes back the same way. Each park uses a folder of its own: moving into one that already exists nests the title a level down, which once cost the show its NFO, and its IMDb id with it. The rest of the driver:
 - `fresh(order, sources)`: reset instance 5, write `sources.xml` and the selection, and import, either Kofin first or the other source first;
 - one builder per source (S1, S2, S3);
 - snapshot readers for each shared kind: rows, linked paths, unique ids, play counts, art owners;
@@ -120,3 +120,42 @@ A scenario that changes jf12 (a played mark, a collection, a removed item) undoe
 - Another add-on as the other source (a second Jellyfin, Emby or Plex add-on): its rows are plugin URLs like Kofin's, which is a different shape of sharing.
 - MySQL-backed libraries.
 - Kodi 21 and the SQL build, which writes the databases directly and is frozen.
+
+## 8. Results
+
+Kofin under test: #401 (`e9f24b6`, then `a45d071` with round 1's fixes). Every scenario is a fresh profile on instance 5; evidence is in `ref/notes/kofin-side-by-side-2026-11-03/evidence/coexist-<scenario>-<build>.json`.
+
+### Round 1: Kodi 23 (`app-release`, `71c9d22187`)
+
+| # | Result |
+|---|---|
+| A1 K-first, L-first | **pass**. Kofin's TV library removed; the other source's show back under its own folder with its episode, scanned from its source after the clear |
+| A2 | **failed, fixed in `a45d071`**. The shared show leaving the server alone was removed by id (`RemoveTVShow`), taking the local show and its episode, and nothing scanned their source. The removal now scans it, as the library clear does. Rerun: pass |
+| A3 | **pass**. Only Kofin's episode went; the local one stayed in the show |
+| A4, B7 K-first, L-first | **B7 pass**: one set row for Kofin's two movies and the local one. **A4 failed, fixed in `a45d071`**: with the collection gone from the server, its removal stayed pending for good ("collection still has a member filed"), because the local movie never leaves the set, and it failed 133 passes in five minutes (finding 2). It now ends once no movie of Kofin's files the set. Rerun: pass, the local movie keeps the set |
+| A5 | **pass**. A song leaving the server went; the local songs and the album row stayed |
+| A6 | **pass**. Kofin's music library removed; the local album, its songs and the artist stayed |
+| A7 | **pass**. Kodi's Clean library removed nothing of either source's |
+| A8 | **partial, open**. The viewer's removal of their source deleted the shared row, Kofin's show with it, and Kofin noticed only at its next complete listing: Update library, or the scheduled full enumeration, which is off by default (`fullUpdateInterval`) (finding 4) |
+| B1, B2 | **pass** (in A1's first half). The stripped row got its ids back from one show-only refresh; the L-first import filed Kofin's show on the local row |
+| B3 | **pass**. A new episode file in the other source's folder, rescanned: Kodi added the episode to the show it holds without rewriting the show, so Kofin's ids stayed |
+| B4 L-first, B6 | **pass**. One album row shared by MusicBrainz id, both sources' songs on it, and one artist row; repairs clean |
+| B5 | **pass**. Without MusicBrainz ids the local album is a row of its own; the artist is shared by name |
+| B8 | **pass**. The local movie with Kofin's movie's title, year and IMDb id is a row of its own, never grouped as a version |
+| B9 | not run: the scratch server has no music video library |
+
+### Round 2: stock Piers (`app-piers150`, `846211c81d`)
+
+Every scenario but A7 passed as on Kodi 23, with `a45d071`, A2 and A4 included. The show scenarios (A1, A2, A3, A8, B3) were run again after a driver fault had nested the scratch show's folder and left it without its IMDb id, so that the first run merged nothing. A7 is running.
+
+### Round 3: Kodi 23, S2 and groups C and D
+
+Running.
+
+### Findings
+
+1. **A shared show leaving alone took the other source's show with it** (A2). Fixed in #401 (`removal.sources_of`, `removal._row`).
+2. **A collection held by another source's movie looped** (A4). Its removal never finished, and every pass failed. Fixed in #401 (`removal._ours_in_set`).
+3. **A failing repair skipped the backoff** (A4). A complete listing makes the next pass a repair, the flag stays set until one succeeds, and #401's backoff left repairs out. Fixed in #401: a repair backs off like any pass, and a command of the viewer's runs the pass at once.
+4. **Kofin doesn't notice Kodi deleting its rows** (A8). When the viewer removes the other source, Kodi deletes the shared row and Kofin's episodes on it, and nothing pending names them. A complete listing repairs it. Watching Kodi's removals of rows Kofin owns would repair it at once. Open.
+5. **Kofin gives Kodi no artist MusicBrainz id** (B5, B6). A song's track, album and release-group ids reach Kodi, its artists' don't, so Kofin's artists are matched by name alone, and the id an artist row carries came from the local files. Not a coexistence fault; noted.
