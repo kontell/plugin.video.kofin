@@ -115,6 +115,8 @@ class Applier:
         self._seasons_with_episodes: Dict[str, Set[int]] = {}
         self._deferred: List[Patch] = []
         self._rpc_seconds = 0.0
+        # Whether this run's music writes hold the scanner (run, flush).
+        self._hold_music = False
         self._failures: List[Tuple[str, int, str]] = []
         self._salted: Set[str] = set()
         # Downloaded items and the shows with a downloaded episode: their
@@ -191,6 +193,16 @@ class Applier:
         kinds=ORDER,
     ):
         """Plan and patch the pass's records of ``kinds``, in that order."""
+        # One music row is one setter at most, whose announcement refreshes
+        # the home widgets once, as the end of a hold would.
+        self._hold_music = (
+            sum(
+                1
+                for r in upserts.values()
+                if r.kind in kinds and KINDS[r.kind].removal == "rescan"
+            )
+            > 1
+        )
         self.downloaded, self.downloaded_series = downloaded.marks()
         self._downloaded_seasons = {}
         self.collections = collections
@@ -717,7 +729,7 @@ class Applier:
         # Kodi logs no announcements, so this line is the only count of
         # what a pass actually wrote (an import whose rows match sends none).
         LOG.debug("patching %d %s rows", len(patches), patches[0].record.kind.lower())
-        if KINDS[patches[0].record.kind].removal == "rescan":
+        if KINDS[patches[0].record.kind].removal == "rescan" and self._hold_music:
             # Writes announced during a music scan are a transaction to the
             # home widgets: hold the scanner for the burst (native.hold).
             self.native.hold("music")

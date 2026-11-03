@@ -339,7 +339,10 @@ def test_a_play_count_reads_only_its_own_rows(store, backend, kodi, monkeypatch)
     assert directories == [ALBUM, ALBUM]
 
 
-def test_kodis_music_scan_makes_the_next_pass_compare_every_song(store, backend, kodi):
+@pytest.mark.parametrize("announced", ["music_finished", "music_cleaned"])
+def test_kodis_music_scan_makes_the_next_pass_compare_every_song(
+    store, backend, kodi, announced
+):
     """A song Kodi dropped outside a pass (the viewer's own clean or rescan)
     is found by the next pass after Kodi announces it, whatever that pass
     came for."""
@@ -349,24 +352,60 @@ def test_kodis_music_scan_makes_the_next_pass_compare_every_song(store, backend,
     store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
     backend.reconcile()
     assert "tc32" not in owned_songs(kodi)
-    backend.music_checked.clear()
+    setattr(backend.monitor, announced, getattr(backend.monitor, announced) + 1)
     store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
     backend.reconcile()
     assert "tc32" in owned_songs(kodi)
 
 
-def test_the_check_command_empties_the_checked_libraries_before_the_pass(
-    store, monkeypatch
+def test_the_passs_own_scans_leave_the_library_checked(
+    store, backend, kodi, monkeypatch
 ):
-    from types import SimpleNamespace
+    """Kodi announces the end of the hold and of every directory scan the
+    pass runs, and names no directory; none of them makes the next pass
+    compare every song."""
+    from kofin.sync.backends.api.readback import Readback
 
-    from tests.unit.apifixtures import Server, worker
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    # A new song is a directory scan, and two play counts are written
+    # under the hold.
+    store.publish(
+        [
+            song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2}),
+            song("tc32", ALBUM, 2, UserData={"Played": True, "PlayCount": 2}),
+            song("tc33", ALBUM, 3),
+        ],
+        library=LIB,
+    )
+    kodi.music_scanned.clear()
+    kodi.hold_tokens.clear()
+    backend.reconcile()
+    assert kodi.music_scanned and kodi.hold_tokens == ["music"]
+    assert owned_songs(kodi)["tc32"]["playcount"] == 2
+    whole = []
+    songs = Readback._songs
+    monkeypatch.setattr(
+        Readback,
+        "_songs",
+        lambda self, library: whole.append(library) or songs(self, library),
+    )
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
+    backend.reconcile()
+    assert owned_songs(kodi)["tc31"]["playcount"] == 3
+    assert whole == []
 
-    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
-    native = SimpleNamespace(music_checked={LIB})
-    w.command("CheckMusic", None)
-    w.apply(native)
-    assert native.music_checked == set()
+
+def test_one_song_is_written_without_holding_the_scanner(store, backend, kodi):
+    """One setter refreshes the home widgets once, as the end of a hold
+    would, and the hold is a scan of its own."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    kodi.hold_tokens.clear()
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert len(methods(kodi, "AudioLibrary.SetSongDetails")) == 1
+    assert not kodi.hold_tokens
 
 
 def test_song_removal_is_the_directory_listed_without_it(store, backend, kodi):

@@ -84,6 +84,7 @@ class Monitor(xbmc.Monitor):
         self.finished = 0
         self.music_finished = 0
         self.cleaned = 0
+        self.music_cleaned = 0
 
     def onScanFinished(self, library):
         if library.lower() == "video":
@@ -94,6 +95,8 @@ class Monitor(xbmc.Monitor):
     def onCleanFinished(self, library):
         if library.lower() == "video":
             self.cleaned += 1
+        elif library.lower() == "music":
+            self.music_cleaned += 1
 
 
 class VideoScan(NamedTuple):
@@ -134,8 +137,13 @@ class Native:
         self.music = MusicPass(self)
         # The music libraries whose every song has been compared with Kodi's
         # rows since the service started, a repair, or a music scan or clean
-        # of Kodi's (MusicPass.check_due).
+        # that was not the pass's own (MusicPass.check_due).
         self.music_checked: Set[str] = set()
+        # The music scans and cleans heard on the monitor so far, and the
+        # scans of the pass's own not yet matched to one of them
+        # (note_music_changes).
+        self._music_heard = 0
+        self._own_music_scans = 0
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
@@ -526,6 +534,8 @@ class Native:
                 if finished() == serial:
                     raise
             finally:
+                if scanner == "music" and finished() > serial:
+                    self._own_music_scans += 1
                 self._async_pending = not self._idle(scanner)
                 if saved is not None:
                     self.progress.restore(saved)
@@ -736,6 +746,8 @@ class Native:
         )
         try:
             self.wait(lambda: self._scanning(scanner), timeout=10)
+            if scanner == "music":
+                self._own_music_scans += 1
         except TimeoutError:
             LOG.warning("%s scanner did not take the hold; writing without it", scanner)
         self._held[scanner] = time.monotonic()
@@ -750,6 +762,24 @@ class Native:
     def release_all(self):
         for scanner in list(self._held):
             self.release(scanner)
+
+    def note_music_changes(self):
+        """Forget which music libraries have been compared whole once Kodi
+        has scanned or cleaned music for anyone but the pass.
+
+        Kodi announces the end of every scan it runs, the hold's included,
+        and the announcement names no directory: the pass counts the scans
+        it ran, and takes that many announcements as theirs. Its own scans
+        lose no song unchecked, since the pass checks every directory it
+        re-listed (MusicPass.import_missing), and kofin never cleans music.
+        """
+        heard = self.monitor.music_finished + self.monitor.music_cleaned
+        new = heard - self._music_heard
+        self._music_heard = heard
+        own = min(new, self._own_music_scans)
+        self._own_music_scans -= own
+        if new > own:
+            self.music_checked.clear()
 
     # -- the pass ------------------------------------------------------------
 
@@ -793,6 +823,7 @@ class Native:
             repair = True
         self.readback.clear()
         self.music = MusicPass(self)
+        self.note_music_changes()
         if repair:
             self.music_checked.clear()
         applier = Applier(self)
