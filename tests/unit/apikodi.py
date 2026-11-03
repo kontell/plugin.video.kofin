@@ -41,6 +41,8 @@ def filed_under(file, rule):
         return subject.startswith(rule["value"])
     if rule["operator"] == "contains":
         return rule["value"] in subject
+    if rule["operator"] == "doesnotcontain":
+        return rule["value"] not in subject
     raise RuntimeError("Kodi refused the filter")
 
 
@@ -53,6 +55,8 @@ class Kodi:
         self.recursive = {}
         self.next_id = 1
         self.calls = []
+        # The video sources the user added, as Files.GetSources lists them.
+        self.sources = []
         self.fail = ""
         self.accept_without_apply = False
         self.monitor = None
@@ -400,7 +404,10 @@ class Kodi:
 
     def _refresh(self, kind, kodi_id, episodes=False):
         old = self.rows[kind].pop(kodi_id)
-        item_id = old["uniqueid"]["kofin"].split(":")[1]
+        # Kodi refreshes from the listing at the row's own folder, whatever
+        # ids another source's scan left on the row.
+        uid = (old.get("uniqueid") or {}).get("kofin")
+        item_id = uid.split(":")[1] if uid else paths.parse(old["file"]).series
         record = self.store.records(kind=kind, item_ids=[item_id]).get(item_id)
         if record is None:
             return
@@ -754,6 +761,8 @@ class Kodi:
                 raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
+        if method == "Files.GetSources":
+            return {"sources": list(self.sources)}
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"

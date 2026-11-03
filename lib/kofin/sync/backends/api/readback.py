@@ -30,6 +30,12 @@ PAGE = 5000
 # read by its folder, without listing its library. An episode shares its
 # show's folder and a music video its library's.
 OWN_FOLDER = ("Movie", "Series")
+# The episodes another source filed: every URL of ours is the add-on's.
+FOREIGN_EPISODES = {
+    "field": "path",
+    "operator": "doesnotcontain",
+    "value": "plugin://plugin.video.kofin/",
+}
 
 
 def artist_key(name) -> str:
@@ -53,6 +59,9 @@ class Readback:
         # scope key -> item id -> the rows Kodi holds for the item's version
         # files beside the one that owns the identity
         self._versions: Dict[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]] = {}
+        # (library, series id) -> the show row found through the show's
+        # episodes, or None (show).
+        self._adopted: Dict[Tuple[str, str], Optional[Dict[str, Any]]] = {}
 
     def clear(self):
         self._scopes.clear()
@@ -60,6 +69,7 @@ class Readback:
         self._directories.clear()
         self._full.clear()
         self._versions.clear()
+        self._adopted.clear()
 
     @staticmethod
     def complete(reply, key):
@@ -211,7 +221,7 @@ class Readback:
             )
         elif kind in ("Episode", "Season"):
             if tvshowid is None:
-                show = self.scope("Series", library).get(parent_id)
+                show = self.show(library, parent_id)
                 if not show:
                     self._scopes[cache_key] = {}
                     return {}
@@ -381,6 +391,7 @@ class Readback:
         self._full.pop((kind, library, parent_id), None)
         self._versions.pop((kind, library, parent_id), None)
         if kind == "Series":
+            self._adopted.clear()
             # A show's episodes and seasons are read through its row.
             for key in [k for k in self._scopes if k[0] in ("Episode", "Season")]:
                 self._scopes.pop(key, None)
@@ -408,7 +419,7 @@ class Readback:
                 paths.library_dir(self.key, library, "tvshows")
             )
         elif kind in ("Episode", "Season"):
-            show = self.scope("Series", library).get(parent_id)
+            show = self.show(library, parent_id)
             if not show:
                 return None
             params["tvshowid"] = show["tvshowid"]
@@ -496,6 +507,104 @@ class Readback:
 
     def owned(self, kind, kodi_id, item_id, library, parent_id=""):
         row = self.details(kind, kodi_id)
-        if self.owns(kind, row, library, parent_id) != item_id:
+        if not self.holds(kind, row, library, item_id, parent_id):
             raise RuntimeError("%s ownership changed" % kind)
         return row
+
+    def holds(self, kind, row, library, item_id, parent_id="") -> bool:
+        """Whether ``row`` is the item's: by its ids at its folder, or for a
+        show, the row this pass found its episodes filed under (show)."""
+        if self.owns(kind, row, library, parent_id) == item_id:
+            return True
+        adopted = self._adopted.get((library, item_id)) if kind == "Series" else None
+        return adopted is not None and adopted.get("tvshowid") == row.get("tvshowid")
+
+    # -- a show another source shares ----------------------------------------
+
+    def show(self, library, series_id) -> Optional[Dict[str, Any]]:
+        """Our row for a show, by its ids at its folder or through its episodes.
+
+        Kodi files a show from any source into the row it already holds for
+        that show, matched by its main unique id, and rewrites the row from
+        the source scanned last: scanned after ours, another source's show
+        takes our ids off the row; scanned before, it keeps the row listed
+        under its own folder, where the library's listing does not reach.
+        Our episodes are filed under their own URLs and keep their ids, so
+        the row they belong to is the show's (``stripped``, ``own_folder``).
+        """
+        found: Optional[Dict[str, Any]] = self.scope("Series", library).get(series_id)
+        if found is not None:
+            return found
+        key = (library, series_id)
+        if key not in self._adopted:
+            self._adopted[key] = self._adopt(library, series_id)
+        return self._adopted[key]
+
+    def _adopt(self, library, series_id) -> Optional[Dict[str, Any]]:
+        reply = rpc(
+            "VideoLibrary.GetEpisodes",
+            {
+                "properties": ["file", "uniqueid", "tvshowid"],
+                "filter": self._path_filter(
+                    paths.show_dir(self.key, library, series_id)
+                ),
+                "limits": {"start": 0, "end": 1},
+            },
+        )
+        episodes = (reply or {}).get("episodes") or []
+        if (
+            not episodes
+            or self.owns("Episode", episodes[0], library, series_id) is None
+        ):
+            return None
+        tvshowid = episodes[0].get("tvshowid")
+        if not isinstance(tvshowid, int) or tvshowid < 0:
+            return None
+        row: Dict[str, Any] = self.details("Series", tvshowid)
+        LOG.debug(
+            "show %s is Kodi's show %d, filed under %s with %s",
+            series_id,
+            tvshowid,
+            row.get("file"),
+            ", ".join(sorted(row.get("uniqueid") or {})) or "no unique id",
+        )
+        return row
+
+    def stripped(self, library, series_id) -> bool:
+        """Whether the show's row, found through its episodes, carries none
+        of our ids: another source's scan rewrote it."""
+        row = self._adopted.get((library, series_id))
+        if row is None:
+            return False
+        uid = str((row.get("uniqueid") or {}).get("kofin", ""))
+        return not uid.startswith(self.key + ":")
+
+    def row_owner(self, row) -> Optional[str]:
+        """The series id our id on a show's row names, or None."""
+        uid = str((row.get("uniqueid") or {}).get("kofin", ""))
+        if not uid.startswith(self.key + ":"):
+            return None
+        return uid[len(self.key) + 1 :]
+
+    def foreign_episodes(self) -> List[Dict[str, Any]]:
+        """Every episode Kodi holds that Kofin did not file, with its show."""
+        reply = rpc(
+            "VideoLibrary.GetEpisodes",
+            {"filter": FOREIGN_EPISODES, "limits": {"start": 0, "end": 1}},
+        )
+        if not ((reply or {}).get("limits") or {}).get("total"):
+            return []
+        return self._paged(
+            KINDS["Episode"],
+            {"properties": ["file", "tvshowid"], "filter": FOREIGN_EPISODES},
+        )
+
+    def own_folder(self, library, series_id, row) -> bool:
+        """Whether Kodi lists the show's row under our folder, where a refresh
+        reads our listing; under another source's it reads theirs."""
+        expected = paths.show_dir(self.key, library, series_id).rstrip("/")
+        return bool(str(row.get("file") or "").rstrip("/") == expected)
+
+    def stripped_shows(self) -> List[Tuple[str, str]]:
+        """The (library, series id) of every show this pass found stripped."""
+        return [key for key in self._adopted if self.stripped(*key)]

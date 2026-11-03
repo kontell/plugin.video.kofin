@@ -942,6 +942,7 @@ class Native:
                 errors,
                 kinds=[kind for kind in ORDER if kind not in early],
             )
+            self.reclaim_shows(upserts)
             # Sets and bindings: nothing counted.
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
@@ -1202,12 +1203,42 @@ class Native:
                 if extras:
                     self.bind_folders("movies", extras, noupdate=True)
 
+    def reclaim_shows(self, upserts):
+        """A show another source's scan took our ids off, found by this pass
+        through its episodes, goes back to pending unless this pass planned
+        it: the next pass compares it and puts the ids back (Readback.show).
+        """
+        stripped = [
+            series_id
+            for _, series_id in self.readback.stripped_shows()
+            if series_id not in upserts
+        ]
+        if stripped:
+            LOG.debug(
+                "%d show(s) another source's scan rewrote: compared again by the"
+                " next pass",
+                len(stripped),
+            )
+            self.store.invalidate(stripped)
+
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)
+
+        def known(series_id):
+            if series_id in shows:
+                return True
+            # Only a show Kodi has filed for us can sit on a row another
+            # source's folder lists; asked for every new show, a first
+            # import would pay a call a show.
+            return (
+                self.store.mapping(series_id) is not None
+                and self.readback.show(library, series_id) is not None
+            )
+
         missing = [
             r
             for r in upserts.values()
-            if r.kind == "Series" and r.library == library and r.item_id not in shows
+            if r.kind == "Series" and r.library == library and not known(r.item_id)
         ]
         episodes = [
             r for r in upserts.values() if r.kind == "Episode" and r.library == library
@@ -1216,7 +1247,7 @@ class Native:
             if metadata.episode_numbers(record.item) is None:
                 # Never listed, never imported: not a reason to scan.
                 continue
-            if record.parent_id not in shows:
+            if not known(record.parent_id):
                 missing.append(record)
                 continue
             if record.item_id not in self.readback.scope(

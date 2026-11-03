@@ -34,6 +34,62 @@ def _fail(store, pending, item_id, error, errors):
     errors.append(error)
 
 
+def other_sources(native, library, members, placement) -> List[str]:
+    """The video sources whose shows Kodi filed on one row with a show of the
+    library about to be cleared.
+
+    Kodi files a show from any source onto the row it already holds for
+    that show (GetMatchingTvShow), and the clear deletes the row with every
+    episode filed on it, theirs included. It forgets the folders' listings
+    as it does (DeleteTvShow), so a scan of the source files their show
+    again, watched states and all, from its own folder. A source is found by
+    the episodes it filed on our shows' rows; a show of theirs with no
+    episode comes back with Kodi's next library update.
+    """
+    rows = [
+        native.readback.show(library, item_id)
+        for item_id in members
+        if placement[item_id].kind == "Series"
+    ]
+    shows = {row["tvshowid"] for row in rows if row and "tvshowid" in row}
+    if not shows:
+        return []
+    files = [
+        episode["file"]
+        for episode in native.readback.foreign_episodes()
+        if episode.get("tvshowid") in shows and episode.get("file")
+    ]
+    if not files:
+        return []
+    sources = [
+        str(source["file"])
+        for source in (rpc("Files.GetSources", {"media": "video"}) or {}).get("sources")
+        or []
+        if source.get("file")
+    ]
+    found: Set[str] = set()
+    unmatched = 0
+    for path in files:
+        within = [source for source in sources if path.startswith(source)]
+        if within:
+            found.add(max(within, key=len))
+        else:
+            unmatched += 1
+    LOG.debug(
+        "library %s: %d episode(s) of other sources on its shows, in %d"
+        " source(s) to scan after the clear%s",
+        library,
+        len(files),
+        len(found),
+        (
+            "; %d in no source, back with Kodi's next update" % unmatched
+            if unmatched
+            else ""
+        ),
+    )
+    return sorted(found)
+
+
 def _merged_shows(store, pending, placement, members) -> List[str]:
     """The shows of other libraries that Kodi may have filed on one row
     with a show of the library just cleared, and their seasons and episodes.
@@ -237,6 +293,18 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         if not library or not members or not members <= removals:
             continue
         kinds = {placement[i].kind for i in members}
+        others: List[str] = []
+        if kinds & {"Series", "Episode"}:
+            try:
+                others = other_sources(native, library, members, placement)
+            except InterruptedError:
+                raise
+            except Exception as error:
+                LOG.warning(
+                    "library %s: shows shared with other sources not read: %s",
+                    library,
+                    error,
+                )
         try:
             began = time.monotonic()
             # A Kodi carrying kontell/xbmc #3 deletes the sets the removal
@@ -260,6 +328,12 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 _fail(store, pending, item_id, error, errors)
             continue
         _owed(library, "its event", native.library_event)
+        if others:
+            _owed(
+                library,
+                "the other sources' shows",
+                lambda others=others: native.scan(others, "video"),
+            )
         # One transaction for the whole library.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
         cleared.add(library)

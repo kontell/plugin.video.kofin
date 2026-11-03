@@ -181,6 +181,24 @@ What remains is kofin's own:
   removes the library in one transaction (kontell/xbmc #3) lists every row to a count query
   until it commits, so the bar counts the `OnRemove` announcements the pass's Monitor hears
   (`Monitor.removed`), or the rows Kodi stopped listing where that is further on.
+- **A show another source of the same show shares with us is still ours, found through
+  its episodes** (`Readback.show`). Kodi files a show from any source onto the row it already
+  holds for that show (`GetMatchingTvShow`: the default unique id, then title and premiere
+  date) and rewrites the row from the source scanned last. Scanned after ours, the other
+  source takes our ids off the row; scanned before, the row stays listed under its folder,
+  where the library's listing does not reach, and our first import of the show failed every
+  pass. Movies and episodes are matched by file and never merge, so a show missing from the
+  listing is the row an episode filed under its folder belongs to. A stripped row skips the
+  acknowledged shortcut and goes back to pending when another kind found it
+  (`Native.reclaim_shows`); it is refreshed alone only while Kodi lists it under our folder,
+  where the refresh reads our listing (one show-only refresh put back every id and the cast
+  on the rig), and under theirs the setter writes our ids instead. A row carrying the id of
+  another show of ours (one show in two of our libraries) is left to that show, as albums
+  are. Clearing a library deletes a shared row with the other source's episodes
+  (`RemoveContentForPath` finds it through our folder, `DeleteTvShow` takes every linked
+  path's episodes); Kodi forgets those folders' hashes as it does, so `removal.other_sources`
+  scans the video source that holds their episodes after the clear, and the show comes back
+  under its own folder with its watched states.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
@@ -326,6 +344,13 @@ What remains is kofin's own:
   is pending (`Library.apply`). `store.tombstones` starts from the pending removals:
   joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
   on the LibreELEC box on every pass.
+- **A pass that fails the same way again waits twice as long before the next try, up to the
+  catch-up interval, unless new work is pending** (`Library.apply`, `RETRY_FIRST`,
+  `RETRY_MAX`, `Store.pending_signature`). A failure no pass can mend retried every five
+  seconds for as long as Kodi ran: two passes and a tvshows root scan each time, Kodi's dialog
+  up on the Bravia. New work is any publish since the failure, so a play count never waits on
+  a stuck show; the traceback is logged once, a debug line after, and a repeated failure does
+  not pull the catch-up forward.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
