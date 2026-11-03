@@ -281,6 +281,7 @@ def kodi(store, monkeypatch):
             cleaned=0,
             music_cleaned=0,
             removed=0,
+            lost=set(),
             waitForAbort=lambda _: False,
         ),
     )
@@ -403,6 +404,11 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._repair = False
     w._bindings_due = 0.0
     w._settings_due = 0.0
+    w._failure = None
+    w._failure_delay = 0.0
+    w._retry_at = 0.0
+    w._failed_with = None
+    w._repeated = None
     w.changefeed = feed
     w._unsynced_tried = set()
     w._listed = None

@@ -300,6 +300,10 @@ class Applier:
         if kind == "BoxSet":
             name = (record.item.get("Name") or "").strip(metadata.ASCII_SPACE)
             return self.readback.scope("BoxSet").get(name)
+        if kind == "Series":
+            return self.readback.show(record.library, record.item_id)
+        if kind == "Movie":
+            return self.readback.movie(record.library, record.item_id)
         return self.readback.scope(kind, record.library, record.parent_id).get(
             record.item_id
         )
@@ -400,6 +404,21 @@ class Applier:
                 self.store.local(record.item_id, edits)
                 return None
         kodi_id = row[KINDS[kind].id_param]
+        owner = self.readback.row_owner(row) if kind in ("Series", "Movie") else None
+        if owner is not None and owner != record.item_id:
+            # Two items of ours that Kodi filed on one row (one show in two of
+            # our libraries, one movie Kodi grouped with another): the one
+            # whose id the row carries owns its details, and this one is
+            # mapped to it and left.
+            LOG.debug(
+                "%s %s shares Kodi's row %d with %s",
+                kind.lower(),
+                record.item_id,
+                kodi_id,
+                owner,
+            )
+            self.ack(record.item_id, record.generation, kodi_id, {}, kind)
+            return None
         payload = payload_hash(record.item)
         inputs = metadata.inputs_token(
             self.native.server_url(),
@@ -431,6 +450,12 @@ class Applier:
             # the highest one left, so a set deleted and made again answers
             # under the number it was acknowledged by (Native.join_sets).
             and kind != "BoxSet"
+            # Another source's scan took our ids off the show's row: the row
+            # Kodi holds is no longer the one acknowledged.
+            and not (
+                kind == "Series"
+                and self.readback.stripped(record.library, record.item_id)
+            )
             and mapping is not None
             and mapping.kodi_id == kodi_id
             and hash_matches(previous.get("hash"), record.item)
@@ -460,7 +485,26 @@ class Applier:
         parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
-            if (row.get("uniqueid") or {}).get("kofinrefresh") != token:
+            if (row.get("uniqueid") or {}).get("kofinrefresh") != token and (
+                (
+                    kind == "Series"
+                    and not self.readback.own_folder(
+                        record.library, record.item_id, row
+                    )
+                )
+                or (
+                    kind == "Movie"
+                    and not self.readback.own_file(record.library, record.item_id, row)
+                )
+            ):
+                # Listed under another source's folder or file, the row would
+                # be refreshed from that source: the setter writes our ids.
+                LOG.debug(
+                    "%s %s is listed under another source's file: not refreshed",
+                    kind.lower(),
+                    record.item_id,
+                )
+            elif (row.get("uniqueid") or {}).get("kofinrefresh") != token:
                 LOG.debug(
                     "refreshing %s %s: %s",
                     kind.lower(),
@@ -633,6 +677,7 @@ class Applier:
         params: Dict[str, Any] = {table.id_param: kodi_id, "ignorenfo": False}
         if kind == "Series":
             params["refreshepisodes"] = False
+        self.native.replaced.add((kind, kodi_id))
         rpc(table.refresh, params)
         self.native._async_pending = True
         last = [0.0]
@@ -777,14 +822,10 @@ class Applier:
                     if isinstance(reply, dict)
                     else {}
                 )
-                if record.kind in FILED:
-                    if (
-                        self.readback.owns(
-                            record.kind, row, record.library, record.parent_id
-                        )
-                        != record.item_id
-                    ):
-                        raise RuntimeError("%s ownership changed" % record.kind)
+                if record.kind in FILED and not self.readback.holds(
+                    record.kind, row, record.library, record.item_id, record.parent_id
+                ):
+                    raise RuntimeError("%s ownership changed" % record.kind)
                 if not matches(row, patch.compare):
                     fields = [
                         key

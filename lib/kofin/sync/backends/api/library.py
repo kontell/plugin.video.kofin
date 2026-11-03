@@ -326,6 +326,11 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
 BINDINGS_RETRY = 300.0
 # And between two idle attempts to give a held Kodi setting back.
 SETTINGS_RETRY = 300.0
+# A pass that fails the same way again waits twice as long as the time
+# before, from the first to the last of these, unless new work is pending
+# (Library.apply).
+RETRY_FIRST = 5.0
+RETRY_MAX = float(CATCHUP_INTERVAL)
 
 
 class Library(threading.Thread):
@@ -378,6 +383,14 @@ class Library(threading.Thread):
         # When a Kodi setting a scan held and Kodi would not take back is
         # next asked for while nothing is pending (apply).
         self._settings_due = 0.0
+        # The last pass's failure, how long its retry waits, when that ends,
+        # and what was pending then (Library.apply).
+        self._failure: Optional[str] = None
+        self._failure_delay = 0.0
+        self._retry_at = 0.0
+        self._failed_with: Optional[Tuple[int, int]] = None
+        # The failure the last pass raised when it repeated the one before.
+        self._repeated: Optional[BaseException] = None
 
     def stop_client(self):
         self.stop_thread = True
@@ -468,13 +481,22 @@ class Library(threading.Thread):
         while not self.stop_thread and not monitor.abortRequested():
             failed = False
             try:
+                if native.refile_removed():
+                    # A removal announces row by row: the pass waits for the
+                    # rest of it (PASS_SETTLE).
+                    self._published_at = time.monotonic()
+            except Exception:
+                LOG.exception(
+                    "rows Kodi removed not put back; the next complete listing does"
+                )
+            try:
                 self.apply(native)
             except InterruptedError:
                 break
-            except Exception:
+            except Exception as error:
                 # A failed native job must not stop a newer server edit
                 # from replacing its payload, or poison jobs never heal.
-                LOG.exception("API native work remains pending")
+                self._log_failure("API native work remains pending", error)
                 failed = True
             # Local delivery and individual events can fail permanently
             # (e.g. an item deleted before its update event is processed).
@@ -493,10 +515,9 @@ class Library(threading.Thread):
                     work()
                 except InterruptedError:
                     return
-                except Exception:
-                    LOG.exception("API video sync will retry")
+                except Exception as error:
+                    self._log_failure("API video sync will retry", error)
                     self._status(settings.localized(30403))
-                    self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
                     failed = True
             self.settle_progress(failed)
             if failed and self._stop_event.wait(5):
@@ -1273,6 +1294,8 @@ class Library(threading.Thread):
     def command(self, command, data, retry=False):
         if command in ATTENDED and not retry:
             self._bar().attend()
+            # The viewer asked: the next pass runs now, failing or not.
+            self._failure = self._repeated = None
         if command == "RemoveLibrary":
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
@@ -1351,11 +1374,51 @@ class Library(threading.Thread):
         recent = now - self._published_at < PASS_SETTLE or not self._queue.empty()
         return recent and now - self._pending_since < PASS_SETTLE_MAX
 
+    def _log_failure(self, message, error):
+        """The whole failure the first time, with a catch-up soon, since a
+        server change the work needed may be behind it; a line once it
+        repeats, when a catch-up does nothing for it."""
+        if error is not self._repeated:
+            LOG.exception(message)
+            self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
+            return
+        LOG.debug(
+            "%s, the same way again; next try in %.0f s unless new work arrives: %s",
+            message,
+            self._failure_delay,
+            error,
+        )
+
+    def _note_failure(self, error):
+        signature = "%s: %s" % (type(error).__name__, error)
+        repeated = signature == self._failure
+        self._failure_delay = (
+            min(self._failure_delay * 2, RETRY_MAX) if repeated else RETRY_FIRST
+        )
+        self._failure = signature
+        self._retry_at = time.monotonic() + self._failure_delay
+        self._failed_with = self.store.pending_signature()
+        self._repeated = error if repeated else None
+
+    def _waiting_out_failure(self) -> bool:
+        """Whether the pending work is what the last pass failed on and its
+        retry is not due: a pass that fails the same way each time is tried
+        less often, and new work is tried at once."""
+        if self._failure is None or time.monotonic() >= self._retry_at:
+            return False
+        return self.store.pending_signature() == self._failed_with
+
     def apply(self, native):
         pending = self.store.has_pending()
         if not pending:
             self._pending_since = None
+            if not self._repair:
+                # A repair still owed is retried below, and its wait needs
+                # the failure; the pass that succeeds clears it.
+                self._failure = self._repeated = None
         elif not self._repair and self._settling():
+            return
+        if (pending or self._repair) and self._waiting_out_failure():
             return
         if pending or self._repair:
             self._pending_since = None
@@ -1365,6 +1428,13 @@ class Library(threading.Thread):
             try:
                 native.reconcile(repair=self._repair)
                 LOG.debug("native pass done in %.1f s", time.monotonic() - began)
+            except InterruptedError:
+                raise
+            except Exception as error:
+                self._note_failure(error)
+                raise
+            else:
+                self._failure = self._repeated = None
             finally:
                 # A home widget whose last fetch found nothing is deaf to
                 # every later library announcement, and the skin's widget

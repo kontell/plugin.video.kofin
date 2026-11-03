@@ -17,7 +17,7 @@ forgotten on the strength of an accepted call.
 
 import threading
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from kofin.core import kodirpc
 from kofin.core.log import Logger
@@ -32,6 +32,87 @@ LOG = Logger(__name__)
 def _fail(store, pending, item_id, error, errors):
     store.failed(item_id, pending[item_id][0], type(error).__name__ + ": " + str(error))
     errors.append(error)
+
+
+def other_sources(native, library, members, placement) -> List[str]:
+    """The video sources whose shows Kodi filed on one row with a show of the
+    library about to be cleared.
+
+    Kodi files a show from any source onto the row it already holds for
+    that show (GetMatchingTvShow), and the clear deletes the row with every
+    episode filed on it, theirs included. It forgets the folders' listings
+    as it does (DeleteTvShow), so a scan of the source files their show
+    again, watched states and all, from its own folder. A source is found by
+    the episodes it filed on our shows' rows; a show of theirs with no
+    episode comes back with Kodi's next library update.
+    """
+    rows = [
+        native.readback.show(library, item_id)
+        for item_id in members
+        if placement[item_id].kind == "Series"
+    ]
+    shows = {row["tvshowid"] for row in rows if row and "tvshowid" in row}
+    found = sources_of(native, shows)
+    if found:
+        LOG.debug(
+            "library %s: %d source(s) to scan after the clear", library, len(found)
+        )
+    return found
+
+
+def sources_of(native, shows) -> List[str]:
+    """The video sources holding episodes another source filed on the rows
+    ``shows`` (Kodi's tvshowids)."""
+    files = [
+        episode["file"]
+        for tvshowid in sorted(shows)
+        for episode in native.readback.foreign_episodes(tvshowid)
+        if episode.get("file")
+    ]
+    return sources_holding(files)
+
+
+def sources_holding(files) -> List[str]:
+    """The video sources the files are in, the deepest one for each."""
+    if not files:
+        return []
+    sources = [
+        str(source["file"])
+        for source in (rpc("Files.GetSources", {"media": "video"}) or {}).get("sources")
+        or []
+        if source.get("file")
+    ]
+    found: Set[str] = set()
+    unmatched = 0
+    for path in files:
+        within = [source for source in sources if path.startswith(source)]
+        if within:
+            found.add(max(within, key=len))
+        else:
+            unmatched += 1
+    if unmatched:
+        LOG.debug(
+            "%d episode(s) of other sources on shows leaving, in no source: back"
+            " with Kodi's next library update",
+            unmatched,
+        )
+    return sorted(found)
+
+
+def grouped_movies(native, library, members, placement) -> Tuple[List[int], List[str]]:
+    """The movies of the library Kodi grouped with another source's copy and
+    lists under its file (Readback.movie), and those files."""
+    ids: List[int] = []
+    files: List[str] = []
+    for item_id in sorted(members):
+        if placement[item_id].kind != "Movie":
+            continue
+        row = native.readback.movie(library, item_id)
+        if row is None or native.readback.own_file(library, item_id, row):
+            continue
+        ids.append(row["movieid"])
+        files.append(row.get("file") or "")
+    return ids, files
 
 
 def _merged_shows(store, pending, placement, members) -> List[str]:
@@ -237,8 +318,29 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         if not library or not members or not members <= removals:
             continue
         kinds = {placement[i].kind for i in members}
+        others: List[str] = []
+        grouped: List[int] = []
+        try:
+            if kinds & {"Series", "Episode"}:
+                others = other_sources(native, library, members, placement)
+            if "Movie" in kinds:
+                grouped, files = grouped_movies(native, library, members, placement)
+                others = sorted(set(others) | set(sources_holding(files)))
+        except InterruptedError:
+            raise
+        except Exception as error:
+            LOG.warning(
+                "library %s: rows shared with other sources not read: %s",
+                library,
+                error,
+            )
         try:
             began = time.monotonic()
+            # The clear finds a movie by the file its row lists, which for a
+            # movie grouped with another source's copy is theirs: each goes by
+            # its id, their copy with it, and their source files it again.
+            for movieid in grouped:
+                rpc("VideoLibrary.RemoveMovie", {"movieid": movieid})
             # A Kodi carrying kontell/xbmc #3 deletes the sets the removal
             # empties, in the same transaction.
             clear_library(
@@ -260,6 +362,12 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 _fail(store, pending, item_id, error, errors)
             continue
         _owed(library, "its event", native.library_event)
+        if others:
+            _owed(
+                library,
+                "the other sources' shows",
+                lambda others=others: native.scan(others, "video"),
+            )
         # One transaction for the whole library.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
         cleared.add(library)
@@ -310,6 +418,8 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             _fail(store, pending, child, error, errors)
 
     attempted: List[Tuple[str, Entry]] = []
+    # The other sources of the shows about to go, scanned once they have.
+    rescan: Set[str] = set()
     for item_id, placed in rows:
         table = KINDS[placed.kind]
         if table.remove is None:
@@ -324,12 +434,21 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             # INTEGER PRIMARY KEYs. A row the scope owns is removed by the
             # id it has now; an item absent from the scope is already gone,
             # and so are a vanished show's episodes.
-            row = native.readback.scope(
-                placed.kind, placed.library, placed.parent_id
-            ).get(item_id)
+            row = _row(native, placed, item_id)
             if row is None:
                 forget_with_children(item_id)
                 continue
+            try:
+                if placed.kind == "Series":
+                    rescan.update(sources_of(native, {row["tvshowid"]}))
+                elif placed.kind == "Movie" and not native.readback.own_file(
+                    placed.library, item_id, row
+                ):
+                    rescan.update(sources_holding([row.get("file") or ""]))
+            except InterruptedError:
+                raise
+            except Exception as error:
+                LOG.warning("%s: other sources not read: %s", item_id, error)
             rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
@@ -352,12 +471,10 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     removed_shows = {i for i, p in attempted if p.kind == "Series"}
     for item_id, placed in attempted:
         if placed.kind == "Episode" and placed.parent_id in removed_shows:
-            survivors: Dict[Any, Any] = {}
+            survived = False
         else:
-            survivors = native.readback.scope(
-                placed.kind, placed.library, placed.parent_id
-            )
-        if item_id in survivors or (
+            survived = _row(native, placed, item_id) is not None
+        if survived or (
             placed.kind == "Movie"
             and native.readback.version_rows(placed.library, item_id)
         ):
@@ -386,6 +503,10 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                     RuntimeError("show removal not confirmed"),
                     errors,
                 )
+    if rescan:
+        _owed(
+            "", "the other sources' shows", lambda: native.scan(sorted(rescan), "video")
+        )
     return cleared
 
 
@@ -468,6 +589,14 @@ def finish_sets(native, pending, live_boxsets, errors):
     kept = {(b.get("Name") or "").strip(metadata.ASCII_SPACE) for b in live_boxsets}
     for item_id, payload in waiting:
         title = (payload.get("Name") or "").strip(metadata.ASCII_SPACE)
+        if title in listed and title not in kept and not _ours_in_set(native, title):
+            # Only another source's movies file the set: ours have left it,
+            # and the set is theirs.
+            LOG.debug(
+                "collection %s: its set is left to another source's movies", item_id
+            )
+            store.forget(item_id, pending[item_id][0])
+            continue
         if title in listed and title not in kept:
             _fail(
                 store,
@@ -486,6 +615,34 @@ def finish_sets(native, pending, live_boxsets, errors):
             _fail(store, pending, item_id, error, errors)
             continue
         store.forget(item_id, pending[item_id][0])
+
+
+def _ours_in_set(native, title) -> bool:
+    """Whether a movie Kofin filed is in the set named ``title``."""
+    reply = rpc(
+        "VideoLibrary.GetMovies",
+        {
+            "filter": {"field": "set", "operator": "is", "value": title},
+            "properties": ["file"],
+        },
+    )
+    for row in (reply or {}).get("movies") or []:
+        location = paths.parse(row.get("file") or "")
+        if location is not None and location.key == native.key:
+            return True
+    return False
+
+
+def _row(native, placed, item_id):
+    """The row an item to remove has now: a show's through its episodes as
+    well (Readback.show), since another source's folder may list it."""
+    if placed.kind == "Series":
+        return native.readback.show(placed.library, item_id)
+    if placed.kind == "Movie":
+        return native.readback.movie(placed.library, item_id)
+    return native.readback.scope(placed.kind, placed.library, placed.parent_id).get(
+        item_id
+    )
 
 
 def _remove_empty_set(store, item_id, listed, features=frozenset()):

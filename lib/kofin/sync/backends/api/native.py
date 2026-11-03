@@ -82,6 +82,13 @@ NOWHERE = "special://temp/kofin-no-such-directory/"
 # The media types of the rows a library clear counts (removal.COUNTED), as
 # Kodi names them in VideoLibrary.OnRemove.
 REMOVED_TYPES = frozenset(("movie", "episode", "musicvideo"))
+# The kind of the item filed on a row of each media type OnRemove names.
+REMOVED_KINDS = {
+    "movie": "Movie",
+    "tvshow": "Series",
+    "episode": "Episode",
+    "musicvideo": "MusicVideo",
+}
 
 
 class Monitor(xbmc.Monitor):
@@ -93,16 +100,25 @@ class Monitor(xbmc.Monitor):
         self.music_cleaned = 0
         # Movies, episodes and music videos Kodi has announced removing.
         self.removed = 0
+        # (kind, Kodi id) of the rows Kodi has announced removing since the
+        # library thread last took them (Native.refile_removed). Callbacks
+        # run on the thread that made the monitor, which is that thread.
+        self.lost: Set[Tuple[str, int]] = set()
 
     def onNotification(self, sender, method, data):
         if method != "VideoLibrary.OnRemove":
             return
         try:
-            kind = json.loads(data).get("type")
+            announced = json.loads(data)
+            media = announced.get("type")
+            kodi_id = announced.get("id")
         except (TypeError, ValueError, AttributeError):
             return
-        if kind in REMOVED_TYPES:
+        if media in REMOVED_TYPES:
             self.removed += 1
+        kind = REMOVED_KINDS.get(media)
+        if kind is not None and isinstance(kodi_id, int):
+            self.lost.add((kind, kodi_id))
 
     def onScanFinished(self, library):
         if library.lower() == "video":
@@ -170,6 +186,10 @@ class Native:
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
+        # Rows a refresh of the pass's replaced, by (kind, old Kodi id): Kodi
+        # announces the old row's removal, and its number can come back as
+        # the new row's (refile_removed).
+        self.replaced: Set[Tuple[str, int]] = set()
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
@@ -942,6 +962,7 @@ class Native:
                 errors,
                 kinds=[kind for kind in ORDER if kind not in early],
             )
+            self.reclaim_shows(upserts)
             # Sets and bindings: nothing counted.
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
@@ -1046,6 +1067,28 @@ class Native:
             except Exception as error:
                 errors.append(error)
 
+    def refile_removed(self) -> int:
+        """Put back to pending what Kodi removed of ours that we did not:
+        the rows a viewer's removal of another source took with a show both
+        hold, a Remove from library, a clean. Run between passes, where a
+        row the pass removed names a tombstone or no item at all, and one it
+        refreshed is in ``replaced``."""
+        lost = self.monitor.lost - self.replaced
+        self.monitor.lost = set()
+        self.replaced = set()
+        if not lost:
+            return 0
+        items = self.store.refile(lost)
+        if items:
+            LOG.debug(
+                "Kodi removed %d row(s) filed for %d item(s); the next pass files them"
+                " again: %s",
+                len(lost),
+                len(items),
+                ", ".join(items[:20]),
+            )
+        return len(items)
+
     def plan_video(self, upserts: Dict[str, Record], errors) -> VideoScan:
         """Bind whatever the readback shows the video scanner has not filed,
         and name the directories to scan for it and for the movie folders
@@ -1089,6 +1132,17 @@ class Native:
                         and r.library == library
                         and r.item_id not in present
                     ]
+                    if kind == "Movie" and missing:
+                        # Only a movie Kodi has filed for us can sit on a row
+                        # another source's file lists (Readback.movie), and a
+                        # first import files none: its mappings in one read.
+                        filed = self.store.mappings_of([r.item_id for r in missing])
+                        missing = [
+                            r
+                            for r in missing
+                            if r.item_id not in filed
+                            or self.readback.movie(library, r.item_id) is None
+                        ]
                 asset_folders: List[str] = []
                 if content == "movies":
                     asset_folders = self._asset_folders(upserts, library)
@@ -1202,12 +1256,48 @@ class Native:
                 if extras:
                     self.bind_folders("movies", extras, noupdate=True)
 
+    def reclaim_shows(self, upserts):
+        """A show another source's scan took our ids off, found by this pass
+        through its episodes, goes back to pending unless this pass planned
+        it: the next pass compares it and puts the ids back (Readback.show).
+        """
+        stripped = [
+            series_id
+            for _, series_id in self.readback.stripped_shows()
+            if series_id not in upserts
+        ]
+        if stripped:
+            LOG.debug(
+                "%d show(s) another source's scan rewrote: compared again by the"
+                " next pass",
+                len(stripped),
+            )
+            self.store.invalidate(stripped)
+
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)
+        # Only a show Kodi has filed for us can sit on a row another source's
+        # folder lists (Readback.show), and a first import files none: their
+        # mappings in one read, and a lookup only for those.
+        unlisted = {
+            r.item_id if r.kind == "Series" else r.parent_id
+            for r in upserts.values()
+            if r.library == library and r.kind in ("Series", "Episode")
+        } - set(shows)
+        filed = self.store.mappings_of(sorted(unlisted)) if unlisted else {}
+
+        def known(series_id):
+            if series_id in shows:
+                return True
+            return (
+                series_id in filed
+                and self.readback.show(library, series_id) is not None
+            )
+
         missing = [
             r
             for r in upserts.values()
-            if r.kind == "Series" and r.library == library and r.item_id not in shows
+            if r.kind == "Series" and r.library == library and not known(r.item_id)
         ]
         episodes = [
             r for r in upserts.values() if r.kind == "Episode" and r.library == library
@@ -1216,7 +1306,7 @@ class Native:
             if metadata.episode_numbers(record.item) is None:
                 # Never listed, never imported: not a reason to scan.
                 continue
-            if record.parent_id not in shows:
+            if not known(record.parent_id):
                 missing.append(record)
                 continue
             if record.item_id not in self.readback.scope(

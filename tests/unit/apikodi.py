@@ -41,6 +41,8 @@ def filed_under(file, rule):
         return subject.startswith(rule["value"])
     if rule["operator"] == "contains":
         return rule["value"] in subject
+    if rule["operator"] == "doesnotcontain":
+        return rule["value"] not in subject
     raise RuntimeError("Kodi refused the filter")
 
 
@@ -53,6 +55,8 @@ class Kodi:
         self.recursive = {}
         self.next_id = 1
         self.calls = []
+        # The video sources the user added, as Files.GetSources lists them.
+        self.sources = []
         self.fail = ""
         self.accept_without_apply = False
         self.monitor = None
@@ -363,6 +367,11 @@ class Kodi:
             self.monitor.cleaned += 1
 
     def remove_content(self, path):
+        before = {kind: set(self.rows[kind]) for kind in self.ANNOUNCED}
+        self._remove_content(path)
+        self.announce_gone(before)
+
+    def _remove_content(self, path):
         # Kodi 23 deletes the sets the removal empties (kontell/xbmc #3).
         linked = {r.get("set") for r in self.rows["Movie"].values()}
         for kind in ("Movie", "MusicVideo", "Episode"):
@@ -400,7 +409,16 @@ class Kodi:
 
     def _refresh(self, kind, kodi_id, episodes=False):
         old = self.rows[kind].pop(kodi_id)
-        item_id = old["uniqueid"]["kofin"].split(":")[1]
+        if kind != "Series" or episodes:
+            # The refreshing job deletes the old row, announced, whatever
+            # number the new one takes; a show only with its episodes.
+            lost = getattr(self.monitor, "lost", None)
+            if lost is not None:
+                lost.add((kind, kodi_id))
+        # Kodi refreshes from the listing at the row's own folder, whatever
+        # ids another source's scan left on the row.
+        uid = (old.get("uniqueid") or {}).get("kofin")
+        item_id = uid.split(":")[1] if uid else paths.parse(old["file"]).series
         record = self.store.records(kind=kind, item_ids=[item_id]).get(item_id)
         if record is None:
             return
@@ -715,7 +733,25 @@ class Kodi:
                 row.pop(field, None)
         return row
 
+    ANNOUNCED = ("Movie", "Series", "Episode", "MusicVideo")
+
     def rpc(self, method, params=None):
+        """Kodi announces every movie, show, episode and music video row it
+        deletes (VideoLibrary.OnRemove), whatever deletes it."""
+        before = {kind: set(self.rows[kind]) for kind in self.ANNOUNCED}
+        try:
+            return self._rpc(method, params)
+        finally:
+            self.announce_gone(before)
+
+    def announce_gone(self, before):
+        lost = getattr(self.monitor, "lost", None)
+        if lost is None:
+            return
+        for kind, ids in before.items():
+            lost.update((kind, kodi_id) for kodi_id in ids - set(self.rows[kind]))
+
+    def _rpc(self, method, params=None):
         params = params or {}
         self.calls.append((method, copy.deepcopy(params)))
         if method == self.fail:
@@ -754,6 +790,20 @@ class Kodi:
                 raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
+        if method == "Files.GetSources":
+            return {"sources": list(self.sources)}
+        if method == "Files.GetFileDetails":
+            # GetMovieId: a movie's own file, or one of its version files.
+            for row in self.rows["Movie"].values():
+                if params["file"] in [row["file"]] + list(row.get("versions") or []):
+                    return {
+                        "filedetails": {
+                            "file": params["file"],
+                            "id": row["movieid"],
+                            "type": "movie",
+                        }
+                    }
+            return {"filedetails": {"file": params["file"], "label": ""}}
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"
@@ -804,7 +854,10 @@ class Kodi:
                         for e in self.rows["Episode"].values()
                     )
                 ]
-            if "filter" in params:
+            rule = params.get("filter") or {}
+            if rule.get("field") == "set":
+                rows = [r for r in rows if r.get("set") == rule["value"]]
+            elif "filter" in params:
                 rows = [r for r in rows if filed_under(r["file"], params["filter"])]
             if "tvshowid" in params:
                 rows = [r for r in rows if r.get("tvshowid") == params["tvshowid"]]
