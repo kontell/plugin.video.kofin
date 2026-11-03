@@ -12,6 +12,7 @@ directories, in which order and under what bar is ``musicpass`` and
 ``walk``; the scanner they drive is here.
 """
 
+import json
 import time
 from collections import abc
 from contextlib import contextmanager
@@ -78,12 +79,29 @@ LEFTOVERS = (
 NOWHERE = "special://temp/kofin-no-such-directory/"
 
 
+# The media types of the rows a library clear counts (removal.COUNTED), as
+# Kodi names them in VideoLibrary.OnRemove.
+REMOVED_TYPES = frozenset(("movie", "episode", "musicvideo"))
+
+
 class Monitor(xbmc.Monitor):
     def __init__(self):
         super().__init__()
         self.finished = 0
         self.music_finished = 0
         self.cleaned = 0
+        # Movies, episodes and music videos Kodi has announced removing.
+        self.removed = 0
+
+    def onNotification(self, sender, method, data):
+        if method != "VideoLibrary.OnRemove":
+            return
+        try:
+            kind = json.loads(data).get("type")
+        except (TypeError, ValueError, AttributeError):
+            return
+        if kind in REMOVED_TYPES:
+            self.removed += 1
 
     def onScanFinished(self, library):
         if library.lower() == "video":

@@ -1971,7 +1971,7 @@ def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
             phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
         ),
         abort=lambda: True,
-        monitor=SimpleNamespace(waitForAbort=lambda seconds: True),
+        monitor=SimpleNamespace(removed=0, waitForAbort=lambda seconds: True),
     )
     timer = threading.Timer(0.2, answer.set)
     timer.start()
@@ -1982,6 +1982,65 @@ def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
     finally:
         timer.cancel()
         answer.set()
+
+
+def test_a_clear_in_one_transaction_moves_the_bar_by_kodis_announcements(
+    monkeypatch,
+):
+    """A Kodi that removes the library in one transaction lists every row
+    until it commits, and announces each row as it removes it: the bar
+    follows the announcements."""
+    import threading
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    committed = threading.Event()
+    monitor = SimpleNamespace(removed=7)
+
+    def rpc(method, params):
+        committed.wait(5)
+
+    def wait(seconds):
+        # Two rows announced per wait; the third wait finds them all gone.
+        monitor.removed += 2
+        if monitor.removed - 7 >= 6:
+            committed.set()
+        return False
+
+    monitor.waitForAbort = wait
+    shown = []
+    monkeypatch.setattr(removal, "rpc", rpc)
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing")
+    monkeypatch.setattr(removal, "_rows", lambda kinds: 5)
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None,
+            at=lambda done, text: shown.append(text),
+            restore=lambda saved: None,
+        ),
+        abort=lambda: False,
+        monitor=monitor,
+        readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
+        store=SimpleNamespace(unbind=lambda root: None),
+    )
+    removal.clear_library(native, LIB, {"Movie"}, rows=5)
+    assert shown[:2] == ["Removing 2 / 5", "Removing 4 / 5"]
+    assert all(text != "Removing 0 / 5" for text in shown)
+
+
+def test_the_monitor_counts_the_rows_kodi_announces_removing():
+    from kofin.sync.backends.api import native
+
+    monitor = native.Monitor()
+    for kind in ("movie", "episode", "musicvideo", "tvshow", "season", "set"):
+        monitor.onNotification(
+            "xbmc", "VideoLibrary.OnRemove", '{"id": 1, "type": "%s"}' % kind
+        )
+    monitor.onNotification("xbmc", "VideoLibrary.OnUpdate", '{"type": "movie"}')
+    monitor.onNotification("xbmc", "VideoLibrary.OnRemove", "not json")
+    assert monitor.removed == 3
 
 
 def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
@@ -2006,7 +2065,7 @@ def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
             phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
         ),
         abort=lambda: False,
-        monitor=SimpleNamespace(waitForAbort=lambda seconds: False),
+        monitor=SimpleNamespace(removed=0, waitForAbort=lambda seconds: False),
         readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
         store=SimpleNamespace(unbind=lambda root: calls.append("unbind")),
     )

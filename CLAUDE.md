@@ -175,7 +175,10 @@ What remains is kofin's own:
   803 s on the Pi, and neither way stalled a Python thread (#308's question). What costs a clear is the widgets:
   every deleted row is a `VideoLibrary.OnRemove` without `transaction`, and every visible
   video widget lists itself again for each one (2,448 refreshes on the Pi, 803 s against
-  480 s with none on screen). `tests/live/or_bench/README.md` has the runs.
+  480 s with none on screen). `tests/live/or_bench/README.md` has the runs. A Kodi that
+  removes the library in one transaction (kontell/xbmc #3) lists every row to a count query
+  until it commits, so the bar counts the `OnRemove` announcements the pass's Monitor hears
+  (`Monitor.removed`), or the rows Kodi stopped listing where that is further on.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
