@@ -196,9 +196,12 @@ What remains is kofin's own:
   another show of ours (one show in two of our libraries) is left to that show, as albums
   are. Clearing a library deletes a shared row with the other source's episodes
   (`RemoveContentForPath` finds it through our folder, `DeleteTvShow` takes every linked
-  path's episodes); Kodi forgets those folders' hashes as it does, so `removal.other_sources`
-  scans the video source that holds their episodes after the clear, and the show comes back
-  under its own folder with its watched states.
+  path's episodes), and so does a single show's removal (`RemoveTVShow`). Kodi forgets those
+  folders' hashes as it does, so the removal scans the video source that holds their
+  episodes once the row has gone (`removal.sources_of`), and the show comes back under its
+  own folder with its watched states. A show to remove is found as the pass finds it, through
+  its episodes (`removal._row`): read from the listing alone, a row under their folder was
+  forgotten with our episodes still on it.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
@@ -349,8 +352,10 @@ What remains is kofin's own:
   `RETRY_MAX`, `Store.pending_signature`). A failure no pass can mend retried every five
   seconds for as long as Kodi ran: two passes and a tvshows root scan each time, Kodi's dialog
   up on the Bravia. New work is any publish since the failure, so a play count never waits on
-  a stuck show; the traceback is logged once, a debug line after, and a repeated failure does
-  not pull the catch-up forward.
+  a stuck show, and a command of the viewer's runs the pass at once. A repair backs off like
+  any other pass: the flag stays set until one succeeds, and a failing repair after a complete
+  listing ran on every tick. The traceback is logged once, a debug line after, and a repeated
+  failure does not pull the catch-up forward.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
@@ -741,8 +746,10 @@ What remains is kofin's own:
   through). The gate used to refuse any row at all, which shut out a profile with files of
   its own or another add-on's library for no reason: a row is ours by its URL and its unique
   id, before the first sync as after it. What such a library can still share with ours goes
-  by name: a set of the same title takes our art and plot and holds a collection's removal
-  pending while a movie of theirs lists it, and an artist is found by name alone.
+  by name: a set of the same title takes our art and plot, and an artist is found by name
+  alone. A collection's removal waits while a movie of ours still files the set, and ends
+  once only their movies do (`removal._ours_in_set`): the set is theirs then, and a removal
+  held for it failed every pass for as long as their movie stayed.
 - **A count asks for one row, never a zero-width page** (`Native._count`, `Native.setup`).
   `limits` with an end of 0 gets no row from the video library and every row from the audio
   library: the bar of a music import read its count that way every three seconds and was

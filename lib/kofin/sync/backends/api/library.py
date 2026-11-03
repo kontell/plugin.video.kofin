@@ -1291,6 +1291,8 @@ class Library(threading.Thread):
     def command(self, command, data, retry=False):
         if command in ATTENDED and not retry:
             self._bar().attend()
+            # The viewer asked: the next pass runs now, failing or not.
+            self._failure = None
         if command == "RemoveLibrary":
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
@@ -1408,7 +1410,7 @@ class Library(threading.Thread):
             self._failure = None
         elif not self._repair and self._settling():
             return
-        if pending and not self._repair and self._waiting_out_failure():
+        if (pending or self._repair) and self._waiting_out_failure():
             return
         if pending or self._repair:
             self._pending_since = None

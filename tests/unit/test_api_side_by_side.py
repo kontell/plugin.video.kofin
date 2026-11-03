@@ -126,12 +126,16 @@ def _raise(repair=False):
 LOCAL = "/local/Shows/Show/"
 
 
-def merge(kodi, keep_ids=False, folder=None):
+def merge(kodi, keep_ids=False, folder=None, series=SHOW):
     """What Kodi makes of our show's row when another source of the same
     show is scanned: our ids gone (scanned after ours) or the row listed
     under the other source's folder (scanned before), and an episode of
     theirs filed on it."""
-    row = next(iter(kodi.rows["Series"].values()))
+    row = next(
+        r
+        for r in kodi.rows["Series"].values()
+        if (r.get("uniqueid") or {}).get("kofin", "").endswith(series)
+    )
     if not keep_ids:
         row["uniqueid"] = {"imdb": "tt0000001"}
     if folder:
@@ -287,3 +291,85 @@ def test_a_first_import_asks_for_no_show_through_its_episodes(store, backend, ko
     ]
     assert lookups == []
     assert not store.pending()
+
+
+def test_a_failing_repair_backs_off_too(failing):
+    """A complete listing makes the pass after it a repair, and a repair
+    that keeps failing would otherwise run again on every tick."""
+    w, clock, runs, errors, until = failing
+    w._repair = True
+    until(140)
+    assert gaps(runs) == [5, 10, 20]
+
+
+def test_a_viewers_command_tries_the_pass_at_once(failing):
+    w, clock, runs, errors, until = failing
+    until(108)
+    assert runs == [100, 105]
+    w._bar = lambda: SimpleNamespace(attend=lambda: None)
+    w.command("UpdateLibrary", {})
+    until(109)
+    assert runs == [100, 105, 108]
+
+
+def test_a_shared_show_leaving_alone_has_the_other_source_scanned(
+    store, backend, kodi, monkeypatch
+):
+    other = "b2" * 16
+    store.publish(show_bundle() + show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    tvshowid, _ = merge(kodi)
+    kodi.sources = [{"file": "/local/Shows/", "label": "Shows"}]
+    scans = []
+    scan = backend.scan
+
+    def recording(directories, scanner="video", **kwargs):
+        scans.append((list(directories), len(kodi.calls)))
+        return scan(directories, scanner, **kwargs)
+
+    monkeypatch.setattr(backend, "scan", recording)
+    store.publish(show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    removed = [
+        i
+        for i, (m, p) in enumerate(kodi.calls)
+        if m == "VideoLibrary.RemoveTVShow" and p["tvshowid"] == tvshowid
+    ]
+    assert removed
+    assert [at for d, at in scans if d == ["/local/Shows/"] and at > removed[0]]
+    assert not store.pending()
+
+
+def test_a_shared_show_under_another_sources_folder_is_removed_not_forgotten(
+    store, backend, kodi
+):
+    other = "b2" * 16
+    store.publish(show_bundle() + show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    tvshowid, _ = merge(kodi, keep_ids=True, folder=LOCAL)
+    store.publish(show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    assert {"tvshowid": tvshowid} in methods(kodi, "VideoLibrary.RemoveTVShow")
+    assert not store.pending()
+
+
+def test_a_collection_removal_ends_when_only_another_sources_movies_hold_the_set(
+    store, backend, kodi
+):
+    from tests.unit.apifixtures import boxset
+
+    store.publish([movie(), boxset("box", "Pair", ["a"])], library=LIB)
+    backend.reconcile()
+    local = kodi.next_id = kodi.next_id + 1
+    kodi.rows["Movie"][local] = {
+        "movieid": local,
+        "file": "/local/Movies/Local Set Movie (2019)/Local Set Movie (2019).mkv",
+        "title": "Local Set Movie",
+        "set": "Pair",
+        "uniqueid": {"imdb": "tt9000099"},
+    }
+    store.publish([], removed=["box"])
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.rows["Movie"][local]["set"] == "Pair"
+    assert not methods(kodi, "VideoLibrary.RemoveMovieSet")

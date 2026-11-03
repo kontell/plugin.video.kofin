@@ -813,7 +813,10 @@ class Kodi:
                         for e in self.rows["Episode"].values()
                     )
                 ]
-            if "filter" in params:
+            rule = params.get("filter") or {}
+            if rule.get("field") == "set":
+                rows = [r for r in rows if r.get("set") == rule["value"]]
+            elif "filter" in params:
                 rows = [r for r in rows if filed_under(r["file"], params["filter"])]
             if "tvshowid" in params:
                 rows = [r for r in rows if r.get("tvshowid") == params["tvshowid"]]
