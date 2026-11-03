@@ -187,6 +187,8 @@ class MusicPass:
                     " pending again",
                     len(lost),
                 )
+        # Every directory this pass re-listed has been checked.
+        self.native.credit_music_scans(library)
         # Only now: a scan that raised leaves the library to be compared
         # whole again.
         if library in self._compared:
@@ -424,9 +426,10 @@ class MusicPass:
     def check_due(self, library, songs: Dict[str, Record], changed_albums) -> bool:
         """Whether this pass compares every song of the library with Kodi's
         rows: once a library after the service starts, after a repair or a
-        music scan or clean of Kodi's (``Native.music_checked`` emptied),
-        when an album's payload moved, and when the pass's songs span enough
-        directories that the library is read whole anyway."""
+        music scan or clean that was not the pass's own
+        (``Native.note_music_changes``), when an album's payload moved, and
+        when the pass's songs span enough directories that the library is
+        read whole anyway."""
         return (
             library not in self.native.music_checked
             or bool(changed_albums)
