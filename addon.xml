@@ -113,6 +113,12 @@
     <forum>https://forum.kodi.tv/showthread.php?tid=388267</forum>
     <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>
     <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
+    <news>v0.96.6
+- Song play counts reach the library faster.
+- Removing a library shows its progress.
+- Library status explains how to clean out a library from an older Kofin with Kofin 0.29.
+- "Episodes to keep ahead" counts the episodes already downloaded.
+- The next episodes are queued for download half way through a downloaded episode.</news>
     <!-- The bundled backdrop, behind structural listings that have no art of
          their own (plugin/browse.py BACKDROP_IMAGE). The server's splashscreen
          goes to addon_data (service/backdrop.py), never here. A fixed path in

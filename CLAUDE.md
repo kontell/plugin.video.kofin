@@ -72,7 +72,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
    v…
    ```
-   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it.
+   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it. Copy the same paragraph into `addon.xml`'s `<news>`, which Kodi shows for an update; `tests/unit/test_build.py` fails until the two match.
 3. Commit, merge to the branch being released, wait for CI green.
 4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 5. Review the draft (`gh release view vX.Y.Z`), then **publish it yourself** —
