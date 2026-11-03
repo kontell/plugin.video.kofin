@@ -2,24 +2,24 @@
 
 # Kofin for Jellyfin
 
-Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a Kodi library.
+Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries into Kodi's own library, so Jellyfin content appears as a Kodi library.
 
-A thin plugin over a background service that syncs, listens on the server's websocket and drives playback. Library writes (optional) go straight into Kodi's own databases and are verified against every supported Kodi version by the add-on's test suite.
+A thin plugin over a background service that syncs, listens on the server's websocket and drives playback. Library sync (optional) goes through Kodi's own scanner and JSON-RPC: Kofin never opens Kodi's database files, and synced libraries can share Kodi's library with your local media ([Kofin and Local Libraries](https://github.com/kontell/plugin.video.kofin/wiki/Kofin-and-Local-Libraries)).
 
 For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
-Requires: Kodi 21 "Omega" or later and Jellyfin 10.11 or later.
+Requires: Kodi 22 "Piers" or Kodi 23, and Jellyfin 10.11 or later. Kodi 23 builds from [kontell/xbmc](https://github.com/kontell/xbmc/releases) carry changes to Kodi, not yet in Kodi itself, that make syncing faster and add the features marked † below. [Kodi versions](https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions) says what each Kodi gets.
 
 ## Features
 
 - Hands-off, resumable & robust [sync](docs/benchmark-report.md)
 - Downloads (including transcoding)
-- SyncPlay, watch in sync with other Jellyfin clients
+- SyncPlay, watch in sync with other Jellyfin clients, with fine sync between commands †
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features/ extras
-- Multi-version movies as Kodi video versions
+- Multi-version movies as Kodi video versions † (otherwise the default version is synced)
 - Flexible playback methods, direct play, remux or transcode. Choose supported HDR formats & max resolution
-- Jellyfin chapter images in Kodi's chapter list
+- Jellyfin chapter images in Kodi's chapter list †
 - Sync playlists
 - Transcode music
 - Jellyfin song lyrics via companion add-on
@@ -30,24 +30,24 @@ Requires: Kodi 21 "Omega" or later and Jellyfin 10.11 or later.
 
 Install via the [Kontell Repository](https://github.com/kontell/repository.kontell).
 
-Version [compatibility](https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions)
+Kofin 0.29, the build that writes Kodi's databases directly, is still offered for Kodi 21 "Omega" and Kodi 22. A profile that synced with it needs a clean start before this version syncs: see [Kodi versions](https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions).
 
 ### Configuration
 
 - After install the addon appears under Add-ons -> Video add-ons -> Kofin.
 - From settings enter your server address and log in.
 - Libraries can now be browsed in a similar manner to typical Kodi add-ons.
-- To sync libraries into the local Kodi database:
+- To sync libraries into the local Kodi library:
     - From settings go to the Library tab, choose which server libraries to mirror and the background service syncs them into Kodi's library.
 - See [wiki](https://github.com/kontell/plugin.video.kofin/wiki) for further details.
 
 ### Migration from Jellyfin-Kodi
 
-1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
-2.  Install Kofin and enter Add-ons -> Video add-ons -> Kofin -> Settings -> Account
-3.  Run `Clean databases` (the button is only visible while logged out).
-    - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
-    - Cleaning is per Kodi profile, run it in each profile that synced.
+1.  Remove jellyfin-kodi's library with its own tool: its settings -> `Reset local Kodi database`.
+2.  Disable or uninstall jellyfin-kodi, its background service must not be running.
+3.  Install Kofin and choose the libraries to sync.
+
+Resetting is per Kodi profile, do it in each profile that synced.
 
 ## Companion server plugins
 
@@ -57,4 +57,4 @@ Version [compatibility](https://github.com/kontell/plugin.video.kofin/wiki/Kodi-
 
 ## Uninstalling Kofin
 
-Log out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
+Untick every library (Settings -> Library -> `Select libraries to sync`) so they leave Kodi's library, log out (Settings -> Account), then uninstall the add-on and accept Kodi's offer to delete the add-on data. Do it in each profile that synced.
