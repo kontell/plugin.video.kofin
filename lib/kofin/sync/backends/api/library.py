@@ -1197,11 +1197,18 @@ class Library(threading.Thread):
 
     def drop_libraries(self, libraries):
         """Tombstone every item of these libraries and take them off the
-        whitelist; the next pass removes their rows."""
-        for library in libraries:
+        whitelist; the next pass removes their rows.
+
+        A library is named by its id or by an entry the whitelist still
+        stores as ``Mixed:<id>``. Its items are filed under the bare id, so
+        both spellings tombstone the same items and take every entry of
+        either spelling off the whitelist."""
+        for library in dict.fromkeys(i.replace("Mixed:", "") for i in libraries):
             self.store.publish([], library=library)
             state = private.get_sync()
-            state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
+            state["Whitelist"] = [
+                i for i in state["Whitelist"] if i.replace("Mixed:", "") != library
+            ]
             private.save_sync(state)
         self.publish_selection()
         # The playlists of a side whose last library left are pruned

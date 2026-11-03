@@ -53,6 +53,22 @@ def gone(store, monkeypatch):
     return server, w, seen, check
 
 
+@pytest.mark.parametrize("spelling", [LIB, "Mixed:" + LIB])
+def test_a_library_stored_as_mixed_leaves_by_either_spelling(
+    store, monkeypatch, spelling
+):
+    """A server's deletion names the bare id and RemoveLibrary the stored
+    entry; the items are filed under the bare id either way."""
+    store.publish([movie()], library=LIB)
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    state = {"Whitelist": ["Mixed:" + LIB, LIB2]}
+    monkeypatch.setattr(library.private, "get_sync", lambda: dict(state))
+    monkeypatch.setattr(library.private, "save_sync", state.update)
+    w.drop_libraries([spelling])
+    assert state["Whitelist"] == [LIB2]
+    assert store.state("a").operation == "remove"
+
+
 def test_a_hidden_library_keeps_syncing(store, monkeypatch):
     """Hidden from My Media is the home screen's setting, not the sync's."""
     server = Server({LIB: [movie()], LIB2: []})
