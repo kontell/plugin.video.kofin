@@ -35,6 +35,11 @@ its whole difference from 148 — the seed rows are byte-identical — and the
 created/migrated distinction is what keeps it reading ``iFlags integer``
 (``CreateTables``) rather than the migration's ``iFlags INTEGER DEFAULT 0``.
 See ``docs/myvideos149-gate.md``.
+
+``myvideos150.sql`` is a real dump of a database Kodi created at 150, and it is
+byte-identical to the 149 fixture, seed rows included: 150 is data-only, like
+147. Its migration retypes video asset rows an upgrade from before 131 got
+wrong and adds no schema. See ``docs/myvideos150-gate.md``.
 """
 
 import os
@@ -51,13 +56,14 @@ PIERS_VIDEO_VERSION = 146
 PIERS_MUSIC_VERSION = 84
 PIERS_TEXTURE_VERSION = 14
 
-# Piers bumped MyVideos to 147, then 148, then 149 mid-beta; all four numbers
-# are in the wild (an install that never ran a newer build keeps the older
-# file), so all four are legs of the L2 suite. Music and textures moved with
-# none of them.
+# Piers bumped MyVideos to 147, then 148, then 149 mid-beta, and to 150 after
+# RC1; all five numbers are in the wild (an install that never ran a newer
+# build keeps the older file), so all five are legs of the L2 suite. Music and
+# textures moved with none of them.
 PIERS_VIDEO_VERSION_147 = 147
 PIERS_VIDEO_VERSION_148 = 148
 PIERS_VIDEO_VERSION_149 = 149
+PIERS_VIDEO_VERSION_150 = 150
 
 
 def _apply(conn: sqlite3.Connection, filename: str) -> None:

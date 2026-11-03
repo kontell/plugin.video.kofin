@@ -131,8 +131,9 @@ class FakeMonitor:
         (kodifixtures.PIERS_VIDEO_VERSION_147, kodifixtures.PIERS_MUSIC_VERSION),
         (kodifixtures.PIERS_VIDEO_VERSION_148, kodifixtures.PIERS_MUSIC_VERSION),
         (kodifixtures.PIERS_VIDEO_VERSION_149, kodifixtures.PIERS_MUSIC_VERSION),
+        (kodifixtures.PIERS_VIDEO_VERSION_150, kodifixtures.PIERS_MUSIC_VERSION),
     ],
-    ids=["omega", "piers", "piers147", "piers148", "piers149"],
+    ids=["omega", "piers", "piers147", "piers148", "piers149", "piers150"],
 )
 def sync_env(request, monkeypatch, tmp_path):
     video_version, music_version = request.param
@@ -1236,6 +1237,89 @@ def test_movie_novel_version_name_creates_user_type(api):
         "SELECT name FROM videoversiontype WHERE name = 'IMAX Exclusive'"
     )
     assert len(type_names) == 1
+
+
+def repair_video_asset_types_v150(path):
+    """Kodi's MyVideos150 migration (``RepairVideoAssetTypesV150``), the
+    branch a database from 134 on takes: VERSION 1, EXTRA 2, owner SYSTEM 0,
+    owner USER 2."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "UPDATE videoversion SET itemType = 1"
+            " WHERE media_type = 'movie' AND itemType = 2"
+            " AND idFile = (SELECT m.idFile FROM movie m"
+            " WHERE m.idMovie = videoversion.idMedia)"
+        )
+        conn.execute(
+            "UPDATE videoversiontype SET itemType = 1"
+            " WHERE owner = 0 AND itemType = 2"
+        )
+        shared = conn.execute(
+            "SELECT DISTINCT vvt.id, vvt.name FROM videoversion vv"
+            " JOIN videoversiontype vvt ON vvt.id = vv.idType"
+            " WHERE vv.itemType = 2 AND (vvt.owner = 0 OR"
+            " (vvt.owner = 2 AND vvt.itemType = 2 AND vvt.id IN"
+            " (SELECT idType FROM videoversion WHERE itemType = 1)))"
+        ).fetchall()
+        for type_id, name in shared:
+            new_id = conn.execute(
+                "INSERT INTO videoversiontype (id, name, owner, itemType)"
+                " VALUES (NULL, ?, 2, 2)",
+                (name,),
+            ).lastrowid
+            conn.execute(
+                "UPDATE videoversion SET idType = ?"
+                " WHERE itemType = 2 AND idType = ?",
+                (new_id, type_id),
+            )
+        conn.execute(
+            "UPDATE videoversiontype SET itemType = 1"
+            " WHERE owner = 2 AND itemType = 2"
+            " AND id IN (SELECT idType FROM videoversion WHERE itemType = 1)"
+            " AND id NOT IN (SELECT idType FROM videoversion WHERE itemType = 2)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_movie_assets_are_unchanged_by_kodis_150_repair(api):
+    """The 150 migration retypes a movie's own file filed as an extra, a
+    system type marked extra, an extra sharing a type with versions and a
+    user type only versions use that is marked extra. kofin writes none of
+    them, so the upgrade leaves every asset row as kofin wrote it. A version
+    named like an extras type is the near miss: each gets a type of its own."""
+    version = video_query("SELECT idVersion FROM version")[0][0]
+    if version < 134:
+        pytest.skip("Kodi repairs no asset row on an upgrade from %d" % version)
+    payload = movie_with_versions()
+    payload["MediaSources"].append(
+        _version_source(
+            "source-bts",
+            "Behind the Scenes",
+            "/media/movies/The Example (2020)/The Example - Behind the Scenes.mkv",
+            74000000000,
+        )
+    )
+    payload["SpecialFeatureCount"] = len(FEATURES)
+    api.special_features_by_id = {"movie1": FEATURES}
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    assert len(version_rows()) == 3
+    assert len(extras_rows()) == 2
+    assert sorted(
+        video_query(
+            "SELECT owner, itemType FROM videoversiontype"
+            " WHERE name = 'Behind the Scenes'"
+        )
+    ) == [(2, version_item_type()), (2, extra_item_type())]
+
+    path = str(sync_db._path_overrides["video"])
+    before = dump(path)
+    repair_video_asset_types_v150(path)
+    assert dump(path) == before
 
 
 def test_boxset_links_and_removal(api):
