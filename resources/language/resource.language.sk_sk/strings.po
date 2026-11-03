@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "Automaticky sťahovať ďalšie epizódy"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "Počas sledovania stiahnutej epizódy sa na značke 80% zaradia do fronty sťahovania ďalšie nezhliadnuté epizódy seriálu."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "Počas sledovania stiahnutej epizódy sa na značke 50% zaradia do fronty sťahovania ďalšie nezhliadnuté epizódy seriálu."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"

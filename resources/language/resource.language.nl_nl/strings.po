@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "De volgende afleveringen automatisch downloaden"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "Terwijl je een gedownloade aflevering kijkt, worden de volgende niet-bekeken afleveringen van de serie op 80% in de downloadwachtrij gezet."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "Terwijl je een gedownloade aflevering kijkt, worden de volgende niet-bekeken afleveringen van de serie op 50% in de downloadwachtrij gezet."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"
