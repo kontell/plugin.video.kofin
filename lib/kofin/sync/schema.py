@@ -8,12 +8,12 @@ is raised by the library manager, and the Library tab status line explains.
 Never write blind (plan §2).
 
 Version map: Kodi 21 (Omega) ships MyVideos131/MyMusic83; Kodi 22 (Piers)
-ships MyVideos146 and, through three mid-beta bumps, MyVideos147,
-MyVideos148 and MyVideos149 — MyMusic stays 84 across all four. Every entry
-is fixture-backed: the L2 writer suite runs against a schema dump of each
-before a version enters the map (see docs/myvideos147-gate.md,
-docs/myvideos148-gate.md and docs/myvideos149-gate.md for how each was
-established).
+ships MyVideos146 and, through three mid-beta bumps and one after RC1,
+MyVideos147, MyVideos148, MyVideos149 and MyVideos150 — MyMusic stays 84
+across all five. Every entry is fixture-backed: the L2 writer suite runs
+against a schema dump of each before a version enters the map (see
+docs/myvideos147-gate.md, docs/myvideos148-gate.md, docs/myvideos149-gate.md
+and docs/myvideos150-gate.md for how each was established).
 
 Allowed module-level state: the discovery cache. Database filenames cannot
 change within a Kodi process (a version bump requires a Kodi upgrade and
@@ -38,7 +38,7 @@ PREFIXES = {"video": "MyVideos", "music": "MyMusic", "texture": "Textures"}
 # thumbnail feature: Omega ships Textures13, Piers Textures14, both
 # fixture-backed like the video/music legs.
 SUPPORTED: Dict[str, Optional[set]] = {
-    "video": {131, 146, 147, 148, 149},
+    "video": {131, 146, 147, 148, 149, 150},
     "music": {83, 84},
     "texture": {13, 14},
 }
@@ -51,9 +51,11 @@ DATABASE_DIR = "special://database/"
 # 147 keeps Piers's numbering: the enum is untouched by that bump, which is
 # data-only (docs/myvideos147-gate.md). 148 keeps it too — that bump only adds
 # two columns to streamdetails (docs/myvideos148-gate.md), and so does 149,
-# which adds a third (docs/myvideos149-gate.md).
+# which adds a third (docs/myvideos149-gate.md). 150 keeps it as well: that
+# bump is data-only, retyping asset rows an upgrade from before 131 got wrong
+# (docs/myvideos150-gate.md).
 # A version missing from this map disables the extras pass, not the sync.
-EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1, 146: 2, 147: 2, 148: 2, 149: 2}
+EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1, 146: 2, 147: 2, 148: 2, 149: 2, 150: 2}
 
 # VideoAssetTypeOwner::USER — the owner kofin stamps on videoversiontype rows
 # it creates (matches what Kodi's own "convert to extra" flow writes).
@@ -78,6 +80,7 @@ SEASON_HAS_PLOT: Dict[int, bool] = {
     147: True,
     148: True,
     149: True,
+    150: True,
 }
 
 # Rows Kodi itself writes at music-database creation (MusicDatabase::

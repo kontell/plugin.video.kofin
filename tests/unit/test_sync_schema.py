@@ -84,6 +84,15 @@ def test_supported_piers_149_versions_pass_the_gate(monkeypatch):
     assert schema.gate_status() is None
 
 
+def test_supported_piers_150_versions_pass_the_gate(monkeypatch):
+    """150 moves no DDL — its migration only retypes asset rows — so it
+    reuses 149's schema. Music still did not move with it."""
+    fake_database_dir(monkeypatch, ["MyVideos150.db", "MyMusic84.db"])
+    assert schema.check("video") == 150
+    assert schema.check("music") == 84
+    assert schema.gate_status() is None
+
+
 def test_discovery_prefers_147_over_a_left_behind_146(monkeypatch):
     """Kodi leaves the old file behind when it migrates, so both sit in the
     directory and the newest is the live one."""
@@ -92,13 +101,19 @@ def test_discovery_prefers_147_over_a_left_behind_146(monkeypatch):
 
 
 def test_discovery_prefers_the_newest_of_every_left_behind_file(monkeypatch):
-    """Four Piers numbers can sit side by side after three migrations; the
+    """Five Piers numbers can sit side by side after four migrations; the
     newest is still the live one."""
     fake_database_dir(
         monkeypatch,
-        ["MyVideos146.db", "MyVideos147.db", "MyVideos148.db", "MyVideos149.db"],
+        [
+            "MyVideos146.db",
+            "MyVideos147.db",
+            "MyVideos148.db",
+            "MyVideos149.db",
+            "MyVideos150.db",
+        ],
     )
-    assert schema.discover("video") == ("MyVideos149.db", 149)
+    assert schema.discover("video") == ("MyVideos150.db", 150)
 
 
 def test_unknown_version_is_refused(monkeypatch):
