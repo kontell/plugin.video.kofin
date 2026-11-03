@@ -235,8 +235,15 @@ What remains is kofin's own:
   artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
   Bravia), so it runs only when due (`MusicPass.check_due`): a library's first music pass
   after the service starts, a repair, the pass after Kodi announces a music scan or clean
-  (`AudioLibrary.OnScanFinished`/`OnCleanFinished`, the `CheckMusic` command), an album that
-  moved, and a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Any other
+  that was not the pass's own (`Native.note_music_changes`), an album that moved, and a pass
+  whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Kodi announces the end of
+  every scan, the hold's included, and names no directory, so the pass hears them on its own
+  Monitor and takes as many as it ran for its own: the hold, and each directory scan once
+  `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
+  not check, one that failed part way or a removal's in a pass that filed nothing in the
+  library, counts as a viewer's. Taken for a viewer's, the hold's alone
+  has the pass after every song written compare the whole library: 9 to 14 s after a track
+  on the Bravia, against 1 to 3 s. Any other
   pass compares its own songs, each read with its directory (`Readback.scope` reads a music
   directory alone until the library has been read whole). After a scan, `lost_songs` covers
   every directory the pass re-listed, the removal's scans included, and reads those directories
@@ -260,6 +267,9 @@ What remains is kofin's own:
   `transaction`, which the skin's music widgets skip; without the hold every song written
   re-ran four whole-library widget queries. It does not change Kodi's per-setter cost (nine
   autocommit statements, 46 ms a song on the P1D) and the video database has no such flag.
+  An applier run with one music row takes no hold (`Applier._hold_music`): its one setter
+  refreshes the widgets once, as the hold's end would, and the hold is a scan of its own
+  (0.5 to 5 s on the Bravia).
 - **A music scan is a plan scanned a part at a time: never the library root, never a directory
   by name** (`musicpass.MusicPass.scan`, `walk.py`, `paths.MUSIC_PART`, `store.plan_walk`). The pass
   plans the album directories it wants listed, in listing order under their labels, and scans

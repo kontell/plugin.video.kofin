@@ -357,8 +357,6 @@ class Library(threading.Thread):
         # entry and when the item was first seen no longer playing.
         self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
-        # Kodi announced a music scan or clean (CheckMusic).
-        self._music_unchecked = False
         # When kofin last published to the catalogue, and when the work now
         # pending was first seen (PASS_SETTLE).
         self._published_at = 0.0
@@ -391,7 +389,6 @@ class Library(threading.Thread):
             "SyncPlaylists",
             "SyncMusicPlaylists",
             "CleanupMusicPlaylists",
-            "CheckMusic",
         ):
             self._queue.put((command, data or {}))
 
@@ -1232,11 +1229,6 @@ class Library(threading.Thread):
             else:
                 self._playlists_due = True
             return
-        if command == "CheckMusic":
-            # Kodi scanned or cleaned its music library: the next pass that
-            # touches music compares every song with Kodi's rows.
-            self._music_unchecked = True
-            return
         if command in ("SyncMusicPlaylists", "CleanupMusicPlaylists"):
             # Queued by the switch going on or off: the playlists pass
             # writes or removes the files by the switch as it reads then.
@@ -1274,9 +1266,6 @@ class Library(threading.Thread):
         return recent and now - self._pending_since < PASS_SETTLE_MAX
 
     def apply(self, native):
-        if self._music_unchecked:
-            native.music_checked.clear()
-            self._music_unchecked = False
         pending = self.store.has_pending()
         if not pending:
             self._pending_since = None
