@@ -1090,6 +1090,17 @@ class Native:
                         and r.library == library
                         and r.item_id not in present
                     ]
+                    if kind == "Movie" and missing:
+                        # Only a movie Kodi has filed for us can sit on a row
+                        # another source's file lists (Readback.movie), and a
+                        # first import files none: its mappings in one read.
+                        filed = self.store.mappings_of([r.item_id for r in missing])
+                        missing = [
+                            r
+                            for r in missing
+                            if r.item_id not in filed
+                            or self.readback.movie(library, r.item_id) is None
+                        ]
                 asset_folders: List[str] = []
                 if content == "movies":
                     asset_folders = self._asset_folders(upserts, library)
@@ -1223,15 +1234,21 @@ class Native:
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)
+        # Only a show Kodi has filed for us can sit on a row another source's
+        # folder lists (Readback.show), and a first import files none: their
+        # mappings in one read, and a lookup only for those.
+        unlisted = {
+            r.item_id if r.kind == "Series" else r.parent_id
+            for r in upserts.values()
+            if r.library == library and r.kind in ("Series", "Episode")
+        } - set(shows)
+        filed = self.store.mappings_of(sorted(unlisted)) if unlisted else {}
 
         def known(series_id):
             if series_id in shows:
                 return True
-            # Only a show Kodi has filed for us can sit on a row another
-            # source's folder lists; asked for every new show, a first
-            # import would pay a call a show.
             return (
-                self.store.mapping(series_id) is not None
+                series_id in filed
                 and self.readback.show(library, series_id) is not None
             )
 

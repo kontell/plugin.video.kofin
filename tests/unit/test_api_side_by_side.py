@@ -373,3 +373,148 @@ def test_a_collection_removal_ends_when_only_another_sources_movies_hold_the_set
     assert not store.pending()
     assert kodi.rows["Movie"][local]["set"] == "Pair"
     assert not methods(kodi, "VideoLibrary.RemoveMovieSet")
+
+
+# -- a movie Kodi grouped with another source's copy -------------------------
+
+LOCAL_MOVIE = "/local/Movies/Movie (2020)/Movie (2020).mkv"
+
+
+def group(kodi, item_id="a"):
+    """What Kodi's automatic grouping of similar videos makes of our movie
+    when another source's copy is scanned: theirs the default version, the
+    row listed under their file, ours a version of it."""
+    row = next(
+        r
+        for r in kodi.rows["Movie"].values()
+        if (r.get("uniqueid") or {}).get("kofin", "").endswith(":" + item_id)
+    )
+    row["versions"] = [row["file"]]
+    row["file"] = LOCAL_MOVIE
+    return row["movieid"]
+
+
+def test_a_movie_grouped_with_another_sources_copy_stays_ours(store, backend, kodi):
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    movieid = group(kodi)
+    kodi.calls.clear()
+    store.publish([movie(UserData={"Played": True, "PlayCount": 1})])
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.RefreshMovie")
+    assert kodi.rows["Movie"][movieid]["playcount"] == 1
+    assert kodi.rows["Movie"][movieid]["file"] == LOCAL_MOVIE
+
+
+def test_a_grouped_movie_whose_cast_moved_is_set_not_refreshed(store, backend, kodi):
+    """Refreshed, the row would be read from the other source's file."""
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    group(kodi)
+    kodi.calls.clear()
+    store.publish([movie(People=[{"Name": "Someone New", "Type": "Actor"}])])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.RefreshMovie")
+    assert not store.pending()
+
+
+def test_a_grouped_movie_leaving_alone_goes_by_id_and_their_source_is_scanned(
+    store, backend, kodi, monkeypatch
+):
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    movieid = group(kodi)
+    kodi.sources = [{"file": "/local/Movies/", "label": "Movies"}]
+    scans = []
+    monkeypatch.setattr(
+        backend, "scan", lambda d, scanner="video", **kw: scans.append(list(d))
+    )
+    store.publish([movie("b")], library=LIB)
+    backend.reconcile()
+    assert {"movieid": movieid} in methods(kodi, "VideoLibrary.RemoveMovie")
+    assert ["/local/Movies/"] in scans
+    assert not store.pending()
+
+
+def test_a_cleared_movie_library_removes_a_grouped_movie_by_id(
+    store, backend, kodi, monkeypatch
+):
+    """The clear finds a movie by the file its row lists, theirs here."""
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    movieid = group(kodi)
+    kodi.sources = [{"file": "/local/Movies/", "label": "Movies"}]
+    scans = []
+    monkeypatch.setattr(
+        backend, "scan", lambda d, scanner="video", **kw: scans.append(list(d))
+    )
+    kodi.calls.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    calls = [m for m, _ in kodi.calls]
+    assert calls.index("VideoLibrary.RemoveMovie") < calls.index(
+        "VideoLibrary.SetSourceContent"
+    )
+    assert movieid not in kodi.rows["Movie"]
+    assert ["/local/Movies/"] in scans
+
+
+def test_a_first_movie_import_asks_kodi_about_no_file(store, backend, kodi):
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    assert not methods(kodi, "Files.GetFileDetails")
+    assert not store.pending()
+
+
+# -- the review of #401 ------------------------------------------------------
+
+
+def test_a_new_failure_brings_the_catch_up_forward_and_a_repeat_does_not(failing):
+    w, clock, runs, errors, until = failing
+    w._catchup_due = clock[0] + 1800
+    try:
+        w.apply(SimpleNamespace(reconcile=_raise, settings_owed=False))
+    except RuntimeError as error:
+        w._log_failure("API native work remains pending", error)
+    assert w._catchup_due <= clock[0] + 30
+    w._catchup_due = clock[0] + 1800
+    clock[0] += 1000
+    try:
+        w.apply(SimpleNamespace(reconcile=_raise, settings_owed=False))
+    except RuntimeError as error:
+        w._log_failure("API native work remains pending", error)
+    assert w._catchup_due == clock[0] - 1000 + 1800
+
+
+def test_a_pass_that_succeeds_lets_go_of_the_failure_it_held(failing):
+    w, clock, runs, errors, until = failing
+    errors.extend([STUCK, STUCK, None])
+    # Failed at 100 and at 105, succeeded at 115.
+    until(116)
+    assert runs == [100, 105, 115]
+    assert w._failure is None and w._repeated is None
+
+
+def test_the_clear_asks_for_other_sources_episodes_show_by_show(store, backend, kodi):
+    """An episode of another source on a show of nobody else's is never read."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    elsewhere = kodi.next_id = kodi.next_id + 1
+    kodi.rows["Episode"][elsewhere] = {
+        "episodeid": elsewhere,
+        "tvshowid": 9999,
+        "file": "/local/Other/Show/S01E01.mkv",
+        "season": 1,
+        "episode": 1,
+        "uniqueid": {},
+    }
+    store.publish([], library=LIB)
+    backend.reconcile()
+    foreign = [
+        p
+        for p in methods(kodi, "VideoLibrary.GetEpisodes")
+        if (p.get("filter") or {}).get("operator") == "doesnotcontain"
+    ]
+    assert foreign and all("tvshowid" in p for p in foreign)
+    assert not methods(kodi, "Files.GetSources")

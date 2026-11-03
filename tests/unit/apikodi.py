@@ -763,6 +763,18 @@ class Kodi:
             return {"files": [], "limits": {"total": 0}}
         if method == "Files.GetSources":
             return {"sources": list(self.sources)}
+        if method == "Files.GetFileDetails":
+            # GetMovieId: a movie's own file, or one of its version files.
+            for row in self.rows["Movie"].values():
+                if params["file"] in [row["file"]] + list(row.get("versions") or []):
+                    return {
+                        "filedetails": {
+                            "file": params["file"],
+                            "id": row["movieid"],
+                            "type": "movie",
+                        }
+                    }
+            return {"filedetails": {"file": params["file"], "label": ""}}
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"

@@ -187,8 +187,8 @@ What remains is kofin's own:
   date) and rewrites the row from the source scanned last. Scanned after ours, the other
   source takes our ids off the row; scanned before, the row stays listed under its folder,
   where the library's listing does not reach, and our first import of the show failed every
-  pass. Movies and episodes are matched by file and never merge, so a show missing from the
-  listing is the row an episode filed under its folder belongs to. A stripped row skips the
+  pass. Episodes are matched by file and never merge, so a show missing from the listing is
+  the row an episode filed under its folder belongs to. A stripped row skips the
   acknowledged shortcut and goes back to pending when another kind found it
   (`Native.reclaim_shows`); it is refreshed alone only while Kodi lists it under our folder,
   where the refresh reads our listing (one show-only refresh put back every id and the cast
@@ -202,6 +202,18 @@ What remains is kofin's own:
   own folder with its watched states. A show to remove is found as the pass finds it, through
   its episodes (`removal._row`): read from the listing alone, a row under their folder was
   forgotten with our episodes still on it.
+- **A movie another source's copy took the row of is still ours, found by our own file**
+  (`Readback.movie`). Kodi's grouping of similar videos (`videolibrary.similarvideoaction`,
+  automatic by default) groups a scraped movie with any movie sharing a unique id
+  (`GetSameVideoItems`) and makes the newer file the default version
+  (`videolibrary.newversionsaredefault`), so a scraped local copy turns our row into one
+  listed under their file, where the library's listing does not reach, and every pass failed.
+  Kodi still resolves our URL to the movie (`GetMovieId` reads `videoversion`), and
+  `Files.GetFileDetails` on it names the row; Kodi lists the movie's folder to answer, so only
+  a movie Kodi has filed for us is looked for that way. Such a row is never refreshed, which
+  would read their file. The library clear finds a movie by the file its row lists and
+  cannot reach it, so a grouped movie goes by its id before the clear (`removal.grouped_movies`),
+  a single one leaving the same way, and the source holding their file is scanned after.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner

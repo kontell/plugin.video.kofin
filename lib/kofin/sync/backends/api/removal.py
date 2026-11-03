@@ -62,14 +62,18 @@ def other_sources(native, library, members, placement) -> List[str]:
 
 def sources_of(native, shows) -> List[str]:
     """The video sources holding episodes another source filed on the rows
-    ``shows`` (Kodi's tvshowids), deepest source first for each."""
-    if not shows:
-        return []
+    ``shows`` (Kodi's tvshowids)."""
     files = [
         episode["file"]
-        for episode in native.readback.foreign_episodes()
-        if episode.get("tvshowid") in shows and episode.get("file")
+        for tvshowid in sorted(shows)
+        for episode in native.readback.foreign_episodes(tvshowid)
+        if episode.get("file")
     ]
+    return sources_holding(files)
+
+
+def sources_holding(files) -> List[str]:
+    """The video sources the files are in, the deepest one for each."""
     if not files:
         return []
     sources = [
@@ -93,6 +97,22 @@ def sources_of(native, shows) -> List[str]:
             unmatched,
         )
     return sorted(found)
+
+
+def grouped_movies(native, library, members, placement) -> Tuple[List[int], List[str]]:
+    """The movies of the library Kodi grouped with another source's copy and
+    lists under its file (Readback.movie), and those files."""
+    ids: List[int] = []
+    files: List[str] = []
+    for item_id in sorted(members):
+        if placement[item_id].kind != "Movie":
+            continue
+        row = native.readback.movie(library, item_id)
+        if row is None or native.readback.own_file(library, item_id, row):
+            continue
+        ids.append(row["movieid"])
+        files.append(row.get("file") or "")
+    return ids, files
 
 
 def _merged_shows(store, pending, placement, members) -> List[str]:
@@ -299,19 +319,28 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             continue
         kinds = {placement[i].kind for i in members}
         others: List[str] = []
-        if kinds & {"Series", "Episode"}:
-            try:
+        grouped: List[int] = []
+        try:
+            if kinds & {"Series", "Episode"}:
                 others = other_sources(native, library, members, placement)
-            except InterruptedError:
-                raise
-            except Exception as error:
-                LOG.warning(
-                    "library %s: shows shared with other sources not read: %s",
-                    library,
-                    error,
-                )
+            if "Movie" in kinds:
+                grouped, files = grouped_movies(native, library, members, placement)
+                others = sorted(set(others) | set(sources_holding(files)))
+        except InterruptedError:
+            raise
+        except Exception as error:
+            LOG.warning(
+                "library %s: rows shared with other sources not read: %s",
+                library,
+                error,
+            )
         try:
             began = time.monotonic()
+            # The clear finds a movie by the file its row lists, which for a
+            # movie grouped with another source's copy is theirs: each goes by
+            # its id, their copy with it, and their source files it again.
+            for movieid in grouped:
+                rpc("VideoLibrary.RemoveMovie", {"movieid": movieid})
             # A Kodi carrying kontell/xbmc #3 deletes the sets the removal
             # empties, in the same transaction.
             clear_library(
@@ -409,13 +438,17 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             if row is None:
                 forget_with_children(item_id)
                 continue
-            if placed.kind == "Series":
-                try:
+            try:
+                if placed.kind == "Series":
                     rescan.update(sources_of(native, {row["tvshowid"]}))
-                except InterruptedError:
-                    raise
-                except Exception as error:
-                    LOG.warning("show %s: other sources not read: %s", item_id, error)
+                elif placed.kind == "Movie" and not native.readback.own_file(
+                    placed.library, item_id, row
+                ):
+                    rescan.update(sources_holding([row.get("file") or ""]))
+            except InterruptedError:
+                raise
+            except Exception as error:
+                LOG.warning("%s: other sources not read: %s", item_id, error)
             rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
@@ -605,6 +638,8 @@ def _row(native, placed, item_id):
     well (Readback.show), since another source's folder may list it."""
     if placed.kind == "Series":
         return native.readback.show(placed.library, item_id)
+    if placed.kind == "Movie":
+        return native.readback.movie(placed.library, item_id)
     return native.readback.scope(placed.kind, placed.library, placed.parent_id).get(
         item_id
     )

@@ -509,12 +509,6 @@ class Library(threading.Thread):
                 except Exception as error:
                     self._log_failure("API video sync will retry", error)
                     self._status(settings.localized(30403))
-                    if error is not self._repeated:
-                        # A catch-up does nothing for a pass that keeps
-                        # failing the same way.
-                        self._catchup_due = min(
-                            self._catchup_due, time.monotonic() + 30
-                        )
                     failed = True
             self.settle_progress(failed)
             if failed and self._stop_event.wait(5):
@@ -1292,7 +1286,7 @@ class Library(threading.Thread):
         if command in ATTENDED and not retry:
             self._bar().attend()
             # The viewer asked: the next pass runs now, failing or not.
-            self._failure = None
+            self._failure = self._repeated = None
         if command == "RemoveLibrary":
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
@@ -1372,17 +1366,19 @@ class Library(threading.Thread):
         return recent and now - self._pending_since < PASS_SETTLE_MAX
 
     def _log_failure(self, message, error):
-        """The whole failure the first time, a line once it repeats."""
-        if error is self._repeated:
-            LOG.debug(
-                "%s, the same way again; next try in %.0f s unless new work"
-                " arrives: %s",
-                message,
-                self._failure_delay,
-                error,
-            )
-        else:
+        """The whole failure the first time, with a catch-up soon, since a
+        server change the work needed may be behind it; a line once it
+        repeats, when a catch-up does nothing for it."""
+        if error is not self._repeated:
             LOG.exception(message)
+            self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
+            return
+        LOG.debug(
+            "%s, the same way again; next try in %.0f s unless new work arrives: %s",
+            message,
+            self._failure_delay,
+            error,
+        )
 
     def _note_failure(self, error):
         signature = "%s: %s" % (type(error).__name__, error)
@@ -1407,7 +1403,7 @@ class Library(threading.Thread):
         pending = self.store.has_pending()
         if not pending:
             self._pending_since = None
-            self._failure = None
+            self._failure = self._repeated = None
         elif not self._repair and self._settling():
             return
         if (pending or self._repair) and self._waiting_out_failure():
@@ -1426,7 +1422,7 @@ class Library(threading.Thread):
                 self._note_failure(error)
                 raise
             else:
-                self._failure = None
+                self._failure = self._repeated = None
             finally:
                 # A home widget whose last fetch found nothing is deaf to
                 # every later library announcement, and the skin's widget

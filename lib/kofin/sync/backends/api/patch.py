@@ -302,6 +302,8 @@ class Applier:
             return self.readback.scope("BoxSet").get(name)
         if kind == "Series":
             return self.readback.show(record.library, record.item_id)
+        if kind == "Movie":
+            return self.readback.movie(record.library, record.item_id)
         return self.readback.scope(kind, record.library, record.parent_id).get(
             record.item_id
         )
@@ -402,13 +404,15 @@ class Applier:
                 self.store.local(record.item_id, edits)
                 return None
         kodi_id = row[KINDS[kind].id_param]
-        owner = self.readback.row_owner(row) if kind == "Series" else None
+        owner = self.readback.row_owner(row) if kind in ("Series", "Movie") else None
         if owner is not None and owner != record.item_id:
-            # Two of our libraries hold the show and Kodi filed both on one
-            # row: the show whose id the row carries owns its details, and
-            # this one is mapped to it and left.
+            # Two items of ours that Kodi filed on one row (one show in two of
+            # our libraries, one movie Kodi grouped with another): the one
+            # whose id the row carries owns its details, and this one is
+            # mapped to it and left.
             LOG.debug(
-                "show %s shares Kodi's show %d with show %s",
+                "%s %s shares Kodi's row %d with %s",
+                kind.lower(),
                 record.item_id,
                 kodi_id,
                 owner,
@@ -481,15 +485,23 @@ class Applier:
         parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
-            if (
-                (row.get("uniqueid") or {}).get("kofinrefresh") != token
-                and kind == "Series"
-                and not self.readback.own_folder(record.library, record.item_id, row)
+            if (row.get("uniqueid") or {}).get("kofinrefresh") != token and (
+                (
+                    kind == "Series"
+                    and not self.readback.own_folder(
+                        record.library, record.item_id, row
+                    )
+                )
+                or (
+                    kind == "Movie"
+                    and not self.readback.own_file(record.library, record.item_id, row)
+                )
             ):
-                # Listed under another source's folder, the row would be
-                # refreshed from that source's NFO: the setter writes our ids.
+                # Listed under another source's folder or file, the row would
+                # be refreshed from that source: the setter writes our ids.
                 LOG.debug(
-                    "show %s is listed under another source's folder: not refreshed",
+                    "%s %s is listed under another source's file: not refreshed",
+                    kind.lower(),
                     record.item_id,
                 )
             elif (row.get("uniqueid") or {}).get("kofinrefresh") != token:
