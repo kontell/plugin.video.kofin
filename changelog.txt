@@ -1,3 +1,8 @@
+v0.29.4
+- Library sync works on Kodi 22 builds newer than RC1
+- "Episodes to keep ahead" counts the episodes already downloaded
+- The next episodes are queued for download half way through a downloaded episode
+
 v0.29.3
 - A README on the Account tab explains the move to Kofin 0.96
 - Play all starts faster on large albums
