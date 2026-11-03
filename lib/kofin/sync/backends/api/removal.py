@@ -151,6 +151,7 @@ def clear_library(native, library, kinds, rows=0):
             # not be what keeps the library from being cleared.
             before = rows = 0
         announced = native.monitor.removed
+        shown = 0
         worker = threading.Thread(target=clear, name="kofin-library-clear")
         worker.daemon = True
         began = time.monotonic()
@@ -168,13 +169,16 @@ def clear_library(native, library, kinds, rows=0):
                 worker.join()
                 raise InterruptedError("native sync stopped")
             if rows and worker.is_alive():
-                gone = native.monitor.removed - announced
+                # Neither count goes back, and a reading Kodi missed leaves
+                # the bar to the announcements.
+                gone = max(shown, native.monitor.removed - announced)
                 try:
                     gone = max(gone, before - _rows(kinds))
                 except Exception:
-                    pass  # a busy Kodi misses a reading, not the clear
-                gone = max(0, min(gone, rows))
-                native.progress.at(gone, "%s %d / %d" % (heading, gone, rows))
+                    if gone == shown:
+                        continue  # a busy Kodi misses a reading, not the clear
+                shown = min(gone, rows)
+                native.progress.at(shown, "%s %d / %d" % (heading, shown, rows))
         worker.join()
         LOG.debug(
             "library %s cleared in %.1f s; the longest %.0f s wait took %.1f s",

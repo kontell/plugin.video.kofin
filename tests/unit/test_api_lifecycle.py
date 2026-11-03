@@ -2030,6 +2030,45 @@ def test_a_clear_in_one_transaction_moves_the_bar_by_kodis_announcements(
     assert all(text != "Removing 0 / 5" for text in shown)
 
 
+def test_a_missed_reading_leaves_the_bar_where_the_listing_put_it(monkeypatch):
+    """On a Kodi whose announcements do not reach the pass, the listing is
+    the bar's only count, and a reading Kodi misses changes nothing."""
+    import threading
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    committed = threading.Event()
+    readings = iter([5, 4, 3, None, 2])
+
+    def rows(kinds):
+        left = next(readings)
+        if left is None:
+            raise RuntimeError("VideoLibrary.GetMovies: busy")
+        if left == 2:
+            committed.set()
+        return left
+
+    shown = []
+    monkeypatch.setattr(removal, "rpc", lambda method, params: committed.wait(5))
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing")
+    monkeypatch.setattr(removal, "_rows", rows)
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None,
+            at=lambda done, text: shown.append(text),
+            restore=lambda saved: None,
+        ),
+        abort=lambda: False,
+        monitor=SimpleNamespace(removed=0, waitForAbort=lambda seconds: False),
+        readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
+        store=SimpleNamespace(unbind=lambda root: None),
+    )
+    removal.clear_library(native, LIB, {"Movie"}, rows=5)
+    assert shown[:3] == ["Removing 1 / 5", "Removing 2 / 5", "Removing 3 / 5"]
+
+
 def test_the_monitor_counts_the_rows_kodi_announces_removing():
     from kofin.sync.backends.api import native
 
