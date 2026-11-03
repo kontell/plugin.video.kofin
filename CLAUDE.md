@@ -59,6 +59,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
 - `.github/workflows/ci.yml` — on every PR and every push to `master`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-<branch>-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `master`, on a branch that is up to date with its base, so run `tox` (the first four) before every push and on every branch of a stack.
 - `.github/workflows/release.yml` — on a `v*` tag: re-runs `black`, `mypy` and the unit tests (not `ruff`, which only `ci.yml` runs), builds `plugin.video.kofin-<ver>.zip`, asserts the tag matches `addon.xml`, and opens a **draft** GitHub release whose body is the top paragraph of `changelog.txt`.
+- `.github/workflows/submit.yml` — run by hand with a published release's tag: commits that release's zip to the `plugin.video.kofin@piers` branch of the `kontell/repo-plugins` fork as `[plugin.video.kofin] X.Y.Z`, and opens or updates the pull request against `xbmc/repo-plugins:piers`. It needs the `GH_TOKEN` (a classic token with `public_repo` scope) and `EMAIL` repository secrets. It does not use Kodi's submitter action: that packs with `git archive`, and the `export-ignore` attributes it needs would also strip `tools/` from the `git archive` exports `dev-install.sh` and `tests/live/or_bench` build from.
 - `.github/workflows/kodi-schema-watch.yml` — every two days: checks out `sql` and runs its `tools/check_kodi_schema.py` against xbmc's Piers branch, opening a `kodi-schema` issue when Piers bumps a database past the sql gate. It lives on `master` only because a schedule fires from the default branch; delete it once Piers 22.0 ships.
 
 ### Cutting a release
@@ -72,11 +73,12 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
    v…
    ```
-   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it.
+   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it. Copy the same paragraph into `addon.xml`'s `<news>`, which Kodi shows for an update; `tests/unit/test_build.py` fails until the two match.
 3. Commit, merge to the branch being released, wait for CI green.
 4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 5. Review the draft (`gh release view vX.Y.Z`), then **publish it yourself** —
    `kodi-addon-release` explains why a workflow cannot.
+6. To put the release in the official Kodi repository, run Submit to Kodi with its tag: `gh workflow run submit.yml -f tag=vX.Y.Z`.
 
 PR zips are Actions artifacts only; production install zips come from published GitHub releases.
 

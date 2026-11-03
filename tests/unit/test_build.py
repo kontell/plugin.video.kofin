@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import re
 import xml.etree.ElementTree as ET
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -25,6 +26,14 @@ def test_package_excludes_repo_docs():
         os.path.join(REPO_ROOT, "tools", "dev-install.sh"), encoding="utf-8"
     ).read()
     assert '"$SRC/tools/build.py" --stage "$KOFIN_STAGE"' in script
+
+
+def test_news_is_the_changelog_top_entry():
+    """Kodi shows <news> for an update, so it says what the release says."""
+    root = ET.parse(os.path.join(REPO_ROOT, "addon.xml")).getroot()
+    changelog = open(os.path.join(REPO_ROOT, "changelog.txt"), encoding="utf-8").read()
+    top = re.split(r"\n\s*\n", changelog.strip(), maxsplit=1)[0]
+    assert (root.findtext(".//news") or "").strip() == top
 
 
 def test_library_nodes_default_off_and_nfo_export_on():
