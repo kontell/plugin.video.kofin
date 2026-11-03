@@ -1829,7 +1829,7 @@ msgid "Download the next episodes automatically"
 msgstr ""
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
 msgstr ""
 
 msgctxt "#30740"

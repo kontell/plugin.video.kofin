@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "A következő epizódok automatikus letöltése"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "Letöltött epizód nézése közben a sorozat következő megtekintetlen epizódjai a 80%-os pontnál letöltési sorba kerülnek."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "Letöltött epizód nézése közben a sorozat következő megtekintetlen epizódjai az 50%-os pontnál letöltési sorba kerülnek."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"

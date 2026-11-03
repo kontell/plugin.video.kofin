@@ -60,7 +60,7 @@ Nine ids carry more than one, and are the ones that fail silently rather than lo
 If the target language wants a different word order, rewrite the sentence around the placeholders rather than reordering them.
 `#30810` in a language that puts the available space first must still read `%s` = required, `%s` = available.
 
-**Literal percent signs.** Three help strings contain a `%` that is not a placeholder — the `100%` in `#30478`, the `78%` in `#30667`, and the `80%` in `#30739`.
+**Literal percent signs.** Three help strings contain a `%` that is not a placeholder — the `100%` in `#30478`, the `78%` in `#30667`, and the `50%` in `#30739`.
 Leave them as a bare `%`. Do not double them to `%%`; these strings are never `%`-formatted.
 
 **Kodi bbcode.** `#30015` is `Enter code [B]%s[/B] in the Jellyfin app or web interface.` The `[B]`/`[/B]` tags stay exactly as they are.
