@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "다음 에피소드 자동 다운로드"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "다운로드한 에피소드를 보는 동안, 80% 지점에서 그 시리즈의 다음 미시청 에피소드를 다운로드 대기열에 넣습니다."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "다운로드한 에피소드를 보는 동안, 50% 지점에서 그 시리즈의 다음 미시청 에피소드를 다운로드 대기열에 넣습니다."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"

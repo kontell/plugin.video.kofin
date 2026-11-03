@@ -131,7 +131,7 @@ class Player(xbmc.Player):
         self.syncplay: Optional["SyncPlayManager"] = None
         # One per player, reset per playback (service/segments.py).
         self.segments = SegmentEngine(self, api)
-        # The auto-next one-shot: the item id whose 80% crossing already
+        # The auto-next one-shot: the item id whose trigger crossing already
         # fired, latched before the lookup so a failed resolve never retries.
         self._auto_next_latch = ""
         self._late_subs: Optional[latesubs.LateSubtitles] = None
@@ -323,7 +323,7 @@ class Player(xbmc.Player):
         self._maybe_auto_next()
 
     def _maybe_auto_next(self) -> None:
-        """The 80% crossing of a downloaded episode queues the next
+        """A downloaded episode crossing the trigger queues the next
         keep-ahead. Runs on the ticker thread — the lookup is one bounded
         listing, and the ticker's next beat is ten seconds out anyway."""
         item = self._item

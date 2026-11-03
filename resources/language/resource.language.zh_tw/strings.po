@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "自動下載接下來的劇集"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "觀看已下載的劇集時，播放到 80% 會把該影集接下來未觀看的劇集排入下載佇列。"
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "觀看已下載的劇集時，播放到 50% 會把該影集接下來未觀看的劇集排入下載佇列。"
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"

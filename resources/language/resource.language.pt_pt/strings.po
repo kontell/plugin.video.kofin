@@ -1769,8 +1769,8 @@ msgid "Download the next episodes automatically"
 msgstr "Transferir automaticamente os episódios seguintes"
 
 msgctxt "#30739"
-msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr "Enquanto vê um episódio transferido, os episódios seguintes por ver da série são postos em fila de transferência aos 80%."
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 50% mark."
+msgstr "Enquanto vê um episódio transferido, os episódios seguintes por ver da série são postos em fila de transferência aos 50%."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"
