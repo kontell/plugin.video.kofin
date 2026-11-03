@@ -48,7 +48,7 @@ def select_libraries(request: Request) -> None:
 
     api = Api.for_plugin(creds)
     try:
-        views = api.views().get("Items", [])
+        views = api.views(include_hidden=True).get("Items", [])
     except JellyfinError as error:
         LOG.warning("library picker: views unavailable: %s", error)
         # Not "No libraries available" (30269): the server could not be
@@ -75,6 +75,12 @@ def select_libraries(request: Request) -> None:
     if chosen is None:
         return  # cancelled; nothing changes
 
-    picked = [candidates[index]["Id"] for index in chosen]
+    # A selected library the server did not list is kept: only an untick
+    # takes a library out, and the service removes one the server confirms
+    # is gone.
+    listed = {view["Id"] for view in candidates}
+    picked = [candidates[index]["Id"] for index in chosen] + [
+        library for library in selection if library not in listed
+    ]
     settings.set_str("librarySelection", ",".join(picked))
     LOG.debug("library selection updated: %s ids", len(picked))

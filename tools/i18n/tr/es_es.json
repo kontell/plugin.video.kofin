@@ -535,5 +535,7 @@
   "#30890": "Abre Kofin en la lista de complementos de Kodi, selecciona Versiones y elige 0.29.",
   "#30891": "En los ajustes de Kofin, cierra sesión en la pestaña Cuenta y ejecuta Limpiar las bases de datos.",
   "#30892": "Cuando Kodi se haya reiniciado, abre Kofin de nuevo, selecciona Versiones y elige la versión más reciente. Después inicia sesión y elige las bibliotecas a sincronizar.",
-  "#30893": "También puedes cerrar Kodi y eliminar sus bases de datos de vídeo y música a mano, como explica la wiki de Kofin:"
+  "#30893": "También puedes cerrar Kodi y eliminar sus bases de datos de vídeo y música a mano, como explica la wiki de Kofin:",
+  "#30894": "Ya no está en el servidor",
+  "#30895": "%s ya no está en el servidor y se ha quitado de la biblioteca"
 }

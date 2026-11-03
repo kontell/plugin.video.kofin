@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import xbmc
 
-from kofin.core import memory, settings
+from kofin.core import memory, settings, toast
 from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -64,6 +64,9 @@ CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 # catch-up reads save dates and cannot see a deletion.
 CATCHUP_INTERVAL = 1800
 DAY = 86400
+# A selected library the server stopped listing leaves once GET
+# /Items/{id} has answered 404 twice this far apart (settle_missing).
+MISSING_CONFIRM = CATCHUP_INTERVAL
 
 
 def full_interval() -> Optional[float]:
@@ -348,6 +351,11 @@ class Library(threading.Thread):
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
+        # The library ids the server's last listing named, hidden ones
+        # included, and the selected libraries it left out that answered
+        # 404 by id, with when they first did (settle_missing).
+        self._listed: Optional[Set[str]] = None
+        self._missing: Dict[str, float] = {}
         # Libraries a repair is rebuilding: their rows are leaving Kodi, and
         # nothing is enumerated until they have left (rebuild_stale, refresh).
         self._rebuilding: Set[str] = set()
@@ -609,9 +617,12 @@ class Library(threading.Thread):
     # -- enumeration -----------------------------------------------------------------
 
     def _supported_views(self):
-        views = self.api.views().get("Items")
+        # Hidden from My Media is the user's home screen setting, never a
+        # reason to stop syncing a library.
+        views = self.api.views(include_hidden=True).get("Items")
         if not isinstance(views, list):
             raise ValueError("incomplete library listing")
+        self._listed = {v["Id"] for v in views if v.get("Id")}
         return {
             v["Id"]: v
             for v in views
@@ -620,6 +631,72 @@ class Library(threading.Thread):
 
     def _status(self, value, listing=()):
         status(value, listing, self.store.namespace)
+
+    def settle_missing(self):
+        """Remove a selected library the server says is gone.
+
+        A library the server's last listing left out is asked for by its
+        id: Jellyfin answers 404 for one that was deleted and for one the
+        user can no longer see. Two such answers MISSING_CONFIRM apart take
+        it out of the selection and out of Kodi, as an untick would, with
+        one notification and no question: the server has decided. An error
+        or an item that is there after all keeps it, and a listing that
+        names it again forgets the first answer. Until it leaves, Library
+        status names it.
+        """
+        if self._listed is None:
+            return
+        selected = settings.get_list("librarySelection")
+        missing = [library for library in selected if library not in self._listed]
+        for library in list(self._missing):
+            if library not in missing:
+                del self._missing[library]
+        now = time.monotonic()
+        gone = []
+        for library in missing:
+            try:
+                self.api.item(library)
+            except HttpError as error:
+                if error.status == 404:
+                    first = self._missing.setdefault(library, now)
+                    if now - first >= MISSING_CONFIRM:
+                        gone.append(library)
+                continue
+            except Exception as error:
+                # The server could not say: the library stays.
+                LOG.debug("library %s not confirmed: %s", library, error)
+                continue
+            self._missing.pop(library, None)
+        names = self._view_names() if self._missing else {}
+        if gone:
+            whitelist = {
+                entry.replace("Mixed:", "") for entry in private.get_sync()["Whitelist"]
+            }
+            synced = [library for library in gone if library in whitelist]
+            # The whitelist before the selection: the settings applier then
+            # finds nothing to confirm in the selection written next.
+            if synced:
+                self.drop_libraries(synced)
+            settings.set_str(
+                "librarySelection",
+                ",".join(library for library in selected if library not in gone),
+            )
+            for library in gone:
+                del self._missing[library]
+                name = names.get(library, library)
+                LOG.debug("library %s (%s) is gone from the server", library, name)
+                toast.show(settings.localized(30895) % name)
+        apistatus.record_missing(
+            [names.get(library, library) for library in sorted(self._missing)],
+            self.store.namespace,
+        )
+
+    @staticmethod
+    def _view_names() -> Dict[str, str]:
+        with private.Database() as db:
+            return dict(
+                db.cursor.execute("SELECT view_id, view_name FROM view").fetchall()
+            )
 
     def _changefeed(self):
         if self.changefeed is None:
@@ -677,6 +754,7 @@ class Library(threading.Thread):
         bar.working(progress.PREPARING)
         selected = settings.get_list("librarySelection")
         supported = self._supported_views()
+        self.settle_missing()
         # A library being rebuilt is listed when its old rows have left Kodi,
         # whoever asks: refresh waits for that, and a listing asked for by
         # name (SyncLibrary) must not publish it over them either.
@@ -834,8 +912,9 @@ class Library(threading.Thread):
         if not watermark:
             self.full_sync()
             return
-        selected = settings.get_list("librarySelection")
         supported = self._supported_views()
+        self.settle_missing()
+        selected = settings.get_list("librarySelection")
         selected = [library for library in selected if library in supported]
         feed = self._changefeed()
         if feed is None:
@@ -1108,9 +1187,9 @@ class Library(threading.Thread):
             ]
         LOG.debug("synced libraries: %s", ", ".join(names) or "none")
         try:
-            from kofin.sync.dynamic import publish
+            from kofin.sync.dynamic import publish_from
 
-            publish(self.api.views().get("Items", []), self.api)
+            publish_from(self.api)
         except Exception:
             LOG.exception("library nodes not republished")
 
@@ -1118,11 +1197,18 @@ class Library(threading.Thread):
 
     def drop_libraries(self, libraries):
         """Tombstone every item of these libraries and take them off the
-        whitelist; the next pass removes their rows."""
-        for library in libraries:
+        whitelist; the next pass removes their rows.
+
+        A library is named by its id or by an entry the whitelist still
+        stores as ``Mixed:<id>``. Its items are filed under the bare id, so
+        both spellings tombstone the same items and take every entry of
+        either spelling off the whitelist."""
+        for library in dict.fromkeys(i.replace("Mixed:", "") for i in libraries):
             self.store.publish([], library=library)
             state = private.get_sync()
-            state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
+            state["Whitelist"] = [
+                i for i in state["Whitelist"] if i.replace("Mixed:", "") != library
+            ]
             private.save_sync(state)
         self.publish_selection()
         # The playlists of a side whose last library left are pruned

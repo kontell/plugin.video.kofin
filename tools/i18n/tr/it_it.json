@@ -535,5 +535,7 @@
   "#30890": "Apri Kofin nell'elenco degli add-on di Kodi, seleziona Versioni e scegli 0.29.",
   "#30891": "Nelle impostazioni di Kofin, esci dalla scheda Account ed esegui Pulisci i database.",
   "#30892": "Quando Kodi si è riavviato, riapri Kofin, seleziona Versioni e scegli la versione più recente. Poi accedi e scegli le librerie da sincronizzare.",
-  "#30893": "In alternativa, chiudi Kodi ed elimina manualmente i suoi database video e musicali, come spiega la wiki di Kofin:"
+  "#30893": "In alternativa, chiudi Kodi ed elimina manualmente i suoi database video e musicali, come spiega la wiki di Kofin:",
+  "#30894": "Non più sul server",
+  "#30895": "La libreria %s non è più sul server ed è stata rimossa da Kodi"
 }

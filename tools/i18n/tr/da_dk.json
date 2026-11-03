@@ -535,5 +535,7 @@
   "#30890": "Åbn Kofin i Kodis liste over tilføjelser, vælg Versioner, og vælg 0.29.",
   "#30891": "Log ud under fanen Konto i Kofins indstillinger, og kør Ryd databaserne.",
   "#30892": "Når Kodi er genstartet, skal du åbne Kofin igen, vælge Versioner og vælge den nyeste version. Log derefter ind, og vælg de biblioteker, der skal synkroniseres.",
-  "#30893": "Du kan også lukke Kodi og slette dets video- og musikdatabaser manuelt, som beskrevet på Kofin-wikien:"
+  "#30893": "Du kan også lukke Kodi og slette dets video- og musikdatabaser manuelt, som beskrevet på Kofin-wikien:",
+  "#30894": "Findes ikke længere på serveren",
+  "#30895": "%s findes ikke længere på serveren og er fjernet fra biblioteket"
 }

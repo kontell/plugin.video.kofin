@@ -2,8 +2,9 @@
 
 The library thread writes one small document when its state changes: what it
 is doing, since when, the names of the libraries it is listing for the first
-time, which the catalogue has no row of yet, and which change-feed companion
-the server answered for (``record_feed``). Everything else the dialog shows is
+time, which the catalogue has no row of yet, which change-feed companion
+the server answered for (``record_feed``), and the selected libraries the
+server no longer lists (``record_missing``). Everything else the dialog shows is
 read from the catalogue at the moment it is opened, by the plugin process that
 draws it, so nothing is kept up to date for a dialog nobody has open.
 
@@ -74,6 +75,9 @@ def read(namespace: str = "") -> Dict[str, Any]:
     feed = document.get("feed")
     if isinstance(feed, str):
         found["feed"] = feed
+    missing = document.get("missing")
+    if isinstance(missing, list):
+        found["missing"] = [name for name in missing if isinstance(name, str)]
     if document.get("earlier") is True:
         found["earlier"] = True
     return found
@@ -101,8 +105,9 @@ def write(state: str, listing=(), namespace: str = "", earlier: bool = False) ->
         "since": since or time.time(),
         "listing": listing,
     }
-    if "feed" in current:
-        document["feed"] = current["feed"]
+    for kept in ("feed", "missing"):
+        if kept in current:
+            document[kept] = current[kept]
     if earlier:
         document["earlier"] = True
     _store(document, namespace)
@@ -127,6 +132,21 @@ def record_feed(tier: str, namespace: str = "") -> None:
         return
     document: Dict[str, Any] = dict(current)
     document["feed"] = tier
+    _store(document, namespace)
+
+
+def record_missing(names: List[str], namespace: str = "") -> None:
+    """Record the selected libraries the server no longer lists, by name,
+    until they have left (``Library.settle_missing``). Written only when the
+    list moved."""
+    current = read(namespace)
+    if (current.get("missing") or []) == names:
+        return
+    document: Dict[str, Any] = dict(current)
+    if names:
+        document["missing"] = list(names)
+    else:
+        document.pop("missing", None)
     _store(document, namespace)
 
 
@@ -256,6 +276,9 @@ def rows(
     stale = [library.name for library in found.libraries if library.stale]
     if stale:
         lines.append("%s:  %s" % (text(30867), ", ".join(stale)))
+    missing = document.get("missing") or []
+    if missing:
+        lines.append("%s:  %s" % (text(30894), ", ".join(missing)))
     if found.pending:
         lines.append("%s:  %s" % (text(30863), _number(found.pending)))
     if found.failed:

@@ -129,7 +129,7 @@ def picker_env(monkeypatch):
     )
 
     class FakeApi:
-        def views(self):
+        def views(self, include_hidden=False):
             return {"Items": VIEWS}
 
     monkeypatch.setattr(
@@ -177,7 +177,7 @@ def test_picker_says_unreachable_when_the_server_is(monkeypatch):
     )
 
     class Unreachable:
-        def views(self):
+        def views(self, include_hidden=False):
             raise JellyfinError("offline")
 
     monkeypatch.setattr(
@@ -735,3 +735,31 @@ def test_empty_whos_watching_shortlist_hides_the_menu(monkeypatch):
     assert state.menu_who() is False
     # SyncPlay is independent of the shortlist.
     assert state.menu_syncplay() is True
+
+
+def test_picker_lists_hidden_libraries_and_keeps_a_selected_one_it_cannot_list(
+    monkeypatch,
+):
+    """Only an untick takes a library out of the selection: one the server
+    did not list stays for the service to settle."""
+    asked = []
+    FakeAddon.store.update(
+        {"isLoggedIn": "true", "accessToken": "t", "serverAddress": "http://s"}
+    )
+
+    class FakeApi:
+        def views(self, include_hidden=False):
+            asked.append(include_hidden)
+            return {"Items": VIEWS}
+
+    monkeypatch.setattr(
+        "kofin.plugin.librarypicker.Api",
+        type("A", (), {"for_plugin": staticmethod(lambda creds: FakeApi())}),
+    )
+    FakeAddon.store["librarySelection"] = "v-shows,v-deleted"
+    FakeDialog.multiselect_result = [0]  # Movies alone
+
+    librarypicker.select_libraries(Request("plugin://x", -1, {}))
+
+    assert asked == [True]
+    assert FakeAddon.store["librarySelection"] == "v-movies,v-deleted"

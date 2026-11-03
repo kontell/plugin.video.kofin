@@ -292,8 +292,11 @@ class Api:
 
     # -- library browse ------------------------------------------------------
 
-    def views(self) -> JsonDict:
-        return self.get("/UserViews", self._as_user())
+    def views(self, include_hidden: bool = False) -> JsonDict:
+        """The user's libraries. Jellyfin leaves out the ones the user hid
+        from My Media, a home screen setting, unless asked for them."""
+        params = {"includeHidden": "true"} if include_hidden else None
+        return self.get("/UserViews", self._as_user(params))
 
     def item(self, item_id: str) -> JsonDict:
         # UserLibraryController.GetItem uses DtoOptions(allFields=True), unlike
