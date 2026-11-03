@@ -481,6 +481,15 @@ class Library(threading.Thread):
         while not self.stop_thread and not monitor.abortRequested():
             failed = False
             try:
+                if native.refile_removed():
+                    # A removal announces row by row: the pass waits for the
+                    # rest of it (PASS_SETTLE).
+                    self._published_at = time.monotonic()
+            except Exception:
+                LOG.exception(
+                    "rows Kodi removed not put back; the next complete listing does"
+                )
+            try:
                 self.apply(native)
             except InterruptedError:
                 break

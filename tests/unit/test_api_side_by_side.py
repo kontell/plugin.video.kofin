@@ -518,3 +518,135 @@ def test_the_clear_asks_for_other_sources_episodes_show_by_show(store, backend, 
     ]
     assert foreign and all("tvshowid" in p for p in foreign)
     assert not methods(kodi, "Files.GetSources")
+
+
+# -- rows Kodi removes that we did not ------------------------------------------
+
+
+def our_row(kodi, kind, item_id):
+    return next(
+        (
+            r
+            for r in kodi.rows[kind].values()
+            if (r.get("uniqueid") or {}).get("kofin", "").endswith(":" + item_id)
+        ),
+        None,
+    )
+
+
+def test_a_show_removed_with_another_sources_is_filed_again(store, backend, kodi):
+    """Removing their source deletes the show both hold, our episodes too."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    tvshowid, local = merge(kodi, keep_ids=True, folder=LOCAL)
+    episodes = len(
+        [r for r in kodi.rows["Episode"].values() if r["tvshowid"] == tvshowid]
+    )
+    kodi.remove_content(LOCAL)
+    assert our_row(kodi, "Series", SHOW) is None
+    assert backend.refile_removed() == len(show_bundle())
+    backend.reconcile()
+    row = our_row(kodi, "Series", SHOW)
+    assert row is not None and row["tvshowid"] != tvshowid
+    ours = [
+        r for r in kodi.rows["Episode"].values() if r["tvshowid"] == row["tvshowid"]
+    ]
+    assert len(ours) == episodes - 1
+    assert not store.pending()
+
+
+def test_a_movie_kodi_removed_is_filed_again_and_compared(store, backend, kodi):
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    kodi.rpc(
+        "VideoLibrary.RemoveMovie", {"movieid": our_row(kodi, "Movie", "a")["movieid"]}
+    )
+    assert backend.refile_removed() == 1
+    assert store.mapping("a").applied == {}
+    backend.reconcile()
+    assert our_row(kodi, "Movie", "a") is not None
+    assert store.mapping("a").applied.get("hash")
+    assert not store.pending()
+
+
+def test_a_row_kodi_still_holds_under_a_removed_number_is_compared_not_scanned(
+    store, backend, kodi
+):
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    backend.monitor.lost.add(("Movie", our_row(kodi, "Movie", "a")["movieid"]))
+    assert backend.refile_removed() == 1
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.Scan")
+    assert store.mapping("a").applied.get("hash")
+    assert not store.pending()
+
+
+def test_what_our_own_pass_removes_puts_nothing_back(store, backend, kodi):
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert our_row(kodi, "Movie", "b") is None
+    assert backend.monitor.lost
+    assert backend.refile_removed() == 0
+    assert not store.pending()
+
+
+def test_a_removal_still_pending_is_left_to_the_pass(store, backend, kodi):
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    movieid = our_row(kodi, "Movie", "b")["movieid"]
+    store.publish([movie()], library=LIB)
+    kodi.accept_without_apply = True
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    kodi.accept_without_apply = False
+    kodi.rpc("VideoLibrary.RemoveMovie", {"movieid": movieid})
+    assert backend.refile_removed() == 0
+
+
+def test_a_refresh_that_gives_the_new_row_the_old_number_puts_nothing_back(
+    store, backend, kodi
+):
+    """SQLite numbers a new row from the highest one left."""
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    movieid = our_row(kodi, "Movie", "a")["movieid"]
+    kodi.next_id = movieid
+    store.publish([movie(People=[{"Name": "Someone New", "Type": "Actor"}])])
+    backend.reconcile()
+    assert methods(kodi, "VideoLibrary.RefreshMovie")
+    assert our_row(kodi, "Movie", "a")["movieid"] == movieid
+    assert ("Movie", movieid) in backend.monitor.lost
+    assert backend.refile_removed() == 0
+    assert not store.pending()
+
+
+def test_the_monitor_hears_which_rows_kodi_removed():
+    import json
+
+    from kofin.sync.backends.api.native import Monitor
+
+    monitor = Monitor()
+    for data in (
+        {"type": "movie", "id": 3},
+        {"type": "tvshow", "id": 4, "transaction": True},
+        {"type": "episode", "id": 5},
+        {"type": "musicvideo", "id": 6},
+        {"type": "set", "id": 7},
+        {"type": "movie"},
+    ):
+        monitor.onNotification("xbmc", "VideoLibrary.OnRemove", json.dumps(data))
+    monitor.onNotification(
+        "xbmc", "VideoLibrary.OnUpdate", json.dumps({"type": "movie", "id": 8})
+    )
+    monitor.onNotification("xbmc", "VideoLibrary.OnRemove", "not json")
+    assert monitor.lost == {
+        ("Movie", 3),
+        ("Series", 4),
+        ("Episode", 5),
+        ("MusicVideo", 6),
+    }
+    assert monitor.removed == 4

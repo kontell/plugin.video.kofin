@@ -82,6 +82,13 @@ NOWHERE = "special://temp/kofin-no-such-directory/"
 # The media types of the rows a library clear counts (removal.COUNTED), as
 # Kodi names them in VideoLibrary.OnRemove.
 REMOVED_TYPES = frozenset(("movie", "episode", "musicvideo"))
+# The kind of the item filed on a row of each media type OnRemove names.
+REMOVED_KINDS = {
+    "movie": "Movie",
+    "tvshow": "Series",
+    "episode": "Episode",
+    "musicvideo": "MusicVideo",
+}
 
 
 class Monitor(xbmc.Monitor):
@@ -93,16 +100,25 @@ class Monitor(xbmc.Monitor):
         self.music_cleaned = 0
         # Movies, episodes and music videos Kodi has announced removing.
         self.removed = 0
+        # (kind, Kodi id) of the rows Kodi has announced removing since the
+        # library thread last took them (Native.refile_removed). Callbacks
+        # run on the thread that made the monitor, which is that thread.
+        self.lost: Set[Tuple[str, int]] = set()
 
     def onNotification(self, sender, method, data):
         if method != "VideoLibrary.OnRemove":
             return
         try:
-            kind = json.loads(data).get("type")
+            announced = json.loads(data)
+            media = announced.get("type")
+            kodi_id = announced.get("id")
         except (TypeError, ValueError, AttributeError):
             return
-        if kind in REMOVED_TYPES:
+        if media in REMOVED_TYPES:
             self.removed += 1
+        kind = REMOVED_KINDS.get(media)
+        if kind is not None and isinstance(kodi_id, int):
+            self.lost.add((kind, kodi_id))
 
     def onScanFinished(self, library):
         if library.lower() == "video":
@@ -170,6 +186,10 @@ class Native:
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
+        # Rows a refresh of the pass's replaced, by (kind, old Kodi id): Kodi
+        # announces the old row's removal, and its number can come back as
+        # the new row's (refile_removed).
+        self.replaced: Set[Tuple[str, int]] = set()
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
@@ -1046,6 +1066,28 @@ class Native:
                 raise
             except Exception as error:
                 errors.append(error)
+
+    def refile_removed(self) -> int:
+        """Put back to pending what Kodi removed of ours that we did not:
+        the rows a viewer's removal of another source took with a show both
+        hold, a Remove from library, a clean. Run between passes, where a
+        row the pass removed names a tombstone or no item at all, and one it
+        refreshed is in ``replaced``."""
+        lost = self.monitor.lost - self.replaced
+        self.monitor.lost = set()
+        self.replaced = set()
+        if not lost:
+            return 0
+        items = self.store.refile(lost)
+        if items:
+            LOG.debug(
+                "Kodi removed %d row(s) filed for %d item(s); the next pass files them"
+                " again: %s",
+                len(lost),
+                len(items),
+                ", ".join(items[:20]),
+            )
+        return len(items)
 
     def plan_video(self, upserts: Dict[str, Record], errors) -> VideoScan:
         """Bind whatever the readback shows the video scanner has not filed,

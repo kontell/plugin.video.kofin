@@ -367,6 +367,11 @@ class Kodi:
             self.monitor.cleaned += 1
 
     def remove_content(self, path):
+        before = {kind: set(self.rows[kind]) for kind in self.ANNOUNCED}
+        self._remove_content(path)
+        self.announce_gone(before)
+
+    def _remove_content(self, path):
         # Kodi 23 deletes the sets the removal empties (kontell/xbmc #3).
         linked = {r.get("set") for r in self.rows["Movie"].values()}
         for kind in ("Movie", "MusicVideo", "Episode"):
@@ -404,6 +409,12 @@ class Kodi:
 
     def _refresh(self, kind, kodi_id, episodes=False):
         old = self.rows[kind].pop(kodi_id)
+        if kind != "Series" or episodes:
+            # The refreshing job deletes the old row, announced, whatever
+            # number the new one takes; a show only with its episodes.
+            lost = getattr(self.monitor, "lost", None)
+            if lost is not None:
+                lost.add((kind, kodi_id))
         # Kodi refreshes from the listing at the row's own folder, whatever
         # ids another source's scan left on the row.
         uid = (old.get("uniqueid") or {}).get("kofin")
@@ -722,7 +733,25 @@ class Kodi:
                 row.pop(field, None)
         return row
 
+    ANNOUNCED = ("Movie", "Series", "Episode", "MusicVideo")
+
     def rpc(self, method, params=None):
+        """Kodi announces every movie, show, episode and music video row it
+        deletes (VideoLibrary.OnRemove), whatever deletes it."""
+        before = {kind: set(self.rows[kind]) for kind in self.ANNOUNCED}
+        try:
+            return self._rpc(method, params)
+        finally:
+            self.announce_gone(before)
+
+    def announce_gone(self, before):
+        lost = getattr(self.monitor, "lost", None)
+        if lost is None:
+            return
+        for kind, ids in before.items():
+            lost.update((kind, kodi_id) for kodi_id in ids - set(self.rows[kind]))
+
+    def _rpc(self, method, params=None):
         params = params or {}
         self.calls.append((method, copy.deepcopy(params)))
         if method == self.fail:

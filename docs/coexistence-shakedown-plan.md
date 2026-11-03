@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-11-03 |
-| **Status** | Rounds 1 to 3 run. Results and findings in section 8; finding 4 open |
+| **Status** | Rounds 1 to 3 run, every fault found fixed in #401. Results and findings in section 8 |
 | **Started by** | #389, fixed for TV shows in #401 |
 | **Rig** | `ref/build/kodi-dev` instance 5, headless, the jf12 test server as `kofin-test` |
 | **Builds** | Kodi 23 with the kontell changes (`app-release`, `71c9d22187`) and stock Piers (`app-piers150`, `846211c81d`) |
@@ -136,7 +136,7 @@ Kofin under test: #401 (`e9f24b6`, then `a45d071` with round 1's fixes). Every s
 | A5 | **pass**. A song leaving the server went; the local songs and the album row stayed |
 | A6 | **pass**. Kofin's music library removed; the local album, its songs and the artist stayed |
 | A7 | **pass**. Kodi's Clean library removed nothing of either source's |
-| A8 | **partial, open**. The viewer's removal of their source deleted the shared row, Kofin's show with it, and Kofin noticed only at its next complete listing: Update library, or the scheduled full enumeration, which is off by default (`fullUpdateInterval`) (finding 4) |
+| A8 | **failed, fixed in #401**. The viewer's removal of their source deleted the shared row, Kofin's show with it, and Kofin noticed only at its next complete listing: Update library, or the scheduled full enumeration, which is off by default (`fullUpdateInterval`) (finding 4). Rerun on both builds: Kofin heard the five rows go, and one pass of 0.4 s filed its show and episodes again before anything had read the library |
 | B1, B2 | **pass** (in A1's first half). The stripped row got its ids back from one show-only refresh; the L-first import filed Kofin's show on the local row |
 | B3 | **pass**. A new episode file in the other source's folder, rescanned: Kodi added the episode to the show it holds without rewriting the show, so Kofin's ids stayed |
 | B4 L-first, B6 | **pass**. One album row shared by MusicBrainz id, both sources' songs on it, and one artist row; repairs clean |
@@ -155,6 +155,7 @@ Every scenario passed as on Kodi 23, with `a45d071`, A2 and A4 included. A7 too:
 | S2: A1 K-first, L-first | **pass**. The TMDb scraper's show merged by its TMDb, TVDB and IMDb ids; the local show came back under its own folder after the removal |
 | S2: A2 | **pass** |
 | S2: B8 K-first, L-first | **failed, fixed in #401**. K-first, the scraped local copy of a movie Kofin has became a version of Kofin's movie, and the row lists the local file. Kofin then no longer recognised its movie, and its passes failed ("scanner did not import Movie"), held to five in two minutes by the backoff (finding 6). Rerun on both builds: the passes succeed, and after the movie library's removal the local movie is back on a row of its own. L-first, Kodi groups nothing: Kofin's import does not go through the grouping, and the two stay apart |
+| S2: A8, movie | **pass**. With the local copy grouped as the default version of Kofin's movie, removing the local source left the movie on Kofin's file, with nothing for Kofin to do. Both builds |
 | C1 | **pass**. The local episode marked watched sent nothing to the server |
 | C2 | **pass**. Kofin's episode marked watched reached the server; the local episode was untouched |
 | C3 | **pass**. The #389 sequence on a real download, with NFO export on: the download folder merged into Kofin's row, and once the download left, the ids came back without a failed pass. The downloaded episode's row stays, as a row of the folder the viewer scanned, until Kodi's Clean |
@@ -168,6 +169,6 @@ Every scenario passed as on Kodi 23, with `a45d071`, A2 and A4 included. A7 too:
 1. **A shared show leaving alone took the other source's show with it** (A2). Fixed in #401 (`removal.sources_of`, `removal._row`).
 2. **A collection held by another source's movie looped** (A4). Its removal never finished, and every pass failed. Fixed in #401 (`removal._ours_in_set`).
 3. **A failing repair skipped the backoff** (A4). A complete listing makes the next pass a repair, the flag stays set until one succeeds, and #401's backoff left repairs out. Fixed in #401: a repair backs off like any pass, and a command of the viewer's runs the pass at once.
-4. **Kofin doesn't notice Kodi deleting its rows** (A8). When the viewer removes the other source, Kodi deletes the shared row and Kofin's episodes on it, and nothing pending names them. A complete listing repairs it. Watching Kodi's removals of rows Kofin owns would repair it at once. Open.
+4. **Kofin didn't notice Kodi deleting its rows** (A8). When the viewer removes the other source, Kodi deletes the shared row and Kofin's episodes on it, and nothing pending names them, so only a complete listing repaired it. Fixed in #401: the pass's monitor collects Kodi's `VideoLibrary.OnRemove` announcements, and between passes the items whose rows went are put back to pending (`Native.refile_removed`, `store.refile`). The same covers Remove from library and a clean that takes a row of Kofin's. Kofin's own removals and refreshes put nothing back.
 5. **Kofin gives Kodi no artist MusicBrainz id** (B5, B6). A song's track, album and release-group ids reach Kodi, its artists' don't, so Kofin's artists are matched by name alone, and the id an artist row carries came from the local files. Not a coexistence fault; noted.
 6. **A scraped local copy of a movie Kofin has becomes a version of Kofin's movie** (S2 B8). Kodi's "grouping of similar videos" (`videolibrary.similarvideoaction`, automatic by default on both builds) groups a scraped movie with any movie sharing a unique id (`CVideoDatabase::GetSameVideoItems`), and the row then lists the local file as the movie's. Kofin finds a movie only by its own URL (`Readback.owns`), so every pass fails. The NFO source never reached the grouping (B8 with S1 passed). Fixed in #401: a movie missing from the listing is found by Kofin's own file (`Readback.movie`, `Files.GetFileDetails`, which Kodi resolves through `videoversion`), never refreshed while the row lists their file, and removed by its id, since the library clear cannot reach it, with their source scanned after.

@@ -1049,6 +1049,64 @@ class Store(Catalogue):
                     found[row[0]] = Mapping(row[1], json.loads(row[2] or "{}"), row[3])
         return found
 
+    def refile(self, removed: Iterable[Tuple[str, int]]) -> List[str]:
+        """The items filed on the Kodi rows ``removed`` names ((kind, Kodi
+        id)), with the seasons and episodes of a show among them, put back to
+        pending with their acknowledgement emptied: the pass looks for each
+        as if it had never compared it, scans what it cannot find, and
+        compares what it finds. A tombstone is left alone. The mapping keeps
+        its Kodi id, so a row Kodi lists under another source's file is still
+        looked for (Readback.show, Readback.movie)."""
+        by_kind: Dict[str, List[int]] = {}
+        for kind, kodi_id in removed:
+            by_kind.setdefault(kind, []).append(kodi_id)
+        found: Dict[str, str] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("BEGIN IMMEDIATE")
+            for kind, kodi_ids in sorted(by_kind.items()):
+                for start in range(0, len(kodi_ids), 500):
+                    ids = kodi_ids[start : start + 500]
+                    found.update(
+                        db.cursor.execute(
+                            "SELECT n.item_id, n.kind FROM api_native n JOIN api_item i"
+                            " ON i.namespace=n.namespace AND i.item_id=n.item_id"
+                            " WHERE n.namespace=? AND n.kind=? AND i.operation='upsert'"
+                            " AND n.kodi_id IN (%s)" % ",".join("?" * len(ids)),
+                            [self.namespace, kind, *ids],
+                        ).fetchall()
+                    )
+            shows = sorted(
+                item_id for item_id, kind in found.items() if kind == "Series"
+            )
+            for start in range(0, len(shows), 500):
+                chunk = shows[start : start + 500]
+                found.update(
+                    db.cursor.execute(
+                        "SELECT e.item_id, e.kind FROM api_entry e JOIN api_native n"
+                        " ON n.namespace=e.namespace AND n.item_id=e.item_id"
+                        " WHERE e.namespace=? AND e.removed IS NULL"
+                        " AND e.kind IN ('Season','Episode') AND e.parent_id IN (%s)"
+                        % ",".join("?" * len(chunk)),
+                        [self.namespace, *chunk],
+                    ).fetchall()
+                )
+            items = sorted(found)
+            for start in range(0, len(items), 500):
+                chunk = items[start : start + 500]
+                marks = ",".join("?" * len(chunk))
+                db.cursor.execute(
+                    "UPDATE api_native SET applied='{}' WHERE namespace=? AND item_id IN (%s)"
+                    % marks,
+                    [self.namespace, *chunk],
+                )
+                db.cursor.execute(
+                    "UPDATE api_item SET status='pending' WHERE namespace=?"
+                    " AND operation='upsert' AND item_id IN (%s)" % marks,
+                    [self.namespace, *chunk],
+                )
+        return items
+
     def mapped_to(self, kind, kodi_id) -> List[str]:
         """The items of ``kind`` acknowledged against Kodi's row ``kodi_id``."""
         with Database() as db:

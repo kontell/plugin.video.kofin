@@ -677,6 +677,7 @@ class Applier:
         params: Dict[str, Any] = {table.id_param: kodi_id, "ignorenfo": False}
         if kind == "Series":
             params["refreshepisodes"] = False
+        self.native.replaced.add((kind, kodi_id))
         rpc(table.refresh, params)
         self.native._async_pending = True
         last = [0.0]

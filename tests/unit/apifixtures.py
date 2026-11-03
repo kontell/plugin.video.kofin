@@ -281,6 +281,7 @@ def kodi(store, monkeypatch):
             cleaned=0,
             music_cleaned=0,
             removed=0,
+            lost=set(),
             waitForAbort=lambda _: False,
         ),
     )

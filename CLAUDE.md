@@ -214,6 +214,17 @@ What remains is kofin's own:
   would read their file. The library clear finds a movie by the file its row lists and
   cannot reach it, so a grouped movie goes by its id before the clear (`removal.grouped_movies`),
   a single one leaving the same way, and the source holding their file is scanned after.
+- **A row of ours that Kodi removes is filed again by the next pass** (`Native.refile_removed`,
+  `store.refile`). Kodi announces every movie, show, episode and music video row it deletes
+  (`VideoLibrary.OnRemove`), whoever asked: a viewer removing their own source takes the show
+  both sources hold, our episodes with it (`RemoveContentForPath` → `DeleteTvShow`), and
+  Remove from library or a clean takes a row of ours alone. The pass's monitor collects
+  them and the library thread puts the items they name back to pending between passes, a
+  show with its seasons and episodes, with the acknowledgement emptied so the shortcut cannot
+  take a row Kodi numbered again for a compared one. A tombstone is left alone, and a row the
+  pass itself removed names no item by then. A refresh deletes the old row, announced, and
+  SQLite can give the new row the old number, so the pass records what it refreshes
+  (`Native.replaced`) and those announcements are dropped.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
