@@ -1,3 +1,10 @@
+v0.96.6
+- Song play counts reach the library faster.
+- Removing a library shows its progress.
+- Library status explains how to clean out a library from an older Kofin with Kofin 0.29.
+- "Episodes to keep ahead" counts the episodes already downloaded.
+- The next episodes are queued for download half way through a downloaded episode.
+
 v0.96.5
 - Importing music again no longer clears played marks on the server.
 - Library status gives the migration steps when a library from an older Kofin blocks sync.
