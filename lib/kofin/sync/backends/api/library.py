@@ -1412,7 +1412,10 @@ class Library(threading.Thread):
         pending = self.store.has_pending()
         if not pending:
             self._pending_since = None
-            self._failure = self._repeated = None
+            if not self._repair:
+                # A repair still owed is retried below, and its wait needs
+                # the failure; the pass that succeeds clears it.
+                self._failure = self._repeated = None
         elif not self._repair and self._settling():
             return
         if (pending or self._repair) and self._waiting_out_failure():

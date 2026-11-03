@@ -302,6 +302,38 @@ def test_a_failing_repair_backs_off_too(failing):
     assert gaps(runs) == [5, 10, 20]
 
 
+def test_a_failing_repair_with_nothing_pending_backs_off_too(store, monkeypatch):
+    """A complete listing that matches the catalogue leaves nothing pending
+    and still owes the repair; a pass that fails before any item is failed
+    leaves the store as it was."""
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(library, "status", lambda *a, **k: None)
+    runs = []
+
+    def reconcile(repair=False):
+        runs.append(clock[0])
+        raise RuntimeError(STUCK)
+
+    native = SimpleNamespace(reconcile=reconcile, settings_owed=False)
+    w._repair = True
+    w._catchup_due = 5000.0
+    pulled = []
+    while clock[0] < 140:
+        try:
+            w.apply(native)
+        except RuntimeError as error:
+            w._log_failure("API native work remains pending", error)
+            pulled.append(w._catchup_due)
+            w._catchup_due = 5000.0
+        clock[0] += 1
+    assert not store.has_pending()
+    assert gaps(runs) == [5, 10, 20]
+    # Only the first failure brings the catch-up forward.
+    assert pulled == [130.0, 5000.0, 5000.0, 5000.0]
+
+
 def test_a_viewers_command_tries_the_pass_at_once(failing):
     w, clock, runs, errors, until = failing
     until(108)
