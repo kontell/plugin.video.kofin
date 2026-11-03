@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-11-03 |
-| **Status** | Rounds 1 and 2 run; round 3 and A7 on stock Piers running. Results in section 8 |
+| **Status** | Rounds 1 to 3 run. Results and findings in section 8; findings 4 and 6 open |
 | **Started by** | #389, fixed for TV shows in #401 |
 | **Rig** | `ref/build/kodi-dev` instance 5, headless, the jf12 test server as `kofin-test` |
 | **Builds** | Kodi 23 with the kontell changes (`app-release`, `71c9d22187`) and stock Piers (`app-piers150`, `846211c81d`) |
@@ -146,11 +146,22 @@ Kofin under test: #401 (`e9f24b6`, then `a45d071` with round 1's fixes). Every s
 
 ### Round 2: stock Piers (`app-piers150`, `846211c81d`)
 
-Every scenario but A7 passed as on Kodi 23, with `a45d071`, A2 and A4 included. The show scenarios (A1, A2, A3, A8, B3) were run again after a driver fault had nested the scratch show's folder and left it without its IMDb id, so that the first run merged nothing. A7 is running.
+Every scenario passed as on Kodi 23, with `a45d071`, A2 and A4 included. A7 too: Kodi's Clean removed nothing of either source's on stock Piers either, with Kofin running to answer it. The show scenarios (A1, A2, A3, A7, A8, B3) were run again after a driver fault had nested the scratch show's folder and left it without its IMDb id, so that the first run merged nothing.
 
 ### Round 3: Kodi 23, S2 and groups C and D
 
-Running.
+| # | Result |
+|---|---|
+| S2: A1 K-first, L-first | **pass**. The TMDb scraper's show merged by its TMDb, TVDB and IMDb ids; the local show came back under its own folder after the removal |
+| S2: A2 | **pass** |
+| S2: B8 | **fails, open**. The scraped local copy of a movie Kofin has became a version of Kofin's movie, and the row lists the local file. Kofin then no longer recognises its movie, and its passes fail ("scanner did not import Movie"), held to five in two minutes by the backoff (finding 6) |
+| C1 | **pass**. The local episode marked watched sent nothing to the server |
+| C2 | **pass**. Kofin's episode marked watched reached the server; the local episode was untouched |
+| C3 | **pass**. The #389 sequence on a real download, with NFO export on: the download folder merged into Kofin's row, and once the download left, the ids came back without a failed pass. The downloaded episode's row stays, as a row of the folder the viewer scanned, until Kodi's Clean |
+| C4 | **pass**. Repair with a shared show, album and set left every row of both sources |
+| C5 | **pass**. The rebuild a stale scanner format forces cleared the library, scanned the local source again, and imported Kofin's show back onto a shared row |
+| D1 | **partial**. Kofin's node tree is written; the titles inside the nodes were not read |
+| D2 | **as expected**. Kodi's own nodes list both copies of the movie, one row for the shared show, and the local episode among Kofin's |
 
 ### Findings
 
@@ -158,4 +169,5 @@ Running.
 2. **A collection held by another source's movie looped** (A4). Its removal never finished, and every pass failed. Fixed in #401 (`removal._ours_in_set`).
 3. **A failing repair skipped the backoff** (A4). A complete listing makes the next pass a repair, the flag stays set until one succeeds, and #401's backoff left repairs out. Fixed in #401: a repair backs off like any pass, and a command of the viewer's runs the pass at once.
 4. **Kofin doesn't notice Kodi deleting its rows** (A8). When the viewer removes the other source, Kodi deletes the shared row and Kofin's episodes on it, and nothing pending names them. A complete listing repairs it. Watching Kodi's removals of rows Kofin owns would repair it at once. Open.
+6. **A scraped local copy of a movie Kofin has becomes a version of Kofin's movie** (S2 B8). Kodi's "grouping of similar videos" (`videolibrary.similarvideoaction`, automatic by default on both builds) groups a scraped movie with any movie sharing a unique id (`CVideoDatabase::GetSameVideoItems`), and the row then lists the local file as the movie's. Kofin finds a movie only by its own URL (`Readback.owns`), so every pass fails. The NFO source never reached the grouping (B8 with S1 passed). It wants the shows' answer: find the movie through Kofin's version file on the row. Open.
 5. **Kofin gives Kodi no artist MusicBrainz id** (B5, B6). A song's track, album and release-group ids reach Kodi, its artists' don't, so Kofin's artists are matched by name alone, and the id an artist row carries came from the local files. Not a coexistence fault; noted.
