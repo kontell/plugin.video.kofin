@@ -8,7 +8,6 @@ from queue import Queue
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import xbmc
-import xbmcgui
 
 from kofin.core import contract, settings, state, toast
 from kofin.core.http import JellyfinError, Unauthorized
@@ -16,6 +15,7 @@ from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, HELD, STARTABLE, Phase
 from kofin.syncplay.bus import ProviderBus
+from kofin.syncplay.holds import LocalStarts
 from kofin.syncplay.playback import PlaybackController
 from kofin.syncplay.ports import Claim, SyncPlayApi
 from kofin.syncplay.providers import (
@@ -112,12 +112,7 @@ class SyncPlayManager:
         # group echo: {"transition", "proposed", "item_id"}. "transition"
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
-        self._hold: Optional[dict[str, Any]] = None
-        # The item the user stopped here, from the stop until the stop prompt
-        # resolves: {"playlist_item_id"}. Until the user has said what the
-        # stop means for the group, nothing the group sends about that item
-        # may load it again.
-        self._stop_pending: Optional[dict[str, Any]] = None
+        self.holds = LocalStarts(self)
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -768,7 +763,7 @@ class SyncPlayManager:
             LOG.debug("Spectator playing own media; not following transport")
             return
 
-        if command.get("Command") != "Stop" and self._stopped_here(
+        if command.get("Command") != "Stop" and self.holds._stopped_here(
             command.get("PlaylistItemId")
         ):
             # Not a missed queue update, so nothing to reconcile: the item is
@@ -860,7 +855,7 @@ class SyncPlayManager:
 
         if self._pending_local_queue:
             self._pending_local_queue = False
-            self._post(self._forward_local_play)
+            self._post(self.holds._forward_local_play)
 
         self.publish_session_state(announce=True)
 
@@ -887,10 +882,10 @@ class SyncPlayManager:
         self.current_provider = JELLYFIN
         self.phase = Phase.IDLE
         self.ignore_wait = False
-        self._stop_pending = None
+        self.holds.clear_stop()
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
-        self._release_hold()
+        self.holds._release_hold()
         self.publish_session_state(announce=True)
         LOG.debug("---<[ syncplay group ]")
 
@@ -1026,7 +1021,7 @@ class SyncPlayManager:
             # flow will converge on the snapshot position by itself.
             return
 
-        if self._stop_pending is not None:
+        if self.holds._stop_pending is not None:
             # The stop prompt is open and the queue started nothing (it
             # named the item stopped here): there is no playback for a
             # synthetic command to act on, and none may be recorded as
@@ -1121,7 +1116,7 @@ class SyncPlayManager:
         ):
             return  # tail-only change; drift reference stays authoritative
 
-        if self._stopped_here(playlist_item_id):
+        if self.holds._stopped_here(playlist_item_id):
             # A re-sent queue or a snapshot, not a new selection: the group
             # is still on the item the user just stopped. A different item
             # falls through and starts — the group really moved on, which is
@@ -1140,7 +1135,7 @@ class SyncPlayManager:
         reference_ms = self.server_now_ms()
         self.playback.set_reference(start_ticks, reference_ms, is_playing)
 
-        held = self._hold
+        held = self.holds._hold
         held_match = held is not None and held.get("item_id") == item_id
 
         if (
@@ -1155,8 +1150,7 @@ class SyncPlayManager:
             # matches on the id we proposed, since the play pipeline may
             # not have claimed the new item yet.
             LOG.debug("Adopting queue identity for the playing item")
-            self._hold_done("adopted")
-            self._hold = None
+            self.holds.ended("adopted")
             self.current_item_id = item_id
             self.current_playlist_item_id = playlist_item_id
             self.current_provider = provider
@@ -1207,7 +1201,7 @@ class SyncPlayManager:
         self.current_provider = provider
         # Whatever starts here replaced the stop (_apply_play_queue never
         # brings the stopped item itself this far while the prompt is open).
-        self._stop_pending = None
+        self.holds.clear_stop()
         # A leftover zap Unpause must not resume the next item. last_command
         # stays: a transcode Seek reload is the same event, and clearing it
         # here would re-apply the Seek.
@@ -1299,8 +1293,7 @@ class SyncPlayManager:
 
     def _detach_playback(self, stop_media: bool = False) -> None:
         was_active = self.phase != Phase.IDLE
-        self._hold_done("detached")
-        self._hold = None
+        self.holds.ended("detached")
         self.current_item_id = None
         self.current_playlist_item_id = None
         self.phase = Phase.IDLE
@@ -1361,25 +1354,13 @@ class SyncPlayManager:
             # Phase "synced" means no stop intervened since the synced
             # item: a native playlist advance, which starts at 0. Phase
             # "idle" is a fresh user start (possibly at a resume point).
-            hold = {
-                "transition": self.phase == Phase.SYNCED,
-                "proposed": False,
-                "item_id": None,
-                "at": utils.local_ms(),
-            }
-            LOG.debug(
-                "[ syncplay/hold ] entered (%s)",
-                "transition" if hold["transition"] else "fresh start",
-            )
-            self._hold = hold
-            self.playback.ensure_paused()
-            self._watch_hold(hold)
+            self.holds.hold_start(transition=self.phase == Phase.SYNCED)
 
     def on_kodi_play(self, data: dict[str, Any]) -> None:
         """Player.OnPlay from the Kodi bus: carries the Kodi library id,
         the earliest identification of a local start (before the play
         pipeline claims the item). Called on the notification thread."""
-        self._post(self._identify_held_play, data)
+        self.holds.on_kodi_play(data)
 
     def on_avstarted(self) -> None:
         if not self.in_group():
@@ -1403,18 +1384,18 @@ class SyncPlayManager:
         if self.ignore_wait:
             return  # a spectator's own plays are not forwarded
 
-        hold = self._hold
+        hold = self.holds._hold
 
         if hold is not None and not hold["proposed"]:
             # The early pause is best-effort while the player is still
             # opening; with A/V up it always lands. Our own pause above
             # must not swallow the forward via the programmatic grace.
             self.playback.ensure_paused()
-            self._post(self._forward_local_play)
+            self._post(self.holds._forward_local_play)
             return
 
         if not self.is_programmatic() and self.phase in STARTABLE:
-            self._post(self._forward_local_play)
+            self._post(self.holds._forward_local_play)
 
     def on_paused(self) -> None:
         if not self.in_group() or self.is_programmatic():
@@ -1449,8 +1430,7 @@ class SyncPlayManager:
 
     def on_stopped(self) -> None:
         self.bus.foreign_claim = None  # claims are playback-scoped
-        self._hold_done("stopped")
-        self._hold = None
+        self.holds.ended("stopped")
 
         if not self.in_group() or self.is_programmatic():
             return
@@ -1461,17 +1441,13 @@ class SyncPlayManager:
         if self.phase in FOLLOWING:
             # Marked before the detach clears the item: the dispatcher can be
             # handling a group command for it on its own thread right now.
-            pending = {"playlist_item_id": self.current_playlist_item_id}
-            self._stop_pending = pending
+            pending = self.holds.note_stop(self.current_playlist_item_id)
             self._detach_playback()
-            thread = threading.Thread(target=self._user_stopped_prompt, args=(pending,))
-            thread.daemon = True
-            thread.start()
+            self.holds.prompt_in_thread(pending)
 
     def on_ended(self) -> None:
         self.bus.foreign_claim = None  # claims are playback-scoped
-        self._hold_done("ended")
-        self._hold = None
+        self.holds.ended("ended")
 
         if not self.in_group() or self.is_programmatic():
             return
@@ -1495,322 +1471,6 @@ class SyncPlayManager:
         self.ignore_wait = True
         self._post(self._api, "syncplay_set_ignore_wait", True)
         self._toast(settings.localized(30576), error=True)
-
-    def _stop_superseded(self) -> bool:
-        """Did another local start (or a group item) replace the stop?"""
-        return (
-            self._hold is not None
-            or self.phase != Phase.IDLE
-            or self.player.isPlaying()
-        )
-
-    def _stopped_here(self, playlist_item_id: Optional[str]) -> bool:
-        """Is this the item the user stopped, with the stop prompt unresolved?"""
-        pending = self._stop_pending
-
-        return (
-            pending is not None
-            and playlist_item_id is not None
-            and pending["playlist_item_id"] == playlist_item_id
-        )
-
-    def _user_stopped_prompt(self, pending: Optional[dict[str, Any]] = None) -> None:
-        """Local stop while synced: sort out what it means for the group.
-
-        ``pending`` is the stop this prompt was started for (on_stopped).
-        Whichever way the prompt ends — superseded, answered, dismissed, the
-        group left — that stop is resolved, and the group's updates about the
-        item are followed again exactly as before it. A later stop's mark is
-        not this prompt's to clear.
-        """
-        if pending is None:
-            pending = self._stop_pending
-
-        try:
-            self._ask_what_the_stop_means()
-        finally:
-            if self._stop_pending is pending:
-                self._stop_pending = None
-
-    def _ask_what_the_stop_means(self) -> None:
-        """A stop that is immediately followed by another local start is a
-        replace-play (the user picked a new item), not a departure: give
-        the new start a moment to appear and skip the prompt when it does.
-        """
-        deadline = time.time() + utils.STOP_PROMPT_GRACE
-
-        while time.time() < deadline:
-            if not self.in_group() or self._stop_superseded():
-                return
-
-            time.sleep(utils.STOP_PROMPT_POLL)
-
-        if not self.in_group() or self._stop_superseded():
-            return
-
-        selection = xbmcgui.Dialog().select(
-            settings.localized(30568),
-            [
-                settings.localized(30584),
-                settings.localized(30580),
-                settings.localized(30562),
-            ],
-        )
-
-        if selection == 2:
-            self.leave_group()
-            return
-
-        if not self.in_group() or self._stop_superseded():
-            # Answered against a stale premise (something started while
-            # the dialog was open): only an explicit leave still applies.
-            return
-
-        if selection == 0:
-            # Stop playback for the whole group. Membership is kept, so
-            # whatever is played next is proposed to everyone.
-            self._api("syncplay_stop")
-        else:
-            # Explicit spectator choice — or the dialog was dismissed:
-            # never leave the group silently waiting on this member.
-            self.ignore_wait = True
-            self._api("syncplay_set_ignore_wait", True)
-            self._toast(settings.localized(30569))
-
-    def _forward_local_play(self, attempt: int = 0) -> None:
-        """Propose the currently-playing item to the group as its queue."""
-        if not self.player.isPlaying():
-            # Nothing to propose — e.g. a group created before playback
-            # starts. Stay idle and wait for the user to play something;
-            # do not demote to spectator.
-            return
-
-        hold = self._hold
-
-        if hold is not None and hold["proposed"]:
-            return  # the fast identification path already proposed
-
-        if hold is not None and hold["transition"]:
-            # Mid-transition the playing-id window property can still name
-            # the previous track; only trust the claimed play state, which
-            # is keyed by the new file.
-            info = self._local_file_info()
-            item_id = info.get("Id") if info else None
-        else:
-            item_id = self._local_item_id()
-
-        if item_id and item_id == self.current_item_id and self.phase in FOLLOWING:
-            # Already the group's current item: a late-delivered start
-            # event for a proposal whose echo was adopted meanwhile.
-            return
-
-        if not item_id:
-            # The plugin play worker may still be resolving the item.
-            if attempt >= utils.FORWARD_RETRY_LIMIT:
-                self._unmanaged_local_play()
-                return
-
-            utils.later(
-                utils.FORWARD_RETRY_INTERVAL,
-                self._post,
-                self._forward_local_play,
-                attempt + 1,
-            )
-            return
-
-        info = self._local_file_info() or {}
-        provider = info.get("Provider") or JELLYFIN
-
-        if hold is not None:
-            hold["proposed"] = True
-            hold["item_id"] = item_id
-
-            if hold["transition"]:
-                self._propose_queue(item_id, position=0.0, provider=provider)
-                return
-
-        position = None
-        if utils.claim_is_live(info):
-            # A live claim (zero runtime): the player's position is session
-            # time on this member's own stream, meaningless to the group.
-            # With a live clock (PlaybackController._live_source_offset_ms)
-            # the group is anchored on that instead, a delay behind this
-            # member's reading; without one it tunes together from its own
-            # edge.
-            anchor_ms = self.playback.live_anchor_ms()
-            position = anchor_ms / 1000.0 if anchor_ms is not None else 0.0
-            LOG.debug(
-                "[ syncplay/live ] proposing %s %s",
-                item_id,
-                (
-                    "anchored on the source clock"
-                    if anchor_ms is not None
-                    else "without a source clock; tune-together only"
-                ),
-            )
-
-        self._propose_queue(item_id, position=position, provider=provider)
-
-    def _identify_held_play(self, data: dict[str, Any]) -> None:
-        """Identify a held playlist advance from the Player.OnPlay payload.
-
-        The Kodi library id maps straight to a provider key (for Jellyfin,
-        kofin.db), so a transition can be proposed within milliseconds of the
-        boundary instead of waiting for the play pipeline's claim. Fresh
-        starts keep waiting for the player: their start position (a resume
-        point) is only trustworthy once A/V is up.
-        """
-        self.bus.drop_stale_claim()
-
-        hold = self._hold
-
-        if not self.in_group() or hold is None or hold["proposed"]:
-            return
-
-        item = data.get("item") or {}
-        kodi_id = item.get("id")
-        media = item.get("type")
-
-        if not kodi_id or kodi_id == -1 or not media:
-            return
-
-        try:
-            mapped = self.providers.resolve_kodi_id(kodi_id, media)
-        except Exception as error:
-            LOG.warning("SyncPlay kodi id lookup failed: %s", error)
-            return
-
-        if not mapped:
-            if media in ("channel", "recording"):
-                # A PVR play is never in the provider mapping, but its
-                # owner may claim it over the public bus a moment after
-                # OnPlay (pvr.kofin claims from onAVStarted). Leave
-                # identification to the ordinary retry window.
-                return
-            # A Kodi library item with no provider mapping: the group
-            # cannot follow it, and the play pipeline (same mapping) will
-            # not identify it either. Let it play now rather than after
-            # the retry window.
-            self._unmanaged_local_play()
-            return
-
-        if not hold["transition"]:
-            return
-
-        hold["proposed"] = True
-        hold["item_id"] = mapped
-        self._propose_queue(mapped, position=0.0)
-
-    def _unmanaged_local_play(self) -> None:
-        """Playing something the group can't follow (a local file,
-        another addon): give playback back and stop pretending to be
-        synchronized. Quiet when already a spectator — repeat plays of
-        unmanaged media must not re-toast on every start."""
-        self._release_hold()
-        self._detach_playback()
-
-        if self.ignore_wait:
-            return
-
-        LOG.debug("Unmanaged playback while in a group, detaching")
-        self.ignore_wait = True
-        self._api("syncplay_set_ignore_wait", True)
-        self._toast(settings.localized(30569))
-
-    def _watch_hold(self, hold: dict[str, Any]) -> None:
-        """A held start that never gets adopted must not stay paused
-        forever (e.g. the proposal failed): give playback back."""
-
-        def check() -> None:
-            if self._hold is not hold:
-                return
-
-            LOG.warning("Held start was never adopted; releasing the hold")
-            self._release_hold()
-
-        utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
-
-    def _hold_done(self, reason: str) -> None:
-        """How long a boundary hold lasted, and what ended it."""
-        hold = self._hold
-        if hold is None or not hold.get("at"):
-            return
-        LOG.debug(
-            "[ syncplay/hold ] released after %.0f ms (%s)",
-            utils.local_ms() - hold["at"],
-            reason,
-        )
-
-    def _release_hold(self) -> None:
-        if self._hold is None:
-            return
-
-        self._hold_done("released")
-        self._hold = None
-        self.playback.ensure_playing()
-
-    def _propose_queue(
-        self,
-        item_id: str,
-        position: Optional[float] = None,
-        provider: str = JELLYFIN,
-        content: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Propose a queue; a held transition proposes 0 and the player is
-        aligned on it at adopt time (prepare_ready), not here.
-
-        A foreign provider's item goes out as an external-content entry
-        (SYNCPLAY.md §14.2) — descriptor built from ``content`` when the
-        caller has one (the bus propose), from the claim otherwise — and
-        only when the server negotiated the capability: refused loudly
-        rather than sent as a key the server would reject for everyone.
-
-        External players cannot reach this path: kofin has no play-with
-        flow, and the SyncPlay root entry is hidden when a
-        playercorefactory override is installed (plugin/browse.py).
-        """
-        if position is None:
-            try:
-                position = self.player.getTime()
-            except Exception:
-                position = 0.0
-
-        if provider != JELLYFIN:
-            if not self.server_external_content:
-                LOG.warning(
-                    "Propose for provider %r needs the server's "
-                    "ExternalContent capability; refused",
-                    provider,
-                )
-                return
-
-            if content is None:
-                info = self._local_file_info() or {}
-                content = {
-                    "Provider": provider,
-                    "Key": item_id,
-                    "Name": info.get("Name") or "",
-                    "RunTimeTicks": int(info.get("RunTimeTicks") or 0),
-                }
-
-            LOG.debug(
-                "[ syncplay/set queue ] %s:%s at %.1fs", provider, item_id, position
-            )
-            self._api(
-                "syncplay_set_new_queue_ex",
-                [{"Content": content}],
-                0,
-                utils.seconds_to_ticks(position),
-            )
-            return
-
-        LOG.debug("[ syncplay/set queue ] %s at %.1fs", item_id, position)
-        self._api(
-            "syncplay_set_new_queue",
-            [item_id],
-            0,
-            utils.seconds_to_ticks(position),
-        )
 
     # ------------------------------------------------------------------
     # The public provider contract
