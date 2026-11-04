@@ -6,6 +6,7 @@ play path decides *how*.
 """
 
 import threading
+from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
@@ -15,7 +16,11 @@ from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
 from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS, VIDEO_PLAYER
 
-#################################################################################################
+if TYPE_CHECKING:
+    from kofin.syncplay.manager import SyncPlayManager
+    from kofin.syncplay.ports import Claim
+    from kofin.syncplay.providers import PlayTarget
+
 
 LOG = Logger(__name__)
 
@@ -27,8 +32,6 @@ PRESENTATION_READ_MS = 1000.0
 # the stream's clock is taken up as soon as it exists, while a stream that never
 # has one (a server remux) costs a read a tick and no more.
 PRESENTATION_RETRY_MS = 250.0
-
-#################################################################################################
 
 
 class PlaybackController:
@@ -51,20 +54,21 @@ class PlaybackController:
     the group as user actions.
     """
 
-    def __init__(self, manager, player):
+    def __init__(self, manager: "SyncPlayManager", player: xbmc.Player) -> None:
         self.manager = manager
         self.player = player
 
-        self._timer = None  # pending scheduled command
+        # The pending scheduled command.
+        self._timer: Optional[threading.Timer] = None
         self._timer_lock = threading.Lock()
-        self.last_command = None
+        self.last_command: Optional[dict[str, Any]] = None
         # An Unpause that arrived while LOADING.
-        self._deferred_unpause = None
+        self._deferred_unpause: Optional[dict[str, Any]] = None
 
         # (media_ms, server_when_ms, playing) group position reference
-        self._reference = None
+        self._reference: Optional[tuple[float, Optional[float], bool]] = None
 
-        self._loop_thread = None
+        self._loop_thread: Optional[threading.Thread] = None
         self._loop_stop = threading.Event()
 
         # schedule() pre-aligns on the dispatcher with the fire-time timer
@@ -72,7 +76,7 @@ class PlaybackController:
         # timer on the player, so the two take this lock in turn.
         self._player_lock = threading.RLock()
 
-        self._caching_since = None
+        self._caching_since: Optional[float] = None
         self._buffering_reported = False
 
         # Fine sync between commands (syncplay/tempo.py), and what a seek
@@ -83,21 +87,22 @@ class PlaybackController:
         self.tempo = PulseScheduler(self)
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
         self._live_seek_logged = False
-        self._live_hold_ms = None  # a hold in progress: how long it was for
+        # A hold in progress: how long it was for.
+        self._live_hold_ms: Optional[float] = None
         self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
         # Server-clock instant of this stream's player t=0: the live clock of
         # a stream whose own timestamps no other member shares (a remux
         # restamps from zero), since the edge a member opened at is the same
         # moment of the broadcast for every member.
-        self._live_origin_server_ms = None
+        self._live_origin_server_ms: Optional[float] = None
         # (read at, offset) of Kodi's presentationtime, the stream's own clock.
-        self._presentation = None
+        self._presentation: Optional[tuple[float, Optional[float]]] = None
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
     # ------------------------------------------------------------------
 
-    def schedule(self, command):
+    def schedule(self, command: dict[str, Any]) -> None:
         """Schedule a SyncPlayCommand for its server-clock instant."""
         when_ms = utils.parse_iso_ms(command.get("When"))
 
@@ -139,7 +144,7 @@ class PlaybackController:
         if command.get("Command") == "Unpause":
             self._prealign_unpause(command)
 
-    def _prealign_unpause(self, command):
+    def _prealign_unpause(self, command: dict[str, Any]) -> None:
         """Seek to a scheduled Unpause's position at arm time.
 
         While paused, the position at the start instant IS the command's
@@ -174,7 +179,7 @@ class PlaybackController:
         with self._player_lock, self.manager.programmatic():
             self._seek_and_settle(target_ms)
 
-    def _leave_to_fine_sync(self, offset_ms, where):
+    def _leave_to_fine_sync(self, offset_ms: float, where: str) -> bool:
         """Whether an unpause offset is better closed by a rate pulse than a cut.
 
         Only in the ``synced`` phase. A ``waiting_ready`` start -- a barrier
@@ -195,7 +200,7 @@ class PlaybackController:
         return True
 
     @staticmethod
-    def _identity(command):
+    def _identity(command: dict[str, Any]) -> tuple[Any, Any, Any]:
         """What makes two commands the same group event."""
         return (
             command.get("Command"),
@@ -203,7 +208,7 @@ class PlaybackController:
             command.get("PositionTicks") or 0,
         )
 
-    def _is_repeat(self, command):
+    def _is_repeat(self, command: dict[str, Any]) -> bool:
         """Has this exact command already been carried out?
 
         The server re-issues the transport command when the last member
@@ -224,15 +229,15 @@ class PlaybackController:
 
         return self._identity(self.last_command) == self._identity(command)
 
-    def cancel_pending(self):
+    def cancel_pending(self) -> None:
         with self._timer_lock:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
 
-    def _execute(self, command):
+    def _execute(self, command: dict[str, Any]) -> None:
         try:
-            name = command.get("Command")
+            name = str(command.get("Command") or "")
             when_ms = utils.parse_iso_ms(command.get("When"))
             ticks = command.get("PositionTicks") or 0
 
@@ -250,6 +255,9 @@ class PlaybackController:
                     LOG.debug("Unpause while still loading, deferring to ready flow")
                     return
                 self._deferred_unpause = None
+                if when_ms is None:
+                    # An Unpause is placed in time by its When.
+                    raise ValueError("Unpause command without When")
                 self._do_unpause(
                     ticks,
                     when_ms,
@@ -277,7 +285,9 @@ class PlaybackController:
         except Exception as error:
             LOG.exception("SyncPlay command failed: %s", error)
 
-    def _do_unpause(self, ticks, when_ms, rebind_origin=True):
+    def _do_unpause(
+        self, ticks: int, when_ms: float, rebind_origin: bool = True
+    ) -> None:
         # Gate on our own phase, not on player state reads: around a held
         # music boundary isPlaying/getTime intermittently report no media
         # for media that is right there, paused.
@@ -367,7 +377,7 @@ class PlaybackController:
 
         self.manager.on_local_unpaused()
 
-    def _align_after_resume(self):
+    def _align_after_resume(self) -> None:
         """Close what the resume itself opened up, once the picture is moving.
 
         The alignment above happens *before* the resume, and the resume lands
@@ -425,7 +435,7 @@ class PlaybackController:
         # Aimed ahead by seek_lag_ms: the group moves on while the seek lands.
         self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
 
-    def _resume_with_retries(self):
+    def _resume_with_retries(self) -> bool:
         """Resume paused audio and verify it, nudging until it sticks.
 
         Around a held gapless boundary the player's state reads are not
@@ -480,7 +490,7 @@ class PlaybackController:
         )
         return False
 
-    def _resume_and_verify(self):
+    def _resume_and_verify(self) -> bool:
         """Ask for playing, and keep asking until the clock actually moves.
 
         ``speed`` is not proof: Kodi reports speed 1 for a player that is not
@@ -518,7 +528,7 @@ class PlaybackController:
         LOG.warning("Unpause did not start playback; leaving it to a resync")
         return False
 
-    def _do_pause(self, ticks):
+    def _do_pause(self, ticks: int) -> None:
         if not self._has_media():
             return
 
@@ -533,7 +543,7 @@ class PlaybackController:
             if abs(diff_ms) > 250 and not self._is_audio():
                 self._seek_and_settle(utils.ticks_to_ms(ticks))
 
-    def _do_seek(self, ticks):
+    def _do_seek(self, ticks: int) -> None:
         if not self._has_media():
             return
 
@@ -577,7 +587,7 @@ class PlaybackController:
 
         self.report_ready()
 
-    def _do_stop(self):
+    def _do_stop(self) -> None:
         # Read before on_group_stopped() resets it: only media SyncPlay
         # is actually driving is stopped — a group Stop must not kill a
         # detached spectator's own playback.
@@ -598,7 +608,7 @@ class PlaybackController:
     # Item loading (queue application handoff)
     # ------------------------------------------------------------------
 
-    def play_item(self, target):
+    def play_item(self, target: "PlayTarget") -> None:
         """Start a provider play target paused-on-arrival; the ready flow
         reports in.
 
@@ -625,7 +635,7 @@ class PlaybackController:
             playlist.add(target["url"])
             self.player.play(playlist, startpos=0)
 
-    def prepare_ready(self):
+    def prepare_ready(self) -> None:
         """After onAVStarted: settle on the group position and report Ready.
 
         The server compares our reported position against the group and
@@ -669,7 +679,7 @@ class PlaybackController:
             deferred["_rebind_origin"] = False
             self.schedule(deferred)
 
-    def ensure_paused(self):
+    def ensure_paused(self) -> None:
         # Gate on isPlaying alone: during a gapless stream swap getTime()
         # can misbehave, and this is exactly the window a start hold must
         # be able to pause in.
@@ -677,12 +687,12 @@ class PlaybackController:
             with self.manager.programmatic():
                 self.player.pause()
 
-    def ensure_playing(self):
+    def ensure_playing(self) -> None:
         if self._player_active() and self._is_paused():
             with self.manager.programmatic():
                 self.player.pause()  # toggles back to playing
 
-    def stop_media(self):
+    def stop_media(self) -> None:
         if self._has_media():
             with self.manager.programmatic():
                 kodirpc.stop_player()  # not player.stop(): see kodirpc.stop_player
@@ -691,12 +701,12 @@ class PlaybackController:
     # Reports (SYNCPLAY.md §4)
     # ------------------------------------------------------------------
 
-    def report_ready(self):
+    def report_ready(self) -> None:
         self.manager.post_report(
             "syncplay_ready", position_s=self.reported_position_s()
         )
 
-    def report_buffering(self):
+    def report_buffering(self) -> None:
         self.manager.post_report(
             "syncplay_buffering", position_s=self.reported_position_s(promise=False)
         )
@@ -705,10 +715,12 @@ class PlaybackController:
     # Group position reference (SYNCPLAY.md §11)
     # ------------------------------------------------------------------
 
-    def set_reference(self, ticks, server_when_ms, playing):
+    def set_reference(
+        self, ticks: int, server_when_ms: Optional[float], playing: bool
+    ) -> None:
         self._reference = (utils.ticks_to_ms(ticks), server_when_ms, playing)
 
-    def reference_is_playing(self):
+    def reference_is_playing(self) -> bool:
         """Whether the group's last known state was playing.
 
         Distinct from estimate_position_ms(), which returns a position either
@@ -720,7 +732,7 @@ class PlaybackController:
 
         return bool(self._reference[2])
 
-    def estimate_position_ms(self):
+    def estimate_position_ms(self) -> Optional[float]:
         """Estimated group position now, from the last command/beacon."""
         if self._reference is None:
             return None
@@ -733,13 +745,14 @@ class PlaybackController:
         if not playing:
             return media_ms
 
-        return media_ms + max(0.0, self.manager.server_now_ms() - when_ms)
+        now: float = self.manager.server_now_ms()
+        return media_ms + max(0.0, now - when_ms)
 
     # ------------------------------------------------------------------
     # Sync loop: the buffering watch
     # ------------------------------------------------------------------
 
-    def start_loop(self):
+    def start_loop(self) -> None:
         if self._loop_thread is not None and self._loop_thread.is_alive():
             return
 
@@ -750,7 +763,7 @@ class PlaybackController:
         self._loop_thread.daemon = True
         self._loop_thread.start()
 
-    def stop_loop(self):
+    def stop_loop(self) -> None:
         self._loop_stop.set()
         self.cancel_pending()
         self.tempo.reset()
@@ -762,7 +775,7 @@ class PlaybackController:
         self._live_origin_server_ms = None
         self._presentation = None
 
-    def _loop(self):
+    def _loop(self) -> None:
         LOG.debug("--->[ syncplay loop ]")
 
         while not self._loop_stop.wait(0.25):
@@ -790,7 +803,7 @@ class PlaybackController:
 
         LOG.debug("---<[ syncplay loop ]")
 
-    def _watch_buffering(self):
+    def _watch_buffering(self) -> None:
         """Debounced Player.Caching -> Buffering/Ready reports (§7)."""
         caching = bool(xbmc.getCondVisibility("Player.Caching"))
 
@@ -822,7 +835,7 @@ class PlaybackController:
         else:
             self._caching_since = None
 
-    def _expecting_playback(self):
+    def _expecting_playback(self) -> bool:
         return (
             self.last_command is not None
             and self.last_command.get("Command") == "Unpause"
@@ -832,28 +845,28 @@ class PlaybackController:
     # Player plumbing
     # ------------------------------------------------------------------
 
-    def _has_media(self):
+    def _has_media(self) -> bool:
         try:
             return self.player.isPlaying() and self.player.getTime() >= 0
         except Exception:
             return False
 
-    def _player_active(self):
+    def _player_active(self) -> bool:
         try:
             return self.player.isPlaying()
         except Exception:
             return False
 
-    def _is_audio(self):
+    def _is_audio(self) -> bool:
         try:
             return self.player.isPlayingAudio()
         except Exception:
             return False
 
-    def _is_paused(self):
+    def _is_paused(self) -> bool:
         return bool(xbmc.getCondVisibility("Player.Paused"))
 
-    def remaining_ms(self):
+    def remaining_ms(self) -> Optional[float]:
         """What is left of the playing item, or None when its length is not
         known (a live stream, a source with no duration)."""
         try:
@@ -867,7 +880,7 @@ class PlaybackController:
 
         return max(0.0, (total - played) * 1000.0)
 
-    def _position_ms(self):
+    def _position_ms(self) -> float:
         """The playing position on the group's clock: the player clock, or
         for a live item the live clock (``_live_source_offset_ms``) placed
         on the group reference's cycle of it."""
@@ -887,16 +900,16 @@ class PlaybackController:
     # Live items: the source clock
     # ------------------------------------------------------------------
 
-    def _current_claim(self):
+    def _current_claim(self) -> Optional["Claim"]:
         current = getattr(self.manager, "current_claim", None)
         return current() if current is not None else None
 
-    def _live_claim(self):
+    def _live_claim(self) -> Optional["Claim"]:
         """The current claim when it names a live stream, else None."""
         claim = self._current_claim()
         return claim if utils.claim_is_live(claim) else None
 
-    def _skip_live_seek(self):
+    def _skip_live_seek(self) -> bool:
         """Whether this playback must not be seeked.
 
         A live item is never seeked: ffmpeg's HLS demuxer refuses a seek
@@ -919,7 +932,7 @@ class PlaybackController:
         is_delegated = getattr(providers, "is_delegated", None)
         return bool(provider) and callable(is_delegated) and is_delegated(provider)
 
-    def _keep_source_clock(self, ticks):
+    def _keep_source_clock(self, ticks: int) -> bool:
         """Whether command ticks must not replace a live-anchored group clock.
 
         A live Seek is refused, then Unpause (and Pause) arrive at the same
@@ -934,7 +947,7 @@ class PlaybackController:
 
         return not utils.live_anchored(utils.ticks_to_ms(ticks))
 
-    def note_live_origin(self):
+    def note_live_origin(self) -> None:
         """Stamp this stream's player t=0 on the server clock.
 
         A remux that restamped from ~10 s has no broadcast PTS; t=0 is
@@ -947,7 +960,7 @@ class PlaybackController:
 
         self._live_origin_server_ms = self.manager.server_now_ms() - player_ms
 
-    def bind_live_origin_to_group(self):
+    def bind_live_origin_to_group(self) -> None:
         """Map this member's player t onto the group position.
 
         Origin is a raw offset: ``_position_ms`` unwraps player+origin onto
@@ -974,7 +987,7 @@ class PlaybackController:
             player_ms / 1000.0,
         )
 
-    def _live_source_offset_ms(self):
+    def _live_source_offset_ms(self) -> Optional[float]:
         """player clock → live clock; None for anything but a live item.
 
         The live clock is the stream's own when Kodi reports it
@@ -993,7 +1006,7 @@ class PlaybackController:
 
         return self._live_origin_server_ms
 
-    def _presentation_offset_ms(self):
+    def _presentation_offset_ms(self) -> Optional[float]:
         """The stream's own clock against the player clock, or None until Kodi
         has reported it.
 
@@ -1025,7 +1038,7 @@ class PlaybackController:
         self._presentation = (now, known)
         return known
 
-    def live_on_source_clock(self):
+    def live_on_source_clock(self) -> bool:
         """Whether this member and the group share the source clock: the
         member can read its own, and the group's position is anchored on
         it rather than on a proposer's session time."""
@@ -1034,7 +1047,7 @@ class PlaybackController:
 
         return utils.live_anchored(self.estimate_position_ms())
 
-    def live_anchor_ms(self):
+    def live_anchor_ms(self) -> Optional[float]:
         """The group position to propose for the live item playing here:
         LIVE_DELAY_S behind this member's own source-clock reading, or None
         when it has no such reading (the proposal then tunes together from
@@ -1051,7 +1064,7 @@ class PlaybackController:
 
         return utils.live_anchor_ms(player_ms + offset)
 
-    def reported_position_s(self, promise=True):
+    def reported_position_s(self, promise: bool = True) -> float:
         """The position a report carries. With ``promise``, a live member
         reports the group's own position: it converges by pulses and holds
         of its own, a private Seek in answer would be refused here anyway,
@@ -1067,7 +1080,7 @@ class PlaybackController:
 
         return self._position_ms() / 1000.0
 
-    def _live_hold(self, hold_ms):
+    def _live_hold(self, hold_ms: float) -> None:
         """Pause for ``hold_ms`` so the group catches this member up, then
         resume through the dispatcher. The timeshift buffer keeps the
         stream; fine sync trims what the pause and resume leave."""
@@ -1084,7 +1097,7 @@ class PlaybackController:
             hold_ms / 1000.0, self.manager._post, self._live_resume, self._live_hold_seq
         )
 
-    def _live_resume(self, seq):
+    def _live_resume(self, seq: int) -> None:
         if seq != self._live_hold_seq:
             return
 
@@ -1100,7 +1113,7 @@ class PlaybackController:
         self.tempo.note_settle()
         LOG.debug("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
 
-    def correct_position(self):
+    def correct_position(self) -> None:
         """The fine-sync scheduler found a residual beyond what a pulse can
         close: seek to where the group will be once the seek has landed."""
         target_ms = self.estimate_position_ms()
@@ -1111,7 +1124,9 @@ class PlaybackController:
         with self._player_lock, self.manager.programmatic():
             self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
 
-    def _clock_restart(self, target_ms, polls=30):
+    def _clock_restart(
+        self, target_ms: float, polls: int = 30
+    ) -> Optional[tuple[float, float]]:
         """(local ms, position ms) at which the clock started advancing again
         after a seek, or None when no hold was seen (a correction too small to
         tell from playback, or a player that stayed paused).
@@ -1143,7 +1158,7 @@ class PlaybackController:
 
         return None
 
-    def _seek_and_settle(self, target_ms, stay_paused=True):
+    def _seek_and_settle(self, target_ms: float, stay_paused: bool = True) -> None:
         """Seek and wait for the position to land.
 
         Aligning on a server command (Unpause/Seek), a fresh item, or a
