@@ -12,7 +12,7 @@ from kofin.core.log import Logger
 LOG = Logger(__name__)
 
 
-def seed_default_nodes(kind):
+def seed_default_nodes(kind: str) -> None:
     """Copy Kodi's shipped ``kind`` node tree into the profile.
 
     Missing files only: a node the user has edited is theirs, and the copy

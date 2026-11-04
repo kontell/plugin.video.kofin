@@ -394,7 +394,7 @@ class SettingsApplier:
             db = kofindb.JellyfinDatabase(opened.cursor)
             for entry in removal_entries:
                 view = db.get_view(entry.replace("Mixed:", ""))
-                names.append(view.view_name if view else entry)
+                names.append(view.name if view else entry)
 
         confirmed = xbmcgui.Dialog().yesno(
             settings.localized(30264),
