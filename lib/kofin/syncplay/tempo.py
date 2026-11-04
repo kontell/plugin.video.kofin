@@ -30,6 +30,7 @@ import math
 import statistics
 import threading
 import time
+from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
@@ -38,7 +39,10 @@ from kofin.core.log import Logger
 from kofin.sync.backends.api import capabilities
 from kofin.syncplay import utils
 
-#################################################################################################
+if TYPE_CHECKING:
+    from kofin.syncplay.playback import PlaybackController
+    from kofin.syncplay.ports import Claim
+
 
 LOG = Logger(__name__)
 
@@ -117,8 +121,6 @@ GIVEUP_PPM = 3000.0
 GIVEUP_PPM_CEILING = 60000.0
 GIVEUP_SPREAD = 3.0
 
-#################################################################################################
-
 
 class Profile:
     """What a pulse may do on one player: the limits the planner and the
@@ -126,15 +128,15 @@ class Profile:
 
     def __init__(
         self,
-        name,
-        deadband_ms,
-        rate_min,
-        rate_max,
-        aim_s,
-        budget_ms,
-        settle_s=SETTLE_S,
-        end_margin_s=END_MARGIN_S,
-    ):
+        name: str,
+        deadband_ms: float,
+        rate_min: float,
+        rate_max: float,
+        aim_s: float,
+        budget_ms: float,
+        settle_s: float = SETTLE_S,
+        end_margin_s: float = END_MARGIN_S,
+    ) -> None:
         self.name = name
         self.deadband_ms = deadband_ms
         self.rate_min = rate_min
@@ -169,7 +171,9 @@ ATEMPO_SETTING = "audiooutput.atempothreshold"  # percent
 CROSSFADE_SETTING = "musicplayer.crossfade"  # seconds
 
 
-def music_profile(atempo_threshold=None, crossfade=None):
+def music_profile(
+    atempo_threshold: Optional[float] = None, crossfade: Optional[float] = None
+) -> Profile:
     """Music's limits on a Kodi whose atempo threshold (percent) and
     crossfade (seconds) are as given; an unreadable setting counts as
     Kodi's default."""
@@ -193,7 +197,7 @@ def music_profile(atempo_threshold=None, crossfade=None):
     )
 
 
-def video_profile():
+def video_profile() -> Profile:
     """Video's limits, with the user's budget and speed ceiling."""
     budget_ms = float(settings.get_int("syncPlayPulseBudget") or BUDGET_DEFAULT_MS)
     rate_max = (settings.get_int("syncPlayMaxRate") or RATE_MAX_DEFAULT * 100) / 100.0
@@ -207,7 +211,9 @@ def video_profile():
     )
 
 
-def plan_pulse(residual_ms, profile=VIDEO_DEFAULT):
+def plan_pulse(
+    residual_ms: float, profile: Profile = VIDEO_DEFAULT
+) -> Optional[tuple[float, float]]:
     """The (rate, seconds) pulse that closes ``residual_ms``, or None.
 
     Positive residual means this member is behind the group, so the rate is
@@ -231,7 +237,7 @@ def plan_pulse(residual_ms, profile=VIDEO_DEFAULT):
     return round(rate, 3), seconds
 
 
-def _ramp(rate):
+def _ramp(rate: float) -> tuple[list[float], float]:
     """The steps a pulse to ``rate`` ramps through between 1.0 and the rate,
     and what its two ramps move together, in seconds of content."""
     step = rate - 1.0
@@ -241,7 +247,7 @@ def _ramp(rate):
     return intermediate, 2.0 * sum((value - 1.0) * RAMP_DT for value in intermediate)
 
 
-def pulse_schedule(rate, seconds):
+def pulse_schedule(rate: float, seconds: float) -> list[tuple[float, float]]:
     """The tempo writes that make up one pulse: (offset_s, rate) pairs,
     the last of them (…, 1.0).
 
@@ -275,7 +281,7 @@ def pulse_schedule(rate, seconds):
     return schedule
 
 
-def fit_pulse(rate, seconds, room):
+def fit_pulse(rate: float, seconds: float, room: float) -> Optional[float]:
     """``seconds`` shortened until the pulse's whole schedule, ramps included,
     ends within ``room`` seconds; None when there is no room for a pulse at
     this rate. Only the hold shortens, so a fitted pulse still moves
@@ -298,7 +304,7 @@ def fit_pulse(rate, seconds, room):
     return hold + lead if hold >= 2.0 * RAMP_DT else None
 
 
-def regrowth_ppm(residual_ms, elapsed_s):
+def regrowth_ppm(residual_ms: float, elapsed_s: float) -> float:
     """How fast the residual came back, as a rate error in ppm."""
     if elapsed_s <= 0:
         return 0.0
@@ -306,10 +312,7 @@ def regrowth_ppm(residual_ms, elapsed_s):
     return residual_ms / elapsed_s * 1000.0
 
 
-#################################################################################################
-
-
-def takes_correction():
+def takes_correction() -> bool:
     """Whether Kodi's ``Player.SetTempo`` takes ``correction`` (kontell/xbmc
     #38): a tempo the player plays as any other while the GUI shows none of
     it. Kodi refuses a parameter its schema does not name, so the schema is
@@ -349,13 +352,13 @@ class KodiTempo:
     puts the seek bar up for three seconds, labelled with the rate.
     """
 
-    def __init__(self, playerid, correction=None):
+    def __init__(self, playerid: int, correction: Optional[bool] = None) -> None:
         self.playerid = playerid
         # Kodi's schema does not change in a process: a caller that holds the
         # answer passes it, and only a caller without one asks.
         self.correction = takes_correction() if correction is None else correction
 
-    def set(self, rate):
+    def set(self, rate: float) -> bool:
         """Ask for ``rate``; True when Kodi took the call."""
         # Always a float: Kodi reads the parameter as a double, and a JSON
         # integer would be refused as invalid.
@@ -366,7 +369,7 @@ class KodiTempo:
 
         return isinstance(kodirpc.call("Player.SetTempo", params), dict)
 
-    def read(self):
+    def read(self) -> Optional[float]:
         """The tempo the player is taking, or None when it cannot be read."""
         result = kodirpc.player_properties(["tempo"], self.playerid)
 
@@ -379,12 +382,12 @@ class KodiTempo:
             return None
 
     @staticmethod
-    def enabled():
+    def enabled() -> bool:
         """Whether the playing item can take a tempo now."""
         return bool(xbmc.getCondVisibility("Player.TempoEnabled"))
 
 
-def _player_active(playerid):
+def _player_active(playerid: int) -> Optional[bool]:
     """True or False when Kodi answered; None when it could not be asked."""
     active = kodirpc.active_players()
 
@@ -397,7 +400,7 @@ def _player_active(playerid):
     )
 
 
-def settle_left_rate(reason="", correction=None):
+def settle_left_rate(reason: str = "", correction: Optional[bool] = None) -> bool:
     """Put 1.0 back where a kofin pulse left its rate in force; True once
     nothing is left owed.
 
@@ -446,9 +449,6 @@ def settle_left_rate(reason="", correction=None):
     return True
 
 
-#################################################################################################
-
-
 class PulseScheduler:
     """Closes the residual between commands with confirmed tempo pulses.
 
@@ -468,29 +468,37 @@ class PulseScheduler:
     (``SyncPlayManager.on_resumed``), put it back (:meth:`settle_owed`).
     """
 
-    def __init__(self, controller):
+    def __init__(self, controller: "PlaybackController") -> None:
         self.controller = controller
-        self.profile = None  # the playing item's limits once it is armed
-        self.actuator = None
-        self._session_id = None  # PlaySessionId the scheduler is armed for
-        self._window = []
-        self._pulse = None  # the running pulse: its remaining writes
-        self._awaiting = None  # a write waiting to be read back
-        self._measure = None  # an ended pulse, moved measured after the settle
+        # The playing item's limits once it is armed.
+        self.profile: Optional[Profile] = None
+        self.actuator: Optional[KodiTempo] = None
+        # PlaySessionId the scheduler is armed for.
+        self._session_id: Optional[str] = None
+        self._window: list[float] = []
+        # The running pulse: its remaining writes.
+        self._pulse: Optional[dict[str, Any]] = None
+        # A write waiting to be read back.
+        self._awaiting: Optional[dict[str, Any]] = None
+        # An ended pulse, moved measured after the settle.
+        self._measure: Optional[dict[str, Any]] = None
         self._asked = 1.0  # the last tempo asked for
         self._asked_at = 0.0
         self._marked = False  # the left-rate record is ours to clear
-        self._correction = None  # whether Player.SetTempo takes `correction`
+        # Whether Player.SetTempo takes `correction`.
+        self._correction: Optional[bool] = None
         self._misses = 0  # pulses this item refused or did not play
         self._settle_until = 0.0
         self._seek_blackout_until = 0.0
-        self._history = []  # (direction, regrowth ppm) per pulse
+        # Per finished pulse: its direction, timing and regrowth.
+        self._history: list[dict[str, Any]] = []
         self._gave_up = False
         self._unarmed_logged = False
         self._disabled_logged = False
         self._end_logged = False
         self._foreign_logged = False
-        self._foreign_since = None  # when a tempo kofin did not ask for was seen
+        # When a tempo kofin did not ask for was seen.
+        self._foreign_since: Optional[float] = None
         self._session_time_logged = False
         # A live item (utils.claim_is_live): never seeked, and a forward
         # pulse Kodi ends at the live edge ends fine sync (LIVE_EDGE_PULSES).
@@ -503,14 +511,14 @@ class PulseScheduler:
     # Arming
     # ------------------------------------------------------------------
 
-    def _session_active(self):
+    def _session_active(self) -> bool:
         active = getattr(self.controller.manager, "fine_sync_active", None)
         return bool(active()) if active is not None else False
 
-    def _arm_for_current(self):
+    def _arm_for_current(self) -> Optional["Claim"]:
         """Arm for the playing item if it is not the one armed. Under the
         lock; returns the claim, or None outside a fine-sync session."""
-        claim = self.controller.manager.current_claim()
+        claim: Optional["Claim"] = self.controller.manager.current_claim()
 
         if not claim or not self._session_active():
             return None
@@ -520,7 +528,7 @@ class PulseScheduler:
 
         return claim
 
-    def _arm(self, claim):
+    def _arm(self, claim: "Claim") -> None:
         """Bind to the playing item, or note that it has no fine sync."""
         self._session_id = claim.get("PlaySessionId")
         self._window = []
@@ -586,14 +594,14 @@ class PulseScheduler:
             "" if self.actuator.correction else ", shown on the OSD",
         )
 
-    def _takes_correction(self):
+    def _takes_correction(self) -> bool:
         """``takes_correction()``, asked of Kodi once per scheduler."""
         if self._correction is None:
             self._correction = takes_correction()
 
-        return self._correction
+        return bool(self._correction)
 
-    def armed(self):
+    def armed(self) -> bool:
         """Whether the playing item takes pulses now: armed, not given up,
         and able to take a tempo (``Player.TempoEnabled``)."""
         with self._lock:
@@ -604,12 +612,12 @@ class PulseScheduler:
 
         return KodiTempo.enabled()
 
-    def _write_off(self, why):
+    def _write_off(self, why: str) -> None:
         """This item takes no pulses after all: command-only until the next."""
         LOG.warning("[ syncplay/pulse ] %s; command-only sync for this item", why)
         self.profile = None
 
-    def _missed(self, why, now):
+    def _missed(self, why: str, now: float) -> None:
         """A pulse Kodi refused, or took and did not play. A first miss waits
         out a settle and tries again; a second one, or an item that now cannot
         take a tempo at all, writes the item off."""
@@ -622,7 +630,7 @@ class PulseScheduler:
         LOG.warning("[ syncplay/pulse ] %s; trying again after a settle", why)
         self._settle(None, now, measured=False)
 
-    def can_close(self, residual_ms):
+    def can_close(self, residual_ms: float) -> bool:
         """Whether fine sync will take this residual, so a seek is not needed.
 
         A live item has no seek to fall back on, so every residual is fine
@@ -643,7 +651,7 @@ class PulseScheduler:
 
         return live or abs(residual_ms) <= budget_ms
 
-    def reset(self):
+    def reset(self) -> None:
         with self._lock:
             self.cancel("stop")
 
@@ -664,7 +672,7 @@ class PulseScheduler:
     # The actuator
     # ------------------------------------------------------------------
 
-    def _set(self, rate, now):
+    def _set(self, rate: float, now: float) -> bool:
         """Ask for ``rate``; False when Kodi refused it."""
         actuator = self.actuator
 
@@ -680,7 +688,7 @@ class PulseScheduler:
 
         return True
 
-    def _return_to_one(self, now):
+    def _return_to_one(self, now: float) -> bool:
         """Ask for 1.0, which stays owed when Kodi refuses it. The left-rate
         record stays until a read shows 1.0 (``_back_at_one``)."""
         if self.actuator is None or not self.actuator.set(1.0):
@@ -690,7 +698,7 @@ class PulseScheduler:
         self._asked_at = now
         return True
 
-    def settle_owed(self):
+    def settle_owed(self) -> None:
         """Put back a rate a cut pulse left in force, when nothing of ours is
         running: on a resume, in a group or not, and on the playing tick."""
         with self._lock:
@@ -702,13 +710,13 @@ class PulseScheduler:
 
             self._settle_left(time.time())
 
-    def _settle_left(self, now):
+    def _settle_left(self, now: float) -> None:
         if settle_left_rate(" after a pause", self._correction):
             self._marked = False
             self._asked = 1.0
             self._asked_at = now
 
-    def _back_at_one(self, now):
+    def _back_at_one(self, now: float) -> None:
         """A read shows 1.0: the end of a pulse confirmed, a new item (which
         starts there), or an owed 1.0 put back from a resume. Only here does
         the left-rate record go."""
@@ -723,7 +731,7 @@ class PulseScheduler:
     # The loop
     # ------------------------------------------------------------------
 
-    def tick(self):
+    def tick(self) -> None:
         with self._lock:
             seek = self._tick()
 
@@ -733,7 +741,7 @@ class PulseScheduler:
             self.controller.correct_position()
             self.note_settle()
 
-    def _tick(self):
+    def _tick(self) -> Optional[float]:
         """One scheduling step under the lock. Returns the residual to seek
         away, or None."""
         if self._arm_for_current() is None or self.profile is None:
@@ -876,7 +884,7 @@ class PulseScheduler:
     # Pulses
     # ------------------------------------------------------------------
 
-    def _fit_to_item(self, rate, seconds):
+    def _fit_to_item(self, rate: float, seconds: float) -> Optional[float]:
         """The pulse's seconds once the end of its item is allowed for, or None
         when there is no room for one (``fit_pulse``: its ramps have to fit
         too). A live stream has no end."""
@@ -893,7 +901,9 @@ class PulseScheduler:
         room = remaining_ms / 1000.0 - profile.settle_s - profile.end_margin_s
         return fit_pulse(rate, seconds, room)
 
-    def _start_pulse(self, rate, seconds, residual, now):
+    def _start_pulse(
+        self, rate: float, seconds: float, residual: float, now: float
+    ) -> None:
         self._window = []
 
         if not KodiTempo.enabled():
@@ -933,7 +943,7 @@ class PulseScheduler:
             "plan": (rate, fitted, residual, schedule),
         }
 
-    def _check_awaiting(self, current, now):
+    def _check_awaiting(self, current: Optional[float], now: float) -> None:
         """A write is out: has the player taken it yet?"""
         waiting = self._awaiting
         assert waiting is not None  # only called awaiting (_tick)
@@ -949,7 +959,9 @@ class PulseScheduler:
         else:
             self._pulse_ended(waiting, confirmed, now)
 
-    def _pulse_started(self, waiting, confirmed, now):
+    def _pulse_started(
+        self, waiting: dict[str, Any], confirmed: bool, now: float
+    ) -> None:
         rate, seconds, residual, schedule = waiting["plan"]
 
         if not confirmed:
@@ -982,7 +994,7 @@ class PulseScheduler:
             "writes": [(now + offset, value) for offset, value in schedule[1:]],
         }
 
-    def _changed_elsewhere(self, current, now):
+    def _changed_elsewhere(self, current: float, now: float) -> bool:
         """Whether the tempo read is not the one kofin last asked for, and the
         player has had time to take the ask."""
         return (
@@ -990,7 +1002,7 @@ class PulseScheduler:
             and now - self._asked_at >= CONFIRM_GRACE_S
         )
 
-    def _advance_pulse(self, current, now):
+    def _advance_pulse(self, current: Optional[float], now: float) -> None:
         """Write whatever the schedule has due. Several overdue at once — a
         late tick — collapse to the latest; the final 1.0 ends the pulse."""
         pulse = self._pulse
@@ -1017,7 +1029,7 @@ class PulseScheduler:
         elif not self._set(due[1], now):
             self._cut("a refused step", now)
 
-    def _end_pulse(self, now):
+    def _end_pulse(self, now: float) -> None:
         pulse = self._pulse
         self._pulse = None
 
@@ -1034,7 +1046,9 @@ class PulseScheduler:
             "pulse": pulse,
         }
 
-    def _pulse_ended(self, waiting, confirmed, now):
+    def _pulse_ended(
+        self, waiting: dict[str, Any], confirmed: bool, now: float
+    ) -> None:
         pulse = waiting["pulse"]
 
         if confirmed:
@@ -1047,7 +1061,7 @@ class PulseScheduler:
 
         self._settle(pulse, now, measured=confirmed)
 
-    def _ended_by_kodi(self, pulse, now):
+    def _ended_by_kodi(self, pulse: dict[str, Any], now: float) -> None:
         """Kodi put the tempo back to 1.0 during the pulse. On a live stream
         playing faster than its source that is the live edge."""
         self._pulse = None
@@ -1068,7 +1082,7 @@ class PulseScheduler:
 
         self._settle(pulse, now, measured=False)
 
-    def _foreign(self, current, now):
+    def _foreign(self, current: float, now: float) -> None:
         """A tempo kofin did not ask for — a viewer's play speed in the OSD.
         A group's speed is 1.0: put it back."""
         if not self._foreign_logged:
@@ -1084,7 +1098,9 @@ class PulseScheduler:
         self._return_to_one(now)
         self._settle(pulse, now, measured=False)
 
-    def _settle(self, pulse, now, measured):
+    def _settle(
+        self, pulse: Optional[dict[str, Any]], now: float, measured: bool
+    ) -> None:
         """A pulse is over: a quiet window before measuring again, and its
         outcome read once the window has passed."""
         profile = self.profile
@@ -1095,7 +1111,7 @@ class PulseScheduler:
         if pulse is not None:
             self._remember(pulse, now)
 
-    def _report_moved(self, now):
+    def _report_moved(self, now: float) -> None:
         """What the pulse moved, read off the player clock: the change in
         position less the time that passed. Logged against what it was asked
         to move, which is the actuator's accuracy."""
@@ -1110,7 +1126,7 @@ class PulseScheduler:
             (pulse["rate"] - 1.0) * pulse["seconds"] * 1000.0,
         )
 
-    def _give_up_edge(self):
+    def _give_up_edge(self) -> None:
         self._gave_up = True
         LOG.debug(
             "[ syncplay/pulse ] giving up: at the live edge — Kodi ended %d forward "
@@ -1118,7 +1134,7 @@ class PulseScheduler:
             self._edge_pulses,
         )
 
-    def _cut(self, reason, now):
+    def _cut(self, reason: str, now: float) -> bool:
         """Under the lock: no pulse runs on. Returns whether one was."""
         pulse = self._pulse
         waiting = self._awaiting
@@ -1139,7 +1155,7 @@ class PulseScheduler:
 
         return True
 
-    def cancel(self, reason):
+    def cancel(self, reason: str) -> None:
         """A command or seek is about to act: no pulse may run across it.
 
         Returns at once — it asks for 1.0 and waits for nothing; while paused,
@@ -1156,13 +1172,13 @@ class PulseScheduler:
             self._gave_up = False
             self._cut(reason, time.time())
 
-    def before_seek(self):
+    def before_seek(self) -> None:
         """Back to 1.0 before a seek lands: no pulse runs across a seek. Kodi
         keeps a tempo across one, and the speed message and the seek take the
         player's one queue in order, so nothing has to be waited for."""
         self.cancel("seek")
 
-    def note_settle(self):
+    def note_settle(self) -> None:
         """A seek or resume just landed: measure again only once it has played
         out — and, as with a command, regrowth is counted from here, not
         across the seek."""
@@ -1180,7 +1196,7 @@ class PulseScheduler:
     # Giving up
     # ------------------------------------------------------------------
 
-    def _remember(self, pulse, ended_at):
+    def _remember(self, pulse: dict[str, Any], ended_at: float) -> None:
         """Fold a finished pulse into the give-up history."""
         direction = 1 if pulse["rate"] > 1.0 else -1
         previous = self._history[-1] if self._history else None
@@ -1196,7 +1212,7 @@ class PulseScheduler:
         )
         del self._history[:-GIVEUP_PULSES]
 
-    def _losing(self, residual, now):
+    def _losing(self, residual: float, now: float) -> bool:
         """Whether the residual is a rate mismatch pulses cannot keep up with.
 
         True once GIVEUP_PULSES pulses have gone the same way and every one of
@@ -1225,7 +1241,7 @@ class PulseScheduler:
             and max(magnitudes) <= GIVEUP_SPREAD * min(magnitudes)
         )
 
-    def _give_up(self):
+    def _give_up(self) -> None:
         self._gave_up = True
         LOG.warning(
             "[ syncplay/pulse ] giving up: the residual regrows faster than "
@@ -1237,9 +1253,6 @@ class PulseScheduler:
         self.controller.manager.notify_rate_mismatch()
 
 
-#################################################################################################
-
-
 class TempoSession:
     """Whether this group membership has fine sync: the setting, read at join
     and again when it changes.
@@ -1249,10 +1262,10 @@ class TempoSession:
     (:class:`PulseScheduler`).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active = False
 
-    def begin(self):
+    def begin(self) -> None:
         """Arm fine sync for the group just joined, when the setting allows."""
         if self.active:
             return
@@ -1272,7 +1285,7 @@ class TempoSession:
         self.active = True
         LOG.debug("[ syncplay/tempo ] fine sync armed (Kodi's tempo)")
 
-    def end(self):
+    def end(self) -> None:
         if not self.active:
             return
 

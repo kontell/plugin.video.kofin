@@ -5,10 +5,10 @@ Kept free of Kodi imports so the protocol math is unit-testable.
 
 import threading
 import time
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from enum import Enum
-
-#################################################################################################
+from typing import Any, Optional
 
 TICKS_PER_SECOND = 10000000
 
@@ -137,31 +137,29 @@ LIVE_EDGE_PULSES = 2
 # PTS is never this young except in the first minute after an encoder restart.
 LIVE_CLOCK_MIN_START_S = 60.0
 
-#################################################################################################
 
-
-def local_ms():
+def local_ms() -> float:
     """Local wall clock in unix milliseconds."""
     return time.time() * 1000.0
 
 
-def ticks_to_ms(ticks):
+def ticks_to_ms(ticks: Optional[int]) -> float:
     return (ticks or 0) / TICKS_PER_MS
 
 
-def ms_to_ticks(ms):
+def ms_to_ticks(ms: float) -> int:
     return int(ms * TICKS_PER_MS)
 
 
-def seconds_to_ticks(seconds):
+def seconds_to_ticks(seconds: float) -> int:
     return int(seconds * TICKS_PER_SECOND)
 
 
-def ticks_to_seconds(ticks):
+def ticks_to_seconds(ticks: Optional[int]) -> float:
     return (ticks or 0) / TICKS_PER_SECOND
 
 
-def claim_is_live(claim):
+def claim_is_live(claim: Optional[Mapping[str, Any]]) -> bool:
     """Whether a claim names a live stream.
 
     kofin's own claim says so outright (``Live``, stamped by the play route
@@ -182,7 +180,7 @@ def claim_is_live(claim):
     return False
 
 
-def time_object_ms(value):
+def time_object_ms(value: Any) -> Optional[float]:
     """A JSON-RPC ``Global.Time`` object in milliseconds, or None."""
     if not isinstance(value, dict):
         return None
@@ -200,7 +198,7 @@ def time_object_ms(value):
         return None
 
 
-def presentation_offset_ms(props):
+def presentation_offset_ms(props: Any) -> Optional[float]:
     """What to add to the player clock to read the stream's own clock, from
     one ``Player.GetProperties`` answer carrying ``time`` and
     ``presentationtime``; None when Kodi cannot tell.
@@ -228,7 +226,7 @@ def presentation_offset_ms(props):
     return offset
 
 
-def live_anchor_ms(source_ms):
+def live_anchor_ms(source_ms: float) -> float:
     """The group position a proposer anchors for its own source-clock
     reading: LIVE_DELAY_S behind it, on the wire's epoch."""
     period = LIVE_PTS_PERIOD_S * 1000.0
@@ -236,12 +234,12 @@ def live_anchor_ms(source_ms):
     return LIVE_PTS_EPOCH_S * 1000.0 + behind
 
 
-def live_anchored(position_ms):
+def live_anchored(position_ms: Optional[float]) -> bool:
     """Whether a group position is on the source clock (see LIVE_PTS_EPOCH_S)."""
     return position_ms is not None and position_ms >= LIVE_PTS_EPOCH_S * 1000.0 / 2
 
 
-def unwrap_live_ms(source_ms, reference_ms):
+def unwrap_live_ms(source_ms: float, reference_ms: Optional[float]) -> float:
     """A source-clock reading as the wire position nearest ``reference_ms``.
 
     The clock wraps, and a member may have opened on the far side of a wrap
@@ -258,13 +256,13 @@ def unwrap_live_ms(source_ms, reference_ms):
     return position + round((reference_ms - position) / period) * period
 
 
-def to_iso(unix_ms):
+def to_iso(unix_ms: float) -> str:
     """Unix milliseconds -> ISO 8601 UTC string the server parses."""
     seconds, ms = divmod(int(round(unix_ms)), 1000)
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(seconds)) + ".%03dZ" % ms
 
 
-def parse_iso_ms(value):
+def parse_iso_ms(value: Optional[str]) -> Optional[float]:
     """ISO 8601 UTC string -> unix milliseconds (float).
 
     Handles .NET's 7-digit fractional seconds and both 'Z' and '+00:00'
@@ -292,7 +290,7 @@ def parse_iso_ms(value):
     return parsed.timestamp() * 1000.0
 
 
-def ntp_sample(t0, t1, t2, t3):
+def ntp_sample(t0: float, t1: float, t2: float, t3: float) -> tuple[float, float]:
     """Standard NTP offset/rtt from the four timestamps (all unix ms).
 
     offset = server_clock - local_clock.
@@ -302,13 +300,15 @@ def ntp_sample(t0, t1, t2, t3):
     return offset, rtt
 
 
-def command_position_ms(command_ticks, command_when_ms, server_now_ms):
+def command_position_ms(
+    command_ticks: Optional[int], command_when_ms: float, server_now_ms: float
+) -> float:
     """Extrapolated group position for a command, in ms of media time."""
     elapsed = max(0.0, server_now_ms - command_when_ms)
     return ticks_to_ms(command_ticks) + elapsed
 
 
-def is_stale_version(version, highest_seen):
+def is_stale_version(version: Optional[int], highest_seen: Optional[int]) -> bool:
     """StateVersion gating (SYNCPLAY.md §6). None (v1) is never stale."""
     if version is None or highest_seen is None:
         return False
@@ -316,7 +316,7 @@ def is_stale_version(version, highest_seen):
     return version < highest_seen
 
 
-def later(seconds, func, *args):
+def later(seconds: float, func: Callable[..., Any], *args: Any) -> threading.Timer:
     """A fire-and-forget daemon Timer — the one spelling of the
     schedule-and-move-on blocks. Returns the timer for the one caller that
     stores it (the command scheduler)."""

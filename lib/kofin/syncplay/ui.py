@@ -4,28 +4,28 @@ Blocks on dialogs; the service runs it on a dedicated worker thread, never on
 the notification loop.
 """
 
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import xbmcgui
 
 from kofin.core import settings, toast
 from kofin.core.log import Logger
 
-#################################################################################################
+if TYPE_CHECKING:
+    from kofin.syncplay.manager import SyncPlayManager
+
 
 LOG = Logger(__name__)
 
-#################################################################################################
 
-
-def show_menu(manager):
+def show_menu(manager: "SyncPlayManager") -> None:
     if manager.in_group():
         _group_menu(manager)
     else:
         _join_menu(manager)
 
 
-def _join_menu(manager):
+def _join_menu(manager: "SyncPlayManager") -> None:
     groups = manager.list_groups()
 
     if groups is None:
@@ -64,7 +64,7 @@ def _join_menu(manager):
         manager.new_group(name)
 
 
-def _group_menu(manager):
+def _group_menu(manager: "SyncPlayManager") -> None:
     manager.refresh_group_info()
     group_name = (manager.group or {}).get("GroupName") or "?"
     members = _describe_members(manager)
@@ -96,7 +96,7 @@ def _group_menu(manager):
         manager.toggle_spectator()
 
 
-def _describe_members(manager):
+def _describe_members(manager: "SyncPlayManager") -> str:
     parts = []
 
     for member in manager.members or []:

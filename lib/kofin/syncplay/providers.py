@@ -18,8 +18,6 @@ from urllib.parse import quote
 from kofin.core.urls import plugin_url
 from kofin.syncplay.ports import JsonDict, SyncPlayApi
 
-#################################################################################################
-
 JELLYFIN = "jellyfin"
 
 # Jellyfin item types whose length is not fixed, so no runtime is claimed for
@@ -53,9 +51,6 @@ class Provider(Protocol):
     def play_target(self, key: str, start_ticks: int) -> PlayTarget: ...
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]: ...
-
-
-#################################################################################################
 
 
 class JellyfinProvider:
@@ -122,9 +117,6 @@ class JellyfinProvider:
 
         item_id = mapped_item(kodi_id, media)
         return str(item_id) if item_id else None
-
-
-#################################################################################################
 
 
 class TemplateProvider:
