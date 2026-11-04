@@ -17,7 +17,8 @@ import json
 import os
 import threading
 import time
-from typing import Any, NamedTuple, Optional, Union
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -26,6 +27,14 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import changefeed, kofindb, private
 from . import capabilities, metadata, progress
+
+if TYPE_CHECKING:
+    from .store import Store
+
+# A string by its id, and Kodi's own word for a kind.
+Text = Callable[[int], str]
+KindLabel = Callable[[str], str]
+Clock = Callable[[float], time.struct_time]
 
 LOG = Logger(__name__)
 
@@ -83,7 +92,9 @@ def read(namespace: str = "") -> dict[str, Any]:
     return found
 
 
-def write(state: str, listing=(), namespace: str = "", earlier: bool = False) -> None:
+def write(
+    state: str, listing: Iterable[str] = (), namespace: str = "", earlier: bool = False
+) -> None:
     """Record what the sync is doing, in the words the dialog shows, and the
     names of the libraries whose first listing is under way, for the account
     ``namespace`` (the library thread's store). Written only when either
@@ -189,7 +200,7 @@ class Snapshot(NamedTuple):
     enumerated: float
 
 
-def snapshot(store, scanner_format: int) -> Snapshot:
+def snapshot(store: "Store", scanner_format: int) -> Snapshot:
     """The catalogue as the dialog shows it, in a handful of queries."""
     with private.Database() as db:
         views = {
@@ -230,9 +241,9 @@ def snapshot(store, scanner_format: int) -> Snapshot:
 def rows(
     document: dict[str, Any],
     found: Snapshot,
-    text,
-    kind_label,
-    clock=time.localtime,
+    text: Text,
+    kind_label: KindLabel,
+    clock: Clock = time.localtime,
     features: Optional[dict[str, bool]] = None,
 ) -> list[str]:
     """The dialog's lines. ``text`` gives a string by its id and
@@ -305,7 +316,7 @@ def rows(
     return [line.rstrip() for line in lines]
 
 
-def unfiled_row(found: Snapshot, text) -> str:
+def unfiled_row(found: Snapshot, text: Text) -> str:
     """The row counting what Kodi cannot import; empty when nothing."""
     unfiled = sum(library.unfiled for library in found.libraries)
     return "%s:  %s" % (text(30868), _number(unfiled)) if unfiled else ""
@@ -322,7 +333,9 @@ def counted(found: Snapshot) -> list[tuple[str, str]]:
     ]
 
 
-def unfiled_report(entries, found: Snapshot, text) -> str:
+def unfiled_report(
+    entries: Iterable[tuple[str, str, dict[str, Any]]], found: Snapshot, text: Text
+) -> str:
     """What that row counts, for its text viewer: what to do, then each
     item by its show and its title, under its library's name when more
     than one library has any. ``entries`` are ``store.unfiled`` of
@@ -350,7 +363,7 @@ def _item_name(item: dict[str, Any]) -> str:
     return "%s \u2014 %s" % (show, title) if show else title
 
 
-def off_features(features: dict[str, bool], text) -> list[str]:
+def off_features(features: dict[str, bool], text: Text) -> list[str]:
     """The labels of the features this Kodi lacks, in the table's order."""
     return [
         text(label)
@@ -380,7 +393,7 @@ def migration() -> str:
     )
 
 
-def show(store) -> None:
+def show(store: "Store") -> None:
     """The report, as a dialog to read: one row per fact, the value in the
     row's own label (a select dialog's plain layout has no second field).
 
@@ -443,7 +456,7 @@ def show(store) -> None:
             )
 
 
-def _moment(stamp: float, clock) -> str:
+def _moment(stamp: float, clock: Clock) -> str:
     """A time as the dialog shows it; empty for none, and for a number no
     calendar has (the clock raises for one far enough out)."""
     if not stamp:

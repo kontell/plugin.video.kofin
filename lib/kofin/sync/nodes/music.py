@@ -14,6 +14,8 @@ library would match nothing under ``match=all`` -- silently.
 
 import os
 import xml.etree.ElementTree as etree
+from collections.abc import Sequence
+from typing import Any, Optional
 
 import xbmcvfs
 
@@ -58,21 +60,21 @@ MUSIC_NODE_ICONS = {
 }
 
 
-def music_node_root_path():
+def music_node_root_path() -> str:
     """Directory holding the generated *music* nodes."""
     return os.path.join(
         xbmcvfs.translatePath("special://profile/library/music"), NODE_ROOT
     )
 
 
-def music_node_folder(view):
+def music_node_folder(view: dict[str, Any]) -> str:
     """Per-library folder name inside the music tree -- the music twin of
     :func:`video.node_folder`, which cannot be reused because its name folds
     in a ``Media`` that is always ``music`` here."""
     return "%smusic%s" % (fs.PREFIX, view["Id"])
 
 
-def library_rule(view):
+def library_rule(view: dict[str, Any]) -> etree.Element:
     """The rule a library's sub-nodes filter on: the folder its songs are
     filed under (``Path``)."""
     rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
@@ -80,7 +82,7 @@ def library_rule(view):
     return rule
 
 
-def write_music_nodes(libraries):
+def write_music_nodes(libraries: Sequence[dict[str, Any]]) -> bool:
     """Write (or take down) the music tree. Returns whether it now exists.
 
     ``libraries`` are the whitelisted music libraries, each with the folder
@@ -116,7 +118,7 @@ def write_music_nodes(libraries):
     return True
 
 
-def _write_music_parent(root):
+def _write_music_parent(root: str) -> None:
     """The music-side ``Kofin`` folder node. Creation only, exactly like the
     video parent: the order and the label are the user's afterwards."""
     file = os.path.join(root, "index.xml")
@@ -130,7 +132,7 @@ def _write_music_parent(root):
     write_xml(file, xml)
 
 
-def _write_music_library_folder(root, view, index):
+def _write_music_library_folder(root: str, view: dict[str, Any], index: int) -> None:
     """One synced music library's folder and its four ways in."""
     folder = os.path.join(root, music_node_folder(view))
 
@@ -144,7 +146,7 @@ def _write_music_library_folder(root, view, index):
         _write_music_filter_node(folder, order, stem, label, content, group, rule)
 
 
-def _write_music_folder_index(folder, order, label, icon):
+def _write_music_folder_index(folder: str, order: int, label: str, icon: str) -> None:
     """A music folder's own ``index.xml``.
 
     Rewritten every pass, unlike the tree's parent: a library's name and its
@@ -156,7 +158,15 @@ def _write_music_folder_index(folder, order, label, icon):
     write_xml(os.path.join(folder, "index.xml"), xml)
 
 
-def _write_music_filter_node(folder, order, stem, label, content, group, rule):
+def _write_music_filter_node(
+    folder: str,
+    order: int,
+    stem: str,
+    label: int,
+    content: str,
+    group: Optional[str],
+    rule: etree.Element,
+) -> None:
     """One filter node inside a music folder."""
     xml = etree.Element("node", {"order": str(order), "type": "filter"})
     set_node_icon(xml, MUSIC_NODE_ICONS[stem])
@@ -171,7 +181,7 @@ def _write_music_filter_node(folder, order, stem, label, content, group, rule):
     write_xml(os.path.join(folder, "%s.xml" % stem), xml)
 
 
-def _delete_music_nodes(root):
+def _delete_music_nodes(root: str) -> None:
     """Take the whole music tree back out when nothing wants it."""
     if not os.path.isdir(root):
         return

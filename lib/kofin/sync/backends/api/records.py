@@ -55,18 +55,18 @@ class Record:
     def loaded(self) -> bool:
         return self._item is not None
 
-    def _key(self):
+    def _key(self) -> tuple[str, str, str, str, int]:
         return (self.item_id, self.kind, self.library, self.parent_id, self.generation)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Record):
             return NotImplemented
         return self._key() == other._key() and self.item == other.item
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self._key())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "Record(%r, %r, generation=%r)" % (
             self.item_id,
             self.kind,
@@ -100,12 +100,12 @@ class PayloadWindow:
             self._held.move_to_end(item_id)
         return payload
 
-    def _keep(self, item_id: str, payload: dict[str, Any]):
+    def _keep(self, item_id: str, payload: dict[str, Any]) -> None:
         self._held[item_id] = payload
         while len(self._held) > self.size:
             self._held.popitem(last=False)
 
-    def prefetch(self, item_ids: Iterable[str]):
+    def prefetch(self, item_ids: Iterable[str]) -> None:
         wanted = [i for i in item_ids if i not in self._held]
         if wanted:
             self.reads += 1

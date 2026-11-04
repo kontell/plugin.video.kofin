@@ -137,20 +137,29 @@ class ProfileConfig:
         self.music_max_bitrate_kbps = music_max_bitrate_kbps
 
     @classmethod
-    def from_settings(cls) -> "ProfileConfig":
-        return cls(
-            force_direct_play=settings.get_bool("forceDirectPlay"),
-            force_remux=settings.get_bool("forceRemux"),
-            force_transcode=settings.get_bool("forceTranscode"),
+    def _device(cls) -> dict[str, Any]:
+        """What the device plays, the same whether it streams or downloads:
+        the transcode tab's codec lists, HDR types, preferred targets,
+        channels and audio bitrate."""
+        return dict(
             video_codecs=settings.get_list("directPlayVideoCodecs"),
             audio_codecs=settings.get_list("directPlayAudioCodecs"),
             hdr_types=settings.get_list("allowedHdrTypes"),
             preferred_video=settings.get_str("preferredVideoCodec") or "h264",
             preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
             max_channels=settings.get_int("maxAudioChannels") or 6,
+            audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
+        )
+
+    @classmethod
+    def from_settings(cls) -> "ProfileConfig":
+        return cls(
+            **cls._device(),
+            force_direct_play=settings.get_bool("forceDirectPlay"),
+            force_remux=settings.get_bool("forceRemux"),
+            force_transcode=settings.get_bool("forceTranscode"),
             max_bitrate_mbps=settings.get_float("maxStreamingBitrate"),
             max_width=settings.get_int("maxResolution"),
-            audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
             music_codec=settings.get_str("musicTranscodeCodec") or "opus",
             music_bitrate_kbps=settings.get_int("musicTranscodeBitrate") or 128,
             # ``musicTranscode`` owns the whole music group: with it off the
@@ -180,15 +189,9 @@ class ProfileConfig:
         would defeat the only-when-necessary contract.
         """
         return cls(
-            video_codecs=settings.get_list("directPlayVideoCodecs"),
-            audio_codecs=settings.get_list("directPlayAudioCodecs"),
-            hdr_types=settings.get_list("allowedHdrTypes"),
-            preferred_video=settings.get_str("preferredVideoCodec") or "h264",
-            preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
-            max_channels=settings.get_int("maxAudioChannels") or 6,
+            **cls._device(),
             max_bitrate_mbps=settings.get_float("downloadsMaxBitrate"),
             max_width=settings.get_int("downloadsMaxResolution"),
-            audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
             music_codec=settings.get_str("downloadsMusicCodec") or "opus",
             music_bitrate_kbps=settings.get_int("downloadsMusicBitrate") or 128,
             music_max_bitrate_kbps=settings.get_int("downloadsMusicMaxBitrate"),
