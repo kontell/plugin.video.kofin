@@ -236,7 +236,7 @@ class PlaybackController:
             self.tempo.cancel(name)
 
             if name == "Unpause":
-                if not self.live._keep_source_clock(ticks):
+                if not self.live.keeps_source_clock(ticks):
                     self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
                 if self.manager.phase == Phase.LOADING:
                     # Do not set last_command: this Unpause has not run, and
@@ -254,11 +254,11 @@ class PlaybackController:
                     rebind_origin=command.get("_rebind_origin", True),
                 )
             elif name == "Pause":
-                if not self.live._keep_source_clock(ticks):
+                if not self.live.keeps_source_clock(ticks):
                     self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
                 self._do_pause(ticks)
             elif name == "Seek":
-                if not self.live._keep_source_clock(ticks):
+                if not self.live.keeps_source_clock(ticks):
                     self._reference = (
                         utils.ticks_to_ms(ticks),
                         when_ms,
@@ -295,14 +295,14 @@ class PlaybackController:
         # When the group already played through; rebinding then maps a newer
         # picture onto that position and pulses will not close it.
         late_ms = self.manager.server_now_ms() - (when_ms or 0)
-        if rebind_origin and late_ms <= 1000.0 and self.live._skip_live_seek():
-            self.live.bind_live_origin_to_group()
+        if rebind_origin and late_ms <= 1000.0 and self.live.seek_refused():
+            self.live.bind_origin_to_group()
 
         # Late command (When already past): jump to the extrapolated live
         # position instead of starting behind the group. Session-time ticks
         # on a source-clock group are not a live position — align to the
         # group clock we kept.
-        if self.live._keep_source_clock(ticks):
+        if self.live.keeps_source_clock(ticks):
             target_ms = self.estimate_position_ms()
             if target_ms is None:
                 target_ms = self._position_ms()
@@ -398,11 +398,11 @@ class PlaybackController:
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
             return
 
-        if self.live._live_claim() is not None:
+        if self.live.claim() is not None:
             # A live member has no seek: ahead by more than LIVE_HOLD_MIN_MS
             # it holds, otherwise fine sync.
             if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
-                self.live._live_hold(-behind_ms)
+                self.live.hold(-behind_ms)
             else:
                 LOG.debug(
                     "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
@@ -550,7 +550,7 @@ class PlaybackController:
             )
             return
 
-        if self.live._skip_live_seek():
+        if self.live.seek_refused():
             # Live before Transcode: Jellyfin labels a live HLS remux
             # Transcode, and the reload path below would Player.Open the
             # same channel. Kodi does not restart it, OnAVStarted never
@@ -664,7 +664,7 @@ class PlaybackController:
             # Group already Playing: the Unpause arrived during load and
             # was not applied. The server re-issues it on Ready; run it
             # here too so a dropped re-issue cannot leave us paused.
-            # No rebind: see bind_live_origin_to_group.
+            # No rebind: see LiveClock.bind_origin_to_group.
             deferred = dict(deferred)
             deferred["_rebind_origin"] = False
             self.schedule(deferred)
@@ -871,14 +871,14 @@ class PlaybackController:
 
     def _position_ms(self) -> float:
         """The playing position on the group's clock: the player clock, or
-        for a live item the live clock (``_live_source_offset_ms``) placed
+        for a live item the live clock (``LiveClock.source_offset_ms``) placed
         on the group reference's cycle of it."""
         try:
             player_ms = self.player.getTime() * 1000.0
         except Exception:
             return 0.0
 
-        offset = self.live._live_source_offset_ms()
+        offset = self.live.source_offset_ms()
 
         if offset is None:
             return player_ms
@@ -896,13 +896,13 @@ class PlaybackController:
     # -- the live clock (liveclock.py) -----------------------------------------
 
     def note_live_origin(self) -> None:
-        self.live.note_live_origin()
+        self.live.note_origin()
 
     def live_on_source_clock(self) -> bool:
-        return self.live.live_on_source_clock()
+        return self.live.on_source_clock()
 
     def live_anchor_ms(self) -> Optional[float]:
-        return self.live.live_anchor_ms()
+        return self.live.anchor_ms()
 
     def reported_position_s(self, promise: bool = True) -> float:
         """The position a report carries. With ``promise``, a live member
@@ -912,7 +912,7 @@ class PlaybackController:
         delay ahead of its anchor — is one the server's ready barrier does
         not release on. Without it, the real reading: what a Buffering report
         must say, since the group pauses there."""
-        if promise and self.live._live_claim() is not None:
+        if promise and self.live.claim() is not None:
             estimate = self.estimate_position_ms()
 
             if estimate is not None:
@@ -979,7 +979,7 @@ class PlaybackController:
         stay paused has to undo that, and a caller about to resume must *not*,
         or the two fight and the player can end up stopped.
         """
-        if self.live._skip_live_seek():
+        if self.live.seek_refused():
             if not self._live_seek_logged:
                 self._live_seek_logged = True
                 LOG.debug("[ syncplay/align ] skipped: live item, pulses only")

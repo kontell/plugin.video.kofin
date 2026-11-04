@@ -44,7 +44,7 @@ What is *not* true today: it is not reset on leave (`_leave_locally` → `stop_l
 - Clamp after the EMA: `SEEK_LAG_MIN_MS = 0.0`, `SEEK_LAG_MAX_MS = 3000.0`.
 - Keep the restart+landing formula. Post-settle group residual mixes timesync and queue delay into a pipeline compensator; the 30 s blackout plus pulses already finish leftovers.
 - Do **not** apply lag on paused `_prealign_unpause` (the group is not moving).
-- Do **not** log a lag line on the live early-return. Live never seeks (`_skip_live_seek`).
+- Do **not** log a lag line on the live early-return. Live never seeks (`LiveClock.seek_refused`).
 - Do **not** add `syncPlaySeekLagPersist` unless open question 1 is yes. If yes: boolean default false, in-memory only, strings `#30639` / `#30640` (the 30639–30649 gap; do not reuse 30600–30638 / 30650–30673), 28-file i18n, full Kodi restart. Help must say this is wrong for a box that moves LAN ↔ WAN.
 
 **Files:** `lib/kofin/syncplay/playback.py`, `lib/kofin/syncplay/tempo.py` (the min/max constants), `tests/unit/test_syncplay_tempo_wiring.py`, `docs/syncplay-fine-sync.md` §4 and §5.
@@ -112,7 +112,7 @@ Live items never seek. No module-global state, no new IPC, no `xbmc.Player.stop(
 
 ## References
 
-- `lib/kofin/syncplay/playback.py` — `seek_lag_ms`, `_seek_and_settle`, `_clock_restart`, `correct_position`, `_align_after_resume`, `_skip_live_seek`, `stop_loop`
+- `lib/kofin/syncplay/playback.py` — `seek_lag_ms`, `_seek_and_settle`, `_clock_restart`, `correct_position`, `_align_after_resume`, `LiveClock.seek_refused`, `stop_loop`
 - `lib/kofin/syncplay/tempo.py` — `SEEK_LAG_DEFAULT_MS`, `BUDGET_DEFAULT_MS`, `PULSE_MAX_S`, `PulseScheduler._gain` / `reset` / `source_offset_ms`
 - `lib/kofin/syncplay/manager.py` — `PlaybackController` constructed once (~73), `_leave_locally` (~859)
 - `tests/unit/test_syncplay_tempo_wiring.py` — existing seek-lag tests

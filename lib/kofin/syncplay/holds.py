@@ -37,7 +37,7 @@ class LocalStarts:
 
     # -- the hold --------------------------------------------------------------
 
-    def hold_start(self, transition: bool) -> None:
+    def enter(self, transition: bool) -> None:
         """Hold a local start paused until the group adopts it: a native
         playlist advance (``transition``, which starts at 0) or a fresh
         user start, possibly at a resume point."""
@@ -53,9 +53,9 @@ class LocalStarts:
         )
         self._hold = hold
         self.manager.playback.ensure_paused()
-        self._watch_hold(hold)
+        self._watch(hold)
 
-    def _watch_hold(self, hold: dict[str, Any]) -> None:
+    def _watch(self, hold: dict[str, Any]) -> None:
         """A held start that never gets adopted must not stay paused
         forever (e.g. the proposal failed): give playback back."""
 
@@ -64,11 +64,11 @@ class LocalStarts:
                 return
 
             LOG.warning("Held start was never adopted; releasing the hold")
-            self._release_hold()
+            self.release()
 
         utils.later(utils.HOLD_RELEASE_TIMEOUT, self.manager._post, check)
 
-    def _hold_done(self, reason: str) -> None:
+    def _done(self, reason: str) -> None:
         """How long a boundary hold lasted, and what ended it."""
         hold = self._hold
         if hold is None or not hold.get("at"):
@@ -82,14 +82,14 @@ class LocalStarts:
     def ended(self, reason: str) -> None:
         """The hold is over without a release of the player: the group
         adopted the start, or the playback detached, stopped or ended."""
-        self._hold_done(reason)
+        self._done(reason)
         self._hold = None
 
-    def _release_hold(self) -> None:
+    def release(self) -> None:
         if self._hold is None:
             return
 
-        self._hold_done("released")
+        self._done("released")
         self._hold = None
         self.manager.playback.ensure_playing()
 
@@ -99,9 +99,9 @@ class LocalStarts:
         """Player.OnPlay from the Kodi bus: carries the Kodi library id,
         the earliest identification of a local start (before the play
         pipeline claims the item). Called on the notification thread."""
-        self.manager._post(self._identify_held_play, data)
+        self.manager._post(self._identify, data)
 
-    def _forward_local_play(self, attempt: int = 0) -> None:
+    def forward(self, attempt: int = 0) -> None:
         """Propose the currently-playing item to the group as its queue."""
         manager = self.manager
         if not manager.player.isPlaying():
@@ -136,13 +136,13 @@ class LocalStarts:
         if not item_id:
             # The plugin play worker may still be resolving the item.
             if attempt >= utils.FORWARD_RETRY_LIMIT:
-                self._unmanaged_local_play()
+                self._give_back()
                 return
 
             utils.later(
                 utils.FORWARD_RETRY_INTERVAL,
                 manager._post,
-                self._forward_local_play,
+                self.forward,
                 attempt + 1,
             )
             return
@@ -155,14 +155,14 @@ class LocalStarts:
             hold["item_id"] = item_id
 
             if hold["transition"]:
-                self._propose_queue(item_id, position=0.0, provider=provider)
+                self.propose(item_id, position=0.0, provider=provider)
                 return
 
         position = None
         if utils.claim_is_live(info):
             # A live claim (zero runtime): the player's position is session
             # time on this member's own stream, meaningless to the group.
-            # With a live clock (LiveClock._live_source_offset_ms) the
+            # With a live clock (LiveClock.source_offset_ms) the
             # group is anchored on that instead, a delay behind this
             # member's reading; without one it tunes together from its own
             # edge.
@@ -178,9 +178,9 @@ class LocalStarts:
                 ),
             )
 
-        self._propose_queue(item_id, position=position, provider=provider)
+        self.propose(item_id, position=position, provider=provider)
 
-    def _identify_held_play(self, data: dict[str, Any]) -> None:
+    def _identify(self, data: dict[str, Any]) -> None:
         """Identify a held playlist advance from the Player.OnPlay payload.
 
         The Kodi library id maps straight to a provider key (for Jellyfin,
@@ -221,7 +221,7 @@ class LocalStarts:
             # cannot follow it, and the play pipeline (same mapping) will
             # not identify it either. Let it play now rather than after
             # the retry window.
-            self._unmanaged_local_play()
+            self._give_back()
             return
 
         if not hold["transition"]:
@@ -229,15 +229,15 @@ class LocalStarts:
 
         hold["proposed"] = True
         hold["item_id"] = mapped
-        self._propose_queue(mapped, position=0.0)
+        self.propose(mapped, position=0.0)
 
-    def _unmanaged_local_play(self) -> None:
+    def _give_back(self) -> None:
         """Playing something the group can't follow (a local file,
         another addon): give playback back and stop pretending to be
         synchronized. Quiet when already a spectator — repeat plays of
         unmanaged media must not re-toast on every start."""
         manager = self.manager
-        self._release_hold()
+        self.release()
         manager._detach_playback()
 
         if manager.ignore_wait:
@@ -248,7 +248,7 @@ class LocalStarts:
         manager._api("syncplay_set_ignore_wait", True)
         manager._toast(settings.localized(30569))
 
-    def _propose_queue(
+    def propose(
         self,
         item_id: str,
         position: Optional[float] = None,
@@ -327,11 +327,11 @@ class LocalStarts:
         self._stop_pending = None
 
     def prompt_in_thread(self, pending: dict[str, Any]) -> None:
-        thread = threading.Thread(target=self._user_stopped_prompt, args=(pending,))
+        thread = threading.Thread(target=self._prompt, args=(pending,))
         thread.daemon = True
         thread.start()
 
-    def _stop_superseded(self) -> bool:
+    def _superseded(self) -> bool:
         """Did another local start (or a group item) replace the stop?"""
         manager = self.manager
         return (
@@ -340,7 +340,7 @@ class LocalStarts:
             or manager.player.isPlaying()
         )
 
-    def _stopped_here(self, playlist_item_id: Optional[str]) -> bool:
+    def stopped_here(self, playlist_item_id: Optional[str]) -> bool:
         """Is this the item the user stopped, with the stop prompt unresolved?"""
         pending = self._stop_pending
 
@@ -350,7 +350,7 @@ class LocalStarts:
             and pending["playlist_item_id"] == playlist_item_id
         )
 
-    def _user_stopped_prompt(self, pending: Optional[dict[str, Any]] = None) -> None:
+    def _prompt(self, pending: Optional[dict[str, Any]] = None) -> None:
         """Local stop while synced: sort out what it means for the group.
 
         ``pending`` is the stop this prompt was started for (on_stopped).
@@ -363,12 +363,12 @@ class LocalStarts:
             pending = self._stop_pending
 
         try:
-            self._ask_what_the_stop_means()
+            self._ask()
         finally:
             if self._stop_pending is pending:
                 self._stop_pending = None
 
-    def _ask_what_the_stop_means(self) -> None:
+    def _ask(self) -> None:
         """A stop that is immediately followed by another local start is a
         replace-play (the user picked a new item), not a departure: give
         the new start a moment to appear and skip the prompt when it does.
@@ -377,12 +377,12 @@ class LocalStarts:
         deadline = time.time() + utils.STOP_PROMPT_GRACE
 
         while time.time() < deadline:
-            if not manager.in_group() or self._stop_superseded():
+            if not manager.in_group() or self._superseded():
                 return
 
             time.sleep(utils.STOP_PROMPT_POLL)
 
-        if not manager.in_group() or self._stop_superseded():
+        if not manager.in_group() or self._superseded():
             return
 
         selection = xbmcgui.Dialog().select(
@@ -398,7 +398,7 @@ class LocalStarts:
             manager.leave_group()
             return
 
-        if not manager.in_group() or self._stop_superseded():
+        if not manager.in_group() or self._superseded():
             # Answered against a stale premise (something started while
             # the dialog was open): only an explicit leave still applies.
             return

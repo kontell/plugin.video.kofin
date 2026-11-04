@@ -63,7 +63,7 @@ Run both rigs on the pre-G1 tree and keep the results (`tests/live/results/G1.0-
 
 ### G1.2 — The held-play resolver
 
-**Change.** `Provider` gains `resolve_kodi_id(kodi_id: int, media: str) -> Optional[str]`; `manager._identify_held_play` calls the registry instead of importing `kofin.sync.db` (the deferred import moves into `JellyfinProvider`, same comment, same laziness). A `None` from every provider keeps today's `_unmanaged_local_play` path.
+**Change.** `Provider` gains `resolve_kodi_id(kodi_id: int, media: str) -> Optional[str]`; `manager.LocalStarts._identify` calls the registry instead of importing `kofin.sync.db` (the deferred import moves into `JellyfinProvider`, same comment, same laziness). A `None` from every provider keeps today's `LocalStarts._give_back` path.
 
 **Proof.** L1: the existing held-play tests in `test_syncplay_manager.py` re-pointed at the fake provider; one new test that an unmapped id still demotes to spectator.
 
