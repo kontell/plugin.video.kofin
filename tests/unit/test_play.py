@@ -8,6 +8,47 @@ from tests.unit.fakes import FakeApi
 SERVER = "http://s:8096"
 
 
+def test_the_play_route_imports_no_pipeline_module():
+    """A cold click pays every import the route makes; what the pass needs
+    (the serializer, the provider, the readback, the capability report)
+    stays out of the plugin's path, and this is the import surface of a
+    mapped item's play. The store brings the catalogue, which it is built
+    on."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import json, sys\n"
+        "import kofin.plugin.play, kofin.sync.backends.api.identity\n"
+        "import kofin.sync.backends.api.store, kofin.sync.backends.api.paths\n"
+        "print(json.dumps(sorted(m for m in sys.modules if m.startswith('kofin.'))))\n"
+    )
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env = dict(os.environ, PYTHONPATH=os.path.join(root, "lib"))
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    loaded = set(json.loads(out.stdout))
+    heavy = {
+        "kofin.sync.backends.api.metadata",
+        "kofin.sync.backends.api.provider",
+        "kofin.sync.backends.api.readback",
+        "kofin.sync.backends.api.walk",
+        "kofin.sync.backends.api.native",
+        "kofin.sync.backends.api.patch",
+        "kofin.sync.backends.api.removal",
+        "kofin.sync.backends.api.capabilities",
+    }
+    assert not loaded & heavy, sorted(loaded & heavy)
+    assert "kofin.sync.backends.api.identity" in loaded
+
+
 def test_stream_url_direct_video():
     url, method = play.stream_url(
         SERVER,
@@ -1388,7 +1429,7 @@ def live_env(resume_env, monkeypatch):
     state.publish_syncsession({"in_group": True})
     resume_env["addon"].store["syncPlayTempo"] = "true"
     resume_env["enabled"] = enabled
-    monkeypatch.setattr(play.capabilities, "has", lambda name: True)
+    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: True)
     return resume_env
 
 
@@ -1427,7 +1468,7 @@ def test_without_kodis_tempo_a_live_item_plays_as_before(live_env, monkeypatch):
     """A Kodi without the tempo set (Piers, stock Kodi 23) takes no pulse, so
     the timeshift buffer would buy nothing: the live item plays as it would
     outside a group, and nothing says anything was missing."""
-    monkeypatch.setattr(play.capabilities, "has", lambda name: False)
+    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: False)
     run_play({"id": "c1"}, resume=False)
     assert "inputstream" not in live_env["li"].props
     assert "TimeshiftMissing" not in _claim()

@@ -21,7 +21,7 @@ import time
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import metadata, paths, progress
+from . import paths, progress
 from .kinds import KINDS, rpc
 from .store import Entry
 
@@ -585,9 +585,9 @@ def finish_sets(native, pending, live_boxsets, errors):
         return
     native.readback.forget("BoxSet")
     listed = native.readback.scope("BoxSet")
-    kept = {(b.get("Name") or "").strip(metadata.ASCII_SPACE) for b in live_boxsets}
+    kept = {(b.get("Name") or "").strip(paths.ASCII_SPACE) for b in live_boxsets}
     for item_id, payload in waiting:
-        title = (payload.get("Name") or "").strip(metadata.ASCII_SPACE)
+        title = (payload.get("Name") or "").strip(paths.ASCII_SPACE)
         if title in listed and title not in kept and not _ours_in_set(native, title):
             # Only another source's movies file the set: ours have left it,
             # and the set is theirs.
