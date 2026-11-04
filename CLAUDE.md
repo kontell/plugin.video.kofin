@@ -805,6 +805,10 @@ What remains is kofin's own:
   only a song with a row and an acknowledgement has a tag hash to compare. The picker and the
   applier share that hash and the album payloads for the pass (`MusicPass.tag_hash`,
   `album_items`).
+- **Every other paged listing walks through `core/api.py::paged`**: the dedupe, the stop
+  rules and the cap live there, so a server that over-counts, repeats a page or caps a page
+  gets one answer everywhere; a loop of its own is a second answer. `library.fetch_kind` is
+  the one listing with rules of its own, the enumeration a deletion is proved by.
 - **A library is enumerated three pages at a time** (`library.fetch_kind`, `PAGERS`), each
   worker on its own client, taken in listing order with three in flight at most. What makes
   a listing complete is unchanged: every page reports the first page's total, is exactly as

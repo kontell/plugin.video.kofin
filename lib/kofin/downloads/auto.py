@@ -12,6 +12,7 @@ from collections.abc import Iterable
 
 from kofin.core import ipc, settings, state, toast
 from kofin.core.log import Logger
+from kofin.core.api import paged
 from kofin.downloads import notify_allowed, store
 
 LOG = Logger(__name__)
@@ -92,26 +93,24 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> li
     """
     if keep <= 0:
         return []
-    episodes: list[JsonDict] = []
-    start = 0
-    while True:
-        page = api.items(
-            {
-                "ParentId": series_id,
-                "IncludeItemTypes": "Episode",
-                "Recursive": True,
-                "SortBy": "ParentIndexNumber,IndexNumber",
-                "SortOrder": "Ascending,Ascending",
-                "StartIndex": start,
-                "Limit": 200,
-                "EnableTotalRecordCount": True,
-            }
+    episodes = list(
+        paged(
+            lambda start, limit: api.items(
+                {
+                    "ParentId": series_id,
+                    "IncludeItemTypes": "Episode",
+                    "Recursive": True,
+                    "SortBy": "ParentIndexNumber,IndexNumber",
+                    "SortOrder": "Ascending,Ascending",
+                    "StartIndex": start,
+                    "Limit": limit,
+                    "EnableTotalRecordCount": True,
+                }
+            ),
+            200,
+            what="episodes of %s" % series_id,
         )
-        rows = page.get("Items") or []
-        episodes.extend(rows)
-        start += len(rows)
-        if not rows or start >= int(page.get("TotalRecordCount") or 0):
-            break
+    )
 
     following = False
     live = _live_ids()
@@ -306,18 +305,15 @@ def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
 
 
 def _paged_items(api: Any, params: dict[str, Any]) -> list[JsonDict]:
-    children: list[JsonDict] = []
-    start = 0
-    while True:
-        page = api.items(
-            dict(params, StartIndex=start, Limit=200, EnableTotalRecordCount=True)
+    return list(
+        paged(
+            lambda start, limit: api.items(
+                dict(params, StartIndex=start, Limit=limit, EnableTotalRecordCount=True)
+            ),
+            200,
+            what="album expansion",
         )
-        rows = page.get("Items") or []
-        children.extend(rows)
-        start += len(rows)
-        if not rows or start >= int(page.get("TotalRecordCount") or 0):
-            break
-    return children
+    )
 
 
 def _bulk_toast(string_id: int, count: int) -> None:

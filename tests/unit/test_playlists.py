@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from kofin.sync import playlists
+from kofin.core.api import IncompleteListing
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -46,7 +47,7 @@ def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
                 "TotalRecordCount": playlists.MAX_PLAYLIST_ITEMS + 1,
             }
 
-    with pytest.raises(ValueError, match="exceeds"):
+    with pytest.raises(IncompleteListing, match="exceeds"):
         playlists._iter_playlist_items(OversizedApi(), "large")
 
 
@@ -58,7 +59,7 @@ def test_incomplete_playlist_page_is_not_an_empty_membership(body):
         def playlist_items(self, playlist_id, start_index=0, limit=100):
             return body
 
-    with pytest.raises(ValueError):
+    with pytest.raises(IncompleteListing):
         playlists._iter_playlist_items(Api(), "mix")
 
 
