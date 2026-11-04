@@ -97,6 +97,9 @@ class Entry:
     parent_id: str
 
 
+# What a pass holds as pending: item id -> (generation, operation, payload).
+PendingWork = dict[str, tuple[int, str, dict[str, Any]]]
+
 # What the pass acknowledges a row with: item id, generation, Kodi's id,
 # the applied state and the kind.
 Acknowledgement = tuple[str, int, Optional[int], dict[str, Any], Optional[str]]
@@ -856,7 +859,7 @@ class Store(Catalogue):
 
     def records(
         self,
-        kind: Optional[str] = None,
+        kind: Union[str, Iterable[str], None] = None,
         library: Optional[str] = None,
         parent_id: Optional[str] = None,
         item_ids: Optional[Iterable[str]] = None,
