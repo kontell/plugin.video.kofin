@@ -16,7 +16,8 @@ directory is answered from it.
 """
 
 import time
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import Any, Optional
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 from . import paths
@@ -47,21 +48,21 @@ class Readback:
         self.key = key
         # The features of this Kodi (capabilities.features), set by the pass
         # that reads them: a property Kodi does not name is never asked for.
-        self.features: FrozenSet[str] = frozenset()
-        self._scopes: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
+        self.features: frozenset[str] = frozenset()
+        self._scopes: dict[tuple[Any, ...], dict[Any, dict[str, Any]]] = {}
         # library -> directory key -> item id -> row, for a library read
         # whole; (library, directory key) -> item id -> row, for a directory
         # read alone.
-        self._folders: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
-        self._directories: Dict[Tuple[str, str], Dict[str, Dict[str, Any]]] = {}
+        self._folders: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
+        self._directories: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         # scope key -> Kodi id -> full row, for scopes mostly being compared
-        self._full: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
+        self._full: dict[tuple[Any, ...], dict[Any, dict[str, Any]]] = {}
         # scope key -> item id -> the rows Kodi holds for the item's version
         # files beside the one that owns the identity
-        self._versions: Dict[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]] = {}
+        self._versions: dict[tuple[Any, ...], dict[str, list[dict[str, Any]]]] = {}
         # (kind, library, item id) -> the row a show or a movie missing from
         # its listing was found by, or None (show, movie).
-        self._adopted: Dict[Tuple[str, str, str], Optional[Dict[str, Any]]] = {}
+        self._adopted: dict[tuple[str, str, str], Optional[dict[str, Any]]] = {}
 
     def clear(self):
         self._scopes.clear()
@@ -80,10 +81,10 @@ class Readback:
             raise RuntimeError("partial native readback")
         return rows
 
-    def _paged(self, table, params) -> List[Dict[str, Any]]:
+    def _paged(self, table, params) -> list[dict[str, Any]]:
         """A complete listing in pages; the total must hold across them."""
         began = time.monotonic()
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         total: Optional[int] = None
         while True:
             page = dict(params, limits={"start": len(rows), "end": len(rows) + PAGE})
@@ -172,12 +173,12 @@ class Readback:
             kept, row = row, kept
         return kept, row
 
-    def version_rows(self, library, item_id) -> List[Dict[str, Any]]:
+    def version_rows(self, library, item_id) -> list[dict[str, Any]]:
         """The movie rows Kodi holds for an item's version files beside the
         row that owns its identity: ungrouped versions."""
         return self.versions_in(library).get(item_id, [])
 
-    def versions_in(self, library) -> Dict[str, List[Dict[str, Any]]]:
+    def versions_in(self, library) -> dict[str, list[dict[str, Any]]]:
         """Every item of a library with ungrouped version rows."""
         self.scope("Movie", library)
         return {
@@ -208,7 +209,7 @@ class Readback:
         if cache_key in self._scopes:
             return self._scopes[cache_key]
         table = KINDS[kind]
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "properties": properties(kind, self.features, minimal=True)
         }
         if kind in ("Movie", "MusicVideo"):
@@ -234,7 +235,7 @@ class Readback:
             if kind == "MusicArtist":
                 params["albumartistsonly"] = False
             rows = self._paged(table, params)
-            result: Dict[Any, Any] = {}
+            result: dict[Any, Any] = {}
             for row in rows:
                 if kind == "MusicAlbum":
                     result[row[table.id_param]] = row
@@ -287,8 +288,8 @@ class Readback:
                 "sort": {"method": "file", "order": "ascending"},
             },
         )
-        result: Dict[str, Dict[str, Any]] = {}
-        folders: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        result: dict[str, dict[str, Any]] = {}
+        folders: dict[str, dict[str, dict[str, Any]]] = {}
         for row in rows:
             location, item_id = paths.parse_item(row.get("file") or "")
             if (
@@ -308,7 +309,7 @@ class Readback:
         self._folders[library] = folders
         return result
 
-    def folders(self, library) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def folders(self, library) -> dict[str, dict[str, dict[str, Any]]]:
         """Every directory of the library's songs Kodi holds, with its rows."""
         self._songs(library)
         return self._folders[library]
@@ -325,7 +326,7 @@ class Readback:
         if len(set(folders)) >= self.WHOLE_LIBRARY_FOLDERS:
             self._songs(library)
 
-    def directory(self, library, folder) -> Dict[str, Dict[str, Any]]:
+    def directory(self, library, folder) -> dict[str, dict[str, Any]]:
         """One music directory's owned rows, read now and not cached: the
         confirmation after a scan, and the one lookup a playback needs."""
         rows = self._paged(
@@ -344,7 +345,7 @@ class Readback:
 
     def item(
         self, kind, library, item_id
-    ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
         """One movie's or one show's owned row, read now and not cached, with
         the movie's version rows Kodi filed apart: the confirmation after a
         refresh. Read by its folder, not the library: a refresh is polled
@@ -361,8 +362,8 @@ class Readback:
                 ),
             },
         )
-        found: Optional[Dict[str, Any]] = None
-        versions: List[Dict[str, Any]] = []
+        found: Optional[dict[str, Any]] = None
+        versions: list[dict[str, Any]] = []
         for row in rows:
             if self.owns(kind, row, library) != item_id:
                 continue
@@ -410,7 +411,7 @@ class Readback:
 
     def _scope_params(self, kind, library, parent_id):
         table = KINDS[kind]
-        params: Dict[str, Any] = {"properties": properties(kind, self.features)}
+        params: dict[str, Any] = {"properties": properties(kind, self.features)}
         if kind in ("Movie", "MusicVideo"):
             params["filter"] = self._path_filter(
                 paths.library_dir(self.key, library, paths.CONTENT[kind])
@@ -448,7 +449,7 @@ class Readback:
             if table.id_param in row
         }
 
-    def full(self, kind, library, parent_id, row) -> Dict[str, Any]:
+    def full(self, kind, library, parent_id, row) -> dict[str, Any]:
         """The full row behind a scope row: from the prefetched listing when
         there is one, else by id."""
         table = KINDS[kind]
@@ -523,7 +524,7 @@ class Readback:
 
     # -- a show another source shares ----------------------------------------
 
-    def show(self, library, series_id) -> Optional[Dict[str, Any]]:
+    def show(self, library, series_id) -> Optional[dict[str, Any]]:
         """Our row for a show, by its ids at its folder or through its episodes.
 
         Kodi files a show from any source into the row it already holds for
@@ -534,7 +535,7 @@ class Readback:
         Our episodes are filed under their own URLs and keep their ids, so
         the row they belong to is the show's (``stripped``, ``own_folder``).
         """
-        found: Optional[Dict[str, Any]] = self.scope("Series", library).get(series_id)
+        found: Optional[dict[str, Any]] = self.scope("Series", library).get(series_id)
         if found is not None:
             return found
         key = ("Series", library, series_id)
@@ -542,7 +543,7 @@ class Readback:
             self._adopted[key] = self._adopt(library, series_id)
         return self._adopted[key]
 
-    def movie(self, library, item_id) -> Optional[Dict[str, Any]]:
+    def movie(self, library, item_id) -> Optional[dict[str, Any]]:
         """Our row for a movie, by its ids and its file or by its file alone.
 
         Kodi groups a scanned movie with any movie sharing a unique id
@@ -552,7 +553,7 @@ class Readback:
         library's listing does not reach. Kodi still finds the movie by our
         file, a version of it (GetMovieId), so the row is the one our URL
         names (``own_file``)."""
-        found: Optional[Dict[str, Any]] = self.scope("Movie", library).get(item_id)
+        found: Optional[dict[str, Any]] = self.scope("Movie", library).get(item_id)
         if found is not None:
             return found
         key = ("Movie", library, item_id)
@@ -560,7 +561,7 @@ class Readback:
             self._adopted[key] = self._adopt_movie(library, item_id)
         return self._adopted[key]
 
-    def _adopt_movie(self, library, item_id) -> Optional[Dict[str, Any]]:
+    def _adopt_movie(self, library, item_id) -> Optional[dict[str, Any]]:
         try:
             # Kodi lists the file's folder to answer: one listing of the
             # movie's folder, asked only for a movie missing from the scope.
@@ -583,7 +584,7 @@ class Readback:
             or movieid < 0
         ):
             return None
-        row: Dict[str, Any] = self.details("Movie", movieid)
+        row: dict[str, Any] = self.details("Movie", movieid)
         LOG.debug(
             "movie %s is Kodi's movie %d, listed under %s",
             item_id,
@@ -600,7 +601,7 @@ class Readback:
             == paths.playback_url(self.key, "Movie", library, item_id)
         )
 
-    def _adopt(self, library, series_id) -> Optional[Dict[str, Any]]:
+    def _adopt(self, library, series_id) -> Optional[dict[str, Any]]:
         reply = rpc(
             "VideoLibrary.GetEpisodes",
             {
@@ -620,7 +621,7 @@ class Readback:
         tvshowid = episodes[0].get("tvshowid")
         if not isinstance(tvshowid, int) or tvshowid < 0:
             return None
-        row: Dict[str, Any] = self.details("Series", tvshowid)
+        row: dict[str, Any] = self.details("Series", tvshowid)
         LOG.debug(
             "show %s is Kodi's show %d, filed under %s with %s",
             series_id,
@@ -646,9 +647,9 @@ class Readback:
             return None
         return uid[len(self.key) + 1 :]
 
-    def foreign_episodes(self, tvshowid) -> List[Dict[str, Any]]:
+    def foreign_episodes(self, tvshowid) -> list[dict[str, Any]]:
         """The episodes Kofin did not file on one show's row."""
-        params: Dict[str, Any] = {"tvshowid": tvshowid, "filter": FOREIGN_EPISODES}
+        params: dict[str, Any] = {"tvshowid": tvshowid, "filter": FOREIGN_EPISODES}
         reply = rpc(
             "VideoLibrary.GetEpisodes", dict(params, limits={"start": 0, "end": 1})
         )
@@ -664,7 +665,7 @@ class Readback:
         expected = paths.show_dir(self.key, library, series_id).rstrip("/")
         return bool(str(row.get("file") or "").rstrip("/") == expected)
 
-    def stripped_shows(self) -> List[Tuple[str, str]]:
+    def stripped_shows(self) -> list[tuple[str, str]]:
         """The (library, series id) of every show this pass found stripped."""
         return [
             (library, series_id)

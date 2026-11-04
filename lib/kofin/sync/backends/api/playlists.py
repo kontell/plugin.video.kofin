@@ -8,7 +8,8 @@ the prune rules are the shared module's (sync/playlists.py).
 """
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Optional
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 from kofin.sync import dynamic, kofindb, playlists, private
@@ -27,7 +28,7 @@ class Resolver:
         self.store = store
         self.key = store.namespace
 
-    def entry(self, item: Dict[str, Any], side: str) -> Optional[playlists.Entry]:
+    def entry(self, item: dict[str, Any], side: str) -> Optional[playlists.Entry]:
         """The line for one playlist item, or None when Kodi has no row of it:
         an item outside the selection, or one the pass has not filed yet."""
         item_id = str(item.get("Id") or "")
@@ -52,7 +53,7 @@ class Resolver:
         )
 
 
-def items_of_lines(store: Store, lines: Iterable[str]) -> List[Tuple[str, str]]:
+def items_of_lines(store: Store, lines: Iterable[str]) -> list[tuple[str, str]]:
     """The item id and side ("Audio" or "Video") of each line of a Kodi
     playlist file, ("", "") for a line this build did not file. A line is the
     URL Kodi filed the row under, as Resolver.entry writes one, and carries the
@@ -60,7 +61,7 @@ def items_of_lines(store: Store, lines: Iterable[str]) -> List[Tuple[str, str]]:
     readback finds. The catalogue says what the item is."""
     from .identity import mapped_item
 
-    found: List[Tuple[str, str]] = []
+    found: list[tuple[str, str]] = []
     for line in lines:
         library = re.match(r"(videodb://movies/titles|musicdb://songs)/(\d+)", line)
         if library:
@@ -79,7 +80,7 @@ def items_of_lines(store: Store, lines: Iterable[str]) -> List[Tuple[str, str]]:
 
 
 def song_entry(
-    key: str, entry: Any, payload: Dict[str, Any], item: Dict[str, Any]
+    key: str, entry: Any, payload: dict[str, Any], item: dict[str, Any]
 ) -> playlists.Entry:
     """A song's line: its file in its album directory, labelled from ``item``
     (a server playlist's listing of it, or its payload)."""
@@ -116,7 +117,7 @@ def write_downloaded_music(store: Store, root: Optional[str] = None) -> bool:
     placed = [item_id for item_id in done if item_id in entries]
     payloads = store.payloads(placed)
 
-    def order(item_id: str) -> Tuple[str, str, int, int, str]:
+    def order(item_id: str) -> tuple[str, str, int, int, str]:
         payload = payloads.get(item_id) or {}
         credits = [
             str(a.get("Name") or "")
@@ -144,7 +145,7 @@ def wanted() -> Optional[bool]:
     return dynamic.wanted()
 
 
-def enabled_kinds() -> Set[str]:
+def enabled_kinds() -> set[str]:
     """Audio and Video sides, from the kinds of the synced libraries."""
     whitelist = {
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
@@ -177,7 +178,7 @@ def _drop_side(side: str, state, root) -> int:
 
 def reconcile(
     api, store: Store, music_root=None, video_root=None
-) -> Optional[Dict[str, int]]:
+) -> Optional[dict[str, int]]:
     """Every server playlist of the enabled sides, written and pruned; a
     side with no synced library left loses its files and states, and with
     the switch off both sides do. None while the switch cannot be read."""

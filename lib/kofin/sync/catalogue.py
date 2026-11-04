@@ -7,7 +7,7 @@ and user identity; no native IDs are adopted here.
 
 import json
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from kofin.sync.private import Database
 from kofin.sync.model import MediaItem
@@ -161,7 +161,7 @@ class Catalogue:
                 ).fetchone()
             )
 
-    def pending_signature(self) -> Tuple[int, int]:
+    def pending_signature(self) -> tuple[int, int]:
         """What is pending, as a pair that moves whenever anything is
         published: the number of pending rows and the sum of their
         generations."""

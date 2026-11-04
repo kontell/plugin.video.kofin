@@ -19,9 +19,9 @@ Three facts shape it:
   position within its kind.
 """
 
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 
 class Attachment(NamedTuple):
@@ -75,7 +75,7 @@ def is_direct(play_method: str) -> bool:
     return play_method in DIRECT_METHODS
 
 
-def summarize(source: JsonDict) -> List[JsonDict]:
+def summarize(source: JsonDict) -> list[JsonDict]:
     """The MediaStreams reduced to what a menu and the mapping need."""
     summary = []
     for stream in source.get("MediaStreams") or []:
@@ -85,12 +85,12 @@ def summarize(source: JsonDict) -> List[JsonDict]:
     return summary
 
 
-def of_type(streams: List[JsonDict], kind: str) -> List[JsonDict]:
+def of_type(streams: list[JsonDict], kind: str) -> list[JsonDict]:
     return [stream for stream in streams if stream.get("Type") == kind]
 
 
 def preferred_embedded(
-    media_streams: List[JsonDict], selected: Optional[int], language: str
+    media_streams: list[JsonDict], selected: Optional[int], language: str
 ) -> Optional[int]:
     """Which embedded text track to attach on a transcode.
 
@@ -124,7 +124,7 @@ def preferred_embedded(
 
 def attached_subtitles(
     server: str, source: JsonDict, play_method: str, language: str = ""
-) -> List[Attachment]:
+) -> list[Attachment]:
     """Every subtitle to hand ``setSubtitles``, in the order it will see them.
 
     Two disjoint groups, and which apply turns on the play method:
@@ -157,7 +157,7 @@ def attached_subtitles(
     Order is the order Kodi will list them in, which is what makes
     ``subtitle_ordinal`` able to answer at all.
     """
-    attached: List[Attachment] = []
+    attached: list[Attachment] = []
     direct = is_direct(play_method)
     wanted = (
         None
@@ -195,7 +195,7 @@ def attached_subtitles(
     return attached
 
 
-def fetchable_subtitles(server: str, source: JsonDict) -> List[Attachment]:
+def fetchable_subtitles(server: str, source: JsonDict) -> list[Attachment]:
     """Every embedded text track the server can hand over as a file.
 
     A superset of what :func:`attached_subtitles` attaches — that one picks the
@@ -205,7 +205,7 @@ def fetchable_subtitles(server: str, source: JsonDict) -> List[Attachment]:
 
     No sidecars, which are attached on every play, and no image subtitles.
     """
-    fetchable: List[Attachment] = []
+    fetchable: list[Attachment] = []
     for stream in source.get("MediaStreams") or []:
         if stream.get("Type") != "Subtitle":
             continue
@@ -230,7 +230,7 @@ def fetchable_subtitles(server: str, source: JsonDict) -> List[Attachment]:
     return fetchable
 
 
-def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int]:
+def audio_ordinal(streams: list[JsonDict], index: Optional[int]) -> Optional[int]:
     """Kodi's audio-stream number for a Jellyfin index, or None.
 
     Only meaningful for a direct play: a transcode has a single audio track,
@@ -244,7 +244,7 @@ def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int
     return None
 
 
-def audio_index_at(streams: List[JsonDict], ordinal: Optional[int]) -> Optional[int]:
+def audio_index_at(streams: list[JsonDict], ordinal: Optional[int]) -> Optional[int]:
     """``audio_ordinal`` inverted: the Jellyfin index of Kodi's nth track."""
     tracks = of_type(streams, "Audio")
     if ordinal is None or ordinal < 0 or ordinal >= len(tracks):
@@ -253,7 +253,7 @@ def audio_index_at(streams: List[JsonDict], ordinal: Optional[int]) -> Optional[
 
 
 def burned_subtitle(
-    streams: List[JsonDict], selected: Optional[int], play_method: str
+    streams: list[JsonDict], selected: Optional[int], play_method: str
 ) -> bool:
     """Whether the subtitle this playback was resolved with is in the picture.
 
@@ -275,9 +275,9 @@ def burned_subtitle(
 
 
 def subtitle_ordinal(
-    streams: List[JsonDict],
+    streams: list[JsonDict],
     index: Optional[int],
-    attached: List[int],
+    attached: list[int],
     play_method: str,
 ) -> Optional[int]:
     """Kodi's subtitle number for a Jellyfin index, or None if unreachable.
@@ -305,7 +305,7 @@ def subtitle_ordinal(
     return None
 
 
-def _embedded_subtitles(streams: List[JsonDict]) -> List[JsonDict]:
+def _embedded_subtitles(streams: list[JsonDict]) -> list[JsonDict]:
     return [
         stream
         for stream in of_type(streams, "Subtitle")
@@ -313,7 +313,7 @@ def _embedded_subtitles(streams: List[JsonDict]) -> List[JsonDict]:
     ]
 
 
-def selectable_subtitles(streams: List[JsonDict]) -> List[JsonDict]:
+def selectable_subtitles(streams: list[JsonDict]) -> list[JsonDict]:
     """The subtitle streams the menu can put on screen: all of them, on either
     play method. What differs is the cost, which :func:`needs_fetch` and
     :func:`burns_in` answer and the menu labels. On a transcode only one
@@ -349,7 +349,7 @@ def burns_in(stream: JsonDict, play_method: str) -> bool:
 
 
 def needs_fetch(
-    stream: JsonDict, play_method: str, attached: Optional[List[int]] = None
+    stream: JsonDict, play_method: str, attached: Optional[list[int]] = None
 ) -> bool:
     """Whether this subtitle has to be fetched from the server before it shows.
 
@@ -371,7 +371,7 @@ def needs_fetch(
     return stream.get("Index") not in attached
 
 
-def menu_offer(streams: List[JsonDict]) -> str:
+def menu_offer(streams: list[JsonDict]) -> str:
     """What the context item should offer — the token addon.xml tests.
 
     Audio counts only when there is something to switch *to*; a lone track is

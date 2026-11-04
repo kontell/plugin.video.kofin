@@ -12,7 +12,7 @@ in batches and then read back in one listing per library.
 """
 
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
@@ -66,7 +66,7 @@ def _with_asset_files(applied, assets, files, previous=None):
     return applied
 
 
-def _listed(asset_files) -> Set[str]:
+def _listed(asset_files) -> set[str]:
     """Every URL an acknowledged file list names."""
     if not isinstance(asset_files, dict):
         return set()
@@ -102,35 +102,35 @@ class Applier:
         self.key = native.key
         self.readback = native.readback
         # Per-pass write batches.
-        self._acks: List[Tuple[str, int, Optional[int], Dict[str, Any], str]] = []
-        self._expectations: List[Tuple[str, int, Dict[str, Any]]] = []
-        self._mappings: Dict[str, Any] = {}
+        self._acks: list[tuple[str, int, Optional[int], dict[str, Any], str]] = []
+        self._expectations: list[tuple[str, int, dict[str, Any]]] = []
+        self._mappings: dict[str, Any] = {}
         self._mappings_loaded = False
         # The items whose mappings were read, or None when every one was.
-        self._preloaded: Optional[Set[str]] = None
-        self.collections: Dict[str, str] = {}
-        self.movies: Set[str] = set()
-        self.local: Set[str] = set()
+        self._preloaded: Optional[set[str]] = None
+        self.collections: dict[str, str] = {}
+        self.movies: set[str] = set()
+        self.local: set[str] = set()
         # Per show: the season numbers with an importable episode.
-        self._seasons_with_episodes: Dict[str, Set[int]] = {}
-        self._deferred: List[Patch] = []
+        self._seasons_with_episodes: dict[str, set[int]] = {}
+        self._deferred: list[Patch] = []
         self._rpc_seconds = 0.0
         # Whether this run's music writes hold the scanner (run, flush).
         self._hold_music = False
-        self._failures: List[Tuple[str, int, str]] = []
-        self._salted: Set[str] = set()
+        self._failures: list[tuple[str, int, str]] = []
+        self._salted: set[str] = set()
         # Downloaded items and the shows with a downloaded episode: their
         # rows carry the badge and the tag (downloaded.py), read once a pass.
-        self.downloaded: Set[str] = set()
-        self.downloaded_series: Dict[str, Set[str]] = {}
-        self._downloaded_seasons: Dict[str, Set[int]] = {}
+        self.downloaded: set[str] = set()
+        self.downloaded_series: dict[str, set[str]] = {}
+        self._downloaded_seasons: dict[str, set[int]] = {}
         # Whether a patch of this pass puts a download's badge on a row or
         # takes it off: Kodi announces neither (Native.announce_writes).
         self.badges_moved = False
         # Folders of movies whose listing dropped a version file or an
         # extra this pass: cleaned once the pass has applied
         # (Native.retire_assets).
-        self.asset_folders: Set[str] = set()
+        self.asset_folders: set[str] = set()
 
     # -- batches -------------------------------------------------------------
 
@@ -185,7 +185,7 @@ class Applier:
 
     def run(
         self,
-        upserts: Dict[str, Record],
+        upserts: dict[str, Record],
         collections,
         movies,
         repair,
@@ -216,7 +216,7 @@ class Applier:
                 self._mappings = self.store.mappings_of(upserts)
                 self._preloaded = set(upserts)
             self._mappings_loaded = True
-        queue: List[Patch] = []
+        queue: list[Patch] = []
         for kind in kinds:
             ids = sorted(i for i, r in upserts.items() if r.kind == kind)
             if not ids:
@@ -233,7 +233,7 @@ class Applier:
                 self.readback.forget("BoxSet")
             if KINDS[kind].removal != "rescan":
                 # A scope mostly about to be compared is read in full once.
-                per_scope: Dict[Tuple[str, str], int] = {}
+                per_scope: dict[tuple[str, str], int] = {}
                 for item_id in ids:
                     record = upserts[item_id]
                     scope = (record.library, record.parent_id)
@@ -562,7 +562,7 @@ class Applier:
         mapping = self.mapping(record.item_id)
         previous = mapping.applied if mapping else {}
         desired = metadata.details(record.item, self.native.server_url(), self.key, "")
-        applied: Dict[str, Any] = {
+        applied: dict[str, Any] = {
             "hash": payload_hash(record.item),
             "owned": metadata.owned(desired),
         }
@@ -619,12 +619,12 @@ class Applier:
             return False
         return int(number) in self.downloaded_seasons(season.parent_id)
 
-    def downloaded_seasons(self, series_id: str) -> Set[int]:
+    def downloaded_seasons(self, series_id: str) -> set[int]:
         """The season numbers of a show that hold a downloaded episode, read
         once a show: the payloads of its downloaded episodes, which are few,
         and only for a show that has any."""
         if series_id not in self._downloaded_seasons:
-            found: Set[int] = set()
+            found: set[int] = set()
             episodes = sorted(self.downloaded_series.get(series_id) or ())
             for item in self.store.payloads(episodes).values():
                 numbers = metadata.episode_numbers(item)
@@ -639,11 +639,11 @@ class Applier:
             return False
         return int(number) in self.seasons_with_episodes(season.parent_id)
 
-    def seasons_with_episodes(self, series_id: str) -> Set[int]:
+    def seasons_with_episodes(self, series_id: str) -> set[int]:
         """The season numbers of a show that hold an importable episode,
         read once a show."""
         if series_id not in self._seasons_with_episodes:
-            found: Set[int] = set()
+            found: set[int] = set()
             for episode in self.store.records(
                 kind="Episode", parent_id=series_id
             ).values():
@@ -674,7 +674,7 @@ class Applier:
         self.readback.owned(
             kind, kodi_id, record.item_id, record.library, record.parent_id
         )
-        params: Dict[str, Any] = {table.id_param: kodi_id, "ignorenfo": False}
+        params: dict[str, Any] = {table.id_param: kodi_id, "ignorenfo": False}
         if kind == "Series":
             params["refreshepisodes"] = False
         self.native.replaced.add((kind, kodi_id))
@@ -682,7 +682,7 @@ class Applier:
         self.native._async_pending = True
         last = [0.0]
         own_folder = kind in OWN_FOLDER
-        versions: List[Dict[str, Any]] = []
+        versions: list[dict[str, Any]] = []
 
         def refreshed():
             nonlocal versions
@@ -763,7 +763,7 @@ class Applier:
             except Exception as error:
                 self.fail(record, error, errors)
 
-    def flush(self, queue: List[Patch], errors):
+    def flush(self, queue: list[Patch], errors):
         if not queue:
             return
         patches, queue[:] = list(queue), []
@@ -778,7 +778,7 @@ class Applier:
             # Writes announced during a music scan are a transaction to the
             # home widgets: hold the scanner for the burst (native.hold).
             self.native.hold("music")
-        setters: List[Tuple[str, Optional[Dict[str, Any]]]] = []
+        setters: list[tuple[str, Optional[dict[str, Any]]]] = []
         for patch in patches:
             table = KINDS[patch.record.kind]
             params = dict(patch.desired)
@@ -789,7 +789,7 @@ class Applier:
         self._rpc_seconds += time.monotonic() - began
         # Every setter announced its row (native.pump).
         self.native.pump()
-        confirmations: List[Tuple[str, Optional[Dict[str, Any]]]] = []
+        confirmations: list[tuple[str, Optional[dict[str, Any]]]] = []
         confirming = []
         for patch, reply in zip(patches, replies):
             if isinstance(reply, Exception):

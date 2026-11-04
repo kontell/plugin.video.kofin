@@ -4,7 +4,7 @@ Blocks on dialogs; the service runs it on a dedicated worker thread, never on
 the notification loop.
 """
 
-from typing import List, Union
+from typing import Union
 
 import xbmcgui
 
@@ -35,7 +35,7 @@ def _join_menu(manager):
         )
         return
 
-    labels: List[Union[str, xbmcgui.ListItem]] = []
+    labels: list[Union[str, xbmcgui.ListItem]] = []
 
     for group in groups:
         participants = ", ".join(group.get("Participants") or [])
@@ -69,7 +69,7 @@ def _group_menu(manager):
     group_name = (manager.group or {}).get("GroupName") or "?"
     members = _describe_members(manager)
 
-    options: List[Union[str, xbmcgui.ListItem]] = [
+    options: list[Union[str, xbmcgui.ListItem]] = [
         settings.localized(30562),  # Leave group
         "%s: %s" % (settings.localized(30572), members or "?"),  # Members
         settings.localized(30573),  # Resync

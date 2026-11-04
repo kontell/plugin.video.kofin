@@ -7,7 +7,8 @@ readback carries, how a row of it is removed, and which Jellyfin types have a
 native row at all.
 """
 
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, NamedTuple, Optional
+from collections.abc import Sequence
 
 from kofin.core import kodirpc
 
@@ -85,7 +86,7 @@ class Kind(NamedTuple):
     removal: str
 
 
-KINDS: Dict[str, Kind] = {
+KINDS: dict[str, Kind] = {
     "Movie": Kind(
         "VideoLibrary.GetMovies",
         "movies",
@@ -191,7 +192,7 @@ KINDS: Dict[str, Kind] = {
 # userdata a viewer may have changed, never the whole row. The full row is
 # read by id (or as one listing when most of a scope needs it) only for the
 # items whose desired state moved.
-MINIMAL: Dict[str, List[str]] = {
+MINIMAL: dict[str, list[str]] = {
     "Movie": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
     "Series": ["file", "uniqueid"],
     "Season": ["season", "tvshowid"],
@@ -205,13 +206,13 @@ MINIMAL: Dict[str, List[str]] = {
 # does not name fails whole, and a setter refuses a parameter it does not
 # take, so both are shaped by the feature table (capabilities.features):
 # on Piers Video.Fields.Season has no plot and Video.Fields.Episode no tag.
-FEATURE_FIELDS: Dict[str, Dict[str, str]] = {
+FEATURE_FIELDS: dict[str, dict[str, str]] = {
     "Season": {"plot": "season_plot"},
     "Episode": {"tag": "episode_tags"},
 }
 
 
-def properties(kind: str, features, minimal: bool = False) -> List[str]:
+def properties(kind: str, features, minimal: bool = False) -> list[str]:
     """The readback properties of ``kind`` on a Kodi with ``features``: the
     scope's minimal set with ``minimal``, else the full row."""
     names = MINIMAL.get(kind, PROPERTIES[kind]) if minimal else PROPERTIES[kind]
@@ -221,7 +222,7 @@ def properties(kind: str, features, minimal: bool = False) -> List[str]:
     ]
 
 
-PROPERTIES: Dict[str, List[str]] = {
+PROPERTIES: dict[str, list[str]] = {
     "Movie": [
         "file",
         "uniqueid",
@@ -324,14 +325,14 @@ PROPERTIES: Dict[str, List[str]] = {
 }
 
 
-def rpc(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+def rpc(method: str, params: Optional[dict[str, Any]] = None) -> Any:
     result = kodirpc.call(method, params or {})
     if result is None or result is kodirpc.FAILED:
         raise RuntimeError("Kodi refused " + method)
     return result
 
 
-def rpc_batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
+def rpc_batch(requests: Sequence[tuple[str, Optional[dict[str, Any]]]]) -> list[Any]:
     """Every reply, as a result or the RuntimeError that ``rpc`` would raise."""
     results = kodirpc.batch(requests)
     return [

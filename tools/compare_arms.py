@@ -13,8 +13,8 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "live")
 )
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from syncplay_music import qualified_delta, straddle, boundaries, HOLE  # noqa: E402
-from analyse_capture import load, silence_runs, delta_series  # noqa: E402
+from syncplay_music import qualified_delta, straddle, boundaries, HOLE
+from analyse_capture import load, silence_runs, delta_series
 
 ITEM = re.compile(r"[0-9a-f]{32}")
 NAMES = ["P1D", "PIERS", "BRAVIA", "TAB"]

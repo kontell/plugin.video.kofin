@@ -21,11 +21,11 @@ denies both copies. Transcode wins when both are set. Music PlaybackInfo is
 not this path.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from kofin.core import settings
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 UNLIMITED_BITRATE = 1_000_000_000
 
@@ -103,9 +103,9 @@ class ProfileConfig:
         force_direct_play: bool = False,
         force_remux: bool = False,
         force_transcode: bool = False,
-        video_codecs: Optional[List[str]] = None,
-        audio_codecs: Optional[List[str]] = None,
-        hdr_types: Optional[List[str]] = None,
+        video_codecs: Optional[list[str]] = None,
+        audio_codecs: Optional[list[str]] = None,
+        hdr_types: Optional[list[str]] = None,
         preferred_video: str = "h264",
         preferred_audio: str = "aac",
         max_channels: int = 6,
@@ -250,8 +250,8 @@ def build(
 def _envelope(
     config: ProfileConfig,
     max_bitrate: int,
-    transcoding: List[JsonDict],
-    direct: List[JsonDict],
+    transcoding: list[JsonDict],
+    direct: list[JsonDict],
     force_direct: bool,
     burn_subtitles: bool,
 ) -> JsonDict:
@@ -271,7 +271,7 @@ def _envelope(
     }
 
 
-def _subtitle_profiles(burn_subtitles: bool) -> List[JsonDict]:
+def _subtitle_profiles(burn_subtitles: bool) -> list[JsonDict]:
     """Declaring a format here is what keeps the server from burning it in.
 
     With the image formats present the server answers ``External`` for every
@@ -287,13 +287,13 @@ def _subtitle_profiles(burn_subtitles: bool) -> List[JsonDict]:
     ]
 
 
-def _preferred_first(codecs: List[str], preferred: str) -> List[str]:
+def _preferred_first(codecs: list[str], preferred: str) -> list[str]:
     ordered = [preferred]
     ordered.extend(codec for codec in codecs if codec != preferred)
     return ordered
 
 
-def _hls_copy_list(allowed: List[str], preferred: str, legal: tuple) -> List[str]:
+def _hls_copy_list(allowed: list[str], preferred: str, legal: tuple) -> list[str]:
     """Preferred first when HLS-legal, then the rest of ``allowed`` that HLS can mux."""
     legal_set = set(legal)
     lead = (
@@ -306,11 +306,11 @@ def _hls_copy_list(allowed: List[str], preferred: str, legal: tuple) -> List[str
     return [lead] + [codec for codec in allowed if codec in legal_set and codec != lead]
 
 
-def _direct_video_codecs(config: ProfileConfig) -> List[str]:
+def _direct_video_codecs(config: ProfileConfig) -> list[str]:
     """The direct-play codec names, with the capability tokens (h264_10bit,
     hevc_rext) folded into their base codecs and the configured order kept."""
     tokens = set(config.video_codecs)
-    codecs: List[str] = []
+    codecs: list[str] = []
     if "h264" in tokens or "h264_10bit" in tokens:
         codecs.append("h264")
     if "hevc" in tokens or "hevc_rext" in tokens:
@@ -369,10 +369,10 @@ def _music_transcoding_profile(config: ProfileConfig) -> JsonDict:
 
 def _download_transcoding_profiles(
     config: ProfileConfig,
-    audio_codecs: List[str],
-    video_codecs: List[str],
+    audio_codecs: list[str],
+    video_codecs: list[str],
     max_bitrate: int,
-) -> List[JsonDict]:
+) -> list[JsonDict]:
     lead = (
         config.preferred_video if config.preferred_video in MP4_COPY_CODECS else "h264"
     )
@@ -411,9 +411,9 @@ def _download_transcoding_profiles(
 
 
 def _download_direct_play_profiles(
-    config: ProfileConfig, audio_codecs: List[str], video_codecs: List[str]
-) -> List[JsonDict]:
-    profiles: List[JsonDict] = []
+    config: ProfileConfig, audio_codecs: list[str], video_codecs: list[str]
+) -> list[JsonDict]:
+    profiles: list[JsonDict] = []
     if video_codecs:
         profiles.append(_video_direct_play_profile(config, audio_codecs, video_codecs))
     profiles.append({"Type": "Audio", "AudioCodec": ",".join(LOSSY_AUDIO_CODECS)})
@@ -422,12 +422,12 @@ def _download_direct_play_profiles(
 
 def _transcoding_profiles(
     config: ProfileConfig,
-    audio_codecs: List[str],
-    video_codecs: List[str],
+    audio_codecs: list[str],
+    video_codecs: list[str],
     max_bitrate: int,
     remux_copy: bool = False,
     force_xcode: bool = False,
-) -> List[JsonDict]:
+) -> list[JsonDict]:
     # TS codec list: everything except av1 (which can't ride MPEG-TS and gets
     # its own fMP4 profile, when the device decodes av1 at all — see below).
     # The lead codec is the forced-transcode target: hevc when av1 is
@@ -505,7 +505,7 @@ def _transcoding_profiles(
 
 def _audio_bitrate_conditions(
     config: ProfileConfig, max_bitrate: int
-) -> Optional[List[JsonDict]]:
+) -> Optional[list[JsonDict]]:
     """Output constraint for transcodes only — never a direct-play gate.
     Capped against the streaming budget so the profile agrees with the
     split ``plugin/play.py`` writes into the transcoding URL; None when
@@ -525,11 +525,11 @@ def _audio_bitrate_conditions(
 
 def _direct_play_profiles(
     config: ProfileConfig,
-    audio_codecs: List[str],
-    video_codecs: List[str],
+    audio_codecs: list[str],
+    video_codecs: list[str],
     force_direct: bool,
     force_transcode: bool,
-) -> List[JsonDict]:
+) -> list[JsonDict]:
     if force_direct:
         return [
             {"Type": "Video", "Container": "", "VideoCodec": "", "AudioCodec": ""},
@@ -549,7 +549,7 @@ def _direct_play_profiles(
 
 
 def _video_direct_play_profile(
-    config: ProfileConfig, audio_codecs: List[str], video_codecs: List[str]
+    config: ProfileConfig, audio_codecs: list[str], video_codecs: list[str]
 ) -> JsonDict:
     """No Container constraint on purpose: a stream and a downloaded file
     both go through demuxers that read anything ffmpeg does, so a container
@@ -565,13 +565,13 @@ def _video_direct_play_profile(
     }
 
 
-def _codec_profiles(config: ProfileConfig, force_direct: bool) -> List[JsonDict]:
+def _codec_profiles(config: ProfileConfig, force_direct: bool) -> list[JsonDict]:
     tokens = set(config.video_codecs)
     h264 = "h264" in tokens
     h264_10bit = "h264_10bit" in tokens
     hevc = "hevc" in tokens
     hevc_rext = "hevc_rext" in tokens
-    profiles: List[JsonDict] = []
+    profiles: list[JsonDict] = []
 
     if h264 and not h264_10bit:
         profiles.append(_codec_condition("h264", "LessThanEqual", "VideoBitDepth", "8"))
@@ -636,7 +636,7 @@ def _codec_condition(codec: str, condition: str, prop: str, value: str) -> JsonD
 
 
 def _hdr_profile(
-    codec: str, capability: List[str], can_dovi: bool, selected: List[str]
+    codec: str, capability: list[str], can_dovi: bool, selected: list[str]
 ) -> JsonDict:
     # SDR is always allowed and must lead; iterate the canonical order for a
     # deterministic value string.

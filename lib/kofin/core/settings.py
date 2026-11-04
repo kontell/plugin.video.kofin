@@ -5,7 +5,7 @@ Hidden level-4 keys (see resources/settings.xml) hold the credentials;
 """
 
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 import xbmc
 import xbmcaddon
@@ -98,7 +98,7 @@ def get_float(setting_id: str) -> float:
         return 0.0
 
 
-def get_list(setting_id: str) -> List[str]:
+def get_list(setting_id: str) -> list[str]:
     raw = get_str(setting_id)
     return [part for part in (piece.strip() for piece in raw.split(",")) if part]
 

@@ -7,7 +7,7 @@ report (state.push_play_item).
 
 import os
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 import xbmc
@@ -43,7 +43,7 @@ NATIVE_MEDIA = {
     "Audio": "song",
 }
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 MIME_BY_CONTAINER = {
     "mp4": "video/mp4",
@@ -79,7 +79,7 @@ CHAPTER_TYPES = frozenset({"Movie", "Episode", "MusicVideo", "Video"})
 
 def chapter_art(
     api: Api, item: JsonDict, source: JsonDict, method: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """The server's chapter images as the resolved item's ``chapter<n>``
     art, which a Kodi that reads ``chapter<n>`` art shows in its chapters
     dialog in place of the frames it would extract; the extractor refuses an
@@ -92,7 +92,7 @@ def chapter_art(
         return {}
     if source.get("Id") not in (None, "", item.get("Id")):
         return {}
-    art: Dict[str, str] = {}
+    art: dict[str, str] = {}
     for index, chapter in enumerate(item.get("Chapters") or []):
         tag = chapter.get("ImageTag") if isinstance(chapter, dict) else None
         if tag:
@@ -106,7 +106,7 @@ def chapter_art(
 # server keeps a trickplay set per configured width (320 by default).
 SCRUB_PREVIEW_MAX_WIDTH = 480
 
-ScrubPreviews = Tuple[int, int, int, int, int, List[str], int]
+ScrubPreviews = tuple[int, int, int, int, int, list[str], int]
 
 
 def scrub_previews(
@@ -177,7 +177,7 @@ def hand_over_scrub_previews(li: xbmcgui.ListItem, previews: ScrubPreviews) -> N
 
 
 def pick_media_source(
-    sources: List[JsonDict], mediasource_id: Optional[str] = None
+    sources: list[JsonDict], mediasource_id: Optional[str] = None
 ) -> JsonDict:
     """Select a MediaSource for playback.
 
@@ -202,7 +202,7 @@ def stream_url(
     source: JsonDict,
     device_id: str,
     play_session_id: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """(url, play method) for a MediaSource; raises on unplayable.
 
     Every stream served off the transcoding endpoint reports as Transcode,
@@ -256,7 +256,7 @@ def stream_url(
     )
 
 
-def live_timeshift(source: JsonDict, play_method: str) -> Optional[Dict[str, str]]:
+def live_timeshift(source: JsonDict, play_method: str) -> Optional[dict[str, str]]:
     """The properties that play a live item through inputstream.ffmpegdirect's
     timeshift buffer — the ones pvr.kofin plays the same server streams with.
 
@@ -376,10 +376,10 @@ def play_state(
     play_session_id: str,
     device_id: str,
     start_seconds: float,
-    attached: Optional[List[int]] = None,
-    deferred: Optional[List[streams.Attachment]] = None,
-    fetchable: Optional[List[streams.Attachment]] = None,
-    request_params: Optional[Dict[str, str]] = None,
+    attached: Optional[list[int]] = None,
+    deferred: Optional[list[streams.Attachment]] = None,
+    fetchable: Optional[list[streams.Attachment]] = None,
+    request_params: Optional[dict[str, str]] = None,
     streams_menu: bool = True,
 ) -> JsonDict:
     """The play state the service claims: what the resolved playback is,
@@ -433,7 +433,7 @@ def play_state(
     return play_item
 
 
-def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
+def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
     """Warm the media-segments fetch on the play path: the parsed
     segments ride the play-state queue so the service-side checker is armed
     before the first frame, killing the t≈0 Intro race. None on failure —
@@ -581,8 +581,8 @@ def offline_answer(request: Request, item_id: str) -> bool:
 
 def _joined_segments(
     thread: Optional[threading.Thread],
-    box: List[Optional[List[JsonDict]]],
-) -> Optional[List[JsonDict]]:
+    box: list[Optional[list[JsonDict]]],
+) -> Optional[list[JsonDict]]:
     """The prefetched media segments, waiting only as long as they are worth.
 
     Bounded: the interactive Api budget caps the fetch, so a hung join here
@@ -602,7 +602,7 @@ def resolve_downloaded(
     device_id: str,
     start_ticks: int,
     dbid: str,
-    segments: Optional[List[JsonDict]],
+    segments: Optional[list[JsonDict]],
 ) -> None:
     """Resolve a play to the item's own download while the server is up.
 
@@ -683,7 +683,7 @@ def play(request: Request) -> None:
     # join can only yield segments or the service-side fallback. Daemon and
     # bounded (interactive Api budget), so an abandoned fail path leaks
     # nothing but a finishing request.
-    segments_box: List[Optional[List[JsonDict]]] = []
+    segments_box: list[Optional[list[JsonDict]]] = []
     segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)

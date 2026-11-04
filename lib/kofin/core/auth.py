@@ -4,7 +4,7 @@ The UI around these calls (keyboards, Quick Connect code dialog) lives in
 kofin.plugin.account; this module only talks to the server.
 """
 
-from typing import Any, Dict
+from typing import Any
 from urllib.parse import urlsplit
 
 from kofin.core.http import Http
@@ -25,7 +25,7 @@ class AuthResult:
         self.server_id = server_id
 
     @classmethod
-    def from_response(cls, data: Dict[str, Any]) -> "AuthResult":
+    def from_response(cls, data: dict[str, Any]) -> "AuthResult":
         user = data.get("User") or {}
         return cls(
             token=data.get("AccessToken", ""),
@@ -72,9 +72,9 @@ def build_auth_header(
     return ", ".join(fields)
 
 
-def public_info(http: Http, address: str) -> Dict[str, Any]:
+def public_info(http: Http, address: str) -> dict[str, Any]:
     response = http.request("GET", address + "/System/Info/Public", retries=1)
-    info: Dict[str, Any] = response.json()
+    info: dict[str, Any] = response.json()
     return info
 
 
@@ -85,7 +85,7 @@ def public_info(http: Http, address: str) -> Dict[str, Any]:
 DISCOVERY_PROBE_TIMEOUT = (3.05, 5.0)
 
 
-def probe_public_info(http: Http, address: str) -> Dict[str, Any]:
+def probe_public_info(http: Http, address: str) -> dict[str, Any]:
     """/System/Info/Public on the discovery budget -- one attempt, no ladder.
 
     ``retries=0`` because the scan window is already the retry policy: a
@@ -98,7 +98,7 @@ def probe_public_info(http: Http, address: str) -> Dict[str, Any]:
         timeout=DISCOVERY_PROBE_TIMEOUT,
         retries=0,
     )
-    info: Dict[str, Any] = response.json()
+    info: dict[str, Any] = response.json()
     return info
 
 
@@ -112,14 +112,14 @@ def quick_connect_enabled(http: Http, address: str, header: str) -> bool:
     return bool(response.json())
 
 
-def quick_connect_initiate(http: Http, address: str, header: str) -> Dict[str, Any]:
+def quick_connect_initiate(http: Http, address: str, header: str) -> dict[str, Any]:
     response = http.request(
         "POST",
         address + "/QuickConnect/Initiate",
         headers={"Authorization": header},
         retries=1,
     )
-    state: Dict[str, Any] = response.json()
+    state: dict[str, Any] = response.json()
     return state
 
 

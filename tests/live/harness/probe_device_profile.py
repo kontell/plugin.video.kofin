@@ -17,8 +17,8 @@ import xbmcvfs
 sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
-from kofin.core import deviceprofile  # noqa: E402
-from kofin.core.deviceprofile import ProfileConfig  # noqa: E402
+from kofin.core import deviceprofile
+from kofin.core.deviceprofile import ProfileConfig
 
 out_path = sys.argv[1]
 payload = {

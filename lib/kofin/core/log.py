@@ -13,13 +13,13 @@ is exempt from the no-module-globals rule that protects the restart path.
 
 import re
 import traceback
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import xbmc
 
 REDACTED = "***"
 
-_PATTERNS: List[Tuple["re.Pattern[str]", str]] = [
+_PATTERNS: list[tuple["re.Pattern[str]", str]] = [
     (re.compile(r"(api_key=)[^&\"'\s]+", re.I), r"\g<1>" + REDACTED),
     (re.compile(r'(Token=")[^"]*(")'), r"\g<1>" + REDACTED + r"\g<2>"),
     (
@@ -28,7 +28,7 @@ _PATTERNS: List[Tuple["re.Pattern[str]", str]] = [
     ),
 ]
 
-_secrets: Dict[str, str] = {}
+_secrets: dict[str, str] = {}
 
 
 def register_secret(value: str, keep: int = 0) -> None:
@@ -70,7 +70,7 @@ class Logger:
         self._write(xbmc.LOGERROR, msg, args, trailer=traceback.format_exc())
 
     def _write(
-        self, level: int, msg: object, args: Tuple[Any, ...], trailer: str = ""
+        self, level: int, msg: object, args: tuple[Any, ...], trailer: str = ""
     ) -> None:
         # Accept anything stringable (LOG.exception(error)).
         if not isinstance(msg, str):

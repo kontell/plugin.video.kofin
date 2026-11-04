@@ -8,7 +8,7 @@ A music listing cannot fail halfway (``_music_folder``).
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import xbmcgui
 import xbmcplugin
@@ -205,12 +205,12 @@ def serve(request):
     if location.content == "tvshows":
         if location.series is None:
             shows = store.records(kind="Series", library=library)
-            seasons: Dict[str, List[Dict[str, Any]]] = {}
+            seasons: dict[str, list[dict[str, Any]]] = {}
             for record in store.records(kind="Season", library=library).values():
                 seasons.setdefault(record.parent_id, []).append(record.item)
             # Only the numbering reaches the show hash; the payloads are read
             # a chunk at a time and let go.
-            episodes: Dict[str, List[Any]] = {}
+            episodes: dict[str, list[Any]] = {}
             window = PayloadWindow(store)
             lazy = store.records(kind="Episode", library=library, payloads=False)
             for record in window.walk(lazy.values()):
@@ -607,7 +607,7 @@ def _known_entries(directory):
     ``Readback._paged`` demands -- a partial array is a deletion with a
     row left -- and anything else raises for the caller to wait on.
     """
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     total = None
     while True:
         reply = kodirpc.call(

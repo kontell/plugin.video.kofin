@@ -29,15 +29,15 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 
 def rpc(
     args: argparse.Namespace,
     method: str,
-    params: Optional[Dict[str, Any]] = None,
+    params: Optional[dict[str, Any]] = None,
     timeout: float = 120.0,
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """One JSON-RPC call over HTTP; returns (elapsed seconds, parsed body)."""
     body = json.dumps(
         {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
@@ -50,7 +50,7 @@ def rpc(
     )
     started = time.monotonic()
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        parsed: Dict[str, Any] = json.load(response)
+        parsed: dict[str, Any] = json.load(response)
     return time.monotonic() - started, parsed
 
 
@@ -128,7 +128,7 @@ def probe_image(args: argparse.Namespace) -> int:
         return 1
     auth = base64.b64encode(args.auth.encode()).decode()
     for label in ("first(cold)", "second(warm)"):
-        timings: List[float] = []
+        timings: list[float] = []
         started = time.monotonic()
         for url in urls:
             wrapped = "image://" + urllib.parse.quote(url, safe="") + "/"

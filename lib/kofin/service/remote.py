@@ -8,7 +8,7 @@ commands log and return — never raise.
 """
 
 import threading
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # GeneralCommand names that map straight to a Kodi input action.
 INPUT_ACTIONS = {
@@ -73,7 +73,7 @@ class RemoteHandler:
     def __init__(self) -> None:
         # The SyncPlay manager (attached by the service while one is built);
         # all control-plane websocket traffic routes through this handler.
-        self.syncplay: Optional["SyncPlayManager"] = None
+        self.syncplay: Optional[SyncPlayManager] = None
         # The one thing a remote command may leave running: a PlayNow's
         # start-position seek waiting for the player to come up. Replaced
         # by the next PlayNow; the old one exits on its own bound.
@@ -104,7 +104,7 @@ class RemoteHandler:
         if isinstance(item_ids, str):
             item_ids = item_ids.split(",")
         start_index = max(_as_int(data.get("StartIndex")), 0)
-        ordered: List[str] = list(item_ids[start_index:])
+        ordered: list[str] = list(item_ids[start_index:])
         if not ordered:
             return
         command = data.get("PlayCommand", "PlayNow")

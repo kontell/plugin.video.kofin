@@ -18,7 +18,7 @@ sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
 
-from kofin.core import ipc  # noqa: E402
+from kofin.core import ipc
 
 method = sys.argv[1]
 data = {}

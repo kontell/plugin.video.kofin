@@ -6,7 +6,7 @@ playback polling. Foreign playback (anything not in the play queue) is ignored.
 
 import queue
 import threading
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import xbmc
 import xbmcgui
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 PROGRESS_INTERVAL_SECONDS = 10.0
 PLUGIN_URL = "plugin://plugin.video.kofin/"
@@ -88,7 +88,7 @@ class _Reporter(threading.Thread):
 
     def __init__(self) -> None:
         super().__init__(name="kofin-reporter", daemon=True)
-        self._jobs: "queue.Queue[Optional[Callable[[], None]]]" = queue.Queue()
+        self._jobs: queue.Queue[Optional[Callable[[], None]]] = queue.Queue()
 
     def submit(self, job: Callable[[], None]) -> None:
         self._jobs.put(job)
@@ -128,7 +128,7 @@ class Player(xbmc.Player):
         # queue is authoritative.
         self._syncplay_group_active = False
         # The SyncPlay manager, attached by the service when built.
-        self.syncplay: Optional["SyncPlayManager"] = None
+        self.syncplay: Optional[SyncPlayManager] = None
         # One per player, reset per playback (service/segments.py).
         self.segments = SegmentEngine(self, api)
         # The auto-next one-shot: the item id whose trigger crossing already

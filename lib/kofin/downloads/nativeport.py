@@ -11,7 +11,8 @@ offline.
 """
 
 from datetime import datetime
-from typing import Any, Iterable, List, Optional, Protocol, Tuple
+from typing import Any, Optional, Protocol
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 
@@ -27,7 +28,7 @@ class Native(Protocol):
 
     def watched_locally(self, row: Any) -> bool: ...
 
-    def last_touch(self, row: Any) -> Optional[Tuple[float, bool]]: ...
+    def last_touch(self, row: Any) -> Optional[tuple[float, bool]]: ...
 
     def music_view(self, force: bool) -> None: ...
 
@@ -87,7 +88,7 @@ class NativeApi:
         the episode is in. Every season of the show is handed over: which
         of them holds a download is the pass's to say, by the episodes'
         numbers, and a show's seasons are few."""
-        items: List[str] = [row.jellyfin_id]
+        items: list[str] = [row.jellyfin_id]
         try:
             store = self._store()
             if row.media_type == "episode" and row.series_id:
@@ -112,7 +113,7 @@ class NativeApi:
         # replayed; a setter here would start the userdata echo cycle.
         return None
 
-    def _row(self, row: Any, properties: List[str]) -> Optional[dict]:
+    def _row(self, row: Any, properties: list[str]) -> Optional[dict]:
         from kofin.core import kodirpc
         from kofin.sync.backends.api.identity import native_id_for
 
@@ -133,7 +134,7 @@ class NativeApi:
         found = self._row(row, ["playcount"])
         return bool(found and found.get("playcount"))
 
-    def last_touch(self, row: Any) -> Optional[Tuple[float, bool]]:
+    def last_touch(self, row: Any) -> Optional[tuple[float, bool]]:
         found = self._row(row, ["lastplayed", "resume"])
         if found is None:
             return None

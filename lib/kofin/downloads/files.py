@@ -11,13 +11,13 @@ import posixpath
 import re
 import sys
 import unicodedata
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # What FAT/exFAT/NTFS refuse in a name (Android SD cards are the audience,
 # and every other target accepts this subset too). Windows' reserved device
@@ -110,7 +110,7 @@ def default_filename(item: JsonDict, container: str) -> str:
     return "%s.%s" % (name, container or "bin")
 
 
-def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
+def item_dirs(item: JsonDict) -> tuple[str, Optional[str]]:
     """(owning directory, leaf subdirectory) for an item, relative, POSIX.
 
     Movies: ``("Movies/<Title (Year)>", None)`` — the directory belongs to

@@ -7,7 +7,8 @@ callers own *when* — the player's trigger latch, the library's new-content
 drain — and this module owns *what*: which ids, which gates, which cap.
 """
 
-from typing import Any, Dict, Iterable, List
+from typing import Any
+from collections.abc import Iterable
 
 from kofin.core import ipc, settings, state, toast
 from kofin.core.log import Logger
@@ -15,7 +16,7 @@ from kofin.downloads import notify_allowed, store
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # The playback fraction that triggers the next-episode lookup.
 NEXT_TRIGGER_RATIO = 0.5
@@ -55,7 +56,7 @@ ORIGIN_NEW_MOVIES = "auto:new"
 SHOWS_SETTING = "downloadsEpisodeShows"
 
 
-def subscribed_shows() -> List[str]:
+def subscribed_shows() -> list[str]:
     raw = settings.get_str(SHOWS_SETTING)
     return [part for part in raw.split(",") if part]
 
@@ -80,7 +81,7 @@ def _live_ids() -> set:
     return {row.jellyfin_id for row in store.rows() if row.state != store.FAILED}
 
 
-def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> List[str]:
+def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> list[str]:
     """What to queue so that the next ``keep`` unwatched episodes are held.
 
     A paged listing in airing order — ``ParentIndexNumber,IndexNumber``,
@@ -91,7 +92,7 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
     """
     if keep <= 0:
         return []
-    episodes: List[JsonDict] = []
+    episodes: list[JsonDict] = []
     start = 0
     while True:
         page = api.items(
@@ -114,7 +115,7 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> Li
 
     following = False
     live = _live_ids()
-    wanted: List[str] = []
+    wanted: list[str] = []
     ahead = 0
     for episode in episodes:
         episode_id = str(episode.get("Id") or "")
@@ -204,7 +205,7 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
     subscribed = set(subscribed_shows())
     queued = 0
 
-    def push(series_id: str, wanted: List[str]) -> None:
+    def push(series_id: str, wanted: list[str]) -> None:
         nonlocal queued
         ipc.notify(ipc.DOWNLOAD_ADD, {"Ids": wanted, "Origin": "auto:%s" % series_id})
         live.update(wanted)
@@ -304,8 +305,8 @@ def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
     return queued
 
 
-def _paged_items(api: Any, params: Dict[str, Any]) -> List[JsonDict]:
-    children: List[JsonDict] = []
+def _paged_items(api: Any, params: dict[str, Any]) -> list[JsonDict]:
+    children: list[JsonDict] = []
     start = 0
     while True:
         page = api.items(

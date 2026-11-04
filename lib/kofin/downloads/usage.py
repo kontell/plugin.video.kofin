@@ -9,7 +9,7 @@ everything else under the root, so the total agrees with ``du``.
 """
 
 import os
-from typing import Dict, List, NamedTuple, Tuple
+from typing import NamedTuple
 
 from kofin.core.log import Logger
 from kofin.downloads import files
@@ -18,7 +18,7 @@ LOG = Logger(__name__)
 
 # The three directories files.item_dirs writes into, in the order the report
 # lists them.
-CATEGORIES: Tuple[str, ...] = (files.MOVIES_DIR, files.SHOWS_DIR, files.MUSIC_DIR)
+CATEGORIES: tuple[str, ...] = (files.MOVIES_DIR, files.SHOWS_DIR, files.MUSIC_DIR)
 
 # A ceiling on the walk, because this runs in the plugin process with a
 # person waiting on it. Well past any real downloads folder (a 200k-entry
@@ -36,7 +36,7 @@ class Bucket(NamedTuple):
 
 class Usage(NamedTuple):
     root: str
-    buckets: List[Bucket]
+    buckets: list[Bucket]
     total: int
     free: int  # -1 when the filesystem would not say
     capped: bool
@@ -48,7 +48,7 @@ class Usage(NamedTuple):
 
 # Kodi's own labels for the three categories — no kofin string needed, and
 # they are already translated in every locale Kodi ships.
-CATEGORY_LABELS: Dict[str, int] = {
+CATEGORY_LABELS: dict[str, int] = {
     files.MOVIES_DIR: 342,  # Movies
     files.SHOWS_DIR: 20343,  # TV shows
     files.MUSIC_DIR: 2,  # Music
@@ -67,7 +67,7 @@ def scan(root: str) -> Usage:
     the caller says so in words rather than showing three zeroes.
     """
     counter = _Counter()
-    buckets: List[Bucket] = []
+    buckets: list[Bucket] = []
     for name in CATEGORIES:
         size, count = counter.walk(os.path.join(root, name))
         buckets.append(Bucket(CATEGORY_LABELS[name], name, size, count))
@@ -85,7 +85,7 @@ def scan(root: str) -> Usage:
     )
 
 
-def _other(root: str, counter: "_Counter") -> Tuple[int, int]:
+def _other(root: str, counter: "_Counter") -> tuple[int, int]:
     """Everything directly under the root that is not one of ours."""
     size = 0
     count = 0
@@ -112,7 +112,7 @@ class _Counter:
         self.seen = 0
         self.capped = False
 
-    def walk(self, directory: str) -> Tuple[int, int]:
+    def walk(self, directory: str) -> tuple[int, int]:
         size = 0
         count = 0
         # Explicit stack rather than recursion: a downloads folder is

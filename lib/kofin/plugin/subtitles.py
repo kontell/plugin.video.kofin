@@ -28,7 +28,7 @@ ends up rendered.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional
 
 from kofin.core import streams
 from kofin.core.http import Http
@@ -73,13 +73,13 @@ class Localized(NamedTuple):
     clock and adds them to the running playback (``service/latesubs.py``).
     """
 
-    files: List[Tuple[streams.Attachment, str]]
-    deferred: List[streams.Attachment]
+    files: list[tuple[streams.Attachment, str]]
+    deferred: list[streams.Attachment]
 
 
 def localize(
     http: Http,
-    attached: List[streams.Attachment],
+    attached: list[streams.Attachment],
     directory: Optional[str] = None,
 ) -> Localized:
     """Fetch everything attachable now, and name what has to wait.
@@ -98,7 +98,7 @@ def localize(
     sweep(path)
 
     to_fetch = attached[:MAX_FILES]
-    local_paths: Dict[int, str] = {}
+    local_paths: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=min(4, len(to_fetch))) as pool:
         futures = {
             pool.submit(_fetch, http, attachment, path): attachment
@@ -107,8 +107,8 @@ def localize(
         for future in as_completed(futures):
             local_paths[futures[future].stream_index] = future.result()
 
-    files: List[Tuple[streams.Attachment, str]] = []
-    deferred: List[streams.Attachment] = []
+    files: list[tuple[streams.Attachment, str]] = []
+    deferred: list[streams.Attachment] = []
     fetched = 0
     for attachment in attached:
         local = local_paths.get(attachment.stream_index, "")

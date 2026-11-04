@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Change-feed providers: the companion-plugin tier ladder as code.
 
 One internal record type covers every tier; each enhancement keys off
@@ -13,14 +12,15 @@ import calendar
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Optional
+from collections.abc import Sequence
 
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 TIER_KOFIN = "kofin"
 TIER_OFFICIAL = "official"
@@ -41,7 +41,7 @@ class ChangeRecord:
 
     id: str
     status: str  # "Added" | "Updated" | "Removed"
-    library_ids: Optional[List[str]] = None  # owning libraries; None = unknown
+    library_ids: Optional[list[str]] = None  # owning libraries; None = unknown
 
 
 @dataclass
@@ -54,8 +54,8 @@ class Envelope:
 
 @dataclass
 class ChangeSet:
-    records: List[ChangeRecord] = field(default_factory=list)
-    userdata: List[JsonDict] = field(default_factory=list)
+    records: list[ChangeRecord] = field(default_factory=list)
+    userdata: list[JsonDict] = field(default_factory=list)
     envelope: Envelope = field(default_factory=Envelope)
 
 

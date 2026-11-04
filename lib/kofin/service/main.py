@@ -8,7 +8,7 @@ lives on the objects rebuilt each pass.
 import json
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import xbmc
 
@@ -85,7 +85,7 @@ LOST_TOAST_GRACE_SECONDS = 90.0
 QUEUE_START_DELAY = 0.3
 QUEUE_FILL_TIMEOUT = 10.0
 
-CAPABILITIES: Dict[str, Any] = {
+CAPABILITIES: dict[str, Any] = {
     "PlayableMediaTypes": "Audio,Video",
     "SupportsMediaControl": True,
     "SupportedCommands": (
@@ -131,7 +131,7 @@ class Service(xbmc.Monitor):
     # handlers. Method names rather than bound methods, on the class rather
     # than built in __init__, because the unit suite legitimately builds a
     # Service with __new__ and no __init__ to drive onNotification alone.
-    _KODI_HANDLERS: Dict[str, str] = {
+    _KODI_HANDLERS: dict[str, str] = {
         "GUI.OnScreensaverDeactivated": "_kodi_screensaver_deactivated",
         "System.OnWake": "_kodi_wake",
         "System.OnSleep": "_kodi_sleep",
@@ -139,7 +139,7 @@ class Service(xbmc.Monitor):
         "Player.OnStop": "_kodi_player_stop",
         "VideoLibrary.OnUpdate": "_kodi_library_update",
     }
-    _IPC_HANDLERS: Dict[str, str] = {
+    _IPC_HANDLERS: dict[str, str] = {
         ipc.RESTART: "_ipc_restart",
         ipc.AUTH_CHANGED: "_ipc_auth_changed",
         ipc.SYNCPLAY_MENU: "_ipc_syncplay_menu",
@@ -156,7 +156,7 @@ class Service(xbmc.Monitor):
     # in core/contract.py. Routed by name for every sender that is neither
     # xbmc nor kofin — the sender IS the provider's own id, which is exactly
     # why these cannot live in the kofin-sender IPC table.
-    _CONTRACT_HANDLERS: Dict[str, str] = {
+    _CONTRACT_HANDLERS: dict[str, str] = {
         contract.REGISTER: "_contract_register",
         contract.CLAIM: "_contract_claim",
         contract.PROPOSE: "_contract_propose",
@@ -532,7 +532,7 @@ class Service(xbmc.Monitor):
         except Exception:
             LOG.exception("download manager failed to stop")
 
-    def _refresh_downloads(self, databases: List[str]) -> None:
+    def _refresh_downloads(self, databases: list[str]) -> None:
         """The downloads manager's way onto screens: through the library
         manager, which queues a FastSync, never a bare builtin. No library
         manager means nothing native is rendering the rows anyway."""
@@ -902,7 +902,7 @@ class Service(xbmc.Monitor):
         LOG.debug("websocket reconnected; catching up on missed changes")
         library.enqueue_command("Reconnected")
 
-    def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
+    def _on_ws_event(self, message_type: str, data: dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
             return
 
@@ -1032,35 +1032,35 @@ class Service(xbmc.Monitor):
 
     # -- kofin's IPC, one handler per message ----------------------------------
 
-    def _ipc_restart(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_restart(self, name: str, payload: dict[str, Any]) -> None:
         LOG.debug("restart requested")
         self._restart_requested = True
 
-    def _ipc_auth_changed(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_auth_changed(self, name: str, payload: dict[str, Any]) -> None:
         LOG.debug("auth changed; restarting service cycle")
         self._restart_requested = True
 
-    def _ipc_syncplay_menu(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_syncplay_menu(self, name: str, payload: dict[str, Any]) -> None:
         self._open_syncplay_menu()
 
     # -- the public provider contract, one handler per message ---------------
 
-    def _contract_register(self, sender: str, payload: Dict[str, Any]) -> None:
+    def _contract_register(self, sender: str, payload: dict[str, Any]) -> None:
         self._syncplay_forward("on_provider_register", sender, payload)
 
-    def _contract_claim(self, sender: str, payload: Dict[str, Any]) -> None:
+    def _contract_claim(self, sender: str, payload: dict[str, Any]) -> None:
         self._syncplay_forward("on_foreign_claim", contract.engine_claim(payload))
 
-    def _contract_propose(self, sender: str, payload: Dict[str, Any]) -> None:
+    def _contract_propose(self, sender: str, payload: dict[str, Any]) -> None:
         self._syncplay_forward("on_propose", payload)
 
-    def _contract_menu(self, sender: str, payload: Dict[str, Any]) -> None:
+    def _contract_menu(self, sender: str, payload: dict[str, Any]) -> None:
         self._open_syncplay_menu()
 
-    def _ipc_who_is_watching(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_who_is_watching(self, name: str, payload: dict[str, Any]) -> None:
         self._open_who_is_watching()
 
-    def _ipc_attach_subtitle(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_attach_subtitle(self, name: str, payload: dict[str, Any]) -> None:
         try:
             index = int(payload["Index"])
         except (KeyError, TypeError, ValueError):
@@ -1068,7 +1068,7 @@ class Service(xbmc.Monitor):
         else:
             self.player.fetch_subtitle(index)
 
-    def _ipc_start_queue(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_start_queue(self, name: str, payload: dict[str, Any]) -> None:
         """Start the music queue Play all is building, once it holds the
         tracks the request counts and a moment more: by then the plugin
         script that sent it has ended, and Kodi gives the first track's
@@ -1118,7 +1118,7 @@ class Service(xbmc.Monitor):
             LOG.warning("download command %s ignored: manager not running", name)
         return self.downloads
 
-    def _ipc_download_add(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_download_add(self, name: str, payload: dict[str, Any]) -> None:
         downloads = self._downloads_for(name)
         if downloads is None:
             return
@@ -1133,14 +1133,14 @@ class Service(xbmc.Monitor):
             request_name=request.request_name,
         )
 
-    def _ipc_download_cancel(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_download_cancel(self, name: str, payload: dict[str, Any]) -> None:
         downloads = self._downloads_for(name)
         if downloads is not None:
             from kofin.downloads import wire
 
             downloads.cancel(wire.item_id(payload))
 
-    def _ipc_download_remove(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_download_remove(self, name: str, payload: dict[str, Any]) -> None:
         downloads = self._downloads_for(name)
         if downloads is not None:
             from kofin.downloads import wire
@@ -1149,12 +1149,12 @@ class Service(xbmc.Monitor):
                 wire.item_ids(payload), subscription=payload.get("Subscription") is True
             )
 
-    def _ipc_download_remove_all(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_download_remove_all(self, name: str, payload: dict[str, Any]) -> None:
         downloads = self._downloads_for(name)
         if downloads is not None:
             downloads.remove_all()
 
-    def _ipc_library_command(self, name: str, payload: Dict[str, Any]) -> None:
+    def _ipc_library_command(self, name: str, payload: dict[str, Any]) -> None:
         self._start_library()
         if self.library is None:
             LOG.warning("library command %s ignored: manager not running", name)
@@ -1232,7 +1232,7 @@ class Service(xbmc.Monitor):
             return True
         waited = 0.0
         dumped = False
-        first: Dict[int, str] = {}
+        first: dict[int, str] = {}
         while library.is_alive() and waited < LIBRARY_JOIN_SECONDS:
             library.join(timeout=5)
             if not library.is_alive():
@@ -1287,7 +1287,7 @@ def _guid(value: Any) -> str:
     return str(value or "").replace("-", "").lower()
 
 
-def own_userdata(data: Dict[str, Any], user_id: str) -> bool:
+def own_userdata(data: dict[str, Any], user_id: str) -> bool:
     """Whether a UserDataChanged payload is about the user this client mirrors.
 
     Jellyfin delivers UserDataChanged to every session that *contains* the
@@ -1304,7 +1304,7 @@ def own_userdata(data: Dict[str, Any], user_id: str) -> bool:
     return not subject or subject == _guid(user_id)
 
 
-def _decode_kodi_data(data: str) -> Dict[str, Any]:
+def _decode_kodi_data(data: str) -> dict[str, Any]:
     """Kodi-bus notification payloads are plain JSON objects."""
     try:
         payload = json.loads(data) if data else {}

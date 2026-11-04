@@ -16,7 +16,7 @@ import json
 import time
 from collections import abc
 from contextlib import contextmanager
-from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
+from typing import NamedTuple, Optional
 
 import xbmc
 
@@ -103,7 +103,7 @@ class Monitor(xbmc.Monitor):
         # (kind, Kodi id) of the rows Kodi has announced removing since the
         # library thread last took them (Native.refile_removed). Callbacks
         # run on the thread that made the monitor, which is that thread.
-        self.lost: Set[Tuple[str, int]] = set()
+        self.lost: set[tuple[str, int]] = set()
 
     def onNotification(self, sender, method, data):
         if method != "VideoLibrary.OnRemove":
@@ -136,14 +136,14 @@ class Monitor(xbmc.Monitor):
 class VideoScan(NamedTuple):
     """What a pass has Kodi's video scanner list (Native.plan_video)."""
 
-    directories: List[str]
+    directories: list[str]
     # Rows the scan of each directory is to file, for Kodi's own count.
-    expected: Dict[str, int]
+    expected: dict[str, int]
     # (item id, generation, user data) of what the scanner is about to file.
-    expectations: List[Tuple[str, int, Dict]]
+    expectations: list[tuple[str, int, dict]]
     # Movie folders scanned by name: bound without noupdate for the scan
     # and with it afterwards (bind_folders).
-    movie_folders: List[str]
+    movie_folders: list[str]
 
 
 class Native:
@@ -159,7 +159,7 @@ class Native:
         # What this Kodi offers beyond the baseline, read once per pass
         # (capabilities.features) and handed to everything that shapes a
         # request or a desired state by it.
-        self.features: FrozenSet[str] = frozenset()
+        self.features: frozenset[str] = frozenset()
         self._async_pending = False
         self.payloads = PayloadWindow(self.store)
         # The library thread's own bar when it made this pass (one bar from
@@ -172,7 +172,7 @@ class Native:
         # The music libraries whose every song has been compared with Kodi's
         # rows since the service started, a repair, or a music scan or clean
         # that was not the pass's own (MusicPass.check_due).
-        self.music_checked: Set[str] = set()
+        self.music_checked: set[str] = set()
         # The music scans and cleans heard on the monitor so far, the scans
         # of the pass's own not yet matched to one of them, and this pass's
         # directory scans per library, which count as its own only once their
@@ -180,20 +180,20 @@ class Native:
         # credit_music_scans).
         self._music_heard = 0
         self._own_music_scans = 0
-        self._unchecked_scans: Dict[str, int] = {}
+        self._unchecked_scans: dict[str, int] = {}
         # scanner -> when the hold on it was taken.
-        self._held: Dict[str, float] = {}
+        self._held: dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
-        self._extras_folders: Set[str] = set()
+        self._extras_folders: set[str] = set()
         # Rows a refresh of the pass's replaced, by (kind, old Kodi id): Kodi
         # announces the old row's removal, and its number can come back as
         # the new row's (refile_removed).
-        self.replaced: Set[Tuple[str, int]] = set()
+        self.replaced: set[tuple[str, int]] = set()
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
-        self._refused_settings: Set[str] = set()
+        self._refused_settings: set[str] = set()
 
     # -- gates ---------------------------------------------------------------
 
@@ -369,7 +369,7 @@ class Native:
         only after every folder is bound, so a failed read or binding is
         tried again."""
         state = settings.get_str(MOVIE_BINDINGS_SETTING)
-        extras: Set[str] = set()
+        extras: set[str] = set()
         if state == EXTRAS_BINDINGS_STATE:
             entries = self.store.entries(kind="Movie")
         else:
@@ -503,7 +503,7 @@ class Native:
 
     def scan(
         self,
-        directories: List[str],
+        directories: list[str],
         scanner="video",
         expected=None,
         prepare=None,
@@ -594,7 +594,7 @@ class Native:
 
     # -- movie versions and extras -------------------------------------------
 
-    def _asset_folders(self, upserts, library) -> List[str]:
+    def _asset_folders(self, upserts, library) -> list[str]:
         """Movie folders whose listing Kodi has not seen: the assets token
         acknowledged for the movie (the listing a scan presented) differs
         from its payload's (metadata.assets_token). The root walk lists the
@@ -608,7 +608,7 @@ class Native:
         if not movies:
             return []
         mappings = self.store.mappings(kind="Movie", library=library)
-        folders: List[str] = []
+        folders: list[str] = []
         for record in self.payloads.walk(movies):
             token = metadata.assets_token(record.item, self.features)
             mapping = mappings.get(record.item_id)
@@ -885,7 +885,7 @@ class Native:
         large = repair
         try:
             self.payloads = PayloadWindow(self.store)
-            pending: Dict[str, Tuple[int, str, Dict]] = {
+            pending: dict[str, tuple[int, str, dict]] = {
                 item_id: (generation, operation, payload)
                 for item_id, generation, operation, payload in self.store.pending_work()
             }
@@ -898,7 +898,7 @@ class Native:
             entries = self.store.placements(() if repair else pending)
             if repair:
                 entries.whole()
-            errors: List[Exception] = []
+            errors: list[Exception] = []
             # A removed collection's movies must let go of its set before the
             # set can; they rejoin this pass as upserts.
             self.store.invalidate(removal.set_members(pending))
@@ -914,7 +914,7 @@ class Native:
             boxsets = [r.item for r in sets.values()]
             collections = metadata.collections_of(boxsets)
             self.join_sets(pending, entries, sets, collections)
-            upserts: Dict[str, Record] = {}
+            upserts: dict[str, Record] = {}
             for item_id, (generation, operation, _payload) in pending.items():
                 entry = entries.get(item_id)
                 if operation != "upsert" or entry is None:
@@ -1014,7 +1014,7 @@ class Native:
             if (completed or not self._async_pending) and self._idle("any"):
                 self.store.unpin()
 
-    def join_sets(self, pending, entries, sets: Dict[str, Record], collections):
+    def join_sets(self, pending, entries, sets: dict[str, Record], collections):
         """Put every collection a movie of this pass is filed under into the
         pass, pending before that movie is acknowledged.
 
@@ -1045,7 +1045,7 @@ class Native:
 
     def scan_music(
         self,
-        upserts: Dict[str, Record],
+        upserts: dict[str, Record],
         errors,
         entries: Optional[abc.Mapping[str, Entry]] = None,
     ):
@@ -1089,15 +1089,15 @@ class Native:
             )
         return len(items)
 
-    def plan_video(self, upserts: Dict[str, Record], errors) -> VideoScan:
+    def plan_video(self, upserts: dict[str, Record], errors) -> VideoScan:
         """Bind whatever the readback shows the video scanner has not filed,
         and name the directories to scan for it and for the movie folders
         whose versions or extras the scanner has not seen."""
-        directories: List[str] = []
-        expected: Dict[str, int] = {}
+        directories: list[str] = []
+        expected: dict[str, int] = {}
         expectations = []
         self._extras_folders = set()
-        scanned_movie_folders: List[str] = []
+        scanned_movie_folders: list[str] = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
             for content in paths.CONTENTS:
@@ -1143,7 +1143,7 @@ class Native:
                             if r.item_id not in filed
                             or self.readback.movie(library, r.item_id) is None
                         ]
-                asset_folders: List[str] = []
+                asset_folders: list[str] = []
                 if content == "movies":
                     asset_folders = self._asset_folders(upserts, library)
                 if not missing and not asset_folders:
@@ -1274,7 +1274,7 @@ class Native:
             )
             self.store.invalidate(stripped)
 
-    def _missing_tv(self, upserts, library) -> List[Record]:
+    def _missing_tv(self, upserts, library) -> list[Record]:
         shows = self.readback.scope("Series", library)
         # Only a show Kodi has filed for us can sit on a row another source's
         # folder lists (Readback.show), and a first import files none: their

@@ -7,9 +7,9 @@ checked against it where the service hands the client over
 (``service/main.py``), and a renamed verb fails mypy.
 """
 
-from typing import Any, Dict, List, Optional, Protocol, TypedDict
+from typing import Any, Optional, Protocol, TypedDict
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 
 class Claim(TypedDict, total=False):
@@ -49,7 +49,7 @@ class SyncPlayApi(Protocol):
 
     def authorization(self) -> str: ...
 
-    def syncplay_list(self) -> List[JsonDict]: ...
+    def syncplay_list(self) -> list[JsonDict]: ...
 
     def syncplay_new(
         self, group_name: str, protocol_version: Optional[int] = None
@@ -62,7 +62,7 @@ class SyncPlayApi(Protocol):
     def syncplay_leave(self) -> None: ...
 
     def syncplay_hello(
-        self, protocol_version: int, capabilities: Optional[List[str]] = None
+        self, protocol_version: int, capabilities: Optional[list[str]] = None
     ) -> JsonDict: ...
 
     def syncplay_snapshot(self) -> None: ...
@@ -87,14 +87,14 @@ class SyncPlayApi(Protocol):
 
     def syncplay_set_new_queue(
         self,
-        item_ids: List[str],
+        item_ids: list[str],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None: ...
 
     def syncplay_set_new_queue_ex(
         self,
-        entries: List[JsonDict],
+        entries: list[JsonDict],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None: ...

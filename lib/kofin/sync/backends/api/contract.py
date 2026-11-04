@@ -15,14 +15,14 @@ raises) and ``tempo`` (the tempo set, by the ``correction`` flag #38 adds to
 ``Player.SetTempo``).
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 def version(value):
     return tuple(int(part) for part in value.split("."))
 
 
-def _check_addons(capture, addons, errors: List[str]) -> None:
+def _check_addons(capture, addons, errors: list[str]) -> None:
     for addon, minimum in addons.items():
         try:
             adequate = version(
@@ -34,7 +34,7 @@ def _check_addons(capture, addons, errors: List[str]) -> None:
             errors.append(addon + " >= " + minimum + " is required")
 
 
-def _check_methods(capture, methods, errors: List[str]) -> None:
+def _check_methods(capture, methods, errors: list[str]) -> None:
     for method, parameters in methods.items():
         definition = capture.get("methods", {}).get(method)
         if definition is None:
@@ -48,14 +48,14 @@ def _check_methods(capture, methods, errors: List[str]) -> None:
                 errors.append("missing enum values " + method + "." + name)
 
 
-def _check_python(capture, python, errors: List[str]) -> None:
+def _check_python(capture, python, errors: list[str]) -> None:
     for field, methods in python.items():
         for method in methods:
             if capture.get(field, {}).get(method) is not True:
                 errors.append("missing Python capability " + field + "." + method)
 
 
-def _check_fields(capture, fields, errors: List[str]) -> None:
+def _check_fields(capture, fields, errors: list[str]) -> None:
     """A value a field enum must list: a property a readback may ask for
     only while Kodi names it, since an unknown one fails the whole call."""
     for type_name, values in fields.items():
@@ -66,9 +66,9 @@ def _check_fields(capture, fields, errors: List[str]) -> None:
                 errors.append("missing field " + type_name + "." + value)
 
 
-def check(capture, contract, allow_dirty=False) -> Dict[str, Any]:
+def check(capture, contract, allow_dirty=False) -> dict[str, Any]:
     capture = capture.get("result", capture)
-    errors: List[str] = []
+    errors: list[str] = []
     application = capture.get("application", {}).get("version", {})
     if application.get("major", 0) < contract["minimum_kodi_major"]:
         errors.append("Kodi %d or later is required" % contract["minimum_kodi_major"])
@@ -78,10 +78,10 @@ def check(capture, contract, allow_dirty=False) -> Dict[str, Any]:
     dirty = "dirty" in application.get("revision", "").lower()
     _check_methods(capture, contract["methods"], errors)
     _check_python(capture, contract["python"], errors)
-    features: Dict[str, bool] = {}
-    missing: Dict[str, List[str]] = {}
+    features: dict[str, bool] = {}
+    missing: dict[str, list[str]] = {}
     for name, probes in contract.get("features", {}).items():
-        reasons: List[str] = []
+        reasons: list[str] = []
         _check_addons(capture, probes.get("system_addons", {}), reasons)
         _check_methods(capture, probes.get("methods", {}), reasons)
         _check_python(capture, probes.get("python", {}), reasons)

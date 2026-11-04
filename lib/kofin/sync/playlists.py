@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """One-way materialization of Jellyfin playlists as native Kodi playlists.
 
 Each Audio playlist is one ``.m3u8`` under
@@ -17,14 +16,9 @@ import shutil
 import xml.etree.ElementTree as etree
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    List,
     NamedTuple,
-    Optional,
-    Set,
-    Tuple,
 )
+from collections.abc import Iterable
 
 import xbmcvfs
 
@@ -98,7 +92,7 @@ class Entry(NamedTuple):
     duration: int = 0
 
 
-def managed_dir(root: Optional[str] = None) -> str:
+def managed_dir(root: str | None = None) -> str:
     """Absolute path to the managed playlist folder."""
     if root is not None:
         return root
@@ -146,7 +140,7 @@ def write_folder_icon(directory: str) -> bool:
 
 
 def write_downloaded_music_list(
-    entries: Iterable[Entry], root: Optional[str] = None
+    entries: Iterable[Entry], root: str | None = None
 ) -> bool:
     """The Downloaded-music view as a plain playlist of ``entries``. The
     smart playlist goes when this is written; True if the file was written."""
@@ -196,7 +190,7 @@ def render_m3u8(entries: Iterable[Entry]) -> str:
     return "\n".join(lines)
 
 
-def _unique_stem(name: str, taken: Set[str]) -> str:
+def _unique_stem(name: str, taken: set[str]) -> str:
     base = safe_filename(name)
     candidate = base
     n = 2
@@ -225,7 +219,7 @@ def _stem_matches_title(name: str, filename: str) -> bool:
 
 
 def assign_playlist_filename(
-    name: str, taken: Set[str], stored_filename: Optional[str] = None
+    name: str, taken: set[str], stored_filename: str | None = None
 ) -> str:
     """The .m3u8 name to write. Reuses ``stored_filename`` while the title matches.
 
@@ -240,12 +234,12 @@ def assign_playlist_filename(
     return _unique_stem(name, taken) + ".m3u8"
 
 
-def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
+def _m3u8_stems(directory: str, keep: str | None = None) -> set[str]:
     """Stems already on disk that :func:`_unique_stem` must not reuse.
 
     ``keep`` is this playlist's current filename, not a collision.
     """
-    taken: Set[str] = set(RESERVED_STEMS)
+    taken: set[str] = set(RESERVED_STEMS)
     for name in _list_files(directory):
         if not name.endswith(".m3u8"):
             continue
@@ -255,9 +249,9 @@ def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
     return taken
 
 
-def enabled_kinds(views: Iterable[Any], whitelist: Set[str]) -> Set[str]:
+def enabled_kinds(views: Iterable[Any], whitelist: set[str]) -> set[str]:
     """Audio/Video sides that should materialize, from synced library kinds."""
-    kinds: Set[str] = set()
+    kinds: set[str] = set()
     for view in views:
         view_id = getattr(view, "view_id", None) or (
             view.get("Id") if isinstance(view, dict) else None
@@ -274,12 +268,12 @@ def enabled_kinds(views: Iterable[Any], whitelist: Set[str]) -> Set[str]:
     return kinds
 
 
-def playlist_side(media_type: str, items: Iterable[Dict[str, Any]]) -> Optional[str]:
+def playlist_side(media_type: str, items: Iterable[dict[str, Any]]) -> str | None:
     """Audio or Video when the playlist is homogeneous; None to skip (mixed/empty type)."""
     declared = media_type or ""
     if declared not in ("Audio", "Video"):
         return None
-    seen: Set[str] = set()
+    seen: set[str] = set()
     for item in items:
         item_type = item.get("Type") or ""
         if not item_type:
@@ -297,8 +291,8 @@ def playlist_side(media_type: str, items: Iterable[Dict[str, Any]]) -> Optional[
     return declared
 
 
-def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
+def _iter_playlist_items(api: Any, playlist_id: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
     start = 0
     while True:
         body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
@@ -332,9 +326,9 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     return items
 
 
-def _read_text(path: str) -> Optional[str]:
+def _read_text(path: str) -> str | None:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             return handle.read()
     except OSError:
         return None
@@ -360,7 +354,7 @@ def _write_text(path: str, content: str) -> bool:
     return True
 
 
-def _list_files(directory: str) -> List[str]:
+def _list_files(directory: str) -> list[str]:
     if not os.path.isdir(directory):
         return []
     return [
@@ -370,7 +364,7 @@ def _list_files(directory: str) -> List[str]:
     ]
 
 
-def cleanup_managed_playlists(root: Optional[str] = None) -> int:
+def cleanup_managed_playlists(root: str | None = None) -> int:
     """Remove the managed ``Kofin/`` folder (or empty it). Returns files removed.
 
     The Downloaded-music view survives the sweep (with the folder icon, which
@@ -403,7 +397,7 @@ def cleanup_managed_playlists(root: Optional[str] = None) -> int:
     return removed
 
 
-def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
+def _audio_ids(items: Iterable[dict[str, Any]]) -> list[str]:
     """Keep server order and duplicates; a playlist may repeat one track."""
     return [
         str(item["Id"])
@@ -413,17 +407,17 @@ def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
 
 
 def _entries_for(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     side: str,
     resolver: Any = None,
-) -> Tuple[List[Entry], int]:
+) -> tuple[list[Entry], int]:
     """The lines of one playlist, in the server's order, duplicates kept.
 
     The ``resolver`` (``entry(item, side) -> Entry | None``) answers for each
     item the pass has filed (backends/api/playlists.py); an item it has not,
     or an item with no id, is counted missing.
     """
-    entries: List[Entry] = []
+    entries: list[Entry] = []
     missing = 0
     for item in items:
         if not item.get("Id") or resolver is None:
@@ -441,9 +435,9 @@ def write_playlist_file(
     directory: str,
     name: str,
     entries: Iterable[Entry],
-    taken: Set[str],
-    stored_filename: Optional[str] = None,
-) -> Tuple[str, bool]:
+    taken: set[str],
+    stored_filename: str | None = None,
+) -> tuple[str, bool]:
     """Write one .m3u8. Returns (filename, written)."""
     filename = assign_playlist_filename(name, taken, stored_filename)
     path = os.path.join(directory, filename)
@@ -474,7 +468,7 @@ def _reserved(side: str, filename: str) -> bool:
 
 
 def _remove_stored(
-    directory: str, side: str, filename: str, copy: Optional[str] = None
+    directory: str, side: str, filename: str, copy: str | None = None
 ) -> bool:
     """Remove a server playlist's stored file. A reserved name is the view's,
     which the download list writes over it, so it stands unless
@@ -491,10 +485,10 @@ def _remove_stored(
 def apply_one(
     api: Any,
     state: jellyfin_db.JellyfinDatabase,
-    playlist: Dict[str, Any],
-    kinds: Set[str],
-    music_root: Optional[str] = None,
-    video_root: Optional[str] = None,
+    playlist: dict[str, Any],
+    kinds: set[str],
+    music_root: str | None = None,
+    video_root: str | None = None,
     resolver: Any = None,
 ) -> bool:
     """Materialize one server playlist. True when a file was written or removed."""
@@ -569,21 +563,21 @@ def apply_one(
 def reconcile(
     api: Any,
     state: jellyfin_db.JellyfinDatabase,
-    kinds: Set[str],
-    music_root: Optional[str] = None,
-    video_root: Optional[str] = None,
+    kinds: set[str],
+    music_root: str | None = None,
+    video_root: str | None = None,
     resolver: Any = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Full list + Etag skip + prune for the enabled sides."""
     stats = {"playlists": 0, "written": 0, "tracks": 0, "skipped": 0, "pruned": 0}
     if not kinds:
         return stats
 
     listed = api.playlists()
-    want_audio: Set[str] = set()
-    want_video: Set[str] = set()
-    taken_audio: Set[str] = set(RESERVED_STEMS)
-    taken_video: Set[str] = set()
+    want_audio: set[str] = set()
+    want_video: set[str] = set()
+    taken_audio: set[str] = set(RESERVED_STEMS)
+    taken_video: set[str] = set()
 
     audio_dir = managed_dir(music_root)
     video_dir = video_root if video_root is not None else managed_video_dir()
@@ -740,7 +734,7 @@ def reconcile(
     return stats
 
 
-def cleanup_video_playlists(root: Optional[str] = None) -> int:
+def cleanup_video_playlists(root: str | None = None) -> int:
     """Remove managed Jellyfin video .m3u8 files from the video Kofin folder.
 
     Library smart playlists (.xsp) and the folder icon stay.
@@ -760,9 +754,9 @@ def cleanup_video_playlists(root: Optional[str] = None) -> int:
     return removed
 
 
-def parse_m3u_paths(text: str) -> List[str]:
+def parse_m3u_paths(text: str) -> list[str]:
     """Ordered file lines from an extended m3u, comments skipped."""
-    paths: List[str] = []
+    paths: list[str] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -792,11 +786,11 @@ def managed_video_dir() -> str:
     return os.path.join(video_playlists_dir(), FOLDER_NAME)
 
 
-def video_playlist_file(view: Dict[str, Any]) -> str:
+def video_playlist_file(view: dict[str, Any]) -> str:
     return "%s%s%s.xsp" % (fs.PREFIX, view["Media"], view["Id"])
 
 
-def build_video_playlist(view: Dict[str, Any], mixed: bool = False) -> etree.Element:
+def build_video_playlist(view: dict[str, Any], mixed: bool = False) -> etree.Element:
     xml = etree.Element("smartplaylist", {"type": view["Media"]})
     etree.SubElement(xml, "name").text = (
         view["Name"] if not mixed else "%s (%s)" % (view["Name"], view["Media"])

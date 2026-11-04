@@ -7,7 +7,8 @@ libraries, the schedule) and a repair announce nothing, and a played item is
 never announced (newcontent.entry_for).
 """
 
-from typing import Any, Collection, Dict, Iterable, List, Optional
+from typing import Any, Optional
+from collections.abc import Collection, Iterable
 
 import xbmc
 
@@ -31,20 +32,20 @@ class Arrivals:
 
     def __init__(self):
         # Published, not filed yet: item id -> entry, oldest first.
-        self.arriving: Dict[str, newcontent.Entry] = {}
+        self.arriving: dict[str, newcontent.Entry] = {}
         # Filed, not announced yet.
-        self.backlog: List[newcontent.Entry] = []
+        self.backlog: list[newcontent.Entry] = []
         # New songs, not filed or not claimed yet: item id -> library. Never
         # announced (an album says it arrived) but claimed for a subscribed
         # music library. Not capped: a song dropped here is in the catalogue
         # and never offered again.
-        self.songs: Dict[str, str] = {}
+        self.songs: dict[str, str] = {}
 
     def published(
         self,
-        items: Iterable[Dict[str, Any]],
+        items: Iterable[dict[str, Any]],
         known: Collection[str],
-        membership: Optional[Dict[str, str]] = None,
+        membership: Optional[dict[str, str]] = None,
     ):
         """Note what a catch-up publishes that ``known``, the ids the
         catalogue placed before the publish, did not hold."""
@@ -75,7 +76,7 @@ class Arrivals:
             del self.backlog[:-LIMIT]
         self._announce(player)
 
-    def _landed(self, store) -> List[newcontent.Entry]:
+    def _landed(self, store) -> list[newcontent.Entry]:
         if not self.arriving:
             return []
         states = store.states(list(self.arriving))
@@ -93,7 +94,7 @@ class Arrivals:
         if not self.songs:
             return
         states = store.states(list(self.songs))
-        filed: Dict[str, str] = {}
+        filed: dict[str, str] = {}
         for item_id in list(self.songs):
             state = states.get(item_id)
             if state is None or state.operation != "upsert":

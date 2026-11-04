@@ -10,7 +10,8 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Optional
+from collections.abc import Iterator
 
 import xbmcvfs
 
@@ -18,7 +19,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
-_path_overrides: Dict[str, str] = {}
+_path_overrides: dict[str, str] = {}
 _tables_ensured: set = set()
 
 # Connections kept open for the plugin process, per path and thread. Module
@@ -27,7 +28,7 @@ _tables_ensured: set = set()
 # play route only), so a reused interpreter reuses its connection and pays a
 # fresh connection's first statement once.
 _pooling = False
-_pool: Dict[Tuple[str, int], "sqlite3.Connection"] = {}
+_pool: dict[tuple[str, int], "sqlite3.Connection"] = {}
 
 
 def pool_connections(enabled: bool) -> None:
@@ -102,7 +103,7 @@ def resolve_path(db_file: str = "kofin") -> str:
     return os.path.join(directory, "kofin.db")
 
 
-class Database(object):
+class Database:
     """This should be called like a context.
     i.e. with Database('kofin') as db:
         db.cursor
@@ -251,7 +252,7 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
 
 
 def _ensure_columns(
-    cursor: "sqlite3.Cursor", table: str, columns: Dict[str, str]
+    cursor: "sqlite3.Cursor", table: str, columns: dict[str, str]
 ) -> None:
     """ALTER TABLE ADD COLUMN for any listed column the table lacks."""
     cursor.execute("PRAGMA table_info(%s)" % table)
@@ -280,7 +281,7 @@ class SyncStateCorrupt(Exception):
     """
 
 
-def get_sync() -> Dict[str, Any]:
+def get_sync() -> dict[str, Any]:
     """The sync state record (pending libraries, restore points, whitelist).
 
     A missing or empty file answers defaults — a fresh install, or the
@@ -301,7 +302,7 @@ def get_sync() -> Dict[str, Any]:
     except OSError as error:
         raise SyncStateCorrupt("sync.json unreadable: %s" % error) from error
 
-    sync: Dict[str, Any] = {}
+    sync: dict[str, Any] = {}
     if raw.strip():
         try:
             loaded = json.loads(raw)
@@ -321,7 +322,7 @@ def get_sync() -> Dict[str, Any]:
     return sync
 
 
-def save_sync(sync: Dict[str, Any]) -> None:
+def save_sync(sync: dict[str, Any]) -> None:
     """Write the record atomically: temp file, fsync, ``os.replace``.
 
     A reader sees the old record or the new one, never a mixture, and the

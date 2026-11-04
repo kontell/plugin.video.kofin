@@ -112,7 +112,7 @@ class SessionSpy:
         self.active = False
 
 
-def test_join_arms_and_leave_disarms(manager):  # noqa: F811
+def test_join_arms_and_leave_disarms(manager):
     spy = SessionSpy()
     manager.tempo_session = spy
     join(manager)
@@ -126,7 +126,7 @@ def test_join_arms_and_leave_disarms(manager):  # noqa: F811
     assert not manager.fine_sync_active()
 
 
-def test_refresh_follows_the_setting(manager, monkeypatch):  # noqa: F811
+def test_refresh_follows_the_setting(manager, monkeypatch):
     spy = SessionSpy()
     manager.tempo_session = spy
     resets = []
@@ -143,7 +143,7 @@ def test_refresh_follows_the_setting(manager, monkeypatch):  # noqa: F811
     assert spy.calls == ["begin", "end", "begin"]
 
 
-def test_rate_mismatch_is_told_once_per_group(manager):  # noqa: F811
+def test_rate_mismatch_is_told_once_per_group(manager):
     warnings = []
     # The join toast itself goes through _toast too; only the warning counts.
     manager._toast = lambda message, **kw: kw.get("warning") and warnings.append(
@@ -160,7 +160,7 @@ def test_rate_mismatch_is_told_once_per_group(manager):  # noqa: F811
 
 
 def test_a_live_play_without_timeshift_is_told_once_per_group(
-    manager,  # noqa: F811
+    manager,
 ):
     warnings = []
     manager._toast = lambda message, **kw: kw.get("warning") and warnings.append(
@@ -176,7 +176,7 @@ def test_a_live_play_without_timeshift_is_told_once_per_group(
     assert len(warnings) == 2
 
 
-def test_current_claim_is_the_players_item(manager):  # noqa: F811
+def test_current_claim_is_the_players_item(manager):
     manager.player.playing = True
     manager.player.item = {"Id": "m1", "PlaySessionId": "ps"}
     assert manager.current_claim()["PlaySessionId"] == "ps"
@@ -184,7 +184,7 @@ def test_current_claim_is_the_players_item(manager):  # noqa: F811
     assert manager.current_claim() is None
 
 
-def test_a_resume_settles_a_left_rate_first(manager, monkeypatch):  # noqa: F811
+def test_a_resume_settles_a_left_rate_first(manager, monkeypatch):
     """In a group or not: a member that left while paused resumes its own
     playback."""
     settled = []

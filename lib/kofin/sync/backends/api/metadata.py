@@ -11,7 +11,8 @@ full premiere date -- and ``details`` speaks that representation.
 import hashlib
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Any, NamedTuple, Optional
+from collections.abc import Iterable
 
 import xbmc
 import xbmcgui
@@ -133,7 +134,7 @@ def compact_extra(feature):
     return result
 
 
-def version_sources(item) -> List[Dict[str, Any]]:
+def version_sources(item) -> list[dict[str, Any]]:
     """The media sources a movie is listed by, a file each, when it has
     more than one; Jellyfin's first is the one the movie's plain URL plays."""
     sources = [
@@ -160,7 +161,7 @@ def version_label(source) -> str:
     return name
 
 
-def special_features(item) -> List[Dict[str, Any]]:
+def special_features(item) -> list[dict[str, Any]]:
     return [
         f
         for f in (item.get("SpecialFeatures") or [])
@@ -189,7 +190,7 @@ def assets_token(item, features=frozenset()) -> str:
     )
 
 
-def asset_files(item, key, library, features=frozenset()) -> Optional[Dict[str, Any]]:
+def asset_files(item, key, library, features=frozenset()) -> Optional[dict[str, Any]]:
     """The files a movie's folder lists beyond its own, by URL: its version
     files with the source's name (only with ``video_versions``), its
     extras. None for a movie with neither. Acknowledged beside the assets
@@ -219,7 +220,7 @@ def asset_files(item, key, library, features=frozenset()) -> Optional[Dict[str, 
 
 # A movie that lost every version and extra keeps an empty entry, so that
 # its last acknowledgement does not still list them.
-NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
+NO_ASSET_FILES: dict[str, Any] = {"versions": [], "extras": []}
 
 
 def item_separator():
@@ -243,7 +244,7 @@ def _token(value) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def refresh_fields(item, seasons=()) -> Dict[str, Any]:
+def refresh_fields(item, seasons=()) -> dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
     An episode's sort numbering has no setter, so it joins the token. A
@@ -251,7 +252,7 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     own row's to patch.
     """
     kind = item.get("Type")
-    keys: Tuple[str, ...] = ("People",)
+    keys: tuple[str, ...] = ("People",)
     if kind in ("Movie", "Episode", "MusicVideo"):
         keys += ("MediaStreams", "MediaSources", "Video3DFormat", "AspectRatio")
     if kind == "Episode":
@@ -261,7 +262,7 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
             "AirsBeforeEpisodeNumber",
             "IndexNumberEnd",
         )
-    value: Dict[str, Any] = {key: item.get(key) for key in keys}
+    value: dict[str, Any] = {key: item.get(key) for key in keys}
     if kind == "Movie" and isinstance(value.get("MediaSources"), list):
         # The movie's own source alone, without its name or streams: its
         # further sources are version files its folder's scan files,
@@ -305,23 +306,23 @@ REFRESH_PARTS = {
 }
 
 
-def refresh_parts(item, seasons=()) -> Dict[str, str]:
+def refresh_parts(item, seasons=()) -> dict[str, str]:
     """The token's own fields, a short hash per part: kept beside a row's
     acknowledgement so that the refresh of it can say which part moved. The
     token alone says only that something did. Built from the one dict the
     token hashes, so a field cannot join the token and be missing here; one
     that has no word yet is reported under its own name."""
-    grouped: Dict[str, Dict[str, Any]] = {}
+    grouped: dict[str, dict[str, Any]] = {}
     for key, value in refresh_fields(item, seasons).items():
         grouped.setdefault(REFRESH_PARTS.get(key, key.lower()), {})[key] = value
     return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
 
 
-def userdata(item) -> Dict[str, Any]:
+def userdata(item) -> dict[str, Any]:
     """The userdata Kodi keeps for a playable row. A song has no resume point
     in Kodi's music library, so a song's is its playcount and last played."""
     data = item.get("UserData") or {}
-    result: Dict[str, Any] = {"playcount": listitems.playcount_of(item)}
+    result: dict[str, Any] = {"playcount": listitems.playcount_of(item)}
     if item.get("Type") != "Audio":
         result["resume"] = {
             "position": float(data.get("PlaybackPositionTicks") or 0) / 10000000,
@@ -388,7 +389,7 @@ def ratings(item):
     return result
 
 
-def episode_numbers(item) -> Optional[Dict[str, int]]:
+def episode_numbers(item) -> Optional[dict[str, int]]:
     """Kodi's numbering for an episode, or None when Kodi cannot file it.
 
     The scanner keeps an episode whose tag says season >= 0 and episode > 0,
@@ -512,7 +513,7 @@ def same_play(actual: str, wanted: str) -> bool:
     return -STOP_REPORT <= ahead <= SAME_PLAY
 
 
-def own_art(item, server) -> Dict[str, str]:
+def own_art(item, server) -> dict[str, str]:
     """The art a row carries in its own right: no dotted key (``tvshow.*``,
     ``season.*``), which Kodi reads off the show and season rows.
 
@@ -552,7 +553,7 @@ def details(
     kind = item.get("Type", "Movie")
     if kind in MUSIC:
         return music_details(item, server)
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "title": item.get("Name", ""),
         "plot": item.get("Overview") or "",
         "art": own_art(item, server),
@@ -681,13 +682,13 @@ def details(
 # -- music ---------------------------------------------------------------------
 
 
-def music_art(item, server) -> Dict[str, str]:
+def music_art(item, server) -> dict[str, str]:
     """The two art types Kodi's music library shows for albums and artists."""
     art = listitems.art_for(item, server)
     return {key: art[key] for key in ("thumb", "fanart") if art.get(key)}
 
 
-def music_details(item, server) -> Dict[str, Any]:
+def music_details(item, server) -> dict[str, Any]:
     """The desired native state of a music kind.
 
     A song's tags are the scanner's to write: the only public setter a song
@@ -705,7 +706,7 @@ def music_details(item, server) -> Dict[str, Any]:
     }
 
 
-def names(credits) -> List[str]:
+def names(credits) -> list[str]:
     result = []
     for credit in credits or []:
         name = credit.get("Name", "") if isinstance(credit, dict) else str(credit)
@@ -720,7 +721,7 @@ def song_year(item) -> int:
     return year if year > NO_YEAR else 0
 
 
-def song_tags(item, album=None) -> Dict[str, Any]:
+def song_tags(item, album=None) -> dict[str, Any]:
     """Every tag the song's ListItem sets, as plain values: the scanner's
     input, and the hash a metadata change moves the directory by.
 
@@ -863,9 +864,9 @@ def folder_label(album, folder: str, salt: int = 0) -> str:
     return created + " " + folder + (" %d" % salt if salt else "")
 
 
-def collections_of(boxsets: Iterable[Dict[str, Any]]) -> Dict[str, str]:
+def collections_of(boxsets: Iterable[dict[str, Any]]) -> dict[str, str]:
     """Movie id -> the one set Kodi can hold, chosen stably by name then id."""
-    result: Dict[str, Tuple[str, str, str]] = {}
+    result: dict[str, tuple[str, str, str]] = {}
     for boxset in boxsets:
         name = (boxset.get("Name") or "").strip(ASCII_SPACE)
         if not name:
@@ -918,7 +919,7 @@ STREAM_FLAGS = (
 )
 
 
-def _flags(raw, kind) -> List[List[str]]:
+def _flags(raw, kind) -> list[list[str]]:
     """The flag names of each stream of ``kind`` ("Audio", "Subtitle"), in
     the order ``streams_and_runtime`` lists them."""
     return [
@@ -1049,7 +1050,7 @@ def inputs_token(
     )
 
 
-def episode_row(item) -> Optional[Tuple[str, int, int]]:
+def episode_row(item) -> Optional[tuple[str, int, int]]:
     """All the show hash takes from an episode: its id and numbering, or
     None for one Kodi cannot file. A listing reduces each payload to this
     and lets the payload go."""
@@ -1104,10 +1105,10 @@ class Version(NamedTuple):
 
     label: str
     default: bool
-    ids: Dict[str, str]
+    ids: dict[str, str]
 
     @classmethod
-    def of(cls, label: str, default: bool, ids: Dict[str, str]) -> "Version":
+    def of(cls, label: str, default: bool, ids: dict[str, str]) -> "Version":
         if not default:
             ids = {k: v for k, v in ids.items() if k != "kofinrefresh"}
         return cls(label, default, ids)
@@ -1273,10 +1274,10 @@ def extra_listitem(item, server, features=frozenset()):
     return li
 
 
-def owned(data) -> Dict[str, List[str]]:
+def owned(data) -> dict[str, list[str]]:
     """The map keys and tags this write puts its name to; a later write may
     clear exactly these and nothing a user or another add-on added."""
-    result: Dict[str, List[str]] = {}
+    result: dict[str, list[str]] = {}
     for field in ("art", "ratings", "uniqueid"):
         if isinstance(data.get(field), dict):
             result[field] = sorted(data[field])

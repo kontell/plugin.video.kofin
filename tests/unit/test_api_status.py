@@ -493,7 +493,7 @@ def test_what_this_kodi_cannot_do_is_counted_on_one_row_and_named_behind_it(
 
     store.publish([movie("a")], library=LIB)
     _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
-    text = lambda i: TEXT.get(i, "L%d" % i)  # noqa: E731
+    text = lambda i: TEXT.get(i, "L%d" % i)
     found = status.snapshot(store, 2)
     table = {name: True for name in capabilities.FEATURES}
     rows = status.rows({}, found, text, LABELS.__getitem__, features=table)
@@ -546,7 +546,7 @@ def test_the_sync_queue_companion_is_reported_once_known(store, monkeypatch):
     Kodi's own "Not available"; the log names which."""
     store.publish([movie("a")], library=LIB)
     _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
-    text = lambda i: TEXT.get(i, "L%d" % i)  # noqa: E731
+    text = lambda i: TEXT.get(i, "L%d" % i)
     found = status.snapshot(store, 2)
 
     def row():

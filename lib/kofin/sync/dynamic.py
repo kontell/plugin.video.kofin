@@ -33,7 +33,7 @@ merge), so a profile holding only ``kofin/`` lists nothing for
 music tree gets Kodi's shipped music nodes the same way.
 """
 
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional
 
 import xbmcaddon
 
@@ -56,8 +56,8 @@ class View(NamedTuple):
 
 
 def node_entries(
-    views: List[View], whitelist: List[str], key: str
-) -> List[Tuple[Dict, bool]]:
+    views: list[View], whitelist: list[str], key: str
+) -> list[tuple[dict, bool]]:
     """The whitelist as the tree writer wants it: ``(view, mixed)`` pairs in
     tree order, a mixed library split into its two kinds, movies before
     shows before music videos and the server's order within a kind. Each
@@ -129,8 +129,8 @@ def login_key() -> Optional[str]:
 
 
 def music_entries(
-    views: List[View], whitelist: List[str], key: Optional[str]
-) -> Optional[List[Dict]]:
+    views: list[View], whitelist: list[str], key: Optional[str]
+) -> Optional[list[dict]]:
     """The whitelisted music libraries as the music tree wants them, in the
     server's order, each with the folder its songs are filed under. None
     while ``key`` is (``login_key``), since an empty list deletes the
@@ -195,7 +195,7 @@ def publish(items, server, hidden=frozenset()):
     if nodes is not None:
         key = login_key() if nodes else ""
     entries = node_entries(views, whitelist, key) if nodes and key else []
-    singles: List[Dict] = []
+    singles: list[dict] = []
     try:
         if key is None:
             LOG.debug("settings unreadable; video node tree left as it is")

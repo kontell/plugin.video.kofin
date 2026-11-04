@@ -24,8 +24,8 @@ sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
 
-from kofin.core import auth, discovery  # noqa: E402
-from kofin.core.http import plugin_transport  # noqa: E402
+from kofin.core import auth, discovery
+from kofin.core.http import plugin_transport
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/sdcard/kofin-probe-discovery.txt"
 
@@ -41,7 +41,7 @@ arrivals = []
 started = time.time()
 try:
     found = discovery.scan(lambda entry: arrivals.append(time.time() - started))
-except Exception as error:  # noqa: BLE001 - the whole point is to see it
+except Exception as error:
     say("scan RAISED %r" % (error,))
     found = []
 elapsed = time.time() - started
@@ -62,7 +62,7 @@ for entry in found:
         for address in (entry.address, fallback):
             try:
                 info = auth.probe_public_info(transport, address)
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:
                 say("  probe %s FAILED %r" % (address, error))
                 continue
             say(

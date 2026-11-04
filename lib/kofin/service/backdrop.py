@@ -47,7 +47,7 @@ def _state_path() -> str:
 
 def _read_state() -> dict:
     try:
-        with open(_state_path(), "r", encoding="utf-8") as handle:
+        with open(_state_path(), encoding="utf-8") as handle:
             state: dict = json.load(handle)
             return state
     except (OSError, ValueError):

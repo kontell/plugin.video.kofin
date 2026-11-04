@@ -11,7 +11,7 @@ keeps an episode's tags (``episode_tags``). The state joins the inputs token
 accepts a dotted art key and never stores it.
 """
 
-from typing import Dict, Iterable, Set, Tuple
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 
@@ -21,7 +21,7 @@ BADGE_ART = "kofindownloaded"
 BADGE_URL = "special://home/addons/plugin.video.kofin/resources/media/downloaded.png"
 
 
-def marks() -> Tuple[Set[str], Dict[str, Set[str]]]:
+def marks() -> tuple[set[str], dict[str, set[str]]]:
     """``(downloaded item ids, series id -> its downloaded episode ids)``,
     read once a pass from kofin's own store."""
     try:
@@ -32,7 +32,7 @@ def marks() -> Tuple[Set[str], Dict[str, Set[str]]]:
         LOG.exception("download rows unavailable to the pass")
         return set(), {}
     done = {row.jellyfin_id for row in rows}
-    series: Dict[str, Set[str]] = {}
+    series: dict[str, set[str]] = {}
     for row in rows:
         if row.media_type == "episode" and row.series_id:
             series.setdefault(row.series_id, set()).add(row.jellyfin_id)
@@ -42,7 +42,7 @@ def marks() -> Tuple[Set[str], Dict[str, Set[str]]]:
 def flag(
     kind: str,
     item_id: str,
-    done: Set[str],
+    done: set[str],
     series: Iterable[str],
     season: bool = False,
 ) -> str:
@@ -59,7 +59,7 @@ def flag(
     return ""
 
 
-def apply(kind: str, desired: Dict, mark: str) -> None:
+def apply(kind: str, desired: dict, mark: str) -> None:
     """Put the badge and the tag into the desired state of a marked row.
     An episode's desired state has tags only on a Kodi that keeps them."""
     from kofin.downloads import EPISODE_TAG, TAG

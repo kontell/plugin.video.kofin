@@ -6,7 +6,7 @@ Kodistubs type check and exercised live.
 """
 
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import xbmc
 import xbmcgui
@@ -17,7 +17,7 @@ from kofin.core.urls import plugin_url
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 
 FOLDER_TYPES = frozenset(
@@ -79,7 +79,7 @@ def path_for(item: JsonDict) -> str:
     return plugin_url({"mode": "browse", "folder": item_id, "type": item_type.lower()})
 
 
-def resume_of(item: JsonDict, offset: Optional[float] = None) -> Tuple[float, float]:
+def resume_of(item: JsonDict, offset: Optional[float] = None) -> tuple[float, float]:
     """(resume seconds, total seconds) from UserData/RunTimeTicks.
 
     The position carries the Advanced-tab resume offset, so the time Kodi's
@@ -149,7 +149,7 @@ def person_thumb(server: str, person: JsonDict) -> str:
 # read constructs a fresh Addon each time (settings.get_addon), and art_for
 # runs once per item. Two seconds of memory survives any restart (it is time,
 # not a handle) and a settings change shows within them.
-_ART_QUERY: Tuple[float, str, str] = (0.0, "", "")
+_ART_QUERY: tuple[float, str, str] = (0.0, "", "")
 ART_QUERY_TTL = 2.0
 # The longest side of a person's portrait, which is drawn as a thumb beside a
 # name, never across a screen.
@@ -174,7 +174,7 @@ def person_query() -> str:
     return _queries()[1]
 
 
-def _queries() -> Tuple[str, str]:
+def _queries() -> tuple[str, str]:
     global _ART_QUERY
     now = time.monotonic()
     stamp, art, person = _ART_QUERY
@@ -195,7 +195,7 @@ def forget_art_query() -> None:
     _ART_QUERY = (0.0, "", "")
 
 
-def art_for(item: JsonDict, server: str) -> Dict[str, str]:
+def art_for(item: JsonDict, server: str) -> dict[str, str]:
     """Art dict with parent fallbacks (series poster on episodes, etc.)."""
     query = art_query()
 
@@ -207,7 +207,7 @@ def art_for(item: JsonDict, server: str) -> Dict[str, str]:
             path += "/%d" % index
         return path + "?tag=%s" % tag + query
 
-    art: Dict[str, str] = {}
+    art: dict[str, str] = {}
     item_id = item.get("Id", "")
     tags = item.get("ImageTags") or {}
 

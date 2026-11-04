@@ -23,14 +23,10 @@ from queue import Empty, Queue
 from typing import (
     Any,
     Callable,
-    Dict,
-    Iterable,
-    List,
     NamedTuple,
     Optional,
-    Set,
-    Tuple,
 )
+from collections.abc import Iterable
 
 import xbmc
 
@@ -51,7 +47,7 @@ from kofin.downloads import (
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode", "Audio": "song"}
 
@@ -145,7 +141,7 @@ class DownloadManager:
     def __init__(
         self,
         api_factory: Callable[[], Any],
-        refresh: Callable[[List[str]], None],
+        refresh: Callable[[list[str]], None],
         stopping: "threading.Event",
         native: Optional[nativeport.Native] = None,
     ) -> None:
@@ -161,28 +157,28 @@ class DownloadManager:
         # worker wakes first, perhaps one that cannot claim the row. A set
         # between claim and wait is kept, where a Condition's notify_all
         # would drop it.
-        self._wakes: List[threading.Event] = []
+        self._wakes: list[threading.Event] = []
         self._wakes_lock = threading.Lock()
-        self._ops: "Queue[_Op]" = Queue()
+        self._ops: Queue[_Op] = Queue()
         self._cancels: set = set()
         self._cancels_lock = threading.Lock()
-        self._attempts: Dict[str, int] = {}
-        self._workers: List[threading.Thread] = []
+        self._attempts: dict[str, int] = {}
+        self._workers: list[threading.Thread] = []
         self._reconciler: Optional[threading.Thread] = None
         # Which Kodi databases a finished download has made stale, and since
         # when. Coalesced rather than refreshed per item — see _mark_dirty.
-        self._dirty: Set[str] = set()
-        self._playlist_dirty: Set[str] = set()
+        self._dirty: set[str] = set()
+        self._playlist_dirty: set[str] = set()
         self._dirty_since = 0.0
         self._dirty_lock = threading.Lock()
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
         # Requests and albums whose completion has already been announced.
-        self._announced: Set[str] = set()
+        self._announced: set[str] = set()
         self._announce_lock = threading.Lock()
         # Downloads deleted since the last announcement (see _flush_removed).
-        self._removed: List[str] = []
+        self._removed: list[str] = []
         self._removed_lock = threading.Lock()
         # One *video* transcode pull at a time: the encoder runs unthrottled,
         # so two parallel pulls would saturate the server. Originals keep the
@@ -228,7 +224,7 @@ class DownloadManager:
             self._spawn_worker("kofin-downloads-music-%d" % index, MUSIC_KINDS)
         LOG.debug("download manager started (%d worker(s))", len(self._workers))
 
-    def _spawn_worker(self, name: str, kinds: Tuple[str, ...]) -> None:
+    def _spawn_worker(self, name: str, kinds: tuple[str, ...]) -> None:
         worker = threading.Thread(
             target=self._run_worker,
             args=(kinds, self._new_wake()),
@@ -259,9 +255,9 @@ class DownloadManager:
 
     def submit(
         self,
-        item_ids: List[str],
+        item_ids: list[str],
         origin: str = store.ORIGIN_USER,
-        media_types: Optional[List[str]] = None,
+        media_types: Optional[list[str]] = None,
         request_id: str = "",
         request_name: str = "",
     ) -> None:
@@ -292,7 +288,7 @@ class DownloadManager:
         self._ops.put(_Op("cancel", item_id))
         self._wake_all()
 
-    def remove(self, item_ids: List[str], subscription: bool = False) -> None:
+    def remove(self, item_ids: list[str], subscription: bool = False) -> None:
         """Delete finished downloads.
 
         One op for the lot; Jellyfin ids are hex, so the comma joining them
@@ -329,7 +325,7 @@ class DownloadManager:
 
     def _run_worker(
         self,
-        kinds: Tuple[str, ...] = VIDEO_KINDS,
+        kinds: tuple[str, ...] = VIDEO_KINDS,
         wake: Optional["threading.Event"] = None,
     ) -> None:
         # Own Event, never the pool's (see _wakes). Defaulted so a test can
@@ -703,7 +699,7 @@ class DownloadManager:
         container: str,
         size_expected: int,
         root: str,
-    ) -> Tuple[str, int]:
+    ) -> tuple[str, int]:
         """The original bytes, Range-resumable."""
         item_id = row.jellyfin_id
         rel_path = row.rel_path
@@ -757,7 +753,7 @@ class DownloadManager:
         owner_id: str,
         decision: "quality.Decision",
         root: str,
-    ) -> Tuple[str, int]:
+    ) -> tuple[str, int]:
         """A progressive fMP4 (or music) transcode.
 
         Never resumed — a re-encode is not byte-stable, so every attempt
@@ -1107,7 +1103,7 @@ class DownloadManager:
             root = downloads_root()
             touched = False
             songs = False
-            repointed_songs: Set[str] = set()
+            repointed_songs: set[str] = set()
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
@@ -1350,7 +1346,7 @@ class DownloadManager:
         with self._dirty_lock:
             self._playlist_dirty.add(item_id)
 
-    def _refresh_song_playlists(self, item_ids: Set[str]) -> None:
+    def _refresh_song_playlists(self, item_ids: set[str]) -> None:
         try:
             self.native.refresh_song_playlists(item_ids)
         except Exception:
@@ -1375,7 +1371,7 @@ class DownloadManager:
         if databases:
             self._refresh_quietly(databases)
 
-    def _refresh_quietly(self, databases: Optional[List[str]] = None) -> None:
+    def _refresh_quietly(self, databases: Optional[list[str]] = None) -> None:
         try:
             self._refresh(databases or ["video"])
         except Exception:  # pragma: no cover - refresh is best-effort
@@ -1522,7 +1518,7 @@ def _watched_locally(row: "store.Download") -> bool:
     return nativeport.for_build().watched_locally(row)
 
 
-def _last_touch(row: "store.Download") -> Optional[Tuple[float, bool]]:
+def _last_touch(row: "store.Download") -> Optional[tuple[float, bool]]:
     return nativeport.for_build().last_touch(row)
 
 

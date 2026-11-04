@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "lib"))
 
-from kofin.sync.backends.api.contract import check  # noqa: E402
+from kofin.sync.backends.api.contract import check
 
 CONTRACT = ROOT / "lib/kofin/sync/backends/api/requirements.json"
 

@@ -10,7 +10,7 @@ never per item.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Set
+from typing import Any
 
 import xbmc
 import xbmcaddon
@@ -39,16 +39,16 @@ FEATURES = tuple(name for name, _label in FEATURE_LABELS)
 ALL = frozenset(FEATURES)
 
 
-def contract() -> Dict[str, Any]:
-    document: Dict[str, Any] = json.loads(
+def contract() -> dict[str, Any]:
+    document: dict[str, Any] = json.loads(
         Path(__file__).with_name("requirements.json").read_text()
     )
     return document
 
 
-def _python_names(contract_) -> Dict[str, Set[str]]:
+def _python_names(contract_) -> dict[str, set[str]]:
     """Every Python method the baseline or a feature asks about, by field."""
-    wanted: Dict[str, Set[str]] = {}
+    wanted: dict[str, set[str]] = {}
     for field, names in contract_["python"].items():
         wanted.setdefault(field, set()).update(names)
     for probes in contract_.get("features", {}).values():
@@ -138,12 +138,12 @@ def report_path() -> str:
     return os.path.join(private.addon_data_path(), REPORT)
 
 
-def table() -> Dict[str, bool]:
+def table() -> dict[str, bool]:
     """Every feature by name, on or off, as the last probe found this Kodi
     (``REPORT``). With no report yet, or one of another shape, every feature
     is off: the baseline is what a Kodi is until it has been asked."""
     try:
-        with open(report_path(), "r", encoding="utf-8") as handle:
+        with open(report_path(), encoding="utf-8") as handle:
             document = json.load(handle)
     except (OSError, ValueError):
         document = {}
@@ -153,7 +153,7 @@ def table() -> Dict[str, bool]:
     return {name: found.get(name) is True for name in FEATURES}
 
 
-def features() -> FrozenSet[str]:
+def features() -> frozenset[str]:
     """The names of the features this Kodi has."""
     return frozenset(name for name, on in table().items() if on)
 

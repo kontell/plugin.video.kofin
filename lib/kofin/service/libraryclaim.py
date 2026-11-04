@@ -2,7 +2,7 @@
 
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import xbmcgui
 
@@ -10,7 +10,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 
 def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:

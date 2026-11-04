@@ -12,7 +12,7 @@ raises rather than falling back to the original: silently downloading a
 40 GB file the caps ruled out is worse than a retry.
 """
 
-from typing import Any, Dict, NamedTuple
+from typing import Any, NamedTuple
 
 from kofin.core import deviceprofile, settings
 from kofin.core.http import JellyfinError
@@ -21,7 +21,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # The store's row value is the vocabulary; aliased so the shared vocabulary
 # is named once.

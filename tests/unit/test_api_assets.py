@@ -726,7 +726,7 @@ def test_a_dropped_version_and_extra_leave_through_a_clean_of_the_folder(
     backend.setup()
     store.publish([assets_movie(), assets_movie(Id="b")], library=LIB)
     backend.reconcile()
-    (row,) = [r for r in movie_rows(kodi) if r["file"].endswith("id=a")]
+    (row,) = (r for r in movie_rows(kodi) if r["file"].endswith("id=a"))
     assert kodi.versions[row["movieid"]] and len(kodi.extras[row["movieid"]]) == 2
     assert kodi.cleaned == []
     item = assets_movie(
@@ -744,7 +744,7 @@ def test_a_dropped_version_and_extra_leave_through_a_clean_of_the_folder(
     assert kodi.versions[row["movieid"]] == []
     assert kodi.extras[row["movieid"]] == ["Making Of"]
     # The other movie's assets were not asked about.
-    (other,) = [r for r in movie_rows(kodi) if r["file"].endswith("id=b")]
+    (other,) = (r for r in movie_rows(kodi) if r["file"].endswith("id=b"))
     assert kodi.versions[other["movieid"]] and len(kodi.extras[other["movieid"]]) == 2
     # A change that drops nothing cleans nothing.
     store.publish([dict(item, Overview="Changed"), assets_movie(Id="b")], library=LIB)

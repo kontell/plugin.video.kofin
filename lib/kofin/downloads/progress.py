@@ -11,7 +11,7 @@ Nothing is created once the manager is stopping.
 
 import threading
 import time
-from typing import Callable, Dict, Optional
+from typing import Callable, Optional
 
 import xbmcgui
 
@@ -43,8 +43,8 @@ class Reporter:
     def __init__(self, should_stop: Callable[[], bool]) -> None:
         self._should_stop = should_stop
         self._lock = threading.Lock()
-        self._dialog: Optional["xbmcgui.DialogProgressBG"] = None
-        self._transfers: Dict[str, _Transfer] = {}
+        self._dialog: Optional[xbmcgui.DialogProgressBG] = None
+        self._transfers: dict[str, _Transfer] = {}
         self._completed = 0
         self._current = ""
         self._rendered_at = 0.0

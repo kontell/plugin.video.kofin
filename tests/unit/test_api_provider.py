@@ -185,7 +185,7 @@ def test_a_set_stands_for_a_collection_acknowledged_against_it(
         library=LIB,
     )
     backend.reconcile()
-    (set_id,) = [r["setid"] for r in kodi.rows["BoxSet"].values()]
+    (set_id,) = (r["setid"] for r in kodi.rows["BoxSet"].values())
     assert store.mapping("box").kodi_id == set_id
     assert store.mapping("box2").kodi_id == set_id
     assert identity.mapped_item(set_id, "set") == "box"

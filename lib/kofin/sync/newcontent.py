@@ -7,7 +7,8 @@ several.
   ``Season`` are silent too.
 """
 
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
+from collections.abc import Iterable
 
 from kofin.core import settings
 
@@ -55,7 +56,7 @@ class Entry(NamedTuple):
     series_id: str = ""
 
 
-def entry_for(item: Dict[str, Any]) -> Optional[Entry]:
+def entry_for(item: dict[str, Any]) -> Optional[Entry]:
     """The announceable entry for an item, or None when it is not.
 
     None covers every reason to stay quiet: a type with no message, a watched
@@ -88,22 +89,22 @@ def entry_for(item: Dict[str, Any]) -> Optional[Entry]:
     return Entry(item_type, item_id, name, series, series_id)
 
 
-def summarize(entries: Iterable[Entry]) -> List[str]:
+def summarize(entries: Iterable[Entry]) -> list[str]:
     """The messages for one cycle's entries, in display order.
 
     Ids are deduplicated first.
     """
-    unique: Dict[str, Entry] = {}
+    unique: dict[str, Entry] = {}
 
     for entry in entries:
         unique.setdefault("%s/%s" % (entry.type, entry.item_id), entry)
 
-    by_type: Dict[str, List[Entry]] = {}
+    by_type: dict[str, list[Entry]] = {}
 
     for entry in unique.values():
         by_type.setdefault(entry.type, []).append(entry)
 
-    messages: List[str] = []
+    messages: list[str] = []
 
     _count_line(messages, by_type.get(MOVIE, []), MOVIE_ONE, MOVIE_MANY)
     _count_line(messages, by_type.get(SERIES, []), SERIES_ONE, SERIES_MANY)
@@ -116,7 +117,7 @@ def summarize(entries: Iterable[Entry]) -> List[str]:
 
 
 def _count_line(
-    messages: List[str], entries: List[Entry], one_id: int, many_id: int
+    messages: list[str], entries: list[Entry], one_id: int, many_id: int
 ) -> None:
     """Name it when there is one of it, count it when there are more."""
     if not entries:
@@ -129,7 +130,7 @@ def _count_line(
 
 
 def _episode_line(
-    messages: List[str], episodes: List[Entry], series: List[Entry]
+    messages: list[str], episodes: list[Entry], series: list[Entry]
 ) -> None:
     """The episode line, which is three lines depending on the spread.
 

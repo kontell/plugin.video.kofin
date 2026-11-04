@@ -8,9 +8,9 @@ import sys, xbmc, xbmcvfs
 sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
-from kofin.plugin import account  # noqa: E402
-from kofin.core.settings import Credentials  # noqa: E402
-from kofin.plugin.router import Request  # noqa: E402
+from kofin.plugin import account
+from kofin.core.settings import Credentials
+from kofin.plugin.router import Request
 
 stub = sys.argv[1]
 real = account.Credentials.load()

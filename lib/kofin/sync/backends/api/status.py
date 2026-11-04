@@ -17,7 +17,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -46,14 +46,14 @@ def path() -> str:
     return os.path.join(private.addon_data_path(), DOCUMENT)
 
 
-def read(namespace: str = "") -> Dict[str, Any]:
+def read(namespace: str = "") -> dict[str, Any]:
     """The document, as far as it has the shape ``write`` gives it. It is
     read by another process than the one that wrote it, and a field of
     another type (a hand edit, a later build's) is left out, not shown. A
     document another account's thread stamped reads as nothing for
     ``namespace``; one without a stamp is anyone's."""
     try:
-        with open(path(), "r", encoding="utf-8") as handle:
+        with open(path(), encoding="utf-8") as handle:
             document = json.load(handle)
     except (OSError, ValueError):
         return {}
@@ -62,7 +62,7 @@ def read(namespace: str = "") -> Dict[str, Any]:
     stamped = document.get("namespace")
     if namespace and isinstance(stamped, str) and stamped and stamped != namespace:
         return {}
-    found: Dict[str, Any] = {}
+    found: dict[str, Any] = {}
     state = document.get("state")
     if isinstance(state, str):
         found["state"] = state
@@ -100,7 +100,7 @@ def write(state: str, listing=(), namespace: str = "", earlier: bool = False) ->
     ):
         return
     since = current.get("since") if same else None
-    document: Dict[str, Any] = {
+    document: dict[str, Any] = {
         "state": state,
         "since": since or time.time(),
         "listing": listing,
@@ -130,19 +130,19 @@ def record_feed(tier: str, namespace: str = "") -> None:
     current = read(namespace)
     if current.get("feed") == tier:
         return
-    document: Dict[str, Any] = dict(current)
+    document: dict[str, Any] = dict(current)
     document["feed"] = tier
     _store(document, namespace)
 
 
-def record_missing(names: List[str], namespace: str = "") -> None:
+def record_missing(names: list[str], namespace: str = "") -> None:
     """Record the selected libraries the server no longer lists, by name,
     until they have left (``Library.settle_missing``). Written only when the
     list moved."""
     current = read(namespace)
     if (current.get("missing") or []) == names:
         return
-    document: Dict[str, Any] = dict(current)
+    document: dict[str, Any] = dict(current)
     if names:
         document["missing"] = list(names)
     else:
@@ -150,7 +150,7 @@ def record_missing(names: List[str], namespace: str = "") -> None:
     _store(document, namespace)
 
 
-def _store(document: Dict[str, Any], namespace: str = "") -> None:
+def _store(document: dict[str, Any], namespace: str = "") -> None:
     if namespace:
         document["namespace"] = namespace
     target = path()
@@ -182,7 +182,7 @@ class LibraryStatus(NamedTuple):
 
 
 class Snapshot(NamedTuple):
-    libraries: List[LibraryStatus]
+    libraries: list[LibraryStatus]
     pending: int
     failed: int
     error: str
@@ -230,13 +230,13 @@ def snapshot(store, scanner_format: int) -> Snapshot:
 
 
 def rows(
-    document: Dict[str, Any],
+    document: dict[str, Any],
     found: Snapshot,
     text,
     kind_label,
     clock=time.localtime,
-    features: Optional[Dict[str, bool]] = None,
-) -> List[str]:
+    features: Optional[dict[str, bool]] = None,
+) -> list[str]:
     """The dialog's lines. ``text`` gives a string by its id and
     ``kind_label`` Kodi's own word for a kind; ``features`` is the capability
     table of this Kodi (``capabilities.table``), whose off entries are named
@@ -313,7 +313,7 @@ def unfiled_row(found: Snapshot, text) -> str:
     return "%s:  %s" % (text(30868), _number(unfiled)) if unfiled else ""
 
 
-def counted(found: Snapshot) -> List[Tuple[str, str]]:
+def counted(found: Snapshot) -> list[tuple[str, str]]:
     """The ``(library, kind)`` pairs that row counts, which is what the
     store is asked for (``store.unfiled``), so the list is as long as the
     count."""
@@ -334,7 +334,7 @@ def unfiled_report(entries, found: Snapshot, text) -> str:
     def name(library: str) -> str:
         return names.get(library) or library
 
-    grouped: Dict[str, List[str]] = {}
+    grouped: dict[str, list[str]] = {}
     for library, _kind, item in entries:
         grouped.setdefault(library, []).append(_item_name(item))
     lines = [text(30885)]
@@ -346,13 +346,13 @@ def unfiled_report(entries, found: Snapshot, text) -> str:
     return "\n".join(lines)
 
 
-def _item_name(item: Dict[str, Any]) -> str:
+def _item_name(item: dict[str, Any]) -> str:
     title = (item.get("Name") or "").strip() or str(item.get("Id") or "")
     show = (item.get("SeriesName") or "").strip()
     return "%s \u2014 %s" % (show, title) if show else title
 
 
-def off_features(features: Dict[str, bool], text) -> List[str]:
+def off_features(features: dict[str, bool], text) -> list[str]:
     """The labels of the features this Kodi lacks, in the table's order."""
     return [
         text(label)
@@ -410,10 +410,10 @@ def show(store) -> None:
         xbmcgui.Dialog().textviewer(document["state"], migration())
         return
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
-    lines: List[str] = []
-    off: List[str] = []
+    lines: list[str] = []
+    off: list[str] = []
     unfiled = ""
-    entries: List[Tuple[str, str, Dict[str, Any]]] = []
+    entries: list[tuple[str, str, dict[str, Any]]] = []
     cursor = 0
     while True:
         if cursor == 0:
@@ -431,7 +431,7 @@ def show(store) -> None:
             )
             unfiled = unfiled_row(found, progress.stage)
             entries = store.unfiled(counted(found)) if unfiled else []
-        choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
+        choices: list[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
         if cursor < 0:
@@ -457,4 +457,4 @@ def _moment(stamp: float, clock) -> str:
 
 
 def _number(value: int) -> str:
-    return "{:,}".format(int(value))
+    return f"{int(value):,}"

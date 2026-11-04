@@ -19,9 +19,9 @@ sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
 
-from kofin.core import auth, ipc, settings  # noqa: E402
-from kofin.core.http import plugin_transport  # noqa: E402
-from kofin.core.settings import Credentials  # noqa: E402
+from kofin.core import auth, ipc, settings
+from kofin.core.http import plugin_transport
+from kofin.core.settings import Credentials
 
 TARGETS = os.path.expanduser("~/.config/kodi-drive/targets.env")
 

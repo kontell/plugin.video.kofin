@@ -10,7 +10,8 @@ same.
 
 import random
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional
+from collections.abc import Iterator
 
 from kofin.core.log import Logger
 
@@ -68,7 +69,7 @@ def run_ladder(
     url: str,
     retries: int,
     attempt: Callable[[], Any],
-    transport_errors: Tuple[Type[BaseException], ...],
+    transport_errors: tuple[type[BaseException], ...],
     abort: Optional[Callable[[], bool]] = None,
 ) -> Any:
     """The one retry ladder both transports ride: backoff, the abort check
@@ -233,7 +234,7 @@ class Http:
         # in rather than read here so this module keeps its no-Kodi-imports
         # property; the service wires its stop flag in (service/main.py).
         self._abort = abort
-        self._session: Optional["requests.Session"] = None
+        self._session: Optional[requests.Session] = None
 
     def session(self) -> "requests.Session":
         import requests
@@ -267,10 +268,10 @@ class Http:
         self,
         method: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
-        timeout: Optional[Tuple[float, float]] = None,
+        headers: Optional[dict[str, str]] = None,
+        params: Optional[dict[str, Any]] = None,
+        json_body: Optional[dict[str, Any]] = None,
+        timeout: Optional[tuple[float, float]] = None,
         retries: Optional[int] = None,
     ) -> "requests.Response":
         import requests
@@ -291,7 +292,7 @@ class Http:
                 allow_redirects=False,
             )
 
-        response: "requests.Response" = run_ladder(
+        response: requests.Response = run_ladder(
             method,
             url,
             retries,
@@ -304,9 +305,9 @@ class Http:
     def stream(
         self,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: Optional[dict[str, str]] = None,
         start: int = 0,
-        timeout: Optional[Tuple[float, float]] = None,
+        timeout: Optional[tuple[float, float]] = None,
     ) -> StreamedResponse:
         """One streaming GET — deliberately no retry ladder.
 

@@ -10,7 +10,7 @@ import hmac
 import json
 import os
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import xbmc
 import xbmcvfs
@@ -171,7 +171,7 @@ def nonce() -> str:
         return ""
 
 
-def verify(method: str, data: Dict[str, Any], expected: str) -> bool:
+def verify(method: str, data: dict[str, Any], expected: str) -> bool:
     """Whether a received guarded message carries the right secret.
 
     Unguarded messages pass. A guarded one fails when the service has no
@@ -188,7 +188,7 @@ def verify(method: str, data: Dict[str, Any], expected: str) -> bool:
     return hmac.compare_digest(str(data.get(NONCE_KEY, "")), expected)
 
 
-def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
+def notify(method: str, data: Optional[dict[str, Any]] = None) -> None:
     if method not in _REGISTRY:
         raise ValueError("unregistered IPC message: %s" % method)
     payload = dict(data or {})
@@ -197,7 +197,7 @@ def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
     xbmc.executebuiltin("NotifyAll(%s, %s, %s)" % (SENDER, method, _encode(payload)))
 
 
-def notify_now(method: str, data: Optional[Dict[str, Any]] = None) -> bool:
+def notify_now(method: str, data: Optional[dict[str, Any]] = None) -> bool:
     """Send a message through JSON-RPC rather than the NotifyAll builtin,
     and say whether Kodi took it.
 
@@ -218,7 +218,7 @@ def notify_now(method: str, data: Optional[Dict[str, Any]] = None) -> bool:
     return result is not None and result is not kodirpc.FAILED
 
 
-def _encode(data: Dict[str, Any]) -> str:
+def _encode(data: dict[str, Any]) -> str:
     # The builtin parser re-parses its arguments, so the payload is wrapped
     # in a quoted single-element list (receivers run json.loads(...)[0]).
     # Hex rather than escaped JSON: CUtil::SplitParams lets only every second
@@ -228,7 +228,7 @@ def _encode(data: Dict[str, Any]) -> str:
     return '"[\\"%s\\"]"' % hexed
 
 
-def decode(data: str) -> Dict[str, Any]:
+def decode(data: str) -> dict[str, Any]:
     """The payload of a received message, or {} for anything unreadable.
 
     Never raises: this runs on Kodi's notification thread, where the sender
