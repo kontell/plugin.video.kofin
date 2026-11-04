@@ -2,9 +2,10 @@
 
 import threading
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from queue import Queue
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import xbmc
 import xbmcgui
@@ -26,11 +27,14 @@ from kofin.syncplay.providers import (
 from kofin.syncplay.tempo import TempoSession
 from kofin.syncplay.timesync import TimeSync
 
-#################################################################################################
+if TYPE_CHECKING:
+    from kofin.service.player import Player
 
 LOG = Logger(__name__)
 
-#################################################################################################
+# What the dispatcher is handed: a callable with its arguments, a Kodi
+# notification with its data, or None to stop.
+Posted = Optional[tuple[Union[Callable[..., Any], str], Any]]
 
 
 class SyncPlayManager:
@@ -45,9 +49,9 @@ class SyncPlayManager:
     def __init__(
         self,
         api: Optional[SyncPlayApi],
-        player,
+        player: "Player",
         providers: Optional[ProviderRegistry] = None,
-    ):
+    ) -> None:
         self.api = api
         self.player = player
         # The provider seam: how a queue item id becomes a playing stream,
@@ -68,20 +72,20 @@ class SyncPlayManager:
         self._live_route_told = False
 
         self.group: Optional[dict[str, Any]] = None  # {"GroupId", "GroupName"}
-        self.group_state = None
+        self.group_state: Optional[str] = None
         self.members: list[Any] = []
         self.protocol_version = 1
         self.state_version = 0
         # Dedicated time-sync socket path from the server's Hello (plugin
         # binding); None = HTTP time sync only.
-        self.timesync_ws_path = None
+        self.timesync_ws_path: Optional[str] = None
         self.ignore_wait = False
 
         # [(key, PlaylistItemId, provider)] mirror of the group queue
         self.queue: list[tuple[str, str, str]] = []
         self.queue_last_update: Optional[float] = None
-        self.current_item_id = None
-        self.current_playlist_item_id = None
+        self.current_item_id: Optional[str] = None
+        self.current_playlist_item_id: Optional[str] = None
         # Which provider owns the current queue item (SYNCPLAY.md §14.3):
         # jellyfin for plain entries, the descriptor's Provider otherwise.
         self.current_provider = JELLYFIN
@@ -92,7 +96,7 @@ class SyncPlayManager:
         self.phase = Phase.IDLE
 
         self.join_local_ms = 0.0
-        self.last_group_id = None
+        self.last_group_id: Optional[str] = None
         self.last_snapshot_at = 0.0
         self._last_rejoin = 0.0
         self._last_snapshot_request = 0.0
@@ -121,7 +125,7 @@ class SyncPlayManager:
         self._prog_release = 0.0
         self._prog_lock = threading.Lock()
 
-        self._inbox = Queue()  # type: Queue
+        self._inbox: Queue[Posted] = Queue()
         self._running = True
         self._dispatcher = threading.Thread(
             target=self._dispatch_loop, name="kofin-syncplay-dispatch"
@@ -133,7 +137,7 @@ class SyncPlayManager:
     # Plumbing
     # ------------------------------------------------------------------
 
-    def stop(self):
+    def stop(self) -> None:
         # The leave is a courtesy to the group, not something teardown waits
         # on: this runs inside Service.stop, which Kodi gives five seconds.
         # Skipped when the service knows the server is away; otherwise sent on
@@ -151,15 +155,15 @@ class SyncPlayManager:
         if self._dispatcher.is_alive():  # pragma: no cover - watchdog only
             LOG.warning("syncplay dispatcher did not stop within deadline")
 
-    def on_notification(self, method, data):
+    def on_notification(self, method: str, data: dict[str, Any]) -> None:
         """Entry point from the websocket routing; returns immediately."""
         self._inbox.put((method, data))
 
-    def _post(self, func, *args):
+    def _post(self, func: Callable[..., Any], *args: Any) -> None:
         """Run a callable on the dispatcher thread."""
         self._inbox.put((func, args))
 
-    def _dispatch_loop(self):
+    def _dispatch_loop(self) -> None:
         LOG.debug("--->[ syncplay dispatcher ]")
 
         while self._running:
@@ -187,7 +191,7 @@ class SyncPlayManager:
     def get_api(self) -> Optional[SyncPlayApi]:
         return self.api
 
-    def _api(self, name, *args):
+    def _api(self, name: str, *args: Any) -> Any:
         """SyncPlay REST with the §9 reaction to a lost session (401/403 on
         kofin's transport): one rate-limited automatic re-join before
         giving up."""
@@ -209,7 +213,7 @@ class SyncPlayManager:
 
         return None
 
-    def _api_raw(self, name, *args):
+    def _api_raw(self, name: str, *args: Any) -> Any:
         """SyncPlay REST that surfaces HTTP errors to the caller."""
         api_client = self.get_api()
 
@@ -222,36 +226,36 @@ class SyncPlayManager:
     # State helpers
     # ------------------------------------------------------------------
 
-    def in_group(self):
+    def in_group(self) -> bool:
         return self.group is not None
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return settings.get_bool("syncPlayEnabled")
 
-    def offset_ms(self):
+    def offset_ms(self) -> float:
         return self.timesync.offset_ms if self.timesync else 0.0
 
-    def server_now_ms(self):
+    def server_now_ms(self) -> float:
         return utils.local_ms() + self.offset_ms()
 
-    def server_now_iso(self):
+    def server_now_iso(self) -> str:
         return utils.to_iso(self.server_now_ms())
 
-    def join_server_ms(self):
+    def join_server_ms(self) -> float:
         """Join instant on the server clock; tracks time sync refinement."""
         return self.join_local_ms + self.offset_ms()
 
-    def get_utc_time(self):
+    def get_utc_time(self) -> Any:
         try:
             return self._api_raw("get_utc_time")
         except Exception as error:
             LOG.debug("GetUtcTime failed: %s", error)
             return None
 
-    def can_ws_timesync(self):
+    def can_ws_timesync(self) -> bool:
         return self.in_group() and bool(self.timesync_ws_path)
 
-    def timesync_ws_target(self):
+    def timesync_ws_target(self) -> Optional[tuple[str, str]]:
         """(url, authorization) for the dedicated time-sync socket, or None."""
         if not self.timesync_ws_path:
             return None
@@ -266,7 +270,7 @@ class SyncPlayManager:
             api_client.authorization(),
         )
 
-    def on_timesync_update(self):
+    def on_timesync_update(self) -> None:
         """Report our ping after accepted measurements (SYNCPLAY.md §3)."""
         if not self.in_group() or self.timesync is None:
             return
@@ -281,7 +285,7 @@ class SyncPlayManager:
             self._api("syncplay_ping", int(self.timesync.ping_ms))
 
     @contextmanager
-    def programmatic(self):
+    def programmatic(self) -> Iterator[None]:
         """Marks player actions we cause, so their Kodi callbacks are not
         forwarded to the group as user requests."""
         with self._prog_lock:
@@ -294,7 +298,7 @@ class SyncPlayManager:
                 self._prog_depth -= 1
                 self._prog_release = time.time()
 
-    def is_programmatic(self):
+    def is_programmatic(self) -> bool:
         with self._prog_lock:
             if self._prog_depth > 0:
                 return True
@@ -308,7 +312,9 @@ class SyncPlayManager:
             if not self.player.isPlaying():
                 return None
 
-            claim: Optional[Claim] = self.player.current_item()
+            # The play state the plugin pushed, read back from JSON
+            # (core/state): here it takes the shape SyncPlay names.
+            claim = cast(Optional[Claim], self.player.current_item())
             if claim:
                 return claim
 
@@ -320,7 +326,7 @@ class SyncPlayManager:
 
         return None
 
-    def _local_item_id(self):
+    def _local_item_id(self) -> Optional[str]:
         info = self._local_file_info()
 
         if info:
@@ -328,7 +334,7 @@ class SyncPlayManager:
 
         return state.get_playing_id() or None
 
-    def watching_own_media(self):
+    def watching_own_media(self) -> bool:
         """A spectator whose player is showing something that is not the
         group's item.
 
@@ -351,7 +357,7 @@ class SyncPlayManager:
 
         return own
 
-    def is_transcoding(self):
+    def is_transcoding(self) -> bool:
         info = self._local_file_info()
         return info is not None and info.get("PlayMethod") == "Transcode"
 
@@ -360,11 +366,11 @@ class SyncPlayManager:
         fine-sync scheduler arms on, one play session at a time."""
         return self._local_file_info()
 
-    def fine_sync_active(self):
+    def fine_sync_active(self) -> bool:
         """Whether this group membership has fine sync (the setting, at join)."""
         return self.tempo_session.active
 
-    def refresh_tempo_session(self):
+    def refresh_tempo_session(self) -> None:
         """The fine-sync setting changed: arm or disarm for the current group.
         Outside a group there is nothing to do — join arms it."""
         if not self.in_group():
@@ -377,7 +383,7 @@ class SyncPlayManager:
             # A pulse running now must not outlive the setting.
             self.playback.tempo.reset()
 
-    def notify_rate_mismatch(self):
+    def notify_rate_mismatch(self) -> None:
         """The scheduler gave up on a residual that keeps regrowing: tell the
         user once per group, because the cause is on their side."""
         if self._rate_mismatch_told:
@@ -386,7 +392,7 @@ class SyncPlayManager:
         self._rate_mismatch_told = True
         self._toast(settings.localized(30592), warning=True)
 
-    def notify_live_without_timeshift(self):
+    def notify_live_without_timeshift(self) -> None:
         """A live item played in the group without inputstream.ffmpegdirect,
         which fine sync needs for live TV: tell the user once per group."""
         if self._live_route_told:
@@ -395,7 +401,7 @@ class SyncPlayManager:
         self._live_route_told = True
         self._toast(settings.localized(30875), warning=True)
 
-    def reload_current_item(self):
+    def reload_current_item(self) -> None:
         """Restart the current item at the group position.
 
         The seek path uses this on a transcode (``PlaybackController._do_seek``).
@@ -409,7 +415,7 @@ class SyncPlayManager:
             self.current_item_id, self.current_playlist_item_id, self.current_provider
         )
 
-    def _load_allowance_ms(self):
+    def _load_allowance_ms(self) -> float:
         """How far ahead of the group to aim a load that is about to start.
 
         A playing group moves on during a load, so the load aims ahead by the
@@ -425,7 +431,7 @@ class SyncPlayManager:
 
         return min(self._load_ms, utils.LOAD_ALLOWANCE_MAX_MS)
 
-    def _note_load_completed(self):
+    def _note_load_completed(self) -> None:
         """Fold the load that just finished into the allowance."""
         started = self._load_started_ms
         self._load_started_ms = None
@@ -456,7 +462,7 @@ class SyncPlayManager:
             self._load_ms / 1000.0,
         )
 
-    def post_report(self, kind, position_s=None):
+    def post_report(self, kind: str, position_s: Optional[float] = None) -> None:
         """Ready/Buffering report with our actual position (SYNCPLAY.md §4).
 
         position_s overrides the live clock for reports that promise a
@@ -484,7 +490,7 @@ class SyncPlayManager:
             self.current_playlist_item_id,
         )
 
-    def _text(self, string_id, value=None):
+    def _text(self, string_id: int, value: Any = None) -> str:
         """localized() returns '' for unknown ids; never let formatting
         break a message handler."""
         template = settings.localized(string_id)
@@ -493,11 +499,12 @@ class SyncPlayManager:
             return template
 
         try:
-            return template % value
+            text: str = template % value
         except (TypeError, ValueError):
             return "%s %s" % (template, value)
+        return text
 
-    def _toast(self, message, error=False, warning=False):
+    def _toast(self, message: str, error: bool = False, warning: bool = False) -> None:
         if not settings.get_bool("syncPlayNotifications") and not (error or warning):
             return
 
@@ -508,14 +515,14 @@ class SyncPlayManager:
     # Group membership (menu-facing)
     # ------------------------------------------------------------------
 
-    def list_groups(self):
+    def list_groups(self) -> Optional[list[dict[str, Any]]]:
         try:
             return self._api_raw("syncplay_list") or []
         except Exception as error:
             LOG.warning("SyncPlay list failed: %s", error)
             return None
 
-    def refresh_group_info(self):
+    def refresh_group_info(self) -> None:
         """Refresh the member list for the menu."""
         if not self.in_group():
             return
@@ -530,7 +537,7 @@ class SyncPlayManager:
                     group.get("GroupName") or self.group["GroupName"]
                 )
 
-    def join_group(self, group_id):
+    def join_group(self, group_id: str) -> bool:
         self._join_pending_since = time.time()
 
         try:
@@ -549,7 +556,7 @@ class SyncPlayManager:
         self._watch_join_feedback()
         return True
 
-    def new_group(self, group_name):
+    def new_group(self, group_name: str) -> bool:
         self._join_pending_since = time.time()
         self._pending_local_queue = True
 
@@ -564,7 +571,7 @@ class SyncPlayManager:
         self._watch_join_feedback()
         return True
 
-    def leave_group(self):
+    def leave_group(self) -> None:
         try:
             self._api_raw("syncplay_leave")
         except Exception as error:
@@ -573,7 +580,7 @@ class SyncPlayManager:
         self._leave_locally()
         self._toast(settings.localized(30564))
 
-    def toggle_spectator(self):
+    def toggle_spectator(self) -> None:
         self.ignore_wait = not self.ignore_wait
         self._api("syncplay_set_ignore_wait", self.ignore_wait)
         self._toast(
@@ -586,7 +593,7 @@ class SyncPlayManager:
             # catching up at the group's next queue change.
             self._attempt_rejoin(force=True)
 
-    def request_resync(self):
+    def request_resync(self) -> None:
         """Menu 'resync': snapshot on v2, re-join on v1 (§4, §9)."""
         if not self.in_group():
             return
@@ -596,11 +603,11 @@ class SyncPlayManager:
         else:
             self._attempt_rejoin(force=True)
 
-    def _watch_join_feedback(self):
+    def _watch_join_feedback(self) -> None:
         """The feedback plane is mandatory: joining without a working
         WebSocket would mean never receiving a single command (§1)."""
 
-        def check():
+        def check() -> None:
             if self.in_group() or not self._join_pending_since:
                 return
 
@@ -640,8 +647,8 @@ class SyncPlayManager:
         "PositionBeacon": "_on_beacon",
     }
 
-    def _handle_group_update(self, data):
-        gtype = data.get("Type")
+    def _handle_group_update(self, data: dict[str, Any]) -> None:
+        gtype = str(data.get("Type") or "")
         payload = data.get("Data")
         version = data.get("StateVersion")
 
@@ -680,24 +687,29 @@ class SyncPlayManager:
             return
         getattr(self, handler)(payload or {}, version, previous_version)
 
-    def _on_not_in_group(self, payload, version):
+    def _on_not_in_group(self, payload: Any, version: Optional[int]) -> None:
         if self.in_group():
             self._attempt_rejoin()
 
-    def _on_library_access_denied(self, payload, version):
+    def _on_library_access_denied(self, payload: Any, version: Optional[int]) -> None:
         self._toast(settings.localized(30579), error=True)
 
-    def _on_group_left(self, payload):
+    def _on_group_left(self, payload: Any) -> None:
         self._leave_locally()
         self._toast(settings.localized(30564))
 
-    def _on_user_joined(self, payload):
+    def _on_user_joined(self, payload: Any) -> None:
         self._toast(self._text(30565, payload))
 
-    def _on_user_left(self, payload):
+    def _on_user_left(self, payload: Any) -> None:
         self._toast(self._text(30566, payload))
 
-    def _on_state_update(self, payload, version, previous_version):
+    def _on_state_update(
+        self,
+        payload: dict[str, Any],
+        version: Optional[int],
+        previous_version: Optional[int],
+    ) -> None:
         previous = self.group_state
         self.group_state = payload.get("State")
         LOG.debug(
@@ -710,13 +722,23 @@ class SyncPlayManager:
             # group holds. Surface why playback froze.
             self._toast(settings.localized(30585))
 
-    def _on_play_queue(self, payload, version, previous_version):
+    def _on_play_queue(
+        self,
+        payload: dict[str, Any],
+        version: Optional[int],
+        previous_version: Optional[int],
+    ) -> None:
         self._apply_play_queue(payload)
 
-    def _on_state_snapshot(self, payload, version, previous_version):
+    def _on_state_snapshot(
+        self,
+        payload: dict[str, Any],
+        version: Optional[int],
+        previous_version: Optional[int],
+    ) -> None:
         self._apply_snapshot(payload)
 
-    def _handle_command(self, command):
+    def _handle_command(self, command: dict[str, Any]) -> None:
         """SyncPlayCommand gating per SYNCPLAY.md §5.1."""
         if not self.in_group():
             return
@@ -776,7 +798,7 @@ class SyncPlayManager:
 
         self.playback.schedule(command)
 
-    def _on_group_joined(self, info, version):
+    def _on_group_joined(self, info: dict[str, Any], version: Optional[int]) -> None:
         if not self.enabled():
             LOG.debug("SyncPlay is disabled in settings, ignoring GroupJoined")
             return
@@ -844,7 +866,7 @@ class SyncPlayManager:
 
         self.publish_session_state(announce=True)
 
-    def _leave_locally(self):
+    def _leave_locally(self) -> None:
         if not self.in_group() and self.phase == Phase.IDLE:
             return
 
@@ -874,7 +896,7 @@ class SyncPlayManager:
         self.publish_session_state(announce=True)
         LOG.debug("---<[ syncplay group ]")
 
-    def _attempt_rejoin(self, force=False):
+    def _attempt_rejoin(self, force: bool = False) -> None:
         """§9: one automatic re-join before surfacing an error."""
         if not self.last_group_id:
             self._leave_locally()
@@ -895,7 +917,7 @@ class SyncPlayManager:
             self._leave_locally()
             self._toast(settings.localized(30571), warning=True)
 
-    def _request_snapshot(self, force=False):
+    def _request_snapshot(self, force: bool = False) -> None:
         """§6: reconcile via a pushed StateSnapshot, rate-limited."""
         if self.protocol_version < 2:
             return
@@ -911,7 +933,7 @@ class SyncPlayManager:
         self._last_snapshot_request = now
         self._api("syncplay_snapshot")
 
-    def _hello(self):
+    def _hello(self) -> None:
         """Capability probe (plugin binding): learns the dedicated time-sync
         socket path and registers our protocol version for this device.
         Stock and integrated servers 404 — HTTP time sync stays in place and
@@ -942,7 +964,7 @@ class SyncPlayManager:
         if self.timesync_ws_path:
             LOG.debug("SyncPlay time-sync socket at %s", self.timesync_ws_path)
 
-    def _on_ws_connected(self):
+    def _on_ws_connected(self) -> None:
         """Reconnect contract (§9): a v2 server re-attaches the member and
         pushes a StateSnapshot on its own; verify and pull one if it never
         arrives. v1 servers end the session on any socket close: probe
@@ -956,7 +978,7 @@ class SyncPlayManager:
         if self.protocol_version >= 2:
             connected_at = time.time()
 
-            def check():
+            def check() -> None:
                 if self.in_group() and self.last_snapshot_at < connected_at:
                     LOG.debug("No snapshot pushed after reconnect, requesting one")
                     self._request_snapshot()
@@ -965,7 +987,7 @@ class SyncPlayManager:
         else:
             self._kicked_probe()
 
-    def _kicked_probe(self):
+    def _kicked_probe(self) -> None:
         groups = self.list_groups()
 
         if groups is None:
@@ -988,7 +1010,7 @@ class SyncPlayManager:
     # Snapshots and beacons (v2)
     # ------------------------------------------------------------------
 
-    def _apply_snapshot(self, snapshot):
+    def _apply_snapshot(self, snapshot: dict[str, Any]) -> None:
         """§5.4: equivalent to GroupJoined + PlayQueue + a synthetic command."""
         self.last_snapshot_at = time.time()
 
@@ -1033,7 +1055,12 @@ class SyncPlayManager:
             }
         )
 
-    def _on_beacon(self, beacon, version, previous_version):
+    def _on_beacon(
+        self,
+        beacon: dict[str, Any],
+        version: Optional[int],
+        previous_version: Optional[int],
+    ) -> None:
         """§11: advisory position data; §6: version gap detection."""
         if version is not None and previous_version and version > previous_version:
             LOG.debug(
@@ -1058,7 +1085,7 @@ class SyncPlayManager:
     # Queue mirror (SYNCPLAY.md §5.3)
     # ------------------------------------------------------------------
 
-    def _apply_play_queue(self, data):
+    def _apply_play_queue(self, data: dict[str, Any]) -> None:
         last_update = utils.parse_iso_ms(data.get("LastUpdate"))
 
         # LastUpdate timestamps queue contents, not the playing item.
@@ -1151,7 +1178,7 @@ class SyncPlayManager:
         self._start_item(item_id, playlist_item_id, provider)
 
     @staticmethod
-    def _queue_entry(entry):
+    def _queue_entry(entry: dict[str, Any]) -> tuple[Any, Any, Any]:
         """(key, PlaylistItemId, provider) for one wire playlist entry.
 
         A descriptor entry (SYNCPLAY.md §14.3) is identified by its
@@ -1170,7 +1197,9 @@ class SyncPlayManager:
 
         return (entry.get("ItemId"), entry.get("PlaylistItemId"), JELLYFIN)
 
-    def _start_item(self, item_id, playlist_item_id, provider=JELLYFIN):
+    def _start_item(
+        self, item_id: str, playlist_item_id: Optional[str], provider: str = JELLYFIN
+    ) -> None:
         if not self.in_group():  # left while this update was in flight
             return
 
@@ -1252,14 +1281,14 @@ class SyncPlayManager:
         self._load_generation += 1
         generation = self._load_generation
 
-        def check():
+        def check() -> None:
             if self.phase == Phase.LOADING and self._load_generation == generation:
                 self._load_failed("no playback within 45s")
 
         utils.later(45, self._post, check)
         self.publish_session_state()
 
-    def _load_failed(self, reason):
+    def _load_failed(self, reason: Union[str, Exception]) -> None:
         LOG.warning("SyncPlay could not start playback: %s", reason)
         self._toast(settings.localized(30576), error=True)
 
@@ -1270,7 +1299,7 @@ class SyncPlayManager:
 
         self._leave_locally()
 
-    def _detach_playback(self, stop_media=False):
+    def _detach_playback(self, stop_media: bool = False) -> None:
         was_active = self.phase != Phase.IDLE
         self._hold_done("detached")
         self._hold = None
@@ -1288,14 +1317,14 @@ class SyncPlayManager:
 
         self.publish_session_state()
 
-    def on_group_stopped(self):
+    def on_group_stopped(self) -> None:
         """A Stop command was executed."""
         self.current_item_id = None
         self.current_playlist_item_id = None
         self.phase = Phase.IDLE
         self.publish_session_state()
 
-    def on_local_unpaused(self):
+    def on_local_unpaused(self) -> None:
         """An Unpause command was executed against loaded media."""
         if self.phase in HELD:
             self.phase = Phase.SYNCED
@@ -1305,7 +1334,7 @@ class SyncPlayManager:
     # Player events (called from service/player.py hooks)
     # ------------------------------------------------------------------
 
-    def on_playback_started(self):
+    def on_playback_started(self) -> None:
         """Earliest signal of a local item start, before A/V rolls.
 
         Runs on the player callback thread the instant playback begins
@@ -1348,13 +1377,13 @@ class SyncPlayManager:
             self.playback.ensure_paused()
             self._watch_hold(hold)
 
-    def on_kodi_play(self, data):
+    def on_kodi_play(self, data: dict[str, Any]) -> None:
         """Player.OnPlay from the Kodi bus: carries the Kodi library id,
         the earliest identification of a local start (before the play
         pipeline claims the item). Called on the notification thread."""
         self._post(self._identify_held_play, data)
 
-    def on_avstarted(self):
+    def on_avstarted(self) -> None:
         if not self.in_group():
             return
 
@@ -1389,7 +1418,7 @@ class SyncPlayManager:
         if not self.is_programmatic() and self.phase in STARTABLE:
             self._post(self._forward_local_play)
 
-    def on_paused(self):
+    def on_paused(self) -> None:
         if not self.in_group() or self.is_programmatic():
             return
 
@@ -1397,7 +1426,7 @@ class SyncPlayManager:
             LOG.debug("[ syncplay/user pause ]")
             self._post(self._api, "syncplay_pause")
 
-    def on_resumed(self):
+    def on_resumed(self) -> None:
         # First, in a group or not: a pulse cut while paused left its 1.0
         # owed.
         self.playback.tempo.settle_owed()
@@ -1412,7 +1441,7 @@ class SyncPlayManager:
             self.playback.ensure_paused()
             self._post(self._api, "syncplay_unpause")
 
-    def on_seek(self, seconds):
+    def on_seek(self, seconds: float) -> None:
         if not self.in_group() or self.is_programmatic():
             return
 
@@ -1420,7 +1449,7 @@ class SyncPlayManager:
             LOG.debug("[ syncplay/user seek ] %.1fs", seconds)
             self._post(self._api, "syncplay_seek", utils.seconds_to_ticks(seconds))
 
-    def on_stopped(self):
+    def on_stopped(self) -> None:
         self.foreign_claim = None  # claims are playback-scoped
         self._hold_done("stopped")
         self._hold = None
@@ -1441,7 +1470,7 @@ class SyncPlayManager:
             thread.daemon = True
             thread.start()
 
-    def on_ended(self):
+    def on_ended(self) -> None:
         self.foreign_claim = None  # claims are playback-scoped
         self._hold_done("ended")
         self._hold = None
@@ -1459,7 +1488,7 @@ class SyncPlayManager:
             LOG.debug("[ syncplay/next item ]")
             self._post(self._api, "syncplay_next_item", playlist_item_id)
 
-    def on_error(self):
+    def on_error(self) -> None:
         if not self.in_group():
             return
 
@@ -1469,7 +1498,7 @@ class SyncPlayManager:
         self._post(self._api, "syncplay_set_ignore_wait", True)
         self._toast(settings.localized(30576), error=True)
 
-    def _stop_superseded(self):
+    def _stop_superseded(self) -> bool:
         """Did another local start (or a group item) replace the stop?"""
         return (
             self._hold is not None
@@ -1477,7 +1506,7 @@ class SyncPlayManager:
             or self.player.isPlaying()
         )
 
-    def _stopped_here(self, playlist_item_id):
+    def _stopped_here(self, playlist_item_id: Optional[str]) -> bool:
         """Is this the item the user stopped, with the stop prompt unresolved?"""
         pending = self._stop_pending
 
@@ -1487,7 +1516,7 @@ class SyncPlayManager:
             and pending["playlist_item_id"] == playlist_item_id
         )
 
-    def _user_stopped_prompt(self, pending=None):
+    def _user_stopped_prompt(self, pending: Optional[dict[str, Any]] = None) -> None:
         """Local stop while synced: sort out what it means for the group.
 
         ``pending`` is the stop this prompt was started for (on_stopped).
@@ -1505,7 +1534,7 @@ class SyncPlayManager:
             if self._stop_pending is pending:
                 self._stop_pending = None
 
-    def _ask_what_the_stop_means(self):
+    def _ask_what_the_stop_means(self) -> None:
         """A stop that is immediately followed by another local start is a
         replace-play (the user picked a new item), not a departure: give
         the new start a moment to appear and skip the prompt when it does.
@@ -1550,7 +1579,7 @@ class SyncPlayManager:
             self._api("syncplay_set_ignore_wait", True)
             self._toast(settings.localized(30569))
 
-    def _forward_local_play(self, attempt=0):
+    def _forward_local_play(self, attempt: int = 0) -> None:
         """Propose the currently-playing item to the group as its queue."""
         if not self.player.isPlaying():
             # Nothing to propose — e.g. a group created before playback
@@ -1624,7 +1653,7 @@ class SyncPlayManager:
 
         self._propose_queue(item_id, position=position, provider=provider)
 
-    def _identify_held_play(self, data):
+    def _identify_held_play(self, data: dict[str, Any]) -> None:
         """Identify a held playlist advance from the Player.OnPlay payload.
 
         The Kodi library id maps straight to a provider key (for Jellyfin,
@@ -1674,7 +1703,7 @@ class SyncPlayManager:
         hold["item_id"] = mapped
         self._propose_queue(mapped, position=0.0)
 
-    def _drop_stale_claim(self):
+    def _drop_stale_claim(self) -> None:
         """A new local play is starting: a foreign claim older than
         STALE_CLAIM_SECS describes the *previous* playback (a seamless zap
         emits no stop to clear it). A fresh claim (a provider that claims at
@@ -1687,7 +1716,7 @@ class SyncPlayManager:
 
         self.foreign_claim = None
 
-    def _unmanaged_local_play(self):
+    def _unmanaged_local_play(self) -> None:
         """Playing something the group can't follow (a local file,
         another addon): give playback back and stop pretending to be
         synchronized. Quiet when already a spectator — repeat plays of
@@ -1703,11 +1732,11 @@ class SyncPlayManager:
         self._api("syncplay_set_ignore_wait", True)
         self._toast(settings.localized(30569))
 
-    def _watch_hold(self, hold):
+    def _watch_hold(self, hold: dict[str, Any]) -> None:
         """A held start that never gets adopted must not stay paused
         forever (e.g. the proposal failed): give playback back."""
 
-        def check():
+        def check() -> None:
             if self._hold is not hold:
                 return
 
@@ -1716,7 +1745,7 @@ class SyncPlayManager:
 
         utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
-    def _hold_done(self, reason):
+    def _hold_done(self, reason: str) -> None:
         """How long a boundary hold lasted, and what ended it."""
         hold = self._hold
         if hold is None or not hold.get("at"):
@@ -1727,7 +1756,7 @@ class SyncPlayManager:
             reason,
         )
 
-    def _release_hold(self):
+    def _release_hold(self) -> None:
         if self._hold is None:
             return
 
@@ -1735,7 +1764,13 @@ class SyncPlayManager:
         self._hold = None
         self.playback.ensure_playing()
 
-    def _propose_queue(self, item_id, position=None, provider=JELLYFIN, content=None):
+    def _propose_queue(
+        self,
+        item_id: str,
+        position: Optional[float] = None,
+        provider: str = JELLYFIN,
+        content: Optional[dict[str, Any]] = None,
+    ) -> None:
         """Propose a queue; a held transition proposes 0 and the player is
         aligned on it at adopt time (prepare_ready), not here.
 
@@ -1796,13 +1831,13 @@ class SyncPlayManager:
     # The public provider contract
     # ------------------------------------------------------------------
 
-    def on_foreign_claim(self, claim):
+    def on_foreign_claim(self, claim: Claim) -> None:
         """SyncProvider.Claim: what is playing when kofin's own pipeline
         did not resolve it. Called on the notification thread; applied on
         the dispatcher."""
         self._post(self._set_foreign_claim, claim)
 
-    def _set_foreign_claim(self, claim):
+    def _set_foreign_claim(self, claim: Claim) -> None:
         self.foreign_claim = claim
         self._foreign_claim_at = time.time()
         LOG.debug(
@@ -1827,7 +1862,7 @@ class SyncPlayManager:
             # item.
             self._post(self._forward_local_play)
 
-    def on_provider_register(self, sender, payload):
+    def on_provider_register(self, sender: str, payload: dict[str, Any]) -> None:
         """SyncProvider.Register: wrap the play template as a provider.
 
         Re-registration replaces — providers answer every service announce
@@ -1859,12 +1894,12 @@ class SyncPlayManager:
             " (delegated)" if play.get("delegated") else "",
         )
 
-    def on_propose(self, payload):
+    def on_propose(self, payload: dict[str, Any]) -> None:
         """SyncSession.Propose: a provider asks for its item as the group
         queue — the programmatic form of the hold-and-propose flow."""
         self._post(self._propose_from_bus, payload)
 
-    def _propose_from_bus(self, payload):
+    def _propose_from_bus(self, payload: dict[str, Any]) -> None:
         if not self.in_group():
             LOG.debug(
                 "Propose from %r outside a group; ignored", payload.get("provider")
@@ -1892,7 +1927,7 @@ class SyncPlayManager:
             payload["key"], position=position, provider=provider, content=content
         )
 
-    def publish_session_state(self, announce=False):
+    def publish_session_state(self, announce: bool = False) -> None:
         """The public session mirror on ``syncsession.state``.
 
         ``announce`` also pings SyncSession.State over the bus — group
@@ -1938,10 +1973,10 @@ class SyncPlayManager:
     # Lifecycle from the service
     # ------------------------------------------------------------------
 
-    def on_sleep(self):
+    def on_sleep(self) -> None:
         self.playback.cancel_pending()
 
-    def on_wake(self):
+    def on_wake(self) -> None:
         """Screensaver deactivate / system wake: never trust a stale clock
         offset, and reconcile the group — after a sleep the socket may be a
         zombie. A v2 snapshot request also re-attaches the membership
