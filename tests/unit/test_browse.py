@@ -7,7 +7,6 @@ import xbmcplugin
 from kofin.plugin import browse
 from kofin.plugin.browse import (
     _collection_type,
-    _genre_types,
     _guess_content,
     _node_content,
     node_icon,
@@ -202,7 +201,7 @@ def test_content_helpers():
     assert _node_content("tvshows", "favoriteepisodes") == "episodes"
     assert _node_content("movies", "sets") == "movies"
     assert _node_content("music", "albums") == "albums"
-    assert _genre_types("musicvideos") == "MusicVideo"
+    assert browse.ITEM_TYPES["musicvideos"] == "MusicVideo"
     assert _guess_content([{"Type": "Photo"}]) == "images"
     assert _guess_content([{"Type": "Unknown"}]) == "videos"
 
