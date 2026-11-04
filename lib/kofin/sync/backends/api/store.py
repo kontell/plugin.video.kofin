@@ -722,6 +722,19 @@ class Store(Catalogue):
                 )
             }
 
+    def filed_under(self, kind, parent_id) -> list[str]:
+        """The ids of one kind filed under a parent, live and not leaving."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT e.item_id FROM api_entry e"
+                " JOIN api_item i ON i.namespace = e.namespace AND i.item_id = e.item_id"
+                " WHERE e.namespace=? AND e.kind=? AND e.parent_id=?"
+                " AND e.removed IS NULL AND i.operation='upsert'",
+                (self.namespace, kind, parent_id),
+            ).fetchall()
+        return [row[0] for row in rows]
+
     def entry(self, item_id) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""
         with Database() as db:

@@ -199,11 +199,13 @@ def container_states(container_id: str) -> dict[str, str]:
 
 def _season_states(season_id: str) -> dict[str, str]:
     """A season's downloads, through the catalogue: it files an episode under
-    its series (store.parent_of), so the season's downloads are the series'
-    whose payload names the season. The downloads under one series are few,
-    and their payloads are read for that one key. The catalogue is
-    namespaced per server and user and the download table is not, so the
-    active namespace alone is asked; with none, nothing is filed to find."""
+    its series (store.parent_of), so the season's downloads are the rows of
+    the series' live episodes whose payload names the season. A row is found
+    by its id, never by ``series_id``, which a queued row carries only once a
+    worker has started it. The downloads under one series are few, and their
+    payloads are read for that one key. The catalogue is namespaced per
+    server and user and the download table is not, so the active namespace
+    alone is asked; with none, nothing is filed to find."""
     from kofin.sync.backends.api.identity import current_store
 
     try:
@@ -213,16 +215,21 @@ def _season_states(season_id: str) -> dict[str, str]:
         return {}
     if season is None or season.kind != "Season":
         return {}
+    episodes = catalogue.filed_under("Episode", season.parent_id)
+    rows: dict[str, str] = {}
     with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id, state FROM download WHERE series_id = ?",
-            (season.parent_id,),
-        )
-        candidates = dict(opened.cursor.fetchall())
+        for start in range(0, len(episodes), 500):
+            chunk = episodes[start : start + 500]
+            opened.cursor.execute(
+                "SELECT jellyfin_id, state FROM download WHERE jellyfin_id IN (%s)"
+                % ",".join("?" * len(chunk)),
+                chunk,
+            )
+            rows.update(opened.cursor.fetchall())
     found: dict[str, str] = {}
-    for jellyfin_id, item in catalogue.payloads(catalogue.known(candidates)).items():
+    for jellyfin_id, item in catalogue.payloads(rows).items():
         if str(item.get("SeasonId") or item.get("ParentId") or "") == season_id:
-            found[jellyfin_id] = candidates[jellyfin_id]
+            found[jellyfin_id] = rows[jellyfin_id]
     return found
 
 
