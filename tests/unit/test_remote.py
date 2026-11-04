@@ -125,6 +125,27 @@ def test_general_volume_and_navigation(fakes):
     assert "ActivateWindow(Home)" in fakes["builtins"]
 
 
+def test_every_advertised_command_has_an_effect(fakes, monkeypatch):
+    """The capability list is what the server shows a remote, so a name on
+    it has to reach Kodi: a builtin, a JSON-RPC call or a toast. A name that
+    only logs, or falls through, is a control that does nothing."""
+    from kofin.service.main import CAPABILITIES
+
+    toasts = []
+    monkeypatch.setattr(
+        remote.toast, "show", lambda *args, **kwargs: toasts.append(args)
+    )
+    names = set(CAPABILITIES["SupportedCommands"].split(","))
+    # Play and Playstate are message types of their own, and PlayNext is a
+    # command of the Play message.
+    general = names - {"Play", "Playstate", "PlayNext"}
+    handler = RemoteHandler()
+    for name in sorted(general):
+        seen = (len(fakes["builtins"]), len(fakes["rpc"]), len(toasts))
+        handler.handle("GeneralCommand", {"Name": name, "Arguments": {}})
+        assert (len(fakes["builtins"]), len(fakes["rpc"]), len(toasts)) != seen, name
+
+
 def test_unknown_messages_are_unhandled_but_safe(fakes):
     assert RemoteHandler().handle("LibraryChanged", {}) is False
     assert RemoteHandler().handle("GeneralCommand", {"Name": "Zap"}) is True

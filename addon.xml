@@ -114,7 +114,8 @@
     <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>
     <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
     <news>v0.96.7
-- The critic-rating setting, which had no effect, is gone.</news>
+- The critic-rating setting, which had no effect, is gone.
+- The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.</news>
     <!-- The bundled backdrop, behind structural listings that have no art of
          their own (plugin/browse.py BACKDROP_IMAGE). The server's splashscreen
          goes to addon_data (service/backdrop.py), never here. A fixed path in

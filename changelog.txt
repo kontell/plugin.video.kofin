@@ -1,5 +1,6 @@
 v0.96.7
 - The critic-rating setting, which had no effect, is gone.
+- The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.
 
 v0.96.6
 - Song play counts reach the library faster.
