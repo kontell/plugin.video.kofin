@@ -193,6 +193,7 @@ CONTENT_TYPES = {
 
 # The Jellyfin item type one collection type is made of: the genre listing,
 # the year/tag filter menus and the tag pages ask by it.
+# The Jellyfin item type one collection type is made of.
 ITEM_TYPES = {
     "movies": "Movie",
     "tvshows": "Series",
@@ -403,12 +404,7 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
         "SortBy": "SortName",
         "SortOrder": "Ascending",
     }
-    types = {
-        "movies": "Movie",
-        "tvshows": "Series",
-        "music": "MusicAlbum",
-        "musicvideos": "MusicVideo",
-    }.get(media, "")
+    types = ITEM_TYPES.get(media, "")
 
     if node == "all":
         base["IncludeItemTypes"] = types
@@ -1027,7 +1023,7 @@ def _tag_menu(
     request: Request, api: Api, media: str, view_id: str, letter: str
 ) -> None:
     """One letter's worth of tags."""
-    values = api.filters(view_id, _search_item_type(media)).get("Tags") or []
+    values = api.filters(view_id, ITEM_TYPES.get(media, "")).get("Tags") or []
     wanted = sorted(v for v in values if str(v)[:1].upper() == letter.upper())
     icon = node_icon(media, "tags")
     structural_rows(
@@ -1049,7 +1045,7 @@ def _filter_menu(
     rather than a fixed range.
     """
     values = (
-        api.filters(view_id, _search_item_type(media)).get(
+        api.filters(view_id, ITEM_TYPES.get(media, "")).get(
             "Years" if kind == "years" else "Tags"
         )
         or []
@@ -1076,11 +1072,6 @@ def _filter_menu(
             for value in values
         ],
     )
-
-
-def _search_item_type(media: str) -> str:
-    """The Jellyfin item type one collection type is made of."""
-    return ITEM_TYPES.get(media, "")
 
 
 def _folder_params(view_id: str, media: str, folder: str) -> dict[str, str]:
@@ -1239,7 +1230,7 @@ def _list_items(
         return api.latest(view_id, "Audio", BROWSE_FIELDS, RECENT_LIMIT), "albums"
     if folder == "genres":
         # Empty content, like the node menu above it (structural_art).
-        result = api.genres(view_id, _genre_types(media))
+        result = api.genres(view_id, ITEM_TYPES.get(media, ""))
         return result.get("Items", []), ""
     if folder == "artists":
         result = api.artists(view_id)
@@ -1376,10 +1367,6 @@ def _node_content(media: str, node: str) -> str:
         # the music tree is made of (node_query switches the item type too).
         return "artists"
     return CONTENT_TYPES.get(media, "videos")
-
-
-def _genre_types(media: str) -> str:
-    return ITEM_TYPES.get(media, "")
 
 
 def _guess_content(items: list[JsonDict]) -> str:

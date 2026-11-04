@@ -43,6 +43,7 @@ PLAYABLE_TYPES = frozenset(
 
 MUSIC_TYPES = frozenset({"Audio", "MusicAlbum", "MusicArtist", "MusicGenre"})
 
+# Kodi's media type for each Jellyfin item type a tag can carry.
 MEDIATYPE = {
     "Movie": "movie",
     "Series": "tvshow",
@@ -53,6 +54,9 @@ MEDIATYPE = {
     "Video": "video",
     "Trailer": "video",
     "Recording": "video",
+    "Audio": "song",
+    "MusicAlbum": "album",
+    "MusicArtist": "artist",
 }
 
 

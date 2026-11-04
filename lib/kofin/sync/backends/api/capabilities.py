@@ -19,6 +19,7 @@ import xbmcgui
 from kofin.core import kodirpc
 from kofin.sync import private
 from .contract import check
+from .kinds import NAMES
 
 REPORT = "api-capabilities.json"
 
@@ -101,21 +102,7 @@ def inspect(allow_dirty=False):
         {
             "backend": "api",
             "native_sync_enabled": report["interfaces_passed"],
-            "native_sync_scope": (
-                [
-                    "Movie",
-                    "Series",
-                    "Season",
-                    "Episode",
-                    "MusicVideo",
-                    "BoxSet",
-                    "Audio",
-                    "MusicAlbum",
-                    "MusicArtist",
-                ]
-                if report["interfaces_passed"]
-                else []
-            ),
+            "native_sync_scope": (list(NAMES) if report["interfaces_passed"] else []),
             "application": capture["application"],
         }
     )

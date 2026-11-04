@@ -10,7 +10,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import xbmcgui
 import xbmcvfs
@@ -138,6 +138,34 @@ _HOME_WINDOW = 10000
 
 def _window() -> xbmcgui.Window:
     return xbmcgui.Window(_HOME_WINDOW)
+
+
+def _set_flag(prop: str, on: bool) -> None:
+    """A property that is "true" or absent."""
+    if on:
+        _window().setProperty(prop, "true")
+    else:
+        _window().clearProperty(prop)
+
+
+def _publish_json(prop: str, payload: Any) -> None:
+    _window().setProperty(prop, json.dumps(payload))
+
+
+_T = TypeVar("_T", dict, list)
+
+
+def _json(prop: str, kind: type[_T]) -> _T:
+    """The property's JSON payload as a ``kind``, or an empty one when the
+    property is absent, malformed or of another shape."""
+    raw = _window().getProperty(prop)
+    if not raw:
+        return kind()
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return kind()
+    return payload if isinstance(payload, kind) else kind()
 
 
 def take_queue() -> str:
@@ -364,7 +392,7 @@ def publish_playing_streams(payload: dict[str, Any], offer: str) -> None:
     act on an item that stopped.
     """
     window = _window()
-    window.setProperty(PROP_PLAYING_STREAMS, json.dumps(payload))
+    _publish_json(PROP_PLAYING_STREAMS, payload)
     if offer:
         window.setProperty(PROP_PLAYING_MENU, offer)
     else:
@@ -373,14 +401,7 @@ def publish_playing_streams(payload: dict[str, Any], offer: str) -> None:
 
 def playing_streams() -> dict[str, Any]:
     """The published streams payload, or {} when nothing kofin owns is on."""
-    raw = _window().getProperty(PROP_PLAYING_STREAMS)
-    if not raw:
-        return {}
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return _json(PROP_PLAYING_STREAMS, dict)
 
 
 def clear_playing_streams() -> None:
@@ -398,47 +419,28 @@ def set_watching_names(names: list[str]) -> None:
     """
     window = _window()
     if names:
-        window.setProperty(PROP_WHO_NAMES, json.dumps(names))
+        _publish_json(PROP_WHO_NAMES, names)
     else:
         window.clearProperty(PROP_WHO_NAMES)
 
 
 def watching_names() -> list[str]:
     """The published additional-user names, or [] when there are none."""
-    raw = _window().getProperty(PROP_WHO_NAMES)
-    if not raw:
-        return []
-    try:
-        names = json.loads(raw)
-    except ValueError:
-        return []
-    if not isinstance(names, list):
-        return []
-    return [str(name) for name in names if name]
+    return [str(name) for name in _json(PROP_WHO_NAMES, list) if name]
 
 
 def set_menu_who(offered: bool) -> None:
     """Whether the Who's watching? root entry is on offer."""
-    if offered:
-        _window().setProperty(PROP_MENU_WHO, "true")
-    else:
-        _window().clearProperty(PROP_MENU_WHO)
+    _set_flag(PROP_MENU_WHO, offered)
 
 
 def publish_syncplay_pulse(payload: dict[str, Any]) -> None:
-    _window().setProperty(PROP_SYNCPLAY_PULSE, json.dumps(payload))
+    _publish_json(PROP_SYNCPLAY_PULSE, payload)
 
 
 def syncplay_pulse() -> dict[str, Any]:
     """The rate a pulse left in force (``{"player": id}``), or {}."""
-    raw = _window().getProperty(PROP_SYNCPLAY_PULSE)
-    if not raw:
-        return {}
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return _json(PROP_SYNCPLAY_PULSE, dict)
 
 
 def clear_syncplay_pulse() -> None:
@@ -447,26 +449,16 @@ def clear_syncplay_pulse() -> None:
 
 def set_feature_tempo(on: bool) -> None:
     """Whether the fine-sync settings are offered (PROP_FEATURE_TEMPO)."""
-    if on:
-        _window().setProperty(PROP_FEATURE_TEMPO, "true")
-    else:
-        _window().clearProperty(PROP_FEATURE_TEMPO)
+    _set_flag(PROP_FEATURE_TEMPO, on)
 
 
 def publish_syncsession(payload: dict[str, Any]) -> None:
     """The public sync-session state, JSON on PROP_SYNCSESSION."""
-    _window().setProperty(PROP_SYNCSESSION, json.dumps(payload))
+    _publish_json(PROP_SYNCSESSION, payload)
 
 
 def syncsession() -> dict[str, Any]:
-    raw = _window().getProperty(PROP_SYNCSESSION)
-    if not raw:
-        return {}
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return _json(PROP_SYNCSESSION, dict)
 
 
 def clear_syncsession() -> None:
@@ -475,10 +467,7 @@ def clear_syncsession() -> None:
 
 def set_menu_syncplay(offered: bool) -> None:
     """Whether the SyncPlay root entry is on offer."""
-    if offered:
-        _window().setProperty(PROP_MENU_SYNCPLAY, "true")
-    else:
-        _window().clearProperty(PROP_MENU_SYNCPLAY)
+    _set_flag(PROP_MENU_SYNCPLAY, offered)
 
 
 def publish_lyrics(lines: list[Any], item_id: str) -> None:
@@ -489,21 +478,14 @@ def publish_lyrics(lines: list[Any], item_id: str) -> None:
     ends at fetching them.
     """
     window = _window()
-    window.setProperty(PROP_LYRIC_JSON, json.dumps(lines))
+    _publish_json(PROP_LYRIC_JSON, lines)
     window.setProperty(PROP_LYRIC_PATH, LYRICS_DIRECTORY % item_id)
     window.setProperty(PROP_LYRIC_HAS, "true")
 
 
 def lyric_lines() -> list[Any]:
     """The published ``[start, text]`` pairs, or [] when there are none."""
-    raw = _window().getProperty(PROP_LYRIC_JSON)
-    if not raw:
-        return []
-    try:
-        lines = json.loads(raw)
-    except ValueError:
-        return []
-    return lines if isinstance(lines, list) else []
+    return _json(PROP_LYRIC_JSON, list)
 
 
 def lyric_texts() -> list[str]:
