@@ -313,16 +313,13 @@ def _embedded_subtitles(streams: List[JsonDict]) -> List[JsonDict]:
     ]
 
 
-def selectable_subtitles(
-    streams: List[JsonDict], attached: List[int], play_method: str
-) -> List[JsonDict]:
-    """The subtitle streams the menu can actually put on screen.
-
-    All of them, on either play method — what differs is the cost, which
-    :func:`needs_fetch` and :func:`burns_in` answer and the menu labels. On a
-    transcode only one embedded track is attached (see
-    :func:`attached_subtitles`); another text track is fetched onto the
-    running playback, and an image one can only be burned into a new stream.
+def selectable_subtitles(streams: List[JsonDict]) -> List[JsonDict]:
+    """The subtitle streams the menu can put on screen: all of them, on either
+    play method. What differs is the cost, which :func:`needs_fetch` and
+    :func:`burns_in` answer and the menu labels. On a transcode only one
+    embedded track is attached (see :func:`attached_subtitles`); another text
+    track is fetched onto the running playback, and an image one can only be
+    burned into a new stream.
     """
     return of_type(streams, "Subtitle")
 
@@ -374,7 +371,7 @@ def needs_fetch(
     return stream.get("Index") not in attached
 
 
-def menu_offer(streams: List[JsonDict], attached: List[int], play_method: str) -> str:
+def menu_offer(streams: List[JsonDict]) -> str:
     """What the context item should offer — the token addon.xml tests.
 
     Audio counts only when there is something to switch *to*; a lone track is
@@ -382,7 +379,7 @@ def menu_offer(streams: List[JsonDict], attached: List[int], play_method: str) -
     always the other option.
     """
     audio = len(of_type(streams, "Audio")) > 1
-    subtitle = bool(selectable_subtitles(streams, attached, play_method))
+    subtitle = bool(selectable_subtitles(streams))
     if audio and subtitle:
         return OFFER_BOTH
     if audio:

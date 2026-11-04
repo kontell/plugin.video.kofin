@@ -146,8 +146,8 @@ def test_clear_all():
     assert state.get_playing_id() == ""
     assert state.claim_play_item("p") is None
     assert state.watching_names() == []
-    assert state.menu_who() is False
-    assert state.menu_syncplay() is False
+    assert state.PROP_MENU_WHO not in FakeWindow.store
+    assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
 
 
 def test_watching_names_round_trip():
@@ -166,15 +166,14 @@ def test_watching_names_garbage_reads_as_nobody():
 
 
 def test_menu_visibility_round_trip():
-    assert state.menu_who() is False
-    assert state.menu_syncplay() is False
+    """Skins read the two properties by name, so the test does too."""
+    assert state.PROP_MENU_WHO not in FakeWindow.store
+    assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
     state.set_menu_who(True)
     state.set_menu_syncplay(True)
-    assert state.menu_who() is True
-    assert state.menu_syncplay() is True
+    assert FakeWindow.store[state.PROP_MENU_WHO] == "true"
+    assert FakeWindow.store[state.PROP_MENU_SYNCPLAY] == "true"
     state.set_menu_who(False)
     state.set_menu_syncplay(False)
-    assert state.menu_who() is False
-    assert state.menu_syncplay() is False
     assert state.PROP_MENU_WHO not in FakeWindow.store
     assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store

@@ -205,13 +205,11 @@ def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeyp
     server.libraries[LIB][0]["Overview"] = "Edited"
     feed = Feed(
         [
-            ChangeRecord("a", "Updated", item_type="Movie", library_ids=[LIB]),
+            ChangeRecord("a", "Updated", library_ids=[LIB]),
             ChangeRecord("b", "Removed"),
-            ChangeRecord(
-                "ea11", "Added", item_type="Episode", series_id=SHOW, library_ids=[LIB2]
-            ),
-            ChangeRecord(SHOW, "Added", item_type="Series", library_ids=[LIB2]),
-            ChangeRecord("zz", "Added", item_type="Movie", library_ids=["9" * 32]),
+            ChangeRecord("ea11", "Added", library_ids=[LIB2]),
+            ChangeRecord(SHOW, "Added", library_ids=[LIB2]),
+            ChangeRecord("zz", "Added", library_ids=["9" * 32]),
         ],
         userdata=[{"ItemId": "a", "Played": True, "PlayCount": 2}],
         server_time=1200,

@@ -425,10 +425,6 @@ def set_menu_who(offered: bool) -> None:
         _window().clearProperty(PROP_MENU_WHO)
 
 
-def menu_who() -> bool:
-    return _window().getProperty(PROP_MENU_WHO) == "true"
-
-
 def publish_syncplay_pulse(payload: Dict[str, Any]) -> None:
     _window().setProperty(PROP_SYNCPLAY_PULSE, json.dumps(payload))
 
@@ -483,10 +479,6 @@ def set_menu_syncplay(offered: bool) -> None:
         _window().setProperty(PROP_MENU_SYNCPLAY, "true")
     else:
         _window().clearProperty(PROP_MENU_SYNCPLAY)
-
-
-def menu_syncplay() -> bool:
-    return _window().getProperty(PROP_MENU_SYNCPLAY) == "true"
 
 
 def publish_lyrics(lines: List[Any], item_id: str) -> None:

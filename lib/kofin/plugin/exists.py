@@ -1,9 +1,12 @@
-"""Answer Kodi's video-library existence probe for Kofin-owned paths.
+"""Answer Kodi's existence probe for a library row filed under a plugin URL
+of kofin's own shape.
 
-The sync service owns removal of Jellyfin items from Kodi. A cleaner probe
-therefore checks the shape of the stored plugin URL, without contacting the
-server: a transient outage must not erase a locally synced library. Kodi only
-calls this route after addon.xml has opted each video content type in through
+Kodi's clean asks the add-on about the rows under a bound plugin path. A row
+under ``/native/`` is the pipeline's and the provider answers for it; this
+route answers for the other shapes an earlier Kofin filed, a folder of one or
+two Jellyfin ids or a ``mode=play`` file, from the URL alone and never the
+server: a transient outage must not erase a library. Kodi only calls this
+route after addon.xml has opted each video content type in through
 ``medialibraryscanpath``.
 """
 

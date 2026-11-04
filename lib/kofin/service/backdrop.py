@@ -36,8 +36,6 @@ LOG = Logger(__name__)
 # Cancel, and this is written from a worker thread at arbitrary times.
 STATE_NAME = "backdrop.json"
 
-SOURCE_DEFAULT = "default"
-
 # Floor between fetches. The splashscreen is a collage the server rebuilds as
 # the library changes, so it does move — just never faster than this matters.
 REFRESH_INTERVAL_SECONDS = 24 * 60 * 60
@@ -56,8 +54,8 @@ def _read_state() -> dict:
         return {}
 
 
-def _write_state(source: str, digest: str, fetched: float) -> None:
-    payload = {"source": source, "hash": digest, "fetched": fetched}
+def _write_state(fetched: float) -> None:
+    payload = {"fetched": fetched}
     try:
         directory = settings.addon_data_path()
         if not os.path.isdir(directory):
@@ -107,7 +105,7 @@ def _apply_profile(api: Optional[Api], now: float, force: bool) -> None:
     ):
         return
     if not api.branding_configuration().get("SplashscreenEnabled"):
-        _write_state(SOURCE_DEFAULT, "", now)
+        _write_state(now)
         return
     data = api.splashscreen()
     if not data:

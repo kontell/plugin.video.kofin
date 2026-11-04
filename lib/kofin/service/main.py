@@ -194,11 +194,6 @@ class Service(xbmc.Monitor):
         # Paces _recover_threads' rebuilds of a library thread that keeps
         # dying; one that gets past startup resets it.
         self._library_backoff = Backoff()
-        # When the websocket last (re)connected (monotonic). The reconnect
-        # catch-up stamps its FastSync with this edge rather than with the
-        # moment the post-connect worker got around to queueing it — see
-        # _catch_up_after_reconnect.
-        self._ws_connected_at: Optional[float] = None
         # Connection toasts announce states, not websocket edges (see
         # _connection_toast). Both fields are read and written under the lock,
         # from the websocket thread and the service tick.
@@ -795,10 +790,6 @@ class Service(xbmc.Monitor):
         each pass re-reads current state, so the last one always serves the
         live session.
         """
-        # The edge, stamped before anything else runs: everything the server
-        # pushed while the socket was down predates this moment, which is
-        # what the reconnect catch-up's coalesce stamp wants to say.
-        self._ws_connected_at = time.monotonic()
         with self._conn_toast_lock:
             self._down_since = None
             announce = self._announce_next_connect

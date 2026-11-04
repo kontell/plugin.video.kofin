@@ -111,7 +111,6 @@ def test_user_scoped_calls_use_the_documented_routes(api):
     client.items({"IncludeItemTypes": "Movie"})
     client.resume()
     client.special_features("i1")
-    client.chapters("i1")
 
     for call in transport.calls:
         assert "/Users/" not in call["url"], call["url"]
@@ -123,7 +122,6 @@ def test_user_scoped_calls_use_the_documented_routes(api):
         "/Items",
         "/UserItems/Resume",
         "/Items/i1/SpecialFeatures",
-        "/Items/i1",
     ]
 
 
@@ -135,7 +133,7 @@ def test_delete_item(api):
     assert delete_call["url"] == "http://s:8096/Items/i1"
 
 
-def test_music_playlists_and_items(api):
+def test_playlists_and_items(api):
     client, transport = api
 
     class Response:
@@ -178,8 +176,8 @@ def test_music_playlists_and_items(api):
 
     transport.request = request  # type: ignore[method-assign]
 
-    listed = client.music_playlists()
-    assert [p["Id"] for p in listed] == ["a", "e"]
+    listed = client.playlists()
+    assert [p["Id"] for p in listed] == ["a", "v", "e"]
     assert transport.calls[0]["url"] == "http://s:8096/Items"
     assert transport.calls[0]["params"]["userId"] == "uid"
     assert transport.calls[0]["params"]["IncludeItemTypes"] == "Playlist"
@@ -190,7 +188,7 @@ def test_music_playlists_and_items(api):
     assert transport.calls[1]["params"]["userId"] == "uid"
 
 
-def test_music_playlists_dedupes_repeated_pages(api):
+def test_playlists_dedupes_repeated_pages(api):
     """Jellyfin can over-report TotalRecordCount and re-emit rows on page 2."""
     client, transport = api
 
@@ -226,13 +224,13 @@ def test_music_playlists_dedupes_repeated_pages(api):
         return Response(body)
 
     transport.request = request  # type: ignore[method-assign]
-    listed = client.music_playlists()
+    listed = client.playlists()
     assert [p["Id"] for p in listed] == ["a", "b"]
     # Stopped after the repeated page (no third request chasing the fake total).
     assert idx["n"] == 2
 
 
-def test_music_playlists_refuses_an_empty_first_page_against_a_count(api):
+def test_playlists_refuses_an_empty_first_page_against_a_count(api):
     """An empty list reads downstream as "this account has no playlists", a
     deletion order for the managed folder. A genuinely empty account answers
     count 0; a count with nothing behind it is the server contradicting
@@ -250,11 +248,11 @@ def test_music_playlists_refuses_an_empty_first_page_against_a_count(api):
 
     transport.request = request  # type: ignore[method-assign]
     with pytest.raises(Exception) as caught:
-        client.music_playlists()
+        client.playlists()
     assert "first page was empty" in str(caught.value)
 
 
-def test_music_playlists_accepts_a_genuinely_empty_account(api):
+def test_playlists_accepts_a_genuinely_empty_account(api):
     client, transport = api
 
     class Response:
@@ -267,11 +265,10 @@ def test_music_playlists_accepts_a_genuinely_empty_account(api):
         return Response()
 
     transport.request = request  # type: ignore[method-assign]
-    assert client.music_playlists() == []
+    assert client.playlists() == []
 
 
-@pytest.mark.parametrize("method", ["music_playlists", "playlists"])
-def test_playlist_listings_refuse_a_shapeless_body(api, method):
+def test_playlist_listing_refuses_a_shapeless_body(api):
     client, transport = api
 
     class Response:
@@ -282,7 +279,7 @@ def test_playlist_listings_refuse_a_shapeless_body(api, method):
 
     transport.request = lambda *args, **kwargs: Response()
     with pytest.raises(Exception, match="no items list"):
-        getattr(client, method)()
+        client.playlists()
 
 
 def test_playback_info_optional_params(api):

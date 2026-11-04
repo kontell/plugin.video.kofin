@@ -75,4 +75,5 @@ def test_the_schema_drops_the_tables_nothing_reads():
         "boxset_state",
         "version",
     }
-    assert {"jellyfin", "view", "playlist_state", "download"} <= names
+    assert {"view", "playlist_state", "download"} <= names
+    assert "jellyfin" not in names

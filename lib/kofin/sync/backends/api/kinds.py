@@ -187,9 +187,6 @@ KINDS: Dict[str, Kind] = {
     ),
 }
 
-# The scanner a kind's content belongs to, for the scan call and the waits.
-SCANNER = {"Audio": "music", "MusicAlbum": "music", "MusicArtist": "music"}
-
 # What a scope readback carries: enough to find a row, own it and see the
 # userdata a viewer may have changed, never the whole row. The full row is
 # read by id (or as one listing when most of a scope needs it) only for the
