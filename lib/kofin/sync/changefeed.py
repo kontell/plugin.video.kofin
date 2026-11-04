@@ -37,19 +37,10 @@ LEGACY_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 
 @dataclass
 class ChangeRecord:
-    """One change-queue entry; sparse fields are ``None`` on lower tiers."""
+    """One change-queue entry; ``library_ids`` is ``None`` where the feed does not say."""
 
     id: str
     status: str  # "Added" | "Updated" | "Removed"
-    media_type: Optional[str] = (
-        None  # movies|tvshows|boxsets|musicvideos|music|playlists
-    )
-    item_type: Optional[str] = None  # Movie|Series|Season|Episode|...|Playlist
-    last_modified: Optional[int] = None  # unix seconds
-    update_reason: Optional[str] = None  # ItemUpdateType flags, comma string
-    etag: Optional[str] = None
-    series_id: Optional[str] = None
-    season_id: Optional[str] = None
     library_ids: Optional[List[str]] = None  # owning libraries; None = unknown
 
 
@@ -118,13 +109,6 @@ def parse_record(raw: JsonDict) -> Optional[ChangeRecord]:
     return ChangeRecord(
         id=str(item_id),
         status=str(status),
-        media_type=raw.get("MediaType") or None,
-        item_type=raw.get("ItemType") or None,
-        last_modified=_as_int(raw.get("LastModified")),
-        update_reason=raw.get("UpdateReason") or None,
-        etag=raw.get("Etag") or None,
-        series_id=raw.get("SeriesId") or None,
-        season_id=raw.get("SeasonId") or None,
         library_ids=[str(x) for x in raw.get("LibraryIds") or []] or None,
     )
 

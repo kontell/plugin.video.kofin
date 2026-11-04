@@ -533,7 +533,6 @@ class Player(xbmc.Player):
                 state.clear_playing_streams()
                 return
             media_streams = payload.get("MediaStreams") or []
-            attached = payload.get("Attached") or []
             method = str(item.get("PlayMethod") or "")
             payload["PlayMethod"] = method
             payload["Id"] = item.get("Id", "")
@@ -543,7 +542,7 @@ class Player(xbmc.Player):
             # track, so this is the only thing that tells the menu which row is
             # the one in the picture (core/streams.burned_subtitle).
             payload["SubtitleStreamIndex"] = item.get("SubtitleStreamIndex")
-            offer = streams.menu_offer(media_streams, attached, method)
+            offer = streams.menu_offer(media_streams)
             if self._syncplay_group_active:
                 offer = streams.OFFER_NONE
             state.publish_playing_streams(payload, offer)

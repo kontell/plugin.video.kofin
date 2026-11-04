@@ -24,7 +24,7 @@ class FakeApi:
         self._items = items_by_id or {}
         self.item_requests = []
 
-    def music_playlists(self):
+    def playlists(self):
         return list(self._playlists)
 
     def playlist_items(self, playlist_id, start_index=0, limit=100):

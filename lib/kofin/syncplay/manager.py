@@ -315,8 +315,8 @@ class SyncPlayManager(object):
             # Not a kofin play: the foreign claim (public bus) is the
             # identity, when one was published.
             return self.foreign_claim
-        except Exception:
-            pass
+        except Exception as error:
+            LOG.debug("current item unreadable: %s", error)
 
         return None
 

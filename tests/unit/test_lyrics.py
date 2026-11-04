@@ -21,73 +21,25 @@ PLAIN = {
     "Metadata": {},
     "Lyrics": [{"Text": "Sunrise, wrong side of another day"}, {"Text": "Sky high"}],
 }
+# What the skin reads back off the item once the lines have landed.
+LANDED = "Tonight\nI just want to take you higher"
 
 
-# -- rendering ---------------------------------------------------------------
+# -- timing ------------------------------------------------------------------
 
 
-def test_synced_payload_renders_as_lrc():
+def test_timed_payload_is_synced():
     assert lyrics.is_synced(SYNCED)
-    assert lyrics.to_text(SYNCED) == (
-        "[00:00.58]Tonight\n[01:34.60]I just want to take you higher"
-    )
 
 
-def test_plain_payload_renders_without_stamps():
+def test_plain_payload_is_not_synced():
     assert not lyrics.is_synced(PLAIN)
-    assert lyrics.to_text(PLAIN) == "Sunrise, wrong side of another day\nSky high"
-
-
-def test_empty_payloads_render_to_nothing():
-    assert lyrics.to_text(None) is None
-    assert lyrics.to_text({}) is None
-    assert lyrics.to_text({"Lyrics": []}) is None
-    # A payload of blank lines is no more use than no payload at all.
-    assert lyrics.to_text({"Lyrics": [{"Text": ""}, {"Text": "   "}]}) is None
 
 
 def test_metadata_is_synced_is_ignored():
     """Jellyfin core never sets it, so only the line stamps may be trusted."""
     lying = {"Metadata": {"IsSynced": True}, "Lyrics": [{"Text": "no stamp here"}]}
     assert not lyrics.is_synced(lying)
-    assert lyrics.to_text(lying) == "no stamp here"
-
-
-def test_untimed_line_inside_a_timed_payload_is_emitted_bare():
-    mixed = {
-        "Lyrics": [
-            {"Text": "first", "Start": 0},
-            {"Text": "[ar: Someone]"},
-            {"Text": "third", "Start": 610000000},
-        ]
-    }
-    assert lyrics.to_text(mixed) == "[00:00.00]first\n[ar: Someone]\n[01:01.00]third"
-
-
-@pytest.mark.parametrize(
-    "ticks,stamp",
-    [
-        (0, "[00:00.00]"),
-        (5800000, "[00:00.58]"),
-        (600000000, "[01:00.00]"),
-        # Rounds up to a whole minute: must not render as "[00:60.00]", which
-        # no LRC reader would accept.
-        (599999999, "[01:00.00]"),
-        (36000000000, "[60:00.00]"),
-        (-1, "[00:00.00]"),
-    ],
-)
-def test_timestamp_formatting(ticks, stamp):
-    assert lyrics.to_text({"Lyrics": [{"Text": "x", "Start": ticks}]}) == stamp + "x"
-
-
-def test_rendered_stamps_match_what_lrclyrics_looks_for():
-    """script.cu.lrclyrics decides a body is timed with this exact pattern; if
-    it does not match, our lyrics lose to every online scraper."""
-    import re
-
-    text = lyrics.to_text(SYNCED)
-    assert re.search(r"\[(\d+):(\d\d)(\.\d+|)\]", text)
 
 
 # -- api ---------------------------------------------------------------------
@@ -286,9 +238,7 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
     monkeypatch.setattr(
         "xbmc.getInfoLabel",
         lambda label: (
-            lyrics.to_text(SYNCED)
-            if landed and pushed and label.endswith("Lyrics")
-            else ""
+            LANDED if landed and pushed and label.endswith("Lyrics") else ""
         ),
     )
     return player, pushed

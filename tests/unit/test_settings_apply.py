@@ -683,8 +683,8 @@ def test_mark_ready_publishes_root_menu_visibility(monkeypatch):
     _logged_in_menu_env(monkeypatch)
     ready_applier(FakeService())
 
-    assert state.menu_who() is True
-    assert state.menu_syncplay() is True
+    assert FakeWindow.store.get(state.PROP_MENU_WHO) == "true"
+    assert FakeWindow.store.get(state.PROP_MENU_SYNCPLAY) == "true"
 
 
 def test_root_menus_stay_hidden_when_logged_out(monkeypatch):
@@ -699,8 +699,8 @@ def test_root_menus_stay_hidden_when_logged_out(monkeypatch):
     )
     ready_applier(FakeService())
 
-    assert state.menu_who() is False
-    assert state.menu_syncplay() is False
+    assert state.PROP_MENU_WHO not in FakeWindow.store
+    assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
 
 
 def test_syncplay_toggle_republishes_and_rebuilds_the_manager(monkeypatch):
@@ -709,16 +709,16 @@ def test_syncplay_toggle_republishes_and_rebuilds_the_manager(monkeypatch):
     _logged_in_menu_env(monkeypatch)
     service = FakeService()
     applier = ready_applier(service)
-    assert state.menu_syncplay() is True
+    assert FakeWindow.store.get(state.PROP_MENU_SYNCPLAY) == "true"
 
     FakeAddon.store["syncPlayEnabled"] = "false"
     applier.apply()
-    assert state.menu_syncplay() is False
+    assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
     assert service.syncplay_events == ["stop"]
 
     FakeAddon.store["syncPlayEnabled"] = "true"
     applier.apply()
-    assert state.menu_syncplay() is True
+    assert FakeWindow.store.get(state.PROP_MENU_SYNCPLAY) == "true"
     assert service.syncplay_events == ["stop", "start"]
 
 
@@ -728,13 +728,13 @@ def test_empty_whos_watching_shortlist_hides_the_menu(monkeypatch):
 
     _logged_in_menu_env(monkeypatch)
     applier = ready_applier(FakeService())
-    assert state.menu_who() is True
+    assert FakeWindow.store.get(state.PROP_MENU_WHO) == "true"
 
     FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_NOBODY
     applier.apply()
-    assert state.menu_who() is False
+    assert state.PROP_MENU_WHO not in FakeWindow.store
     # SyncPlay is independent of the shortlist.
-    assert state.menu_syncplay() is True
+    assert FakeWindow.store.get(state.PROP_MENU_SYNCPLAY) == "true"
 
 
 def test_picker_lists_hidden_libraries_and_keeps_a_selected_one_it_cannot_list(

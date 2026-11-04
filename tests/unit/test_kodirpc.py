@@ -295,3 +295,62 @@ def test_kodi_setting_reports_a_blip_as_failed_not_absent(monkeypatch):
 
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
     assert kodirpc.kodi_setting("musicplayer.crossfade") is kodirpc.FAILED
+
+
+# -- batch -------------------------------------------------------------------
+
+
+def _batch_answer(replies):
+    def answer(query):
+        body = json.loads(query)
+        assert isinstance(body, list)
+        return json.dumps(replies(body))
+
+    return answer
+
+
+def test_batch_answers_in_request_order_whatever_order_kodi_replies(monkeypatch):
+    seen = {}
+
+    def replies(body):
+        seen["ids"] = [request["id"] for request in body]
+        seen["params"] = [request.get("params") for request in body]
+        return [
+            {"jsonrpc": "2.0", "id": 2, "result": "second"},
+            {"jsonrpc": "2.0", "id": 1, "result": "first"},
+        ]
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", _batch_answer(replies))
+    results = kodirpc.batch([("A.One", None), ("A.Two", {"x": 1})])
+    assert results == ["first", "second"]
+    assert seen["ids"] == [1, 2]
+    assert seen["params"] == [None, {"x": 1}]
+
+
+def test_batch_marks_a_method_error_none_and_a_missing_reply_failed(monkeypatch):
+    def replies(body):
+        return [
+            {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601}},
+            {"jsonrpc": "2.0", "id": 3, "result": "third"},
+        ]
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", _batch_answer(replies))
+    results = kodirpc.batch([("A", None), ("B", None), ("C", None)])
+    assert results[0] is None
+    assert results[1] is kodirpc.FAILED
+    assert results[2] == "third"
+
+
+def test_batch_fails_every_entry_when_kodi_cannot_be_asked(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.batch([("A", None), ("B", None)]) == [kodirpc.FAILED] * 2
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: json.dumps({"id": 1}))
+    assert kodirpc.batch([("A", None)]) == [kodirpc.FAILED]
+
+
+def test_batch_of_nothing_asks_nothing(monkeypatch):
+    def explode(query):
+        raise AssertionError("asked")
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", explode)
+    assert kodirpc.batch([]) == []

@@ -190,15 +190,10 @@ class Database(object):
 
 def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     """Create every kofin.db table."""
-    cursor.execute("""CREATE TABLE IF NOT EXISTS jellyfin(
-        jellyfin_id TEXT UNIQUE, media_folder TEXT, jellyfin_type TEXT, media_type TEXT,
-        kodi_id INTEGER, kodi_fileid INTEGER, kodi_pathid INTEGER, parent_id INTEGER,
-        checksum INTEGER, jellyfin_parent_id TEXT)""")
     cursor.execute("""CREATE TABLE IF NOT EXISTS view(
         view_id TEXT UNIQUE, view_name TEXT, media_type TEXT)""")
-    # Jellyfin playlists are Kodi files, not MyVideos/MyMusic rows, so they
-    # do not belong in the jellyfin mapping table (no kodi_id). checksum is
-    # the server Etag; filename is the basename under the managed folder.
+    # Jellyfin playlists are Kodi files, not MyVideos/MyMusic rows. checksum
+    # is the server Etag; filename is the basename under the managed folder.
     cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_state(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT NOT NULL,
         filename TEXT NOT NULL, checksum TEXT NOT NULL)""")
@@ -222,7 +217,7 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         size_expected INTEGER, size_actual INTEGER, quality TEXT,
         bytes_done INTEGER, userdata_json TEXT,
         queued_at INTEGER, done_at INTEGER, error TEXT,
-        restore_filename TEXT, segments_json TEXT, restore_path TEXT,
+        segments_json TEXT,
         request_id TEXT, request_name TEXT)""")
     # CREATE IF NOT EXISTS never revisits an existing table: a new column goes
     # in the CREATE above *and* here.
@@ -230,22 +225,12 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         cursor,
         "download",
         {
-            "restore_filename": "TEXT",
             "segments_json": "TEXT",
-            "restore_path": "TEXT",
             "request_id": "TEXT",
             "request_name": "TEXT",
         },
     )
 
-    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
-        ON jellyfin(kodi_id, media_type)""")
-    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_parent
-        ON jellyfin(parent_id, media_type)""")
-    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_media_folder
-        ON jellyfin(media_folder)""")
-    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_parent_id
-        ON jellyfin(jellyfin_parent_id)""")
     # Userdata a playback produced while the server was unreachable, replayed
     # on the next connect. One row per item — a later event coalesces onto
     # it — and NULL means "unchanged".

@@ -579,7 +579,7 @@ def reconcile(
     if not kinds:
         return stats
 
-    listed = api.playlists() if hasattr(api, "playlists") else api.music_playlists()
+    listed = api.playlists()
     want_audio: Set[str] = set()
     want_video: Set[str] = set()
     taken_audio: Set[str] = set(RESERVED_STEMS)

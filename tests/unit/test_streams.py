@@ -316,15 +316,11 @@ def test_only_an_image_subtitle_on_a_transcode_needs_a_new_stream():
 # -- selectable / offer ------------------------------------------------------
 
 
-def test_selectable_on_direct_play_is_everything():
-    assert len(streams.selectable_subtitles(SUMMARY, [6], "DirectStream")) == 4
-
-
-def test_selectable_on_a_transcode_is_every_track():
-    """Only one embedded track is attached, so the others are reached through
-    the menu, which labels what each costs. Hiding them would leave the viewer
-    with no way to that subtitle at all."""
-    selectable = streams.selectable_subtitles(SUMMARY, [3, 6], "Transcode")
+def test_selectable_is_every_subtitle_on_either_play_method():
+    """On a transcode only one embedded track is attached, and the others are
+    reached through the menu, which labels what each costs. Hiding them would
+    leave the viewer with no way to that subtitle at all."""
+    selectable = streams.selectable_subtitles(SUMMARY)
     assert [stream["Index"] for stream in selectable] == [3, 4, 5, 6]
 
 
@@ -352,42 +348,23 @@ def test_the_two_costs_are_told_apart():
 
 
 @pytest.mark.parametrize(
-    "media_streams,attached,method,expected",
+    "media_streams,expected",
     [
-        (SUMMARY, [3, 4, 6], "Transcode", streams.OFFER_BOTH),
+        (SUMMARY, streams.OFFER_BOTH),
         # One audio track is not a choice.
-        (
-            streams.summarize(source(audio(1), text_sub(3))),
-            [3],
-            "Transcode",
-            streams.OFFER_SUBTITLE,
-        ),
-        (
-            streams.summarize(source(audio(1), audio(2))),
-            [],
-            "Transcode",
-            streams.OFFER_AUDIO,
-        ),
-        (streams.summarize(source(audio(1))), [], "Transcode", streams.OFFER_NONE),
-        # A text subtitle that is not attached is still offered: picking it
-        # fetches it onto the running playback.
-        (
-            streams.summarize(source(audio(1), text_sub(3))),
-            [],
-            "Transcode",
-            streams.OFFER_SUBTITLE,
-        ),
-        # Direct play offers every subtitle in the container.
+        (streams.summarize(source(audio(1), text_sub(3))), streams.OFFER_SUBTITLE),
+        (streams.summarize(source(audio(1), audio(2))), streams.OFFER_AUDIO),
+        (streams.summarize(source(audio(1))), streams.OFFER_NONE),
+        # A subtitle is offered attached or not: picking one that is not
+        # fetches it onto the running playback, or burns it into a new one.
         (
             streams.summarize(source(audio(1), audio(2), text_sub(3))),
-            [],
-            "DirectStream",
             streams.OFFER_BOTH,
         ),
     ],
 )
-def test_menu_offer_matrix(media_streams, attached, method, expected):
-    assert streams.menu_offer(media_streams, attached, method) == expected
+def test_menu_offer_matrix(media_streams, expected):
+    assert streams.menu_offer(media_streams) == expected
 
 
 # -- labels ------------------------------------------------------------------

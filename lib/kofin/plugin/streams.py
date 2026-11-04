@@ -113,8 +113,8 @@ def context_menu() -> None:
     method = str(payload.get("PlayMethod") or "")
 
     audio = streams.of_type(media_streams, "Audio")
-    subtitles = streams.selectable_subtitles(media_streams, attached, method)
-    offer = streams.menu_offer(media_streams, attached, method)
+    subtitles = streams.selectable_subtitles(media_streams)
+    offer = streams.menu_offer(media_streams)
     if offer == streams.OFFER_NONE:
         return
 

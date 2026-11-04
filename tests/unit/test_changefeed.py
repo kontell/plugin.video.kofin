@@ -89,9 +89,8 @@ def test_parse_record_full_shape():
         }
     )
     assert record.id == "ep1"
-    assert record.item_type == "Episode"
-    assert record.last_modified == 1700000000
-    assert record.series_id == "s1"
+    assert record.status == "Updated"
+    assert record.library_ids is None
 
 
 def test_parse_record_drops_malformed():
@@ -174,8 +173,8 @@ def test_legacy_feed_inverts_include_and_reads_retention():
     ]
     by_status = {(r.id, r.status) for r in change_set.records}
     assert by_status == {("a1", "Added"), ("u1", "Updated"), ("r1", "Removed")}
-    # Sparse records: no tier-1 fields.
-    assert all(r.etag is None and r.item_type is None for r in change_set.records)
+    # Sparse records: the legacy feed names no libraries.
+    assert all(r.library_ids is None for r in change_set.records)
     assert change_set.envelope.server_time == unix("2026-07-17T10:00:00Z")
     assert change_set.envelope.retention_cutoff == unix("2026-04-18T10:00:00Z")
 

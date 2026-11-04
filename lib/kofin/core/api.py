@@ -713,76 +713,12 @@ class Api:
         """Permanently delete an item from the server (content deletion)."""
         self.delete("/Items/%s" % item_id)
 
-    # -- music playlists -------------------------------------------------------
-
-    def music_playlists(self) -> List[JsonDict]:
-        """User-visible music playlists (Type=Playlist, MediaType Audio or empty).
-
-        Empty playlists often have no MediaType yet; video playlists are
-        excluded. Paged so a large account does not load in one response.
-
-        Dedupes by item id: some Jellyfin builds report a ``TotalRecordCount``
-        higher than the unique set and re-emit earlier rows on later pages.
-        """
-        results: List[JsonDict] = []
-        seen: set[str] = set()
-        start = 0
-        page_size = 100
-        while True:
-            body = self.get(
-                "/Items",
-                self._as_user(
-                    {
-                        "IncludeItemTypes": "Playlist",
-                        "Recursive": True,
-                        "StartIndex": start,
-                        "Limit": page_size,
-                        "EnableTotalRecordCount": True,
-                        "Fields": "MediaType,Overview,Etag",
-                        "SortBy": "SortName",
-                        "SortOrder": "Ascending",
-                    }
-                ),
-            )
-            if "Items" not in body or not isinstance(body["Items"], list):
-                raise HttpError(200, "music playlists: response had no items list")
-            items = body["Items"]
-            new_on_page = 0
-            for item in items:
-                item_id = item.get("Id") or ""
-                if not item_id or item_id in seen:
-                    continue
-                seen.add(item_id)
-                new_on_page += 1
-                media_type = item.get("MediaType") or ""
-                if media_type and media_type != "Audio":
-                    continue
-                results.append(item)
-            total = int(body.get("TotalRecordCount") or 0)
-            # A first page with no items while the count says otherwise is the
-            # server contradicting itself, and returning [] here reads
-            # downstream as "this account has no playlists" -- which is a
-            # deletion order for the managed folder. Fail loudly instead; a
-            # genuinely empty account answers count 0.
-            if start == 0 and not items and total > 0:
-                raise HttpError(
-                    200,
-                    "music playlists: TotalRecordCount %d but the first page "
-                    "was empty" % total,
-                )
-            start += len(items)
-            # Stop on empty page, exhausted count, or a page that added no
-            # new ids (server repeating itself past the real set). A later
-            # empty page is the documented over-count, not a contradiction.
-            if not items or start >= total or new_on_page == 0:
-                break
-        return results
-
     def playlists(self) -> List[JsonDict]:
         """User-visible playlists of every MediaType, with Etag.
 
-        Same paging and dedupe as :meth:`music_playlists`; the caller decides
-        Audio vs Video vs skip.
+        Paged, and deduped by id: some Jellyfin builds report a
+        ``TotalRecordCount`` higher than the unique set and re-emit earlier
+        rows on later pages. The caller decides Audio vs Video vs skip.
         """
         results: List[JsonDict] = []
         seen: set[str] = set()
@@ -816,6 +752,10 @@ class Api:
                 new_on_page += 1
                 results.append(item)
             total = int(body.get("TotalRecordCount") or 0)
+            # A first page with no items while the count says otherwise is the
+            # server contradicting itself, and [] reads downstream as "this
+            # account has no playlists", a deletion order for the managed
+            # folder. A genuinely empty account answers count 0.
             if start == 0 and not items and total > 0:
                 raise HttpError(
                     200,
@@ -823,6 +763,9 @@ class Api:
                     "was empty" % total,
                 )
             start += len(items)
+            # Stop on an empty page, an exhausted count, or a page that added
+            # no new ids (the server repeating itself past the real set); a
+            # later empty page is the documented over-count.
             if not items or start >= total or new_on_page == 0:
                 break
         return results
@@ -873,13 +816,6 @@ class Api:
         if tag:
             url += "?tag=%s" % tag
         return url
-
-    def chapters(self, item_id: str) -> List[JsonDict]:
-        """The item's chapter list: name, start ticks, and — when the server
-        has extracted a chapter image — its ImageTag."""
-        item = self.get("/Items/%s" % item_id, self._as_user({"Fields": "Chapters"}))
-        chapters = item.get("Chapters")
-        return chapters if isinstance(chapters, list) else []
 
     def chapter_image_url(
         self, item_id: str, index: int, tag: str, max_width: int

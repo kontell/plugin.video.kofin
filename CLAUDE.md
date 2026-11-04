@@ -15,7 +15,7 @@ holds only what is specific to *this* add-on.
 
 ## What this is
 
-Kofin (`plugin.video.kofin`) is a Jellyfin client add-on for Kodi that files selected server libraries into Kodi's own library through Kodi's public interfaces: it is the scanner's source for every item (the `/native/` provider) and patches what a listing cannot carry over JSON-RPC, so Kodi's databases are never opened. Playback resolves back through `plugin://` paths. The shell (entry points, settings, lifecycle, playback decisions) is kofin's own; SyncPlay is a port from the Kontell fork of `jellyfin-kodi`; the catalogue-and-pass pipeline under `sync/backends/api/` replaced the fork's database writers in 0.9x (`docs/kodi-api-sync-feasibility.md`, `docs/kofin-or-implementation-plan.md`). Until 0.95 the add-on also shipped a build that wrote those databases directly (the `sql` branch, frozen at 0.29.2 for Omega); nothing of it remains in this tree. The per-phase plans in `docs/` record design decisions and deviations.
+Kofin (`plugin.video.kofin`) is a Jellyfin client add-on for Kodi that files selected server libraries into Kodi's own library through Kodi's public interfaces: it is the scanner's source for every item (the `/native/` provider) and patches what a listing cannot carry over JSON-RPC, so Kodi's databases are never opened. Playback resolves back through `plugin://` paths. The shell (entry points, settings, lifecycle, playback decisions) is kofin's own; SyncPlay was written for Kontell's fork of `jellyfin-kodi` before kofin existed and moved over when kofin replaced that fork, so it is kofin's first module rather than third-party code; the catalogue-and-pass pipeline under `sync/backends/api/` replaced the fork's database writers in 0.9x (`docs/kodi-api-sync-feasibility.md`, `docs/kofin-or-implementation-plan.md`). Until 0.95 the add-on also shipped a build that wrote those databases directly (the `sql` branch, frozen at 0.29.2 for Omega); nothing of it remains in this tree. The per-phase plans in `docs/` record design decisions and deviations.
 
 ## Commands
 
@@ -92,7 +92,7 @@ PR zips are Actions artifacts only; production install zips come from published 
 
 **One backend.** `sync/backends/api/` is the library pipeline: `store.py` the catalogue (kofin.db), `library.py` the thread, `native.py` the pass, `provider.py` the scanner's source, `metadata.py` the serializer, `patch.py` the comparator, `readback.py`, `removal.py` and `kinds.py` the kind table. `sync/private.py` is the only entry point to kofin.db. `tools/package_manifest.py` lists what the zip and the development install ship, and both carry the whole tree. `docs/research/kofin-or/phase1/README.md` records the contracts the pipeline was built to.
 
-**What is still a port.** `lib/kofin/syncplay/` is ported fork code and keeps the fork's shape so a change can still be read against it; `sync/shims.py` is what remains of the compat layer the fork's writers imported, three helpers. The database writers, the sync orchestrator and the L2 schema suite that proved them went with the SQL build. Shell code (`core/`, `plugin/`, `service/`) and the pipeline follow current idioms; match whichever file you are in.
+**Nothing here is a port.** `lib/kofin/syncplay/` was written for Kontell's fork of `jellyfin-kodi` and came over when kofin replaced it; it is held to the same rules as every other module, and its older idioms (`object` bases, banner comments, untyped signatures) are debt to pay down, not a shape to preserve. `sync/shims.py` is three helpers left from the compat layer the SQL build's writers imported. The database writers, the sync orchestrator and the L2 schema suite that proved them went with the SQL build.
 
 **Two stores, and none of Kodi's.** `kofin.db` holds the catalogue (payloads, placements, acknowledgements and the mapping to Kodi's ids), the playlist state and the download table; `sync.json` holds the whitelist and the sync state. Kodi's MyVideos and MyMusic are never opened: `tests/package/probe.py` runs the shipped tree with every such open refused.
 
@@ -933,8 +933,8 @@ What remains is kofin's own:
   and the app thread's stop path waits on MyVideos writes that a GIL-starved kofin thread may be
   holding. That is a deadlock with no recovery but a force-stop (issue #155, measured on Omega and
   Piers). `pause()` has the same missing guard but does not tear the player down, so it does not
-  reach the wait — it is a stall risk, not a deadlock, and is deliberately left alone inside the
-  SyncPlay transplant.
+  reach the wait — it is a stall risk, not a deadlock, and is deliberately left alone inside
+  SyncPlay.
 - **"Recently added albums" asks `/Items/Latest`, never albums sorted by `DateCreated`** — an
   album's DateCreated is when the scanner last created its row, and a rescan re-creates rows in
   folder order (`docs/dynamic-libraries-plan.md` §3).

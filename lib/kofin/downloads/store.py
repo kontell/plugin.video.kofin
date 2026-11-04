@@ -69,9 +69,6 @@ class Download:
     # online claim path falls back to its own fetch); a stored
     # '{"Items": []}' is known-empty, so nobody asks again.
     segments_json: str = ""
-    # Written by the SQL build's repoint; unused here.
-    restore_filename: str = ""
-    restore_path: str = ""
     # What the user asked to download: its Jellyfin id and name. Distinct
     # from ``series_id``, which is the *item's* parent — a
     # playlist's twelve tracks have twelve different albums and one request.

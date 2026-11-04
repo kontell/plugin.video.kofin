@@ -54,13 +54,25 @@ def test_sql_and_api_mappings_are_never_adopted_across_backends(store):
         )
 
 
+LEGACY_TABLE = "CREATE TABLE jellyfin(jellyfin_id TEXT UNIQUE, kodi_id INTEGER)"
+
+
 def test_unmarked_legacy_mappings_require_fresh_state(store):
+    """The SQL build's profile: its mapping table with rows, and no marker."""
     with private.Database() as db:
+        db.cursor.execute(LEGACY_TABLE)
         db.cursor.execute(
             "INSERT INTO jellyfin(jellyfin_id, kodi_id) VALUES ('old', 42)"
         )
     with pytest.raises(EarlierLibrary):
         store.stage(media())
+
+
+def test_an_empty_legacy_table_is_no_claim(store):
+    """Profiles of the 0.9x builds carry the table with no rows."""
+    with private.Database() as db:
+        db.cursor.execute(LEGACY_TABLE)
+    store.stage(media())
 
 
 def test_metadata_reads_the_runtime_in_seconds():

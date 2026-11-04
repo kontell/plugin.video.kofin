@@ -21,11 +21,20 @@ import http.client
 import json
 import ssl
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode, urlsplit
 
-from kofin.core.http import DEFAULT_TIMEOUT, Http, METHOD_RETRIES, run_ladder
+from kofin.core.http import (
+    DEFAULT_TIMEOUT,
+    METHOD_RETRIES,
+    Http,
+    StreamedResponse,
+    run_ladder,
+)
 from kofin.core.log import Logger
+
+if TYPE_CHECKING:  # the requests path is never imported here
+    import requests
 
 LOG = Logger(__name__)
 
@@ -64,9 +73,10 @@ class Response:
 class StdlibHttp(Http):
     """A kept-alive connection to one origin, over ``http.client``.
 
-    Subclasses :class:`Http` so it can be handed to ``Api`` unchanged; the two
-    methods that touch the network are overridden and the inherited
-    ``session()`` is never reached (it is the requests path).
+    Subclasses :class:`Http` so it can be handed to ``Api`` unchanged.
+    ``request`` and ``close`` are this transport's; ``session`` and ``stream``
+    are the requests path and raise here, so a caller that reaches them fails
+    at once instead of paying the import this class exists to avoid.
 
     One connection per thread, reused across that thread's calls: the play
     route makes three or four, and paying a TLS handshake for each would give
@@ -104,6 +114,18 @@ class StdlibHttp(Http):
             except Exception as error:  # pragma: no cover - defensive
                 LOG.debug("connection close failed: %s", error)
         self._local = threading.local()
+
+    def session(self) -> "requests.Session":
+        raise RuntimeError("StdlibHttp has no requests session")
+
+    def stream(
+        self,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        start: int = 0,
+        timeout: Optional[Tuple[float, float]] = None,
+    ) -> StreamedResponse:
+        raise RuntimeError("StdlibHttp does not stream; downloads run on the service")
 
     def _drop(self) -> None:
         """Close and forget the calling thread's connection."""

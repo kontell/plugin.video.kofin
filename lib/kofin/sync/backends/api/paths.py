@@ -42,13 +42,6 @@ CONTENT = {
     "MusicArtist": "music",
 }
 CONTENTS = ("movies", "tvshows", "musicvideos", "music")
-# Which of Kodi's two scanners walks a content type.
-SCANNER = {
-    "movies": "video",
-    "tvshows": "video",
-    "musicvideos": "video",
-    "music": "music",
-}
 SINGLES = "singles/"
 NO_ARTIST = "0" * 32
 # Containers a song file may be named by; anything else is named "audio".

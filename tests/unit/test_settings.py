@@ -230,12 +230,23 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
     assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
 
 
+def test_the_retired_library_settings_are_gone_from_the_schema():
+    """The critic-rating toggle had no reader, and the two hidden strings were
+    the SQL build's; a leftover control would be read by nothing."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    ids = {element.get("id") for element in root.iter("setting")}
+    assert not {"preferCriticRating", "lastIncrementalSync", "viewsHash"} & ids
+    assert {"librarySelection", "apiMovieBindings"} <= ids
+
+
 def test_the_library_tab_holds_the_sync_settings_in_reading_order():
     """No Sync tab; the Library tab reads: what to sync, then the progress
     toggle with its item threshold (visible only while the toggle is on),
-    then the status and the actions, then the node toggle, the artwork
-    cap above the compression it gates, and the critic rating last. One
-    group — a second draws a separator."""
+    then the status and the actions, then the artwork cap above the
+    compression it gates, and the node toggle last. One group — a second
+    draws a separator."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -254,10 +265,9 @@ def test_the_library_tab_holds_the_sync_settings_in_reading_order():
         "updateLibraries",
         "repairLibraries",
         "fullUpdateInterval",
-        "libraryNodes",
         "maxArtResolution",
         "compressArt",
-        "preferCriticRating",
+        "libraryNodes",
     ]
     assert shown[1].findtext("default") == "true"
     visible = [
@@ -365,7 +375,7 @@ def test_reads_degrade_instead_of_raising_into_the_calling_thread(monkeypatch):
     assert settings.get_addon() is None
     assert settings.available() is False
     assert settings.get_str("serverAddress") == ""
-    assert settings.get_bool("preferCriticRating") is False
+    assert settings.get_bool("libraryNodes") is False
     assert settings.get_int("resumeJumpBack") == 0
     assert settings.get_float("downloadsMaxBitrate") == 0.0
     assert settings.get_list("librarySelection") == []
@@ -378,7 +388,7 @@ def test_reads_degrade_instead_of_raising_into_the_calling_thread(monkeypatch):
 def test_writes_are_dropped_rather_than_raising(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
 
-    settings.set_str("lastIncrementalSync", "2026-08-12T21:44:33Z")
+    settings.set_str("apiMovieBindings", "noupdate+extras")
     settings.set_bool("isLoggedIn", True)
 
     assert FakeAddon.store == {}  # nothing stored, and nothing raised

@@ -324,8 +324,8 @@ def _bulk_toast(string_id: int, count: int) -> None:
         return
     try:
         toast.show(settings.localized(string_id) % count, time_ms=5000)
-    except Exception:  # pragma: no cover - uncached string etc.
-        pass
+    except Exception as error:  # pragma: no cover - uncached string etc.
+        LOG.debug("toast skipped: %s", error)
 
 
 def queue_new_movies(entries: Iterable[Any]) -> int:

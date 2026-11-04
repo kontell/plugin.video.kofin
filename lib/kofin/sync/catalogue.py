@@ -38,9 +38,14 @@ def claim_backend(cursor, backend: str) -> None:
                 "sync state belongs to another backend/version; start with fresh sync state"
             )
         return
-    # Pre-marker installations are SQL mappings. Generic private reads remain
-    # available; only an adapter claiming these mappings is refused.
-    legacy = cursor.execute("SELECT 1 FROM jellyfin LIMIT 1").fetchone()
+    # A profile the SQL build filed has rows in its mapping table and no
+    # marker. Generic private reads remain available; only an adapter claiming
+    # these mappings is refused. The table may stand empty (0.9x profiles
+    # created it); only rows make it a claim.
+    table = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jellyfin'"
+    ).fetchone()
+    legacy = table and cursor.execute("SELECT 1 FROM jellyfin LIMIT 1").fetchone()
     if legacy and backend != "sql":
         raise EarlierLibrary("legacy SQL mappings require a fresh library")
     cursor.execute("INSERT INTO backend_state VALUES (1, ?, 1)", (backend,))
