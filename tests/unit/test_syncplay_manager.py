@@ -844,7 +844,7 @@ class TestForeignPlayAdopts:
 
     def test_a_foreign_recording_is_adopted(self, manager):
         started, prepared = self._arm(manager)
-        manager.foreign_claim = {
+        manager.bus.foreign_claim = {
             "Id": "rec-1",
             "Provider": "jellyfin",
             "RunTimeTicks": 3600 * 10_000_000,
@@ -858,7 +858,7 @@ class TestForeignPlayAdopts:
     def test_a_held_foreign_start_is_adopted(self, manager):
         started, prepared = self._arm(manager)
         manager._hold = {"item_id": "rec-1", "proposed": True}
-        manager.foreign_claim = {
+        manager.bus.foreign_claim = {
             "Id": "rec-1",
             "Provider": "jellyfin",
             "RunTimeTicks": 3600 * 10_000_000,
@@ -874,7 +874,7 @@ class TestForeignPlayAdopts:
         # for a *different* item lingers: the hold's own id is what adopts.
         started, prepared = self._arm(manager)
         manager._hold = {"item_id": "item-2", "proposed": True}
-        manager.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
+        manager.bus.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
 
         manager._handle_group_update(make_queue(items=(("item-2", "pl-2"),)))
 
@@ -913,7 +913,7 @@ class TestForwardLocalPlay:
         manager.player.playing = True
         manager.player.position = 3651.0
         manager.player.item = None
-        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
+        manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
         manager._forward_local_play()
 
@@ -930,7 +930,7 @@ class TestForwardLocalPlay:
         manager.player.position = 100.0
         manager.player.item = None
         manager.playback.live._live_origin_server_ms = 42_000_000.0 - 120_000.0
-        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
+        manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
         manager._forward_local_play()
 
@@ -975,12 +975,12 @@ class TestForwardLocalPlay:
         import time as time_module
 
         join(manager)
-        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
-        manager._foreign_claim_at = time_module.time() - 10.0
+        manager.bus.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager.bus._foreign_claim_at = time_module.time() - 10.0
 
         manager._identify_held_play({"item": {}})
 
-        assert manager.foreign_claim is None
+        assert manager.bus.foreign_claim is None
 
     def test_fresh_claim_survives_a_new_play(self, manager):
         # A provider that claims at resolve time (before OnPlay) must not
@@ -988,12 +988,12 @@ class TestForwardLocalPlay:
         import time as time_module
 
         join(manager)
-        manager.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
-        manager._foreign_claim_at = time_module.time()
+        manager.bus.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
+        manager.bus._foreign_claim_at = time_module.time()
 
         manager._identify_held_play({"item": {}})
 
-        assert manager.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
+        assert manager.bus.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
 
     def test_avstarted_drops_the_stale_claim_too(self, manager):
         # A seamless PVR zap emits no OnPlay: on_avstarted is the one event
@@ -1002,12 +1002,12 @@ class TestForwardLocalPlay:
 
         join(manager)
         manager.player.playing = True
-        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
-        manager._foreign_claim_at = time_module.time() - 10.0
+        manager.bus.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager.bus._foreign_claim_at = time_module.time() - 10.0
 
         manager.on_avstarted()
 
-        assert manager.foreign_claim is None
+        assert manager.bus.foreign_claim is None
 
     def test_zap_claim_reproposes_while_following(self, manager):
         # The zap chain fires no OnPlay and its AVStarted lands inside the
@@ -1020,7 +1020,7 @@ class TestForwardLocalPlay:
         manager.current_item_id = "old-chan"
         manager.playback.ensure_paused = lambda: None
 
-        manager._set_foreign_claim({"Id": "new-chan", "Provider": "jellyfin"})
+        manager.bus._set_foreign_claim({"Id": "new-chan", "Provider": "jellyfin"})
         # the trigger posts to the live dispatcher; wait for it
         import time as time_module
 
@@ -2381,7 +2381,7 @@ class TestForeignClaim:
 
         manager.on_stopped()
 
-        assert manager.foreign_claim is None
+        assert manager.bus.foreign_claim is None
 
 
 class TestProviderRegister:

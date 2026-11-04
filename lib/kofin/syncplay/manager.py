@@ -15,13 +15,12 @@ from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, HELD, STARTABLE, Phase
+from kofin.syncplay.bus import ProviderBus
 from kofin.syncplay.playback import PlaybackController
 from kofin.syncplay.ports import Claim, SyncPlayApi
 from kofin.syncplay.providers import (
     JELLYFIN,
-    DelegatedProvider,
     ProviderRegistry,
-    TemplateProvider,
     jellyfin_registry,
 )
 from kofin.syncplay.tempo import TempoSession
@@ -61,9 +60,8 @@ class SyncPlayManager:
         # A play kofin's own pipeline did not resolve, identified from
         # outside over the public bus (SyncProvider.Claim). kofin's claim
         # always wins over it.
-        self.foreign_claim: Optional[Claim] = None
-        self._foreign_claim_at = 0.0
         self.playback = PlaybackController(self, player)
+        self.bus = ProviderBus(self)
         self.timesync: Optional[TimeSync] = None
         # Fine sync through Kodi's own tempo (syncplay/tempo.py): armed at
         # group join when the setting allows, disarmed at leave.
@@ -320,7 +318,7 @@ class SyncPlayManager:
 
             # Not a kofin play: the foreign claim (public bus) is the
             # identity, when one was published.
-            return self.foreign_claim
+            return self.bus.foreign_claim
         except Exception as error:
             LOG.debug("current item unreadable: %s", error)
 
@@ -1390,7 +1388,7 @@ class SyncPlayManager:
         # A seamless PVR zap emits no OnPlay and no stop — this is the one
         # event every new stream reliably fires, so the stale-claim drop
         # anchors here as well as on OnPlay.
-        self._drop_stale_claim()
+        self.bus.drop_stale_claim()
         self.playback.note_live_origin()
 
         if self.phase == Phase.LOADING:
@@ -1450,7 +1448,7 @@ class SyncPlayManager:
             self._post(self._api, "syncplay_seek", utils.seconds_to_ticks(seconds))
 
     def on_stopped(self) -> None:
-        self.foreign_claim = None  # claims are playback-scoped
+        self.bus.foreign_claim = None  # claims are playback-scoped
         self._hold_done("stopped")
         self._hold = None
 
@@ -1471,7 +1469,7 @@ class SyncPlayManager:
             thread.start()
 
     def on_ended(self) -> None:
-        self.foreign_claim = None  # claims are playback-scoped
+        self.bus.foreign_claim = None  # claims are playback-scoped
         self._hold_done("ended")
         self._hold = None
 
@@ -1662,7 +1660,7 @@ class SyncPlayManager:
         starts keep waiting for the player: their start position (a resume
         point) is only trustworthy once A/V is up.
         """
-        self._drop_stale_claim()
+        self.bus.drop_stale_claim()
 
         hold = self._hold
 
@@ -1702,19 +1700,6 @@ class SyncPlayManager:
         hold["proposed"] = True
         hold["item_id"] = mapped
         self._propose_queue(mapped, position=0.0)
-
-    def _drop_stale_claim(self) -> None:
-        """A new local play is starting: a foreign claim older than
-        STALE_CLAIM_SECS describes the *previous* playback (a seamless zap
-        emits no stop to clear it). A fresh claim (a provider that claims at
-        resolve time, before OnPlay) is kept."""
-        if self.foreign_claim is None:
-            return
-
-        if time.time() - self._foreign_claim_at <= utils.STALE_CLAIM_SECS:
-            return
-
-        self.foreign_claim = None
 
     def _unmanaged_local_play(self) -> None:
         """Playing something the group can't follow (a local file,
@@ -1831,147 +1816,23 @@ class SyncPlayManager:
     # The public provider contract
     # ------------------------------------------------------------------
 
-    def on_foreign_claim(self, claim: Claim) -> None:
-        """SyncProvider.Claim: what is playing when kofin's own pipeline
-        did not resolve it. Called on the notification thread; applied on
-        the dispatcher."""
-        self._post(self._set_foreign_claim, claim)
-
-    def _set_foreign_claim(self, claim: Claim) -> None:
-        self.foreign_claim = claim
-        self._foreign_claim_at = time.time()
-        LOG.debug(
-            "[ syncplay/claim ] foreign: %s via %s",
-            claim.get("Id"),
-            claim.get("Provider"),
-        )
-
-        if (
-            self.in_group()
-            and not self.ignore_wait
-            and self.phase in FOLLOWING
-            and claim.get("Id")
-            and claim.get("Id") != self.current_item_id
-        ):
-            # A new foreign play while following the group: the claim is
-            # the propose trigger, because the event chain cannot be — a
-            # PVR zap fires no OnPlay, only an unpause echo whose programmatic
-            # grace swallows the AVStarted forward.
-            # A fresh start (phase idle) keeps the event-driven path, and
-            # the adoption echo is inert here: its claim names the current
-            # item.
-            self._post(self._forward_local_play)
-
-    def on_provider_register(self, sender: str, payload: dict[str, Any]) -> None:
-        """SyncProvider.Register: wrap the play template as a provider.
-
-        Re-registration replaces — providers answer every service announce
-        (SyncSession.State), so the registry rebuilds itself across service
-        generations with no persistence anywhere.
-        """
-        play = contract.register_template(payload)
-
-        if play is None:
-            LOG.debug("Register from %s without a usable play template", sender)
-            return
-
-        name = payload["provider"]
-
-        if name == JELLYFIN:
-            LOG.warning("Register from %s tried to replace %r", sender, JELLYFIN)
-            return
-
-        if play.get("delegated"):
-            self.providers.register(name, DelegatedProvider(play["audio"]))
-        else:
-            self.providers.register(
-                name, TemplateProvider(play["url_template"], play["audio"])
-            )
-        LOG.debug(
-            "[ syncplay/provider ] %r registered by %s%s",
-            name,
-            sender,
-            " (delegated)" if play.get("delegated") else "",
-        )
-
-    def on_propose(self, payload: dict[str, Any]) -> None:
-        """SyncSession.Propose: a provider asks for its item as the group
-        queue — the programmatic form of the hold-and-propose flow."""
-        self._post(self._propose_from_bus, payload)
-
-    def _propose_from_bus(self, payload: dict[str, Any]) -> None:
-        if not self.in_group():
-            LOG.debug(
-                "Propose from %r outside a group; ignored", payload.get("provider")
-            )
-            return
-
-        position = utils.ticks_to_seconds(payload.get("position_ticks") or 0)
-        provider = payload.get("provider") or JELLYFIN
-
-        content = None
-        if provider != JELLYFIN:
-            name = payload.get("name")
-            try:
-                runtime = int(payload.get("runtime_ticks") or 0)
-            except (TypeError, ValueError):
-                runtime = 0
-            content = {
-                "Provider": provider,
-                "Key": payload["key"],
-                "Name": name[:256] if isinstance(name, str) else "",
-                "RunTimeTicks": max(0, runtime),
-            }
-
-        self._propose_queue(
-            payload["key"], position=position, provider=provider, content=content
-        )
-
-    def publish_session_state(self, announce: bool = False) -> None:
-        """The public session mirror on ``syncsession.state``.
-
-        ``announce`` also pings SyncSession.State over the bus — group
-        join/leave and service start, which is what tells providers to
-        (re)register; every other publish is property-only so the bus
-        stays quiet through ordinary phase traffic.
-        """
-        names = []
-
-        for member in self.members or []:
-            if isinstance(member, dict):
-                names.append(member.get("UserName") or "?")
-            else:
-                names.append("%s" % member)
-
-        current = None
-
-        if self.current_item_id:
-            info = self._local_file_info() or {}
-            current = {
-                "provider": info.get("Provider") or JELLYFIN,
-                "key": self.current_item_id,
-            }
-
-        state.publish_syncsession(
-            {
-                "v": contract.VERSION,
-                "in_group": self.in_group(),
-                "group_name": (self.group or {}).get("GroupName") or "",
-                "members": names,
-                "phase": str(self.phase),
-                "current": current,
-            }
-        )
-
-        if announce:
-            try:
-                contract.publish_state()
-            except Exception as error:  # never let the bus break the engine
-                LOG.warning("SyncSession.State announce failed: %s", error)
-
     # ------------------------------------------------------------------
     # Lifecycle from the service
     # ------------------------------------------------------------------
+
+    # -- the provider bus (bus.py) ---------------------------------------------
+
+    def on_foreign_claim(self, claim: Claim) -> None:
+        self.bus.on_foreign_claim(claim)
+
+    def on_provider_register(self, sender: str, payload: dict[str, Any]) -> None:
+        self.bus.on_provider_register(sender, payload)
+
+    def on_propose(self, payload: dict[str, Any]) -> None:
+        self.bus.on_propose(payload)
+
+    def publish_session_state(self, announce: bool = False) -> None:
+        self.bus.publish_session_state(announce)
 
     def on_sleep(self) -> None:
         self.playback.cancel_pending()

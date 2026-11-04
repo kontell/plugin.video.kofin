@@ -15,25 +15,39 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
+import functools
 import threading
 import time
+from collections.abc import Callable, Collection, Iterable
+from typing import TYPE_CHECKING, Any, Optional
 
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.sync import kofindb, private
 from . import paths, progress
 from .kinds import KINDS, rpc
-from .store import Entry
+from .store import Entry, PendingWork, Placements, Store
+
+if TYPE_CHECKING:
+    from .native import Native
 
 LOG = Logger(__name__)
 
 
-def _fail(store, pending, item_id, error, errors):
+def _fail(
+    store: Store,
+    pending: PendingWork,
+    item_id: str,
+    error: Exception,
+    errors: list[Exception],
+) -> None:
     store.failed(item_id, pending[item_id][0], type(error).__name__ + ": " + str(error))
     errors.append(error)
 
 
-def other_sources(native, library, members, placement) -> list[str]:
+def other_sources(
+    native: "Native", library: str, members: set[str], placement: dict[str, Entry]
+) -> list[str]:
     """The video sources whose shows Kodi filed on one row with a show of the
     library about to be cleared.
 
@@ -59,7 +73,7 @@ def other_sources(native, library, members, placement) -> list[str]:
     return found
 
 
-def sources_of(native, shows) -> list[str]:
+def sources_of(native: "Native", shows: Iterable[int]) -> list[str]:
     """The video sources holding episodes another source filed on the rows
     ``shows`` (Kodi's tvshowids)."""
     files = [
@@ -71,7 +85,7 @@ def sources_of(native, shows) -> list[str]:
     return sources_holding(files)
 
 
-def sources_holding(files) -> list[str]:
+def sources_holding(files: Iterable[str]) -> list[str]:
     """The video sources the files are in, the deepest one for each."""
     if not files:
         return []
@@ -98,7 +112,9 @@ def sources_holding(files) -> list[str]:
     return sorted(found)
 
 
-def grouped_movies(native, library, members, placement) -> tuple[list[int], list[str]]:
+def grouped_movies(
+    native: "Native", library: str, members: set[str], placement: dict[str, Entry]
+) -> tuple[list[int], list[str]]:
     """The movies of the library Kodi grouped with another source's copy and
     lists under its file (Readback.movie), and those files."""
     ids: list[int] = []
@@ -114,7 +130,9 @@ def grouped_movies(native, library, members, placement) -> tuple[list[int], list
     return ids, files
 
 
-def _merged_shows(store, pending, placement, members) -> list[str]:
+def _merged_shows(
+    store: Store, pending: PendingWork, placement: dict[str, Entry], members: set[str]
+) -> list[str]:
     """The shows of other libraries that Kodi may have filed on one row
     with a show of the library just cleared, and their seasons and episodes.
 
@@ -152,7 +170,7 @@ def _merged_shows(store, pending, placement, members) -> list[str]:
     return merged
 
 
-def _provider_ids(item) -> set[tuple[str, str]]:
+def _provider_ids(item: dict[str, Any]) -> set[tuple[str, str]]:
     return {
         (str(name).lower(), str(value))
         for name, value in (item.get("ProviderIds") or {}).items()
@@ -166,7 +184,7 @@ COUNTED = ("Movie", "Episode", "MusicVideo")
 CLEAR_POLL = 3.0
 
 
-def library_label(library) -> str:
+def library_label(library: str) -> str:
     """The library's name as the viewer selected it, or ''."""
     try:
         with private.Database() as db:
@@ -175,14 +193,14 @@ def library_label(library) -> str:
         return ""
 
 
-def removing(library) -> str:
+def removing(library: str) -> str:
     """The bar's text while a library leaves."""
     name = library_label(library)
     heading = progress.stage(progress.REMOVING)
     return "%s: %s" % (heading, name) if name else heading
 
 
-def _rows(kinds) -> int:
+def _rows(kinds: Iterable[str]) -> int:
     return sum(
         rpc(KINDS[kind].listing, {"limits": {"start": 0, "end": 1}})["limits"]["total"]
         for kind in COUNTED
@@ -190,7 +208,9 @@ def _rows(kinds) -> int:
     )
 
 
-def clear_library(native, library, kinds, rows=0):
+def clear_library(
+    native: "Native", library: str, kinds: set[str], rows: int = 0
+) -> None:
     """One call removes every row Kodi filed under the library root.
 
     The call returns when the last row is gone, which can take minutes, so
@@ -206,7 +226,7 @@ def clear_library(native, library, kinds, rows=0):
     saved = native.progress.phase(rows, heading)
     failure: list[BaseException] = []
 
-    def clear():
+    def clear() -> None:
         try:
             rpc(
                 "VideoLibrary.SetSourceContent",
@@ -281,7 +301,7 @@ def clear_library(native, library, kinds, rows=0):
     native.store.unbind(root)
 
 
-def _owed(library, what, call):
+def _owed(library: str, what: str, call: Callable[[], Any]) -> None:
     """Do something a library is owed once its rows are gone, and never
     fail its removal for it: failed, the library would be cleared a second
     time on the next pass."""
@@ -293,7 +313,13 @@ def _owed(library, what, call):
         LOG.warning("library %s: left without %s: %s", library, what, error)
 
 
-def remove(native, pending, entries, tombstones, errors) -> set[str]:
+def remove(
+    native: "Native",
+    pending: PendingWork,
+    entries: Placements,
+    tombstones: dict[str, Entry],
+    errors: list[Exception],
+) -> set[str]:
     """Apply every tombstone but the sets'; returns the libraries cleared whole.
 
     In order: whole video libraries go in one call each; music leaves by its
@@ -318,7 +344,13 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
     return cleared
 
 
-def _clear_whole_libraries(native, pending, placement, removals, errors) -> set[str]:
+def _clear_whole_libraries(
+    native: "Native",
+    pending: PendingWork,
+    placement: dict[str, Entry],
+    removals: set[str],
+    errors: list[Exception],
+) -> set[str]:
     """A library none of whose members survive goes in one call; Kodi's
     RemoveContentForPath deletes every row filed beneath its root. Music
     has no such call and leaves by its directories (remove_music)."""
@@ -380,7 +412,7 @@ def _clear_whole_libraries(native, pending, placement, removals, errors) -> set[
             _owed(
                 library,
                 "the other sources' shows",
-                lambda others=others: native.scan(others, "video"),
+                functools.partial(native.scan, others, "video"),
             )
         # One transaction for the whole library.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
@@ -390,7 +422,13 @@ def _clear_whole_libraries(native, pending, placement, removals, errors) -> set[
     return cleared
 
 
-def _gather_rows(native, pending, placement, removals, cleared):
+def _gather_rows(
+    native: "Native",
+    pending: PendingWork,
+    placement: dict[str, Entry],
+    removals: set[str],
+    cleared: set[str],
+) -> tuple[list[tuple[str, Entry]], dict[str, list[str]]]:
     """The rows still to remove one by one, and the children of each show
     that is going, which leave with it and are acknowledged only when the
     show's removal is confirmed, so they are gathered first, whatever order
@@ -422,19 +460,34 @@ def _gather_rows(native, pending, placement, removals, cleared):
     return rows, children
 
 
-def _forget_with_children(store, pending, children, item_id):
+def _forget_with_children(
+    store: Store, pending: PendingWork, children: dict[str, list[str]], item_id: str
+) -> None:
     store.forget(item_id, pending[item_id][0])
     for child in children.pop(item_id, []):
         store.forget(child, pending[child][0])
 
 
-def _fail_with_children(store, pending, children, item_id, error, errors):
+def _fail_with_children(
+    store: Store,
+    pending: PendingWork,
+    children: dict[str, list[str]],
+    item_id: str,
+    error: Exception,
+    errors: list[Exception],
+) -> None:
     _fail(store, pending, item_id, error, errors)
     for child in children.pop(item_id, []):
         _fail(store, pending, child, error, errors)
 
 
-def _remove_rows(native, pending, rows, children, errors):
+def _remove_rows(
+    native: "Native",
+    pending: PendingWork,
+    rows: list[tuple[str, Entry]],
+    children: dict[str, list[str]],
+    errors: list[Exception],
+) -> tuple[list[tuple[str, Entry]], set[str]]:
     """One removal call per row, by the id the scoped readback holds now;
     returns the rows attempted and the other sources of the shows about to
     go, scanned once they have."""
@@ -487,7 +540,13 @@ def _remove_rows(native, pending, rows, children, errors):
     return attempted, rescan
 
 
-def _confirm_rows(native, pending, attempted, children, errors):
+def _confirm_rows(
+    native: "Native",
+    pending: PendingWork,
+    attempted: list[tuple[str, Entry]],
+    children: dict[str, list[str]],
+    errors: list[Exception],
+) -> None:
     """One readback per scope: anything still there stays pending, children
     included, and a child whose show was settled before it was gathered, or
     whose removal never got as far as a call, goes with the show's state."""
@@ -534,7 +593,13 @@ def _confirm_rows(native, pending, attempted, children, errors):
                 )
 
 
-def remove_music(native, pending, placement, removals, errors):
+def remove_music(
+    native: "Native",
+    pending: PendingWork,
+    placement: dict[str, Entry],
+    removals: set[str],
+    errors: list[Exception],
+) -> None:
     store = native.store
     by_library: dict[str, list[tuple[str, Entry]]] = {}
     for item_id in sorted(removals):
@@ -582,7 +647,7 @@ def remove_music(native, pending, placement, removals, errors):
         store.forget_many(confirmed)
 
 
-def set_members(pending) -> set[str]:
+def set_members(pending: PendingWork) -> set[str]:
     """Movies that filed a set now being removed; they need re-patching."""
     members: set[str] = set()
     for _, operation, payload in pending.values():
@@ -591,7 +656,12 @@ def set_members(pending) -> set[str]:
     return members
 
 
-def finish_sets(native, pending, live_boxsets, errors):
+def finish_sets(
+    native: "Native",
+    pending: PendingWork,
+    live_boxsets: Iterable[dict[str, Any]],
+    errors: list[Exception],
+) -> None:
     """Acknowledge set removals once no owned movie files them any more.
 
     Runs after the apply pass, which re-patched the former members. A title
@@ -641,7 +711,7 @@ def finish_sets(native, pending, live_boxsets, errors):
         store.forget(item_id, pending[item_id][0])
 
 
-def _ours_in_set(native, title) -> bool:
+def _ours_in_set(native: "Native", title: str) -> bool:
     """Whether a movie Kofin filed is in the set named ``title``."""
     reply = rpc(
         "VideoLibrary.GetMovies",
@@ -657,7 +727,7 @@ def _ours_in_set(native, title) -> bool:
     return False
 
 
-def _row(native, placed, item_id):
+def _row(native: "Native", placed: Entry, item_id: str) -> Optional[dict[str, Any]]:
     """The row an item to remove has now: a show's through its episodes as
     well (Readback.show), since another source's folder may list it."""
     if placed.kind == "Series":
@@ -669,7 +739,12 @@ def _row(native, placed, item_id):
     )
 
 
-def _remove_empty_set(store, item_id, listed, features=frozenset()):
+def _remove_empty_set(
+    store: Store,
+    item_id: str,
+    listed: dict[Any, dict[str, Any]],
+    features: Collection[str] = frozenset(),
+) -> None:
     """Remove the empty row Kodi keeps for a set, by the id the collection
     was acknowledged under.
 
