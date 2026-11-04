@@ -518,7 +518,7 @@ class PulseScheduler:
     def _arm_for_current(self) -> Optional["Claim"]:
         """Arm for the playing item if it is not the one armed. Under the
         lock; returns the claim, or None outside a fine-sync session."""
-        claim: Optional["Claim"] = self.controller.manager.current_claim()
+        claim: Optional[Claim] = self.controller.manager.current_claim()
 
         if not claim or not self._session_active():
             return None
