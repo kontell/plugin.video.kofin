@@ -6,6 +6,9 @@ window properties do not survive a Kodi restart. Names are a skin contract
 and never change here.
 """
 
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Optional
+
 import xbmcgui
 
 from kofin.core.log import Logger
@@ -17,10 +20,16 @@ from kofin.sync.nodes.video import (
     single_node_path,
 )
 
+if TYPE_CHECKING:
+    from kofin.core.api import Api
+    from kofin.sync.dynamic import View
+
 LOG = Logger(__name__)
 
 
-def window_prop(key, value=None, clear=False):
+def window_prop(
+    key: str, value: Optional[str] = None, clear: bool = False
+) -> Optional[str]:
     """Plain string window-property access on the home window."""
     window = xbmcgui.Window(10000)
     if clear:
@@ -51,7 +60,7 @@ SUB_NODES = tuple(
 )
 
 
-def clear(prefix=NODES_PREFIX):
+def clear(prefix: str = NODES_PREFIX) -> None:
     """Every property a previous publish under ``prefix`` may have set."""
     total = int(window_prop(prefix + ".total") or 0)
     for index in range(total):
@@ -65,7 +74,9 @@ def clear(prefix=NODES_PREFIX):
         window_prop("%s.%s" % (prefix, prop), clear=True)
 
 
-def ordered(libraries, sorted_views):
+def ordered(
+    libraries: Sequence["View"], sorted_views: Iterable[str]
+) -> Sequence["View"]:
     """The view rows in SortedViews order, unknown ones last. Pure."""
     if not libraries:
         return libraries
@@ -80,7 +91,13 @@ def ordered(libraries, sorted_views):
     return [libraries[unordered.index(x)] for x in order if x in unordered]
 
 
-def publish(libraries, sync, singles, media_folders, server):
+def publish(
+    libraries: Sequence["View"],
+    sync: dict[str, Any],
+    singles: Iterable[dict[str, Any]],
+    media_folders: Optional[Iterable[dict[str, Any]]],
+    server: Optional["Api"],
+) -> None:
     """Set every property from the views and the whitelist.
 
     ``libraries`` are the server's views (``dynamic.View``), ``media_folders``
@@ -159,11 +176,13 @@ class _Artwork:
     prop is empty.
     """
 
-    def __init__(self, media_folders, server):
+    def __init__(
+        self, media_folders: Optional[Iterable[dict[str, Any]]], server: Optional["Api"]
+    ) -> None:
         self.media_folders = media_folders
         self.server = server
 
-    def publish(self, prop, view_id):
+    def publish(self, prop: str, view_id: str) -> None:
         if self.server is None:
             window_prop("%s.artwork" % prop, clear=True)
 
@@ -182,7 +201,13 @@ class _Artwork:
                 window_prop("%s.artwork" % prop, clear=True)
 
 
-def _node(index, view, artwork, node=None, node_label=None):
+def _node(
+    index: int,
+    view: dict[str, Any],
+    artwork: _Artwork,
+    node: str,
+    node_label: Optional[int] = None,
+) -> None:
     """Leads to another listing of nodes."""
     if view["Media"] in ("homevideos", "photos"):
         path = browse_url(view, None if node in ("all", "browse") else node)
@@ -200,7 +225,7 @@ def _node(index, view, artwork, node=None, node_label=None):
     else:
         window_path = "ActivateWindow(Videos,%s,return)" % path
 
-    node_label = _label(node_label) or view["Name"]
+    label = _label(node_label) or view["Name"]
 
     if node in ("all", "music"):
         name = "%s.%s" % (NODES_PREFIX, index)
@@ -212,7 +237,7 @@ def _node(index, view, artwork, node=None, node_label=None):
         window_prop("%s.title" % name, view["Name"])
     else:
         name = "%s.%s.%s" % (NODES_PREFIX, index, node)
-        window_prop("%s.title" % name, node_label)
+        window_prop("%s.title" % name, label)
         window_prop("%s.content" % name, path)
 
     window_prop("%s.id" % name, view["Id"])
@@ -221,7 +246,7 @@ def _node(index, view, artwork, node=None, node_label=None):
     artwork.publish(name, view["Id"])
 
 
-def _single(index, item_type, single):
+def _single(index: int, item_type: str, single: dict[str, Any]) -> None:
     """Single destination node."""
     path = single_node_path(single)
     name = "%s.%s" % (NODES_PREFIX, index)
@@ -231,7 +256,13 @@ def _single(index, item_type, single):
     window_prop("%s.type" % name, item_type)
 
 
-def _wnode(index, view, artwork, node=None, node_label=None):
+def _wnode(
+    index: int,
+    view: dict[str, Any],
+    artwork: _Artwork,
+    node: str,
+    node_label: Optional[int] = None,
+) -> None:
     """Similar to _node, but without music and musicvideos, and with books
     and playlists."""
     if view["Media"] in ("homevideos", "photos", "books", "playlists"):
@@ -244,7 +275,7 @@ def _wnode(index, view, artwork, node=None, node_label=None):
     else:
         window_path = "ActivateWindow(Videos,%s,return)" % path
 
-    node_label = _label(node_label) or view["Name"]
+    label = _label(node_label) or view["Name"]
 
     if node == "all":
         name = "%s.%s" % (WNODES_PREFIX, index)
@@ -255,7 +286,7 @@ def _wnode(index, view, artwork, node=None, node_label=None):
         window_prop("%s.title" % name, view["Name"])
     else:
         name = "%s.%s.%s" % (WNODES_PREFIX, index, node)
-        window_prop("%s.title" % name, node_label)
+        window_prop("%s.title" % name, label)
     window_prop("%s.content" % name, path)
 
     window_prop("%s.id" % name, view["Id"])

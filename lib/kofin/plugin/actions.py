@@ -236,7 +236,7 @@ def _selection_names(library_ids: list[str]) -> list[str]:
             db = kofindb.JellyfinDatabase(opened.cursor)
             for library_id in library_ids:
                 view = db.get_view(library_id.replace("Mixed:", ""))
-                names.append(view.view_name if view else library_id)
+                names.append(view.name if view else library_id)
     except Exception:
         LOG.exception("view names unavailable")
         names = list(library_ids)

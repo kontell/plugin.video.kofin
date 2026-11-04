@@ -661,7 +661,7 @@ def reconcile(
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
-        if _stands(stored, side, _checksum(playlist)):
+        if stored is not None and _stands(stored, side, _checksum(playlist)):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1

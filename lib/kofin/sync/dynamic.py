@@ -33,7 +33,8 @@ merge), so a profile holding only ``kofin/`` lists nothing for
 music tree gets Kodi's shipped music nodes the same way.
 """
 
-from typing import NamedTuple, Optional
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import xbmcaddon
 
@@ -43,6 +44,9 @@ from kofin.sync import kodisetup, playlists, private
 from kofin.sync.backends.api import capabilities
 from kofin.sync.nodes import music as music_nodes
 from kofin.sync.nodes import props, video
+
+if TYPE_CHECKING:
+    from kofin.core.api import Api
 
 LOG = Logger(__name__)
 
@@ -169,7 +173,7 @@ def wanted() -> Optional[bool]:
     return None
 
 
-def publish_from(api):
+def publish_from(api: "Api") -> None:
     """Publish the server's libraries as the user has them: every synced
     one, hidden from My Media or not, and of the rest those Jellyfin's home
     screen shows."""
@@ -178,7 +182,11 @@ def publish_from(api):
     publish(every, api, hidden={item.get("Id") for item in every} - shown)
 
 
-def publish(items, server, hidden=frozenset()):
+def publish(
+    items: Iterable[dict[str, Any]],
+    server: "Api",
+    hidden: Collection[str] = frozenset(),
+) -> None:
     """``hidden`` names the libraries the user hid from My Media: one that is
     not synced is left out of the entries, as Jellyfin leaves it out."""
     whitelist = [
