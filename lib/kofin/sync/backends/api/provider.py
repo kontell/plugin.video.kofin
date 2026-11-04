@@ -29,7 +29,6 @@ LOG = Logger(__name__)
 # and a pass that died takes at most this long to let the scanner go.
 HOLD_LIMIT = 600.0
 
-key_from_url = paths.key_from_url
 
 
 def _roots():
