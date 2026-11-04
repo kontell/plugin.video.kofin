@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 
+import kofin.syncplay.liveclock as liveclock_module
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import providers as providers_module
 from kofin.syncplay import utils
@@ -1023,7 +1024,7 @@ def on_clock(controller, manager, offset_ms=CLOCK_OFFSET_MS):
     """A live claim whose member reads the live clock ``offset_ms`` from its
     own player clock."""
     manager.claim = live_claim()
-    controller._live_origin_server_ms = offset_ms
+    controller.live._live_origin_server_ms = offset_ms
 
 
 class TestLiveClock:
@@ -1095,7 +1096,7 @@ class TestLiveClock:
         for _ in range(5):
             controller._position_ms()
         assert calls.count("Player.GetProperties") == 1
-        clock[0] += playback_module.PRESENTATION_READ_MS + 1
+        clock[0] += liveclock_module.PRESENTATION_READ_MS + 1
         controller._position_ms()
         assert calls.count("Player.GetProperties") == 2
 
@@ -1109,18 +1110,22 @@ class TestLiveClock:
         # No clock yet (a timeshift buffer with no timestamp): asked again a
         # tick later, not a second.
         player.presentation_offset_ms = None
-        assert controller._presentation_offset_ms() is None
+        assert controller.live._presentation_offset_ms() is None
         player.presentation_offset_ms = CLOCK_OFFSET_MS
-        clock[0] += playback_module.PRESENTATION_RETRY_MS + 1
-        assert controller._presentation_offset_ms() == pytest.approx(CLOCK_OFFSET_MS)
+        clock[0] += liveclock_module.PRESENTATION_RETRY_MS + 1
+        assert controller.live._presentation_offset_ms() == pytest.approx(
+            CLOCK_OFFSET_MS
+        )
 
         # A miss once the clock is known keeps it: None is the join origin.
         player.presentation_offset_ms = None
-        clock[0] += playback_module.PRESENTATION_READ_MS + 1
-        assert controller._presentation_offset_ms() == pytest.approx(CLOCK_OFFSET_MS)
+        clock[0] += liveclock_module.PRESENTATION_READ_MS + 1
+        assert controller.live._presentation_offset_ms() == pytest.approx(
+            CLOCK_OFFSET_MS
+        )
         player.presentation_offset_ms = CLOCK_OFFSET_MS + 5.0
-        clock[0] += playback_module.PRESENTATION_READ_MS + 1
-        assert controller._presentation_offset_ms() == pytest.approx(
+        clock[0] += liveclock_module.PRESENTATION_READ_MS + 1
+        assert controller.live._presentation_offset_ms() == pytest.approx(
             CLOCK_OFFSET_MS + 5.0
         )
 
@@ -1133,7 +1138,7 @@ class TestLiveClock:
         assert controller.live_anchor_ms() is None
 
         # An item that is not live keeps the player clock.
-        controller._live_origin_server_ms = CLOCK_OFFSET_MS
+        controller.live._live_origin_server_ms = CLOCK_OFFSET_MS
         manager.claim = {"Id": "m1", "Runtime": 10}
         assert controller._position_ms() == pytest.approx(100_000.0)
 
@@ -1171,7 +1176,7 @@ class TestLiveClock:
         controller._align_after_resume()
 
         assert player.paused
-        assert controller._live_hold_ms == pytest.approx(8_000.0)
+        assert controller.live._live_hold_ms == pytest.approx(8_000.0)
         assert timers and timers[0][0] == pytest.approx(8.0)
         assert not [
             a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"
@@ -1179,7 +1184,7 @@ class TestLiveClock:
 
         timers[0][1](*timers[0][2])  # the hold ends
         assert not player.paused
-        assert controller._live_hold_ms is None
+        assert controller.live._live_hold_ms is None
 
     def test_a_superseded_hold_timer_resumes_nothing(self, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
@@ -1241,7 +1246,9 @@ class TestLiveClock:
 
         controller._align_after_resume()
 
-        assert controller._live_hold_ms == pytest.approx(utils.LIVE_HOLD_MAX_S * 1000.0)
+        assert controller.live._live_hold_ms == pytest.approx(
+            utils.LIVE_HOLD_MAX_S * 1000.0
+        )
         # The group pauses during the hold: the timer must not resume us.
         controller._reference = (controller._reference[0], None, False)
         timers[0][1](*timers[0][2])
@@ -1377,7 +1384,7 @@ class TestLiveClock:
         manager.claim = live_claim()
         controller.note_live_origin()
 
-        origin = controller._live_source_offset_ms()
+        origin = controller.live._live_source_offset_ms()
         assert origin == pytest.approx(manager.server_now_ms())
         anchor = controller.live_anchor_ms()
         assert utils.live_anchored(anchor)
@@ -1389,7 +1396,7 @@ class TestLiveClock:
         late, late_mgr, late_player = make_controller(position=0.0)
         late_player.clock_advances = False
         late_mgr.claim = live_claim()
-        late._live_origin_server_ms = origin + 3000.0
+        late.live._live_origin_server_ms = origin + 3000.0
         late.set_reference(utils.ms_to_ticks(anchor), manager.server_now_ms(), True)
 
         # The later open is ahead on the join clock by the open-time gap.
@@ -1417,7 +1424,9 @@ class TestLiveClock:
         late_mgr.phase = "waiting_ready"
         late_mgr.transcoding = True
         late_mgr.claim = live_claim()
-        late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
+        late.live._live_origin_server_ms = (
+            controller.live._live_origin_server_ms + 3000.0
+        )
         late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
 
         now = late_mgr.server_now_ms()
@@ -1444,7 +1453,9 @@ class TestLiveClock:
         late_mgr.phase = "loading"
         late_mgr.transcoding = True
         late_mgr.claim = live_claim()
-        late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
+        late.live._live_origin_server_ms = (
+            controller.live._live_origin_server_ms + 3000.0
+        )
         late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
 
         late.schedule(command("Unpause", -10, ticks=utils.ms_to_ticks(anchor)))

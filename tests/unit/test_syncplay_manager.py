@@ -929,7 +929,7 @@ class TestForwardLocalPlay:
         manager.player.playing = True
         manager.player.position = 100.0
         manager.player.item = None
-        manager.playback._live_origin_server_ms = 42_000_000.0 - 120_000.0
+        manager.playback.live._live_origin_server_ms = 42_000_000.0 - 120_000.0
         manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
         manager._forward_local_play()

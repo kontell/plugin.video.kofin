@@ -1633,7 +1633,7 @@ class SyncPlayManager:
         if utils.claim_is_live(info):
             # A live claim (zero runtime): the player's position is session
             # time on this member's own stream, meaningless to the group.
-            # With a live clock (PlaybackController._live_source_offset_ms)
+            # With a live clock (LiveClock._live_source_offset_ms)
             # the group is anchored on that instead, a delay behind this
             # member's reading; without one it tunes together from its own
             # edge.
