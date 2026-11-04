@@ -6,6 +6,8 @@ window properties do not survive a Kodi restart. Names are a skin contract
 and never change here.
 """
 
+import xbmcgui
+
 from kofin.core.log import Logger
 from kofin.sync.nodes.video import (
     NODES,
@@ -14,9 +16,21 @@ from kofin.sync.nodes.video import (
     library_node_path,
     single_node_path,
 )
-from kofin.sync.shims import window_prop
 
 LOG = Logger(__name__)
+
+
+def window_prop(key, value=None, clear=False):
+    """Plain string window-property access on the home window."""
+    window = xbmcgui.Window(10000)
+    if clear:
+        window.clearProperty(key)
+        return None
+    if value is not None:
+        window.setProperty(key, value)
+        return None
+    return window.getProperty(key)
+
 
 NODES_PREFIX = "Kofin.nodes"
 WNODES_PREFIX = "Kofin.wnodes"

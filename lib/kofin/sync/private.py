@@ -84,8 +84,10 @@ def set_path_override(kind: str, path: str) -> None:
 
 
 def reset_overrides() -> None:
+    """Forget every override and pooled connection: the tests' clean slate."""
     _path_overrides.clear()
     _tables_ensured.clear()
+    pool_connections(False)
 
 
 def addon_data_path() -> str:

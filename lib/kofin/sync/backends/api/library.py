@@ -22,9 +22,8 @@ from kofin.core import memory, settings, toast
 from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
-from kofin.sync import changefeed, private
+from kofin.sync import changefeed, kofindb, private
 from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
-from kofin.sync.downloader import info, library_filter
 from . import announce, capabilities, metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
@@ -42,7 +41,34 @@ KINDS_BY_COLLECTION = {
 }
 SUPPORTED = ("movies", "tvshows", "musicvideos", "mixed", "music")
 # SpecialFeatureCount says which movies have extras to fetch (attach_extras).
-FIELDS = info() + ",MediaStreams,SpecialFeatureCount"
+# The fields every video listing asks the server for.
+VIDEO_FIELDS = (
+    "Path,Genres,SortName,OriginalTitle,Studios,Writer,Taglines,LocalTrailerCount,"
+    "OfficialRating,CumulativeRunTimeTicks,ItemCounts,"
+    "Metascore,AirTime,DateCreated,People,Overview,"
+    "Etag,ShortOverview,ProductionLocations,"
+    "Tags,ProviderIds,ParentId,RemoteTrailers,SpecialEpisodeNumbers,"
+    "MediaSources,VoteCount,RecursiveItemCount,PrimaryImageAspectRatio,"
+    "SpecialFeatureCount"
+)
+FIELDS = VIDEO_FIELDS + ",MediaStreams,SpecialFeatureCount"
+
+
+def library_filter(api, parent_id, item_types=None):
+    """The filter every library listing shares: this parent, recursive,
+    real files only (present, not virtual-unaired), sets uncollapsed."""
+    return {
+        "userId": api.user_id,
+        "ParentId": parent_id,
+        "IncludeItemTypes": item_types,
+        "CollapseBoxSetItems": False,
+        "IsVirtualUnaired": False,
+        "LocationTypes": "FileSystem,Remote,Offline",
+        "IsMissing": False,
+        "Recursive": True,
+    }
+
+
 # Music asks for what its tags and art need and nothing the server has to
 # count (RecursiveItemCount is slow); People, trailers and streams have no
 # music setter.
@@ -715,9 +741,7 @@ class Library(threading.Thread):
     @staticmethod
     def _view_names() -> dict[str, str]:
         with private.Database() as db:
-            return dict(
-                db.cursor.execute("SELECT view_id, view_name FROM view").fetchall()
-            )
+            return kofindb.JellyfinDatabase(db.cursor).view_names()
 
     def _changefeed(self):
         if self.changefeed is None:
@@ -891,13 +915,10 @@ class Library(threading.Thread):
                     )
             private.save_sync(state)
             with private.Database() as db:
-                db.cursor.execute(
-                    "INSERT OR REPLACE INTO view VALUES (?,?,?)",
-                    (
-                        library,
-                        supported[library].get("Name", library),
-                        supported[library].get("CollectionType") or "mixed",
-                    ),
+                kofindb.JellyfinDatabase(db.cursor).remember_view(
+                    library,
+                    supported[library].get("Name", library),
+                    supported[library].get("CollectionType") or "mixed",
                 )
         self.publish_selection()
         # The playlists follow the catalogue they point into.
@@ -1199,13 +1220,12 @@ class Library(threading.Thread):
         """The selection moved: the node tree and the skin entries follow it."""
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
-            names = [
-                name
-                for key, name in db.cursor.execute(
-                    "SELECT view_id, view_name FROM view ORDER BY view_name"
-                ).fetchall()
-                if key in whitelist
-            ]
+            views = kofindb.JellyfinDatabase(db.cursor).view_names()
+        names = [
+            name
+            for key, name in sorted(views.items(), key=lambda kv: kv[1])
+            if key in whitelist
+        ]
         LOG.debug("synced libraries: %s", ", ".join(names) or "none")
         try:
             from kofin.sync.dynamic import publish_from
@@ -1250,9 +1270,10 @@ class Library(threading.Thread):
         """
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
-            media = dict(
-                db.cursor.execute("SELECT view_id, media_type FROM view").fetchall()
-            )
+            media = {
+                view.view_id: view.media_type
+                for view in kofindb.JellyfinDatabase(db.cursor).views()
+            }
         # The format this Kodi's listing reaches: a library filed at a lower
         # one is stale here, never one filed at the format this Kodi lacks.
         current = metadata.scanner_format(capabilities.features())

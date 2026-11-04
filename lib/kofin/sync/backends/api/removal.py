@@ -20,7 +20,7 @@ import time
 
 from kofin.core import kodirpc
 from kofin.core.log import Logger
-from kofin.sync import private
+from kofin.sync import kofindb, private
 from . import paths, progress
 from .kinds import KINDS, rpc
 from .store import Entry
@@ -170,12 +170,9 @@ def library_label(library) -> str:
     """The library's name as the viewer selected it, or ''."""
     try:
         with private.Database() as db:
-            row = db.cursor.execute(
-                "SELECT view_name FROM view WHERE view_id=?", (library,)
-            ).fetchone()
+            return kofindb.JellyfinDatabase(db.cursor).view_name(library) or ""
     except Exception:
         return ""
-    return str(row[0]) if row and row[0] else ""
 
 
 def removing(library) -> str:

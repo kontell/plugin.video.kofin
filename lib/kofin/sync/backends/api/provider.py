@@ -30,14 +30,13 @@ LOG = Logger(__name__)
 HOLD_LIMIT = 600.0
 
 
-
 def _roots():
     """Every scanner root, for Kodi's own walk of the plugin: the bound video
     roots, and the music root of every library with a song."""
     from kofin.sync.private import Database
 
     with Database() as db:
-        Store("provider")._prepare(db.cursor)
+        Store._prepare(db.cursor)
         roots = [
             row[0]
             for row in db.cursor.execute(

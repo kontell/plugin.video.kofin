@@ -362,6 +362,29 @@ def test_the_play_state_is_read_back_by_the_mapped_id(store, backend, kodi):
     assert port.last_touch(Download(jellyfin_id="zz", media_type="movie")) is None
 
 
+def test_a_season_s_download_menu_finds_a_queued_episode_before_its_series_is_known(
+    store, monkeypatch
+):
+    """A queued row carries no series id until a worker starts it, so the
+    season's downloads are found by the episodes the catalogue files under
+    its series, never by the row's series column."""
+    from tests.unit.apifixtures import episode, season, series
+
+    store.publish(
+        [
+            series(),
+            season("s1", number=1),
+            season("s2", number=2),
+            episode("e1", season_number=1, SeasonId="s1"),
+            episode("e2", season_number=2, SeasonId="s2"),
+        ],
+        library=LIB,
+    )
+    downloads.queue(Download(jellyfin_id="e1", media_type="episode"))
+    downloads.queue(Download(jellyfin_id="e2", media_type="episode"))
+    assert downloads.container_states("s1") == {"e1": downloads.QUEUED}
+
+
 def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
     store, monkeypatch
 ):

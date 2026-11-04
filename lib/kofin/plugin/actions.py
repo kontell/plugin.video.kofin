@@ -169,13 +169,10 @@ def save_playlist(request: Request) -> None:
     name = request.params.get("name") or ""
     if not name:
         name = os.path.splitext(os.path.basename(path.rstrip("/")))[0]
-    stored_id = ""
     with Database("kofin") as kofindb:
-        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
-        for row in mapping.get_playlist_states():
-            if row[2] == os.path.basename(path):
-                stored_id = row[0]
-                break
+        stored_id = jellyfin_db.JellyfinDatabase(kofindb.cursor).playlist_for_file(
+            os.path.basename(path)
+        )
     try:
         if stored_id:
             api.replace_playlist_items(stored_id, ids)
@@ -274,14 +271,12 @@ def _music_library(item: dict) -> bool:
     if collection:
         return collection == "music"
     # Some item endpoints omit the collection type supplied by /Views.
+    from kofin.sync import kofindb
     from kofin.sync.private import Database
 
     with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT 1 FROM view WHERE view_id = ? AND media_type = 'music'",
-            (item.get("Id") or "",),
-        )
-        return opened.cursor.fetchone() is not None
+        tables = kofindb.JellyfinDatabase(opened.cursor)
+        return tables.view_media(item.get("Id") or "") == "music"
 
 
 class _DownloadTooLarge(Exception):
@@ -634,6 +629,7 @@ def download_music_library(request: Request) -> None:
 def manage_download_subscriptions(request: Request) -> None:
     """Settings picker for either kind of standing music download order."""
     from kofin.downloads import subscriptions
+    from kofin.sync import kofindb
     from kofin.sync.private import Database
 
     kind = request.params.get("kind", "playlist")
@@ -646,20 +642,15 @@ def manage_download_subscriptions(request: Request) -> None:
     if not ids:
         toast.show(settings.localized(30853), time_ms=3000)
         return
-    names = []
+    names: list[Union[str, xbmcgui.ListItem]] = []
     with Database("kofin") as opened:
+        tables = kofindb.JellyfinDatabase(opened.cursor)
         for item_id in ids:
             if kind == "playlist":
-                opened.cursor.execute(
-                    "SELECT filename FROM playlist_state WHERE jellyfin_id = ?",
-                    (item_id,),
-                )
+                name = tables.playlist_filename(item_id)
             else:
-                opened.cursor.execute(
-                    "SELECT view_name FROM view WHERE view_id = ?", (item_id,)
-                )
-            row = opened.cursor.fetchone()
-            names.append(row[0] if row else item_id)
+                name = tables.view_name(item_id)
+            names.append(item_id if name is None else name)
     picked = xbmcgui.Dialog().multiselect(
         settings.localized(30851 if kind == "playlist" else 30852),
         names,

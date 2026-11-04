@@ -1,12 +1,21 @@
-"""Accessors for the kofin.db mapping tables."""
+"""Accessors for kofin.db's library and playlist tables.
+
+``view`` holds the libraries the viewer can select, by id, name and media
+type; ``playlist_state`` the managed playlist files, by playlist id, side,
+filename and checksum. Everything outside the pipeline's own ``api_*``
+tables reads and writes the two through here, inside a block the caller
+owns.
+"""
 
 import functools
 from collections import namedtuple
+from typing import Any, Optional
 
 from kofin.core.log import Logger
-from kofin.sync import queries_map as QU
 
 LOG = Logger(__name__)
+
+View = namedtuple("View", "view_id name media_type")
 
 
 @functools.lru_cache(maxsize=64)
@@ -15,8 +24,8 @@ def _row_class(fields: tuple[str, ...]):
 
     sqlite3 calls the row factory once per row, and ``namedtuple()`` builds a
     class, far too costly to repeat per row. Keyed on the exact column names
-    so two queries never share a class by accident; 64 covers every SELECT in
-    queries_map.
+    so two queries never share a class by accident; 64 covers every SELECT
+    here.
     """
     return namedtuple("Row", fields)
 
@@ -31,30 +40,93 @@ class JellyfinDatabase:
         self.cursor = cursor
         cursor.row_factory = sqlite_namedtuple_factory
 
+    # -- playlist_state --------------------------------------------------------
+
     def get_playlist_state(self, jellyfin_id):
         """(media_type, filename, checksum) or None."""
-        self.cursor.execute(QU.get_playlist_state, (jellyfin_id,))
-        row = self.cursor.fetchone()
-        return row
+        self.cursor.execute(
+            "SELECT media_type, filename, checksum FROM playlist_state"
+            " WHERE jellyfin_id = ?",
+            (jellyfin_id,),
+        )
+        return self.cursor.fetchone()
 
     def get_playlist_states(self):
-        self.cursor.execute(QU.get_playlist_states)
+        self.cursor.execute(
+            "SELECT jellyfin_id, media_type, filename, checksum FROM playlist_state"
+        )
         return self.cursor.fetchall()
 
     def add_playlist_state(self, *args):
-        self.cursor.execute(QU.add_playlist_state, args)
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO playlist_state"
+            "(jellyfin_id, media_type, filename, checksum) VALUES (?, ?, ?, ?)",
+            args,
+        )
 
     def remove_playlist_state(self, jellyfin_id):
-        self.cursor.execute(QU.delete_playlist_state, (jellyfin_id,))
+        self.cursor.execute(
+            "DELETE FROM playlist_state WHERE jellyfin_id = ?", (jellyfin_id,)
+        )
 
     def remove_playlist_states(self):
-        self.cursor.execute(QU.delete_playlist_states)
+        self.cursor.execute("DELETE FROM playlist_state")
+
+    def playlist_filename(self, jellyfin_id) -> Optional[str]:
+        """The managed file's name, '' for a state without one, None for none."""
+        self.cursor.execute(
+            "SELECT filename FROM playlist_state WHERE jellyfin_id = ?", (jellyfin_id,)
+        )
+        row = self.cursor.fetchone()
+        return None if row is None else str(row[0] or "")
+
+    def playlist_for_file(self, filename, side=None) -> str:
+        """The playlist id a managed file belongs to, '' for none; ``side``
+        narrows to one of Audio and Video."""
+        if side is None:
+            self.cursor.execute(
+                "SELECT jellyfin_id FROM playlist_state WHERE filename = ?", (filename,)
+            )
+        else:
+            self.cursor.execute(
+                "SELECT jellyfin_id FROM playlist_state"
+                " WHERE media_type = ? AND filename = ?",
+                (side, filename),
+            )
+        row = self.cursor.fetchone()
+        return str(row[0]) if row else ""
+
+    # -- view ------------------------------------------------------------------
 
     def get_view(self, *args):
-
         try:
-            self.cursor.execute(QU.get_view, args)
-
+            self.cursor.execute("SELECT * FROM view WHERE view_id = ?", args)
             return self.cursor.fetchone()
         except TypeError:
-            return
+            return None
+
+    def views(self) -> list[Any]:
+        """Every library row, as ``View`` tuples."""
+        self.cursor.execute("SELECT view_id, view_name, media_type FROM view")
+        return [View(*row) for row in self.cursor.fetchall()]
+
+    def view_names(self) -> dict[str, str]:
+        self.cursor.execute("SELECT view_id, view_name FROM view")
+        return {row[0]: row[1] for row in self.cursor.fetchall()}
+
+    def view_name(self, view_id) -> Optional[str]:
+        """The library's name, '' for a row without one, None for no row."""
+        self.cursor.execute("SELECT view_name FROM view WHERE view_id = ?", (view_id,))
+        row = self.cursor.fetchone()
+        return None if row is None else str(row[0] or "")
+
+    def view_media(self, view_id) -> str:
+        """The library's media type, '' for no row."""
+        self.cursor.execute("SELECT media_type FROM view WHERE view_id = ?", (view_id,))
+        row = self.cursor.fetchone()
+        return str(row[0] or "") if row else ""
+
+    def remember_view(self, view_id, name, media_type) -> None:
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO view VALUES (?,?,?)", (view_id, name, media_type)
+        )

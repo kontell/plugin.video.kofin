@@ -174,8 +174,9 @@ class Placements(abc.Mapping):
 
 
 class Store(Catalogue):
-    def _prepare(self, cursor):
-        super()._prepare(cursor)
+    @classmethod
+    def _create(cls, cursor):
+        super()._create(cursor)
         cursor.executescript("""
             CREATE TABLE IF NOT EXISTS api_root(
                 namespace TEXT PRIMARY KEY, current INTEGER NOT NULL DEFAULT 0,
@@ -720,6 +721,19 @@ class Store(Catalogue):
                     (generation, generation),
                 )
             }
+
+    def filed_under(self, kind, parent_id) -> list[str]:
+        """The ids of one kind filed under a parent, live and not leaving."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT e.item_id FROM api_entry e"
+                " JOIN api_item i ON i.namespace = e.namespace AND i.item_id = e.item_id"
+                " WHERE e.namespace=? AND e.kind=? AND e.parent_id=?"
+                " AND e.removed IS NULL AND i.operation='upsert'",
+                (self.namespace, kind, parent_id),
+            ).fetchall()
+        return [row[0] for row in rows]
 
     def entry(self, item_id) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""

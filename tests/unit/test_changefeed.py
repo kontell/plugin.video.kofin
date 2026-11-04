@@ -247,6 +247,6 @@ def test_pipeline_field_lists_carry_etag():
     """An Etag-less DTO stamps a NULL checksum that rewrites on every walk
     (kofindb warns when it happens); every field list the pipeline downloads
     with must therefore ask for the Etag."""
-    from kofin.sync import downloader
+    from kofin.sync.backends.api import library
 
-    assert "Etag" in downloader.info().split(",")
+    assert "Etag" in library.VIDEO_FIELDS.split(",")

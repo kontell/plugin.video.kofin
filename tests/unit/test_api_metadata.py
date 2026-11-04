@@ -329,7 +329,7 @@ def test_scanner_listitem_never_stamps_a_zero_resume_point(monkeypatch):
 
 
 def test_timestamps_are_written_in_kodi_local_time():
-    from kofin.sync.shims import convert_to_local
+    from kofin.sync.backends.api.metadata import convert_to_local
 
     item = movie(
         DateCreated="2026-10-08T18:33:36.5788691Z",
