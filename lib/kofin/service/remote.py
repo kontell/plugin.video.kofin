@@ -225,9 +225,6 @@ class RemoteHandler:
                 "Input.SendText",
                 {"text": arguments.get("String") or "", "done": False},
             )
-        elif name in ("SetAudioStreamIndex", "SetSubtitleStreamIndex"):
-            # Jellyfin stream indexes need source-mapping; deferred.
-            LOG.debug("%s not yet mapped", name)
         else:
             LOG.debug("unhandled general command %s", name)
 

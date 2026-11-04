@@ -94,8 +94,7 @@ CAPABILITIES: dict[str, Any] = {
         "GoHome,PageUp,NextLetter,GoToSearch,"
         "GoToSettings,PageDown,PreviousLetter,TakeScreenshot,"
         "VolumeUp,VolumeDown,ToggleMute,SendString,DisplayMessage,"
-        "SetAudioStreamIndex,SetSubtitleStreamIndex,"
-        "SetRepeatMode,Mute,Unmute,SetVolume,"
+        "Mute,Unmute,SetVolume,"
         "Play,Playstate,PlayNext,PlayMediaSource"
     ),
 }

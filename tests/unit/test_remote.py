@@ -125,6 +125,27 @@ def test_general_volume_and_navigation(fakes):
     assert "ActivateWindow(Home)" in fakes["builtins"]
 
 
+def test_every_advertised_command_is_handled(fakes, monkeypatch):
+    """The capability list is what the server shows a remote, so a name on
+    it that the handler lets fall through is a control that does nothing."""
+    from kofin.service.main import CAPABILITIES
+
+    logged = []
+    monkeypatch.setattr(
+        remote.LOG,
+        "debug",
+        lambda msg, *args: logged.append(msg % args if args else msg),
+    )
+    names = set(CAPABILITIES["SupportedCommands"].split(","))
+    # Play and Playstate are message types of their own; PlayNext and
+    # PlayMediaSource are Play commands.
+    general = names - {"Play", "Playstate", "PlayNext", "PlayMediaSource"}
+    handler = RemoteHandler()
+    for name in sorted(general):
+        handler.handle("GeneralCommand", {"Name": name, "Arguments": {}})
+    assert not [line for line in logged if line.startswith("unhandled")]
+
+
 def test_unknown_messages_are_unhandled_but_safe(fakes):
     assert RemoteHandler().handle("LibraryChanged", {}) is False
     assert RemoteHandler().handle("GeneralCommand", {"Name": "Zap"}) is True
