@@ -464,6 +464,81 @@ def _remove_stored(
     return remove_managed_file(directory, filename)
 
 
+class Materialized(NamedTuple):
+    """What writing one playlist's file came to."""
+
+    filename: str
+    written: bool  # the file on disk changed
+    renamed: bool  # the stored file under another name was removed
+    entries: int
+    missing: int
+
+
+def _checksum(playlist: dict[str, Any]) -> str:
+    etag = playlist.get("Etag") or ""
+    return (reference_checksum(etag) or "") if etag else ""
+
+
+def _stands(stored: Any, side: str, checksum: str) -> bool:
+    """Whether the stored copy is current: the same side, a filename, the
+    Etag's checksum, and not a reserved name. An empty checksum never
+    stands: it is the mark of a short write, and of a playlist the server
+    gave no Etag."""
+    return bool(
+        stored
+        and stored[0] == side
+        and stored[1]
+        and checksum
+        and stored[2] == checksum
+        and not _reserved(side, stored[1])
+    )
+
+
+def _materialize(
+    state: jellyfin_db.JellyfinDatabase,
+    playlist: dict[str, Any],
+    items: list[dict[str, Any]],
+    side: str,
+    stored: Any,
+    directory: str,
+    taken: set[str],
+    resolver: Any,
+) -> Materialized:
+    """Write the playlist's file, keeping its stored name while the title
+    matches, and record the state.
+
+    A write the resolver left short (an entry the pass has not filed yet)
+    stays dirty: the server's Etag will not move when Kodi files the item,
+    so the checksum is withheld and the next pass resolves again.
+    """
+    entries, missing = _entries_for(items, side, resolver)
+    keep = stored[1] if stored and stored[0] == side else None
+    filename, written = write_playlist_file(
+        directory,
+        playlist.get("Name") or "playlist",
+        entries,
+        taken,
+        stored_filename=keep,
+    )
+    renamed = bool(stored and stored[1] != filename)
+    if renamed:
+        _remove_stored(directory, stored[0], stored[1], copy=filename)
+    state.add_playlist_state(
+        playlist.get("Id") or "",
+        side,
+        filename,
+        "" if resolver is not None and missing else _checksum(playlist),
+    )
+    if missing:
+        LOG.debug(
+            "playlist %s: %d item(s), %d not in the Kodi library",
+            playlist.get("Name"),
+            len(entries),
+            missing,
+        )
+    return Materialized(filename, written, renamed, len(entries), missing)
+
+
 def apply_one(
     api: Any,
     state: jellyfin_db.JellyfinDatabase,
@@ -492,20 +567,8 @@ def apply_one(
             return True
         return False
 
-    etag = playlist.get("Etag") or ""
-    checksum = reference_checksum(etag) if etag else ""
-    # An empty checksum never skips: it is the mark of a short write, and of
-    # a playlist the server gave no Etag. Nor does a reserved name.
-    if (
-        stored
-        and stored[0] == side
-        and checksum
-        and stored[2] == checksum
-        and not _reserved(side, stored[1])
-    ):
+    if _stands(stored, side, _checksum(playlist)):
         return False
-
-    entries, missing = _entries_for(items, side, resolver)
     directory = (
         managed_dir(music_root)
         if side == "Audio"
@@ -516,30 +579,10 @@ def apply_one(
     write_folder_icon(directory)
     keep = stored[1] if stored and stored[0] == side else None
     taken = _m3u8_stems(directory, keep=keep)
-    filename, written = write_playlist_file(
-        directory,
-        playlist.get("Name") or "playlist",
-        entries,
-        taken,
-        stored_filename=keep,
+    done = _materialize(
+        state, playlist, items, side, stored, directory, taken, resolver
     )
-    if stored and stored[1] != filename:
-        _remove_stored(directory, stored[0], stored[1], copy=filename)
-    # A short write stays dirty, as in reconcile.
-    state.add_playlist_state(
-        playlist_id,
-        side,
-        filename,
-        "" if resolver is not None and missing else checksum,
-    )
-    if missing:
-        LOG.debug(
-            "playlist %s: %d item(s), %d not in the Kodi library",
-            playlist.get("Name"),
-            len(entries),
-            missing,
-        )
-    return written or bool(stored and stored[1] != filename)
+    return done.written or done.renamed
 
 
 def reconcile(
@@ -614,60 +657,51 @@ def reconcile(
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
             continue
-        etag = playlist.get("Etag") or ""
-        checksum = reference_checksum(etag) if etag else ""
         stored = state.get_playlist_state(playlist_id)
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
-        if (
-            stored
-            and stored[0] == side
-            and checksum
-            and stored[2] == checksum
-            and stored[1]
-            and not _reserved(side, stored[1])
-        ):
+        if _stands(stored, side, _checksum(playlist)):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
             continue
-        entries, missing = _entries_for(items, side, resolver)
-        stats["tracks"] += len(entries)
-        stats["skipped"] += missing
-        stored_name = stored[1] if stored and stored[0] == side else None
-        filename, written = write_playlist_file(
-            directory,
-            playlist.get("Name") or "playlist",
-            entries,
-            taken,
-            stored_filename=stored_name,
+        done = _materialize(
+            state, playlist, items, side, stored, directory, taken, resolver
         )
-        if stored and stored[1] != filename:
-            _remove_stored(directory, stored[0], stored[1], copy=filename)
+        stats["tracks"] += done.entries
+        stats["skipped"] += done.missing
+        if done.renamed:
             stats["pruned"] += 1
-        # A write the resolver left short (an entry the pass has not filed
-        # yet) stays dirty: the server's Etag will not move when Kodi files
-        # the item, so the checksum is withheld and the next pass resolves
-        # again.
-        state.add_playlist_state(
-            playlist_id,
-            side,
-            filename,
-            "" if resolver is not None and missing else checksum,
-        )
-        want.add(filename)
+        want.add(done.filename)
         stats["playlists"] += 1
-        if written:
+        if done.written:
             stats["written"] += 1
-        if missing:
-            LOG.debug(
-                "playlist %s: %d item(s), %d not in the Kodi library",
-                playlist.get("Name"),
-                len(entries),
-                missing,
-            )
 
+    _prune(state, kinds, audio_dir, video_dir, want_audio, want_video, stats)
+    LOG.debug(
+        "playlists: %d playlist(s), %d rewritten, %d track(s), "
+        "%d skipped, %d pruned",
+        stats["playlists"],
+        stats["written"],
+        stats["tracks"],
+        stats["skipped"],
+        stats["pruned"],
+    )
+    return stats
+
+
+def _prune(
+    state: jellyfin_db.JellyfinDatabase,
+    kinds: set[str],
+    audio_dir: str,
+    video_dir: str,
+    want_audio: set[str],
+    want_video: set[str],
+    stats: dict[str, int],
+) -> None:
+    """Remove what the listing no longer names: the stored states of the
+    enabled sides first, then every managed file the pass did not write."""
     known = {row[0]: row for row in state.get_playlist_states()}
     for playlist_id, media_type, filename, _checksum in list(known.values()):
         if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
@@ -703,17 +737,6 @@ def reconcile(
                     stats["pruned"] += 1
                 except OSError:
                     LOG.exception("failed to prune managed playlist %s", existing)
-
-    LOG.debug(
-        "playlists: %d playlist(s), %d rewritten, %d track(s), "
-        "%d skipped, %d pruned",
-        stats["playlists"],
-        stats["written"],
-        stats["tracks"],
-        stats["skipped"],
-        stats["pruned"],
-    )
-    return stats
 
 
 def cleanup_video_playlists(root: str | None = None) -> int:
