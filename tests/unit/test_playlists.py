@@ -341,6 +341,22 @@ def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
     assert state.get_playlist_state("pl1")[1] == "UHD.m3u8"
 
 
+def test_apply_one_rewrites_a_state_with_no_filename(tmp_path):
+    """A stored state whose filename is empty is no copy to keep, whatever
+    its checksum says: the file is written, as reconcile has always done."""
+    api = FakeApi(items_by_id={"pl1": [{"Id": "m1", "Type": "Movie"}]})
+    state = FakeState()
+    state.add_playlist_state("pl1", "Video", "", playlists.reference_checksum("one"))
+    playlist = {"Id": "pl1", "Name": "UHD", "MediaType": "Video", "Etag": "one"}
+    root = str(tmp_path)
+
+    assert playlists.apply_one(
+        api, state, playlist, {"Video"}, video_root=root, resolver=_video_resolver()
+    )
+    assert os.path.isfile(os.path.join(root, "UHD.m3u8"))
+    assert state.get_playlist_state("pl1")[1] == "UHD.m3u8"
+
+
 def test_apply_one_does_not_steal_another_playlist_filename(tmp_path):
     other = tmp_path / "UHD.m3u8"
     other.write_text("#EXTM3U\n", encoding="utf-8")
