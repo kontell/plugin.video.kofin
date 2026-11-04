@@ -838,7 +838,54 @@ class Native:
     # -- the pass ------------------------------------------------------------
 
     def reconcile(self, repair=False):
-        """Replay durable operations; an accepted RPC is never a commit."""
+        """Replay durable operations; an accepted RPC is never a commit.
+
+        In order: the pass waits for Kodi's scanners and decides whether it
+        compares every row; reads what is pending and where it is placed;
+        removes; plans the sets and the upserts; scans and applies; settles
+        the sets, the folders and the widgets; and gives back what it held,
+        whether or not it completed.
+        """
+        repair, stamped, serializer = self._begin(repair)
+        applier = Applier(self)
+        completed = False
+        large = repair
+        try:
+            self.payloads = PayloadWindow(self.store)
+            pending, entries = self._pending(repair)
+            errors: list[Exception] = []
+            self._remove(pending, entries, errors)
+            sets = self.store.records(kind="BoxSet")
+            boxsets = [r.item for r in sets.values()]
+            collections = metadata.collections_of(boxsets)
+            self.join_sets(pending, entries, sets, collections)
+            upserts = self._upserts(pending, entries)
+            self.progress.begin(len(upserts))
+            large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
+            self._apply(applier, upserts, entries, collections, repair, errors)
+            self._settle(applier, pending, upserts, boxsets, errors)
+            if errors:
+                raise RuntimeError(
+                    "%d native operations remain pending: %s" % (len(errors), errors[0])
+                )
+            completed = True
+            if stamped != self.features or serializer != metadata.SERIALIZER:
+                self.store.remember_features(self.features, metadata.SERIALIZER)
+        finally:
+            applier.commit()
+            self.progress.close()
+            self.payloads = PayloadWindow(self.store)
+            self.music.forget()
+            # The pass's tables are the largest Python objects in the
+            # process; hand the heap back before Kodi's scanner needs the
+            # page cache (core/memory.py).
+            del applier
+            self._release(completed, large)
+
+    def _begin(self, repair):
+        """The pass waits for Kodi's scanners, pins the catalogue and decides
+        whether every row is compared; returns the repair flag with the
+        feature set and the serializer the last pass stamped."""
         # Until the first scan or the first row is counted, the pass waits
         # for Kodi's scanners, reads the catalogue, removes, binds and plans.
         self.progress.working(progress.PREPARING)
@@ -880,139 +927,134 @@ class Native:
         self.note_music_changes()
         if repair:
             self.music_checked.clear()
-        applier = Applier(self)
-        completed = False
-        large = repair
-        try:
-            self.payloads = PayloadWindow(self.store)
-            pending: dict[str, tuple[int, str, dict]] = {
-                item_id: (generation, operation, payload)
-                for item_id, generation, operation, payload in self.store.pending_work()
-            }
-            if repair:
-                for item_id, record in self.store.records(payloads=False).items():
-                    if item_id not in pending:
-                        pending[item_id] = (record.generation, "upsert", {})
-            # The pending items' placements; the rest are read as asked for,
-            # and a repair, which holds every item, reads them all at once.
-            entries = self.store.placements(() if repair else pending)
-            if repair:
-                entries.whole()
-            errors: list[Exception] = []
-            # A removed collection's movies must let go of its set before the
-            # set can; they rejoin this pass as upserts.
-            self.store.invalidate(removal.set_members(pending))
-            removal.remove(self, pending, entries, self.store.tombstones(), errors)
-            # A whole-library clear puts other libraries' shows back to
-            # pending, and the set members above are pending now too; both
-            # join this pass rather than wait for the next.
-            for item_id, generation, operation, _ in self.store.pending_work():
-                if operation == "upsert" and item_id not in pending:
-                    pending[item_id] = (generation, operation, {})
-            entries.preload(pending)
-            sets = self.store.records(kind="BoxSet")
-            boxsets = [r.item for r in sets.values()]
-            collections = metadata.collections_of(boxsets)
-            self.join_sets(pending, entries, sets, collections)
-            upserts: dict[str, Record] = {}
-            for item_id, (generation, operation, _payload) in pending.items():
-                entry = entries.get(item_id)
-                if operation != "upsert" or entry is None:
-                    continue
-                upserts[item_id] = Record(
-                    item_id,
-                    entry.kind,
-                    entry.library,
-                    entry.parent_id,
-                    None,
-                    generation,
-                    loader=self.payloads,
-                )
-            self.progress.begin(len(upserts))
-            large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
+        return repair, stamped, serializer
 
-            self.scan_music(upserts, errors, entries)
-            video = self.plan_video(upserts, errors)
-            # Album and artist artwork does not wait for the video scans
-            # (kinds.MUSIC_FIRST). With no video scan to wait for, the kinds
-            # keep their order and the music hold is taken once.
-            early = (
-                [
-                    kind
-                    for kind in MUSIC_FIRST
-                    if any(r.kind == kind for r in upserts.values())
-                ]
-                if video.directories or video.movie_folders
-                else []
+    def _pending(self, repair):
+        """What the pass holds: the pending items as (generation, operation,
+        payload), every record on a repair, and their placements. The
+        pending items' are read up front and the rest as asked for; a
+        repair, which holds every item, reads them all at once."""
+        pending: dict[str, tuple[int, str, dict]] = {
+            item_id: (generation, operation, payload)
+            for item_id, generation, operation, payload in self.store.pending_work()
+        }
+        if repair:
+            for item_id, record in self.store.records(payloads=False).items():
+                if item_id not in pending:
+                    pending[item_id] = (record.generation, "upsert", {})
+        entries = self.store.placements(() if repair else pending)
+        if repair:
+            entries.whole()
+        return pending, entries
+
+    def _remove(self, pending, entries, errors):
+        """The tombstones applied, and what they put back to pending joined
+        to this pass rather than the next: a removed collection's movies let
+        go of its set before the set can and rejoin as upserts, and a
+        whole-library clear puts other libraries' shows back."""
+        self.store.invalidate(removal.set_members(pending))
+        removal.remove(self, pending, entries, self.store.tombstones(), errors)
+        for item_id, generation, operation, _ in self.store.pending_work():
+            if operation == "upsert" and item_id not in pending:
+                pending[item_id] = (generation, operation, {})
+        entries.preload(pending)
+
+    def _upserts(self, pending, entries) -> dict[str, Record]:
+        """The records to apply: every pending upsert with a placement, its
+        payload read through the window."""
+        upserts: dict[str, Record] = {}
+        for item_id, (generation, operation, _payload) in pending.items():
+            entry = entries.get(item_id)
+            if operation != "upsert" or entry is None:
+                continue
+            upserts[item_id] = Record(
+                item_id,
+                entry.kind,
+                entry.library,
+                entry.parent_id,
+                None,
+                generation,
+                loader=self.payloads,
             )
-            if early:
-                applier.run(upserts, {}, set(), repair, errors, kinds=early)
-            self.scan_video(video)
-            # Only a collection's planning asks which ids are movies.
-            movies = (
-                {i for i, e in entries.items() if e.kind == "Movie"}
-                if any(r.kind == "BoxSet" for r in upserts.values())
-                else set()
-            )
-            applier.run(
-                upserts,
-                collections,
-                movies,
-                repair,
-                errors,
-                kinds=[kind for kind in ORDER if kind not in early],
-            )
-            self.reclaim_shows(upserts)
-            # Sets and bindings: nothing counted.
-            self.progress.working(progress.WAITING)
-            removal.finish_sets(self, pending, boxsets, errors)
-            self.retire_assets(applier.asset_folders)
-            if any(r.kind == "Movie" for r in upserts.values()):
-                # Only a pass that filed movies can leave a folder unbound;
-                # an older profile's are bound once a service generation
-                # (Library.apply).
-                try:
-                    self.bind_movie_folders()
-                except Exception:
-                    LOG.exception("movie folder bindings not completed")
-            # Applier.run leaves no acknowledgement queued; this is that,
-            # said here.
-            applier.commit()
-            if applier.badges_moved:
-                # After every setter of the pass, and once for all of them.
-                try:
-                    self.announce_writes()
-                except InterruptedError:
-                    raise
-                except Exception:
-                    LOG.exception("home widgets not told of a download's badge")
-            if errors:
-                raise RuntimeError(
-                    "%d native operations remain pending: %s" % (len(errors), errors[0])
-                )
-            completed = True
-            if stamped != self.features or serializer != metadata.SERIALIZER:
-                self.store.remember_features(self.features, metadata.SERIALIZER)
-        finally:
-            applier.commit()
-            self.progress.close()
-            self.payloads = PayloadWindow(self.store)
-            self.music.forget()
-            # The pass's tables are the largest Python objects in the
-            # process; hand the heap back before Kodi's scanner needs the
-            # page cache (core/memory.py). A small pass frees too little to
-            # pay a collection for.
-            del applier
-            if large or self.music.read_library:
-                memory.release()
+        return upserts
+
+    def _apply(self, applier, upserts, entries, collections, repair, errors):
+        """The scans and the setters: music scanned, the kinds that do not
+        wait for the video scans applied, then the video scans and every
+        other kind in order."""
+        self.scan_music(upserts, errors, entries)
+        video = self.plan_video(upserts, errors)
+        # Album and artist artwork does not wait for the video scans
+        # (kinds.MUSIC_FIRST). With no video scan to wait for, the kinds
+        # keep their order and the music hold is taken once.
+        early = (
+            [
+                kind
+                for kind in MUSIC_FIRST
+                if any(r.kind == kind for r in upserts.values())
+            ]
+            if video.directories or video.movie_folders
+            else []
+        )
+        if early:
+            applier.run(upserts, {}, set(), repair, errors, kinds=early)
+        self.scan_video(video)
+        # Only a collection's planning asks which ids are movies.
+        movies = (
+            {i for i, e in entries.items() if e.kind == "Movie"}
+            if any(r.kind == "BoxSet" for r in upserts.values())
+            else set()
+        )
+        applier.run(
+            upserts,
+            collections,
+            movies,
+            repair,
+            errors,
+            kinds=[kind for kind in ORDER if kind not in early],
+        )
+        self.reclaim_shows(upserts)
+
+    def _settle(self, applier, pending, upserts, boxsets, errors):
+        """After the setters, nothing counted: the sets, the asset folders,
+        the movie folders' bindings, the acknowledgements and the widgets."""
+        self.progress.working(progress.WAITING)
+        removal.finish_sets(self, pending, boxsets, errors)
+        self.retire_assets(applier.asset_folders)
+        if any(r.kind == "Movie" for r in upserts.values()):
+            # Only a pass that filed movies can leave a folder unbound;
+            # an older profile's are bound once a service generation
+            # (Library.apply).
             try:
-                self.release_all()
+                self.bind_movie_folders()
             except Exception:
-                LOG.exception("scanner hold not released")
-                state.clear_native_hold("music")
-            # A timed-out scan must retain its snapshot until Kodi is idle.
-            if (completed or not self._async_pending) and self._idle("any"):
-                self.store.unpin()
+                LOG.exception("movie folder bindings not completed")
+        # Applier.run leaves no acknowledgement queued; this is that,
+        # said here.
+        applier.commit()
+        if applier.badges_moved:
+            # After every setter of the pass, and once for all of them.
+            try:
+                self.announce_writes()
+            except InterruptedError:
+                raise
+            except Exception:
+                LOG.exception("home widgets not told of a download's badge")
+
+    def _release(self, completed, large):
+        """What the pass held, given back: the heap after a large pass or a
+        whole music read (a small pass frees too little to pay a collection
+        for), the scanner holds, and the catalogue's pin once Kodi is idle."""
+        if large or self.music.read_library:
+            memory.release()
+        try:
+            self.release_all()
+        except Exception:
+            LOG.exception("scanner hold not released")
+            state.clear_native_hold("music")
+        # A timed-out scan must retain its snapshot until Kodi is idle.
+        if (completed or not self._async_pending) and self._idle("any"):
+            self.store.unpin()
 
     def join_sets(self, pending, entries, sets: dict[str, Record], collections):
         """Put every collection a movie of this pass is filed under into the
