@@ -170,7 +170,7 @@ def serve(request: "Request") -> None:
         _hold(request, location.hold)
         return
     store = Store(location.key)
-    item_id = request.params.get("id") or location.song
+    item_id = request.params.get("id") or location.song or ""
     # What this Kodi offers (the feature table) shapes every row listed and
     # every answer about one: read once per request, never per item.
     features = capabilities.features()

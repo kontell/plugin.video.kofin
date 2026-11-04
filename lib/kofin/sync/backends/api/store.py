@@ -14,11 +14,12 @@ payload.
 
 import hashlib
 import json
+import sqlite3
 import time
 from collections import abc
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
-from collections.abc import Iterable
+from typing import Any, Callable, Optional, Union
+from collections.abc import Collection, Iterable, Iterator, Sequence
 
 from kofin.sync.catalogue import Catalogue, ItemState
 from kofin.sync.model import MediaItem
@@ -42,21 +43,21 @@ KINDS = (
 )
 
 
-def namespace(server_id, user_id):
+def namespace(server_id: str, user_id: str) -> str:
     if not server_id or not user_id:
         raise ValueError("server and user identity required")
     return hashlib.sha256((server_id + "/" + user_id).encode()).hexdigest()[:32]
 
 
-def encode(value):
+def encode(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def _digest(value):
+def _digest(value: Any) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def payload_hash(payload):
+def payload_hash(payload: Any) -> str:
     """The payload's digest, without ``UserData.Key``.
 
     The key names the row Jellyfin keeps the user's data under, not anything
@@ -73,7 +74,7 @@ def payload_hash(payload):
     return _digest(payload)
 
 
-def hash_matches(acknowledged, payload) -> bool:
+def hash_matches(acknowledged: Optional[str], payload: dict[str, Any]) -> bool:
     """Whether an acknowledged digest is this payload's. One made before the
     key left the digest is of the whole payload, and still counts: refusing
     it would have the next repair rewrite every row once."""
@@ -83,12 +84,12 @@ def hash_matches(acknowledged, payload) -> bool:
     )
 
 
-def tombstone(kind, item_id):
+def tombstone(kind: str, item_id: str) -> dict[str, str]:
     """The payload kept for an applied removal: enough to replay, no more."""
     return {"Id": item_id, "Type": kind}
 
 
-def parent_of(kind, payload) -> str:
+def parent_of(kind: str, payload: dict[str, Any]) -> str:
     """The directory key an item is filed under, '' for a kind with none."""
     if kind in ("Season", "Episode"):
         if not payload.get("SeriesId"):
@@ -105,6 +106,11 @@ class Entry:
     kind: str
     library: str
     parent_id: str
+
+
+# What the pass acknowledges a row with: item id, generation, Kodi's id,
+# the applied state and the kind.
+Acknowledgement = tuple[str, int, Optional[int], dict[str, Any], Optional[str]]
 
 
 @dataclass(frozen=True)
@@ -130,7 +136,9 @@ class Placements(abc.Mapping):
 
     WHOLE_AFTER = 200
 
-    def __init__(self, store, generation, item_ids: Iterable[str] = ()):
+    def __init__(
+        self, store: "Store", generation: int, item_ids: Iterable[str] = ()
+    ) -> None:
         self._store = store
         self._generation = generation
         self._known: dict[str, Optional[Entry]] = {}
@@ -166,7 +174,7 @@ class Placements(abc.Mapping):
             raise KeyError(item_id)
         return found
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self.whole())
 
     def __len__(self) -> int:
@@ -175,7 +183,7 @@ class Placements(abc.Mapping):
 
 class Store(Catalogue):
     @classmethod
-    def _create(cls, cursor):
+    def _create(cls, cursor: sqlite3.Cursor) -> None:
         super()._create(cursor)
         cursor.executescript("""
             CREATE TABLE IF NOT EXISTS api_root(
@@ -266,7 +274,7 @@ class Store(Catalogue):
             return {"features": stamp}
         return stamp if isinstance(stamp, dict) else None
 
-    def remember_features(self, features, serializer: int) -> None:
+    def remember_features(self, features: Iterable[str], serializer: int) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -281,7 +289,7 @@ class Store(Catalogue):
 
     # -- the scanner format a library's rows were filed under ----------------
 
-    def scanner_format(self, library) -> int:
+    def scanner_format(self, library: str) -> int:
         """1 for a library with no record: its rows were filed before the
         record existed (metadata.SCANNER_FORMAT)."""
         with Database() as db:
@@ -292,7 +300,7 @@ class Store(Catalogue):
             ).fetchone()
         return int(row[0]) if row else 1
 
-    def set_scanner_format(self, library, value):
+    def set_scanner_format(self, library: str, value: int) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -380,7 +388,7 @@ class Store(Catalogue):
             ).fetchone()
         return int(pending or 0), int(failed or 0), row[0] if row else ""
 
-    def has_rows(self, library) -> bool:
+    def has_rows(self, library: str) -> bool:
         """Whether any live item of the library has a native row."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -394,7 +402,7 @@ class Store(Catalogue):
                 ).fetchone()
             )
 
-    def removing(self, libraries) -> bool:
+    def removing(self, libraries: Iterable[str]) -> bool:
         """Whether a removal is still pending for an item last placed in
         one of these libraries."""
         libraries = list(libraries)
@@ -417,7 +425,7 @@ class Store(Catalogue):
 
     # -- Kodi settings a scan owes back --------------------------------------
 
-    def hold_setting(self, setting, value):
+    def hold_setting(self, setting: str, value: Any) -> None:
         """Record the value a Kodi setting had before a scan changed it. The
         first record wins: a hold a stopped Kodi left behind is the user's
         value, and the one read after it is the pass's own."""
@@ -438,14 +446,14 @@ class Store(Catalogue):
                 ).fetchall()
             }
 
-    def release_setting(self, setting):
+    def release_setting(self, setting: str) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("DELETE FROM api_held WHERE setting=?", (setting,))
 
     # -- lifecycle -----------------------------------------------------------
 
-    def initialize(self, server):
+    def initialize(self, server: str) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -458,7 +466,7 @@ class Store(Catalogue):
             )
         self._enable_incremental_vacuum()
 
-    def _enable_incremental_vacuum(self):
+    def _enable_incremental_vacuum(self) -> None:
         """Reclaim freed pages as they go; needs one VACUUM to take effect."""
         with Database() as db:
             mode = db.conn.execute("PRAGMA auto_vacuum").fetchone()[0]
@@ -468,15 +476,16 @@ class Store(Catalogue):
             db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             db.conn.execute("VACUUM")
 
-    def prepared(self):
+    def prepared(self) -> Optional[str]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
                 "SELECT namespace FROM api_setup WHERE id=1"
             ).fetchone()
-            return row[0] if row else None
+        found: Optional[str] = row[0] if row else None
+        return found
 
-    def prepare_empty(self):
+    def prepare_empty(self) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("INSERT INTO api_setup VALUES (1,?)", (self.namespace,))
@@ -485,13 +494,13 @@ class Store(Catalogue):
 
     def publish(
         self,
-        items,
-        membership=None,
-        library=None,
-        removed=(),
-        complete_libraries=None,
-        complete_boxsets=False,
-    ):
+        items: Iterable[dict[str, Any]],
+        membership: Union[dict[str, str], str, None] = None,
+        library: Optional[str] = None,
+        removed: Iterable[str] = (),
+        complete_libraries: Optional[Collection[str]] = None,
+        complete_boxsets: bool = False,
+    ) -> int:
         """A validated listing, or a batch of explicit item changes.
 
         The caller must finish fetching and validating first: one transaction
@@ -519,7 +528,8 @@ class Store(Catalogue):
             ).fetchone()
             if not row:
                 raise ValueError("directory not initialized")
-            current, pinned = row
+            current: int = row[0]
+            pinned: Optional[int] = row[1]
             following = current + 1
             incoming = {m.item_id for m in media}
             if library is None and not complete_libraries and not complete_boxsets:
@@ -628,7 +638,9 @@ class Store(Catalogue):
             self._collect(cursor, pinned if pinned is not None else following)
             return following
 
-    def _collect(self, cursor, floor, item_id=None):
+    def _collect(
+        self, cursor: sqlite3.Cursor, floor: int, item_id: Optional[str] = None
+    ) -> None:
         query = (
             "DELETE FROM api_entry WHERE namespace=? AND removed IS NOT NULL AND removed<=?"
             " AND item_id NOT IN (SELECT item_id FROM api_item WHERE namespace=?"
@@ -640,7 +652,9 @@ class Store(Catalogue):
             params.append(item_id)
         cursor.execute(query, params)
 
-    def _entries(self, cursor, where, params) -> list[Entry]:
+    def _entries(
+        self, cursor: sqlite3.Cursor, where: str, params: Sequence[Any]
+    ) -> list[Entry]:
         rows = cursor.execute(
             "SELECT item_id, kind, library, parent_id FROM api_entry WHERE namespace=? AND "
             + where,
@@ -648,7 +662,9 @@ class Store(Catalogue):
         ).fetchall()
         return [Entry(*row) for row in rows]
 
-    def _live_entries(self, cursor, item_ids) -> dict[str, Entry]:
+    def _live_entries(
+        self, cursor: sqlite3.Cursor, item_ids: Iterable[str]
+    ) -> dict[str, Entry]:
         ids = sorted(item_ids)
         found: dict[str, Entry] = {}
         for start in range(0, len(ids), 500):
@@ -661,17 +677,20 @@ class Store(Catalogue):
                 found[entry.item_id] = entry
         return found
 
-    def _generation(self, cursor, pinned):
+    def _generation(self, cursor: sqlite3.Cursor, pinned: bool) -> int:
         row = cursor.execute(
             "SELECT current, pinned FROM api_root WHERE namespace=?",
             (self.namespace,),
         ).fetchone()
         if not row:
             raise ValueError("no committed directory")
-        current, pin = row
+        current: int = row[0]
+        pin: Optional[int] = row[1]
         return pin if pinned and pin is not None else current
 
-    def entries(self, pinned=True, kind=None) -> dict[str, Entry]:
+    def entries(
+        self, pinned: bool = True, kind: Optional[str] = None
+    ) -> dict[str, Entry]:
         """Membership at the pinned generation (or the current one), of one
         kind when asked."""
         with Database() as db:
@@ -692,7 +711,7 @@ class Store(Catalogue):
             generation = self._generation(db.cursor, True)
         return Placements(self, generation, item_ids)
 
-    def entries_of(self, item_ids: Iterable[str], generation) -> dict[str, Entry]:
+    def entries_of(self, item_ids: Iterable[str], generation: int) -> dict[str, Entry]:
         """The placements of ``item_ids`` at ``generation``, a few hundred to
         a query."""
         ids = sorted(set(item_ids))
@@ -710,7 +729,7 @@ class Store(Catalogue):
                     found[entry.item_id] = entry
         return found
 
-    def entries_at(self, generation) -> dict[str, Entry]:
+    def entries_at(self, generation: int) -> dict[str, Entry]:
         with Database() as db:
             self._prepare(db.cursor)
             return {
@@ -722,7 +741,7 @@ class Store(Catalogue):
                 )
             }
 
-    def filed_under(self, kind, parent_id) -> list[str]:
+    def filed_under(self, kind: str, parent_id: str) -> list[str]:
         """The ids of one kind filed under a parent, live and not leaving."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -735,7 +754,7 @@ class Store(Catalogue):
             ).fetchall()
         return [row[0] for row in rows]
 
-    def entry(self, item_id) -> Optional[Entry]:
+    def entry(self, item_id: str) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -848,12 +867,12 @@ class Store(Catalogue):
 
     def records(
         self,
-        kind=None,
-        library=None,
-        parent_id=None,
-        item_ids=None,
-        pinned=True,
-        payloads=True,
+        kind: Optional[str] = None,
+        library: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        item_ids: Optional[Iterable[str]] = None,
+        pinned: bool = True,
+        payloads: bool = True,
     ) -> dict[str, Record]:
         """Payloads of the members a scanner callback or a repair pass needs.
 
@@ -915,7 +934,7 @@ class Store(Catalogue):
             for row in rows
         }
 
-    def folders(self, kind, library, pinned=True) -> list[str]:
+    def folders(self, kind: str, library: str, pinned: bool = True) -> list[str]:
         """The directory keys live items of ``kind`` file under, without
         loading a payload."""
         with Database() as db:
@@ -928,7 +947,7 @@ class Store(Catalogue):
             ).fetchall()
         return [row[0] for row in rows if row[0]]
 
-    def libraries(self, kind) -> list[str]:
+    def libraries(self, kind: str) -> list[str]:
         """The libraries with a live item of ``kind``."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -938,32 +957,35 @@ class Store(Catalogue):
             ).fetchall()
         return sorted(row[0] for row in rows if row[0])
 
-    def item(self, item_id) -> Optional[dict[str, Any]]:
+    def item(self, item_id: str) -> Optional[dict[str, Any]]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
                 "SELECT payload FROM api_item WHERE namespace=? AND item_id=? AND operation='upsert'",
                 (self.namespace, item_id),
             ).fetchone()
-        return json.loads(row[0]) if row else None
+        payload: Optional[dict[str, Any]] = json.loads(row[0]) if row else None
+        return payload
 
-    def server(self):
+    def server(self) -> str:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
                 "SELECT server FROM api_root WHERE namespace=?", (self.namespace,)
             ).fetchone()
-        return row[0] if row else ""
+        server: str = row[0] if row else ""
+        return server
 
-    def generation(self):
+    def generation(self) -> int:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
                 "SELECT current FROM api_root WHERE namespace=?", (self.namespace,)
             ).fetchone()
-        return row[0] if row else 0
+        current: int = row[0] if row else 0
+        return current
 
-    def pin(self):
+    def pin(self) -> int:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -972,7 +994,7 @@ class Store(Catalogue):
             )
             return self._generation(db.cursor, True)
 
-    def unpin(self):
+    def unpin(self) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -981,7 +1003,7 @@ class Store(Catalogue):
 
     # -- native identities ---------------------------------------------------
 
-    def populated(self, kind=None):
+    def populated(self, kind: Optional[str] = None) -> bool:
         """Whether any owned item of ``kind`` (or any kind) has a native row."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -992,7 +1014,7 @@ class Store(Catalogue):
                 params += (kind,)
             return bool(db.cursor.execute(query + " LIMIT 1", params).fetchone())
 
-    def mapping(self, item_id) -> Optional[Mapping]:
+    def mapping(self, item_id: str) -> Optional[Mapping]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
@@ -1003,7 +1025,9 @@ class Store(Catalogue):
             return None
         return Mapping(row[0], json.loads(row[1] or "{}"), row[2])
 
-    def mappings(self, kind=None, library=None) -> dict[str, Mapping]:
+    def mappings(
+        self, kind: Optional[str] = None, library: Optional[str] = None
+    ) -> dict[str, Mapping]:
         where = ["n.namespace=?"]
         params: list[Any] = [self.namespace]
         if kind is not None:
@@ -1026,7 +1050,9 @@ class Store(Catalogue):
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
 
-    def placed_in(self, kind, library, parent_ids: Iterable[str]) -> list[str]:
+    def placed_in(
+        self, kind: str, library: str, parent_ids: Iterable[str]
+    ) -> list[str]:
         """The items of ``kind`` the catalogue places now under ``parent_ids``
         of ``library``, a few hundred parents to a query (api_entry_parent)."""
         parents = sorted(set(parent_ids))
@@ -1122,7 +1148,7 @@ class Store(Catalogue):
                 )
         return items
 
-    def mapped_to(self, kind, kodi_id) -> list[str]:
+    def mapped_to(self, kind: str, kodi_id: int) -> list[str]:
         """The items of ``kind`` acknowledged against Kodi's row ``kodi_id``."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -1181,11 +1207,18 @@ class Store(Catalogue):
                         extras.add(item_id)
         return entries, extras
 
-    def remember(self, item_id, generation, kodi_id, applied, kind=None):
+    def remember(
+        self,
+        item_id: str,
+        generation: int,
+        kodi_id: Optional[int],
+        applied: dict[str, Any],
+        kind: Optional[str] = None,
+    ) -> bool:
         """Acknowledge readback of exactly the desired generation."""
         return self.remember_many([(item_id, generation, kodi_id, applied, kind)]) == 1
 
-    def remember_many(self, rows):
+    def remember_many(self, rows: Iterable[Acknowledgement]) -> int:
         """One transaction for a batch of acknowledgements; returns how many
         matched their desired generation. A pass over a real catalogue is
         thousands of these, and one commit each cost more than the pass."""
@@ -1215,11 +1248,11 @@ class Store(Catalogue):
                 )
         return count
 
-    def forget(self, item_id, generation):
+    def forget(self, item_id: str, generation: int) -> bool:
         """Acknowledge a removal: the native identity goes, the payload shrinks."""
         return self.forget_many([(item_id, generation)]) == 1
 
-    def forget_many(self, rows):
+    def forget_many(self, rows: Iterable[tuple[str, int]]) -> int:
         """One transaction for a batch of removal acknowledgements; returns
         how many matched their desired generation."""
         count = 0
@@ -1257,7 +1290,7 @@ class Store(Catalogue):
                 self._collect(db.cursor, root[1] if root[1] is not None else root[0])
         return count
 
-    def invalidate(self, item_ids: Iterable[str]):
+    def invalidate(self, item_ids: Iterable[str]) -> None:
         """Put applied upserts back to pending; their desired state is unchanged."""
         ids = list(item_ids)
         if not ids:
@@ -1284,7 +1317,7 @@ class Store(Catalogue):
                 ).fetchall()
             )
 
-    def bind(self, path, content):
+    def bind(self, path: str, content: str) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -1292,7 +1325,7 @@ class Store(Catalogue):
                 (self.namespace, path, content),
             )
 
-    def salt(self, folder) -> int:
+    def salt(self, folder: str) -> int:
         """How many times a music directory's listing has been salted: a
         directory whose scan left its songs missing is one Kodi
         skips "due to no change" (its hash was stored by a scan stopped
@@ -1315,7 +1348,7 @@ class Store(Catalogue):
             ).fetchall()
         return {folder: int(salt) for folder, salt in rows}
 
-    def plan_walk(self, library, rows):
+    def plan_walk(self, library: str, rows: Iterable[tuple[str, str]]) -> None:
         """The album directories a scan of the library is to visit, in order,
         each with the label it is listed under. The pass writes the plan
         before the scan and the provider lists it a part at a time
@@ -1335,7 +1368,7 @@ class Store(Catalogue):
                 ],
             )
 
-    def walk_part(self, library, index, size) -> list[tuple[str, str]]:
+    def walk_part(self, library: str, index: int, size: int) -> list[tuple[str, str]]:
         """(folder, label) of the directories in one part of the plan."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -1346,7 +1379,7 @@ class Store(Catalogue):
             ).fetchall()
         return [(folder, label) for folder, label in rows]
 
-    def walk_size(self, library) -> int:
+    def walk_size(self, library: str) -> int:
         """How many directories the library's plan names."""
         with Database() as db:
             self._prepare(db.cursor)
@@ -1356,7 +1389,7 @@ class Store(Catalogue):
             ).fetchone()
         return int(row[0]) if row else 0
 
-    def bump_salt(self, folder) -> int:
+    def bump_salt(self, folder: str) -> int:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -1366,7 +1399,7 @@ class Store(Catalogue):
             )
         return self.salt(folder)
 
-    def bind_many(self, pairs):
+    def bind_many(self, pairs: Iterable[tuple[str, str]]) -> None:
         """``bind`` for a batch of (path, content), one transaction."""
         pairs = list(pairs)
         if not pairs:
@@ -1378,7 +1411,7 @@ class Store(Catalogue):
                 [(self.namespace, path, content) for path, content in pairs],
             )
 
-    def unbind(self, prefix):
+    def unbind(self, prefix: str) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
@@ -1386,7 +1419,7 @@ class Store(Catalogue):
                 (self.namespace, len(prefix), prefix),
             )
 
-    def watermark(self):
+    def watermark(self) -> tuple[str, float]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
@@ -1395,7 +1428,9 @@ class Store(Catalogue):
             ).fetchone()
         return (row[0], row[1]) if row else ("", 0.0)
 
-    def set_watermark(self, watermark=None, enumerated=None):
+    def set_watermark(
+        self, watermark: Optional[str] = None, enumerated: Optional[float] = None
+    ) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             if watermark is not None:
@@ -1430,10 +1465,12 @@ class Store(Catalogue):
 
     # -- userdata echoes and the local outbox --------------------------------
 
-    def expect(self, item_id, generation, userdata):
+    def expect(self, item_id: str, generation: int, userdata: dict[str, Any]) -> None:
         self.expect_many([(item_id, generation, userdata)])
 
-    def expect_many(self, expectations):
+    def expect_many(
+        self, expectations: Iterable[tuple[str, int, dict[str, Any]]]
+    ) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.executemany(
@@ -1450,7 +1487,7 @@ class Store(Catalogue):
                 ],
             )
 
-    def is_echo(self, item_id, field, value):
+    def is_echo(self, item_id: str, field: str, value: Any) -> bool:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
@@ -1470,7 +1507,7 @@ class Store(Catalogue):
             )
         return bool(expected == value)
 
-    def local(self, item_id, values):
+    def local(self, item_id: str, values: dict[str, Any]) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("BEGIN IMMEDIATE")
@@ -1485,7 +1522,7 @@ class Store(Catalogue):
                 (self.namespace, item_id, encode(payload)),
             )
 
-    def local_pending(self):
+    def local_pending(self) -> list[tuple[str, dict[str, Any]]]:
         with Database() as db:
             self._prepare(db.cursor)
             return [
@@ -1496,7 +1533,7 @@ class Store(Catalogue):
                 ).fetchall()
             ]
 
-    def local_done(self, item_id, values):
+    def local_done(self, item_id: str, values: dict[str, Any]) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(

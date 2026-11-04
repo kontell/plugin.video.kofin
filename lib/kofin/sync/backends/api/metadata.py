@@ -12,8 +12,8 @@ import hashlib
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, NamedTuple, Optional
-from collections.abc import Iterable
+from typing import Any, NamedTuple, Optional, Union
+from collections.abc import Collection, Iterable, Sequence
 
 import xbmc
 import xbmcgui
@@ -27,12 +27,16 @@ from .store import encode, payload_hash
 
 LOG = Logger(__name__)
 
+# An episode as a show's listing names it: its payload, or the row
+# ``episode_row`` reduces it to.
+EpisodeRef = Union[dict[str, Any], tuple[str, int, int]]
+
 _DATE_RE = re.compile(
     r"^(\d{1,4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?"
 )
 
 
-def convert_to_local(date):
+def convert_to_local(date: Union[str, datetime]) -> str:
     """A Jellyfin UTC timestamp in local time (``YYYY-MM-DDTHH:MM:SS``).
     Handles 7-digit tick fractions and the year-1 "no date" sentinel."""
     try:
@@ -90,7 +94,7 @@ AFTER_SEASON_EPISODE = 4096
 _DROP = ("ImageBlurHashes", "Chapters", "Trickplay", "MediaAttachments")
 
 
-def compact(item):
+def compact(item: dict[str, Any]) -> dict[str, Any]:
     """The DTO minus what nothing reads; applied before hashing or storing.
 
     A song keeps its sources (the file size is the scanner's hash input)
@@ -157,7 +161,7 @@ _EXTRA_KEYS = (
 LIBRARY_TAG_PREFIX = "kofin.library."
 
 
-def compact_extra(feature):
+def compact_extra(feature: dict[str, Any]) -> dict[str, Any]:
     """A movie's special feature as its payload carries it."""
     result = {k: feature[k] for k in _EXTRA_KEYS if k in feature}
     sources = feature.get("MediaSources")
@@ -169,7 +173,7 @@ def compact_extra(feature):
     return result
 
 
-def version_sources(item) -> list[dict[str, Any]]:
+def version_sources(item: dict[str, Any]) -> list[dict[str, Any]]:
     """The media sources a movie is listed by, a file each, when it has
     more than one; Jellyfin's first is the one the movie's plain URL plays."""
     sources = [
@@ -180,7 +184,7 @@ def version_sources(item) -> list[dict[str, Any]]:
     return sources if len(sources) > 1 else []
 
 
-def version_label(source) -> str:
+def version_label(source: dict[str, Any]) -> str:
     """A media source's name as a video asset title, or empty when it is no
     label: Jellyfin's ``GetMediaSourceName`` returns the file name without
     its extension unless local alternate versions exist, so a name equal to
@@ -196,7 +200,7 @@ def version_label(source) -> str:
     return name
 
 
-def special_features(item) -> list[dict[str, Any]]:
+def special_features(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         f
         for f in (item.get("SpecialFeatures") or [])
@@ -204,7 +208,7 @@ def special_features(item) -> list[dict[str, Any]]:
     ]
 
 
-def assets_token(item, features=frozenset()) -> str:
+def assets_token(item: dict[str, Any], features: Collection[str] = frozenset()) -> str:
     """What a movie's folder lists beyond the movie's own file: its version
     files and its extras, as the listing names them on a Kodi with
     ``features`` (version files only with ``video_versions``). Empty for a
@@ -225,7 +229,12 @@ def assets_token(item, features=frozenset()) -> str:
     )
 
 
-def asset_files(item, key, library, features=frozenset()) -> Optional[dict[str, Any]]:
+def asset_files(
+    item: dict[str, Any],
+    key: str,
+    library: str,
+    features: Collection[str] = frozenset(),
+) -> Optional[dict[str, Any]]:
     """The files a movie's folder lists beyond its own, by URL: its version
     files with the source's name (only with ``video_versions``), its
     extras. None for a movie with neither. Acknowledged beside the assets
@@ -258,7 +267,7 @@ def asset_files(item, key, library, features=frozenset()) -> Optional[dict[str, 
 NO_ASSET_FILES: dict[str, Any] = {"versions": [], "extras": []}
 
 
-def item_separator():
+def item_separator() -> str:
     """Read Kodi's configured video-array separator through its public tag API.
 
     The ListItem must outlive the tag: ``getVideoInfoTag`` hands out a
@@ -275,11 +284,13 @@ def item_separator():
     return joined[len("kofin_left") : -len("kofin_right")] if joined else " / "
 
 
-def _token(value) -> str:
+def _token(value: Any) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def refresh_fields(item, seasons=()) -> dict[str, Any]:
+def refresh_fields(
+    item: dict[str, Any], seasons: Iterable[dict[str, Any]] = ()
+) -> dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
     An episode's sort numbering has no setter, so it joins the token. A
@@ -321,7 +332,7 @@ def refresh_fields(item, seasons=()) -> dict[str, Any]:
     return value
 
 
-def refresh_token(item, seasons=()):
+def refresh_token(item: dict[str, Any], seasons: Iterable[dict[str, Any]] = ()) -> str:
     return _token(refresh_fields(item, seasons))
 
 
@@ -341,7 +352,9 @@ REFRESH_PARTS = {
 }
 
 
-def refresh_parts(item, seasons=()) -> dict[str, str]:
+def refresh_parts(
+    item: dict[str, Any], seasons: Iterable[dict[str, Any]] = ()
+) -> dict[str, str]:
     """The token's own fields, a short hash per part: kept beside a row's
     acknowledgement so that the refresh of it can say which part moved. The
     token alone says only that something did. Built from the one dict the
@@ -353,7 +366,7 @@ def refresh_parts(item, seasons=()) -> dict[str, str]:
     return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
 
 
-def userdata(item) -> dict[str, Any]:
+def userdata(item: dict[str, Any]) -> dict[str, Any]:
     """The userdata Kodi keeps for a playable row. A song has no resume point
     in Kodi's music library, so a song's is its playcount and last played."""
     data = item.get("UserData") or {}
@@ -385,7 +398,9 @@ def userdata(item) -> dict[str, Any]:
     return result
 
 
-def unique_ids(item, key, seasons=()):
+def unique_ids(
+    item: dict[str, Any], key: str, seasons: Iterable[dict[str, Any]] = ()
+) -> dict[str, str]:
     result = {
         k.lower(): str(v) for k, v in (item.get("ProviderIds") or {}).items() if v
     }
@@ -396,7 +411,7 @@ def unique_ids(item, key, seasons=()):
     return result
 
 
-def tags(item, kind="Movie"):
+def tags(item: dict[str, Any], kind: str = "Movie") -> list[str]:
     if kind not in FAVORITE_TAG:
         return []
     values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
@@ -405,7 +420,7 @@ def tags(item, kind="Movie"):
     return sorted(set(value for value in values if value))
 
 
-def ratings(item):
+def ratings(item: dict[str, Any]) -> dict[str, Any]:
     result = {}
     source = shared_ratings(
         dict(
@@ -424,7 +439,7 @@ def ratings(item):
     return result
 
 
-def episode_numbers(item) -> Optional[dict[str, int]]:
+def episode_numbers(item: dict[str, Any]) -> Optional[dict[str, int]]:
     """Kodi's numbering for an episode, or None when Kodi cannot file it.
 
     The scanner keeps an episode whose tag says season >= 0 and episode > 0,
@@ -455,7 +470,7 @@ def episode_numbers(item) -> Optional[dict[str, int]]:
     return result
 
 
-def season_title(season) -> str:
+def season_title(season: dict[str, Any]) -> str:
     """A season's custom name; '' when Jellyfin's default label is in use.
 
     Kodi labels an unnamed season itself, localized, so the server's English
@@ -471,12 +486,12 @@ def season_title(season) -> str:
     return "" if name in defaults else str(name)
 
 
-def _clean_strings(data, fields):
+def _clean_strings(data: dict[str, Any], fields: Iterable[str]) -> None:
     for field in fields:
         data[field] = (data.get(field) or "").strip(ASCII_SPACE)
 
 
-def _clean_arrays(data, fields, separator):
+def _clean_arrays(data: dict[str, Any], fields: Iterable[str], separator: str) -> None:
     # InfoTag setters trim ASCII whitespace. String-array fields round-trip
     # through Kodi's configured separator; tags use separate native links.
     for field in fields:
@@ -490,15 +505,15 @@ def _clean_arrays(data, fields, separator):
         )
 
 
-def _people(item, role):
+def _people(item: dict[str, Any], role: str) -> list[str]:
     return [p["Name"] for p in item.get("People") or [] if p.get("Type") == role]
 
 
-def _date(value, length=10):
+def _date(value: Any, length: int = 10) -> str:
     return str(value or "")[:length].replace("T", " ")
 
 
-def _int(value) -> int:
+def _int(value: Any) -> int:
     """A number the server sent, or 0 when absent or unparsable."""
     try:
         return int(value or 0)
@@ -506,7 +521,7 @@ def _int(value) -> int:
         return 0
 
 
-def _timestamp(value):
+def _timestamp(value: Any) -> str:
     """A server UTC instant as the local-time text Kodi stores and shows.
 
     Kodi writes its own lastplayed and dateadded in local time, so a UTC
@@ -548,7 +563,7 @@ def same_play(actual: str, wanted: str) -> bool:
     return -STOP_REPORT <= ahead <= SAME_PLAY
 
 
-def own_art(item, server) -> dict[str, str]:
+def own_art(item: dict[str, Any], server: str) -> dict[str, str]:
     """The art a row carries in its own right: no dotted key (``tvshow.*``,
     ``season.*``), which Kodi reads off the show and season rows.
 
@@ -569,15 +584,15 @@ def own_art(item, server) -> dict[str, str]:
 
 
 def details(
-    item,
-    server,
-    key,
-    library,
-    separator=" / ",
-    seasons=(),
-    set_name=None,
-    features=frozenset(),
-):
+    item: dict[str, Any],
+    server: str,
+    key: str,
+    library: str,
+    separator: str = " / ",
+    seasons: Sequence[dict[str, Any]] = (),
+    set_name: Optional[str] = None,
+    features: Collection[str] = frozenset(),
+) -> dict[str, Any]:
     """The desired native state, keyed as the kind's JSON-RPC setter takes it.
 
     Explicit empty values clear metadata the server removed. ``features`` is
@@ -717,13 +732,13 @@ def details(
 # -- music ---------------------------------------------------------------------
 
 
-def music_art(item, server) -> dict[str, str]:
+def music_art(item: dict[str, Any], server: str) -> dict[str, str]:
     """The two art types Kodi's music library shows for albums and artists."""
     art = listitems.art_for(item, server)
     return {key: art[key] for key in ("thumb", "fanart") if art.get(key)}
 
 
-def music_details(item, server) -> dict[str, Any]:
+def music_details(item: dict[str, Any], server: str) -> dict[str, Any]:
     """The desired native state of a music kind.
 
     A song's tags are the scanner's to write: the only public setter a song
@@ -741,7 +756,7 @@ def music_details(item, server) -> dict[str, Any]:
     }
 
 
-def names(credits) -> list[str]:
+def names(credits: Optional[Iterable[Any]]) -> list[str]:
     result = []
     for credit in credits or []:
         name = credit.get("Name", "") if isinstance(credit, dict) else str(credit)
@@ -751,12 +766,14 @@ def names(credits) -> list[str]:
     return result
 
 
-def song_year(item) -> int:
+def song_year(item: dict[str, Any]) -> int:
     year = _int(item.get("ProductionYear"))
     return year if year > NO_YEAR else 0
 
 
-def song_tags(item, album=None) -> dict[str, Any]:
+def song_tags(
+    item: dict[str, Any], album: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Every tag the song's ListItem sets, as plain values: the scanner's
     input, and the hash a metadata change moves the directory by.
 
@@ -795,7 +812,7 @@ def song_tags(item, album=None) -> dict[str, Any]:
     }
 
 
-def tag_hash(item, album=None) -> str:
+def tag_hash(item: dict[str, Any], album: Optional[dict[str, Any]] = None) -> str:
     return _token(song_tags(item, album))
 
 
@@ -814,7 +831,7 @@ def hash_time(digest: str) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def mark_loaded(li, size):
+def mark_loaded(li: xbmcgui.ListItem, size: int) -> None:
     """Tell the scanner the tag is complete so it reads no file.
 
     ``InfoTagMusic`` has no ``setLoaded``; the legacy ``setInfo`` sets the
@@ -829,7 +846,12 @@ def mark_loaded(li, size):
         tag.setLoaded(True)
 
 
-def song_listitem(item, album=None, salt: int = 0, features=frozenset()):
+def song_listitem(
+    item: dict[str, Any],
+    album: Optional[dict[str, Any]] = None,
+    salt: int = 0,
+    features: Collection[str] = frozenset(),
+) -> xbmcgui.ListItem:
     """A scanner row for a song: its tags, its size, and a date that moves
     with its tags so a change re-imports the directory."""
     tags = song_tags(item, album)
@@ -874,7 +896,7 @@ def song_listitem(item, album=None, salt: int = 0, features=frozenset()):
     return li
 
 
-def fallback_song_listitem(item):
+def fallback_song_listitem(item: dict[str, Any]) -> xbmcgui.ListItem:
     """The least a song row needs to survive a serializer fault: a title,
     its size and a loaded tag. Better one plain row than a deleted song."""
     sources = item.get("MediaSources") or []
@@ -889,7 +911,7 @@ def fallback_song_listitem(item):
     return li
 
 
-def folder_label(album, folder: str, salt: int = 0) -> str:
+def folder_label(album: Optional[dict[str, Any]], folder: str, salt: int = 0) -> str:
     """The root listing's label for an album directory: Kodi walks a
     directory's folders in label order and numbers albums as it adds
     them, so oldest-first on the server's creation date puts the
@@ -916,7 +938,7 @@ def collections_of(boxsets: Iterable[dict[str, Any]]) -> dict[str, str]:
 # -- scanner ListItems -------------------------------------------------------
 
 
-def _cast(tag, item, server):
+def _cast(tag: xbmc.InfoTagVideo, item: dict[str, Any], server: str) -> None:
     actors = [
         xbmc.Actor(
             person.get("Name", ""),
@@ -940,7 +962,7 @@ def _cast(tag, item, server):
 SCANNER_FORMAT = 3
 
 
-def scanner_format(features) -> int:
+def scanner_format(features: Collection[str]) -> int:
     """The scanner format a listing carries on a Kodi with ``features``."""
     return SCANNER_FORMAT if "stream_flags" in features else SCANNER_FORMAT - 1
 
@@ -954,7 +976,7 @@ STREAM_FLAGS = (
 )
 
 
-def _flags(raw, kind) -> list[list[str]]:
+def _flags(raw: Iterable[Any], kind: str) -> list[list[str]]:
     """The flag names of each stream of ``kind`` ("Audio", "Subtitle"), in
     the order ``streams_and_runtime`` lists them."""
     return [
@@ -964,7 +986,7 @@ def _flags(raw, kind) -> list[list[str]]:
     ]
 
 
-def _stream_source(item):
+def _stream_source(item: dict[str, Any]) -> dict[str, Any]:
     """The item as ``streams_and_runtime`` reads it. ``compact`` keeps a
     single source's streams on the item alone, and the shared reader looks
     in the first source, so they are copied there."""
@@ -981,7 +1003,11 @@ def _stream_source(item):
     return dict(item, MediaSources=[first] + list(sources[1:]))
 
 
-def _streams(tag, item, features=frozenset()):
+def _streams(
+    tag: xbmc.InfoTagVideo,
+    item: dict[str, Any],
+    features: Collection[str] = frozenset(),
+) -> None:
     """The item's streams on the tag; their flags only where the stream
     detail classes take them (the stream_flags feature)."""
     flagged = "stream_flags" in features
@@ -1039,14 +1065,14 @@ SERIALIZER = 6
 
 
 def inputs_token(
-    server,
-    key,
-    library,
-    separator,
-    seasons=(),
-    set_name=None,
-    downloaded="",
-    features=(),
+    server: str,
+    key: str,
+    library: str,
+    separator: str,
+    seasons: Iterable[dict[str, Any]] = (),
+    set_name: Optional[str] = None,
+    downloaded: str = "",
+    features: Collection[str] = (),
 ) -> str:
     """Everything ``details`` reads besides the payload, as one token.
 
@@ -1085,7 +1111,7 @@ def inputs_token(
     )
 
 
-def episode_row(item) -> Optional[tuple[str, int, int]]:
+def episode_row(item: dict[str, Any]) -> Optional[tuple[str, int, int]]:
     """All the show hash takes from an episode: its id and numbering, or
     None for one Kodi cannot file. A listing reduces each payload to this
     and lets the payload go."""
@@ -1095,7 +1121,7 @@ def episode_row(item) -> Optional[tuple[str, int, int]]:
     return (str(item["Id"]), numbers["season"], numbers["episode"])
 
 
-def show_hash(episodes: Iterable[Any]) -> str:
+def show_hash(episodes: Iterable[EpisodeRef]) -> str:
     """What the scanner may skip a show for: its importable episode set.
 
     Kodi compares the folder's ``hash`` property with the one it stored after
@@ -1150,17 +1176,17 @@ class Version(NamedTuple):
 
 
 def listitem(
-    item,
-    server,
-    key,
-    library,
-    separator=" / ",
-    seasons=(),
-    episodes=None,
-    set_name=None,
+    item: dict[str, Any],
+    server: str,
+    key: str,
+    library: str,
+    separator: str = " / ",
+    seasons: Sequence[dict[str, Any]] = (),
+    episodes: Optional[Iterable[EpisodeRef]] = None,
+    set_name: Optional[str] = None,
     version: Optional[Version] = None,
-    features=frozenset(),
-):
+    features: Collection[str] = frozenset(),
+) -> xbmcgui.ListItem:
     """A scanner row: everything ``details`` wants, through the InfoTag.
 
     No zero resume point is ever stamped: the scanner persists any *set*
@@ -1288,7 +1314,9 @@ def listitem(
     return li
 
 
-def extra_listitem(item, server, features=frozenset()):
+def extra_listitem(
+    item: dict[str, Any], server: str, features: Collection[str] = frozenset()
+) -> xbmcgui.ListItem:
     """A scanner row for a movie extra. Kodi files the extra by its URL under
     the movie it found beside it (CVideoInfoScanner::AddVideoExtras) and keeps
     the row's dates, streams and art; the name it shows is the file's stem,
@@ -1309,7 +1337,7 @@ def extra_listitem(item, server, features=frozenset()):
     return li
 
 
-def owned(data) -> dict[str, list[str]]:
+def owned(data: dict[str, Any]) -> dict[str, list[str]]:
     """The map keys and tags this write puts its name to; a later write may
     clear exactly these and nothing a user or another add-on added."""
     result: dict[str, list[str]] = {}
