@@ -294,20 +294,38 @@ def _owed(library, what, call):
 
 
 def remove(native, pending, entries, tombstones, errors) -> set[str]:
-    """Apply every tombstone but the sets'; returns the libraries cleared whole."""
-    store = native.store
+    """Apply every tombstone but the sets'; returns the libraries cleared whole.
+
+    In order: whole video libraries go in one call each; music leaves by its
+    directories; the remaining rows are gathered, removed one by one and
+    confirmed by readback; and the other sources' shows are scanned once
+    the rows they shared are gone.
+    """
     removals = {i for i, (_, op, _) in pending.items() if op == "remove"}
     if not removals:
         return set()
     placement: dict[str, Entry] = dict(entries)
     placement.update(tombstones)
+    cleared = _clear_whole_libraries(native, pending, placement, removals, errors)
+    remove_music(native, pending, placement, removals, errors)
+    rows, children = _gather_rows(native, pending, placement, removals, cleared)
+    attempted, rescan = _remove_rows(native, pending, rows, children, errors)
+    _confirm_rows(native, pending, attempted, children, errors)
+    if rescan:
+        _owed(
+            "", "the other sources' shows", lambda: native.scan(sorted(rescan), "video")
+        )
+    return cleared
+
+
+def _clear_whole_libraries(native, pending, placement, removals, errors) -> set[str]:
+    """A library none of whose members survive goes in one call; Kodi's
+    RemoveContentForPath deletes every row filed beneath its root. Music
+    has no such call and leaves by its directories (remove_music)."""
+    store = native.store
     by_library: dict[str, set[str]] = {}
     for item_id, entry in placement.items():
         by_library.setdefault(entry.library, set()).add(item_id)
-
-    # 1. Whole video libraries. A library none of whose members survive goes
-    #    in one call; Kodi's RemoveContentForPath deletes every row filed
-    #    beneath its root. Music has no such call and is handled below.
     cleared: set[str] = set()
     for library, members in sorted(by_library.items()):
         members = {i for i in members if KINDS[placement[i].kind].removal != "rescan"}
@@ -369,16 +387,17 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
         cleared.add(library)
         if kinds & {"Series", "Episode"}:
             store.invalidate(_merged_shows(store, pending, placement, members))
+    return cleared
 
-    # 2. Music: every song tombstone is its album directory listed without
-    #    it. The directories are scanned and one readback per directory
-    #    confirms the songs are gone; albums and artists are derived and
-    #    leave with their songs.
-    remove_music(native, pending, placement, removals, errors)
 
-    # 3. Rows. Children of a show that is going leave with it and are
-    #    acknowledged only when the show's removal is confirmed, so they are
-    #    gathered first, whatever order the ids sort in.
+def _gather_rows(native, pending, placement, removals, cleared):
+    """The rows still to remove one by one, and the children of each show
+    that is going, which leave with it and are acknowledged only when the
+    show's removal is confirmed, so they are gathered first, whatever order
+    the ids sort in. Settles what needs no call: an item of a cleared
+    library, one with no placement, and a season of a surviving show, whose
+    row leaves with its episodes or stays as Kodi's own empty season."""
+    store = native.store
     children: dict[str, list[str]] = {}
     rows: list[tuple[str, Entry]] = []
     settled: list[tuple[str, int]] = []
@@ -389,32 +408,38 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
             continue
         table = KINDS[placed.kind]
         if table.removal in ("members", "rescan"):
-            # Sets wait for the apply pass (finish_sets below); music was
-            # settled above.
+            # Sets wait for the apply pass (finish_sets); music was settled
+            # by remove_music.
             continue
         if placed.parent_id in removals:
             children.setdefault(placed.parent_id, []).append(item_id)
             continue
         if table.removal == "parent" or table.remove is None:
-            # A season of a surviving show has no removal call; its row leaves
-            # with its episodes, or stays as Kodi's own empty season.
             store.forget(item_id, pending[item_id][0])
             continue
         rows.append((item_id, placed))
     store.forget_many(settled)
+    return rows, children
 
-    def forget_with_children(item_id):
-        store.forget(item_id, pending[item_id][0])
-        for child in children.pop(item_id, []):
-            store.forget(child, pending[child][0])
 
-    def fail_with_children(item_id, error):
-        _fail(store, pending, item_id, error, errors)
-        for child in children.pop(item_id, []):
-            _fail(store, pending, child, error, errors)
+def _forget_with_children(store, pending, children, item_id):
+    store.forget(item_id, pending[item_id][0])
+    for child in children.pop(item_id, []):
+        store.forget(child, pending[child][0])
 
+
+def _fail_with_children(store, pending, children, item_id, error, errors):
+    _fail(store, pending, item_id, error, errors)
+    for child in children.pop(item_id, []):
+        _fail(store, pending, child, error, errors)
+
+
+def _remove_rows(native, pending, rows, children, errors):
+    """One removal call per row, by the id the scoped readback holds now;
+    returns the rows attempted and the other sources of the shows about to
+    go, scanned once they have."""
+    store = native.store
     attempted: list[tuple[str, Entry]] = []
-    # The other sources of the shows about to go, scanned once they have.
     rescan: set[str] = set()
     for item_id, placed in rows:
         table = KINDS[placed.kind]
@@ -432,7 +457,7 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
             # and so are a vanished show's episodes.
             row = _row(native, placed, item_id)
             if row is None:
-                forget_with_children(item_id)
+                _forget_with_children(store, pending, children, item_id)
                 continue
             try:
                 if placed.kind == "Series":
@@ -458,10 +483,15 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
         except InterruptedError:
             raise
         except Exception as error:
-            fail_with_children(item_id, error)
+            _fail_with_children(store, pending, children, item_id, error, errors)
+    return attempted, rescan
 
-    # 4. Confirm: one readback per scope. Anything still there stays pending,
-    #    children included.
+
+def _confirm_rows(native, pending, attempted, children, errors):
+    """One readback per scope: anything still there stays pending, children
+    included, and a child whose show was settled before it was gathered, or
+    whose removal never got as far as a call, goes with the show's state."""
+    store = native.store
     if attempted:
         native.readback.clear()
     removed_shows = {i for i, p in attempted if p.kind == "Series"}
@@ -474,14 +504,17 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
             placed.kind == "Movie"
             and native.readback.version_rows(placed.library, item_id)
         ):
-            fail_with_children(
-                item_id, RuntimeError("%s removal not confirmed" % placed.kind)
+            _fail_with_children(
+                store,
+                pending,
+                children,
+                item_id,
+                RuntimeError("%s removal not confirmed" % placed.kind),
+                errors,
             )
             continue
-        forget_with_children(item_id)
+        _forget_with_children(store, pending, children, item_id)
     for parent, orphans in children.items():
-        # The parent was settled before its children were gathered, or its
-        # removal never got as far as a call this pass.
         state = store.state(parent)
         gone = (
             state is not None
@@ -499,11 +532,6 @@ def remove(native, pending, entries, tombstones, errors) -> set[str]:
                     RuntimeError("show removal not confirmed"),
                     errors,
                 )
-    if rescan:
-        _owed(
-            "", "the other sources' shows", lambda: native.scan(sorted(rescan), "video")
-        )
-    return cleared
 
 
 def remove_music(native, pending, placement, removals, errors):
