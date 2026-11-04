@@ -48,7 +48,8 @@ class TimeSync(threading.Thread):
         self._stop_event = threading.Event()
         self._kick_event = threading.Event()
         self._lock = threading.Lock()
-        self._ws = None  # the dedicated time-sync socket, when advertised
+        # The dedicated time-sync socket, when advertised.
+        self._ws: Optional[websocket.WebSocket] = None
 
     def run(self) -> None:
         LOG.debug("--->[ syncplay timesync ]")
