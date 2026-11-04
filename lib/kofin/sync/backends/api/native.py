@@ -1135,11 +1135,8 @@ class Native:
         """Bind whatever the readback shows the video scanner has not filed,
         and name the directories to scan for it and for the movie folders
         whose versions or extras the scanner has not seen."""
-        directories: list[str] = []
-        expected: dict[str, int] = {}
-        expectations = []
+        scan = VideoScan([], {}, [], [])
         self._extras_folders = set()
-        scanned_movie_folders: list[str] = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
             for content in paths.CONTENTS:
@@ -1154,37 +1151,7 @@ class Native:
                 except Exception as error:
                     errors.append(error)
                     continue
-                if content == "tvshows":
-                    missing = self._missing_tv(upserts, library)
-                    self.bind_folders(
-                        "tvshows",
-                        [
-                            paths.show_dir(self.key, library, r.item_id)
-                            for r in missing
-                            if r.kind == "Series"
-                        ],
-                    )
-                else:
-                    kind = "Movie" if content == "movies" else "MusicVideo"
-                    present = self.readback.scope(kind, library)
-                    missing = [
-                        r
-                        for r in upserts.values()
-                        if r.kind == kind
-                        and r.library == library
-                        and r.item_id not in present
-                    ]
-                    if kind == "Movie" and missing:
-                        # Only a movie Kodi has filed for us can sit on a row
-                        # another source's file lists (Readback.movie), and a
-                        # first import files none: its mappings in one read.
-                        filed = self.store.mappings_of([r.item_id for r in missing])
-                        missing = [
-                            r
-                            for r in missing
-                            if r.item_id not in filed
-                            or self.readback.movie(library, r.item_id) is None
-                        ]
+                missing, present = self._unfiled(content, library, upserts)
                 asset_folders: list[str] = []
                 if content == "movies":
                     asset_folders = self._asset_folders(upserts, library)
@@ -1192,51 +1159,94 @@ class Native:
                     continue
                 root = paths.library_dir(self.key, library, content)
                 if content == "movies":
-                    # A movie's URL sits in a folder of its own. A few new
-                    # movies are scanned by folder, each bound first (Kodi
-                    # finds a plugin folder's scraper only through the
-                    # folder's own binding); a first import, or a library
-                    # mostly missing, scans the root once, which lists every
-                    # movie as a file under its folder's URL.
-                    if missing:
-                        total = len(present) + len(missing)
-                        if len(missing) > total * ROOT_SCAN_SHARE:
-                            directories.append(root)
-                            expected[root] = len(missing)
-                        else:
-                            movie_folders = [
-                                paths.movie_dir(self.key, library, r.item_id)
-                                for r in missing
-                            ]
-                            scanned_movie_folders.extend(movie_folders)
-                            directories.extend(movie_folders)
-                            expected.update((folder, 1) for folder in movie_folders)
-                    # A folder whose version files or extras Kodi has not
-                    # seen is scanned by name, after the root when the root
-                    # walks (the root lists the movie's own file alone), and
-                    # bound again with folder names on, which the extras need.
-                    if asset_folders:
-                        scanned_movie_folders.extend(
-                            f for f in asset_folders if f not in scanned_movie_folders
-                        )
-                        directories.extend(
-                            f for f in asset_folders if f not in directories
-                        )
+                    self._movie_directories(
+                        scan, library, root, present, missing, asset_folders
+                    )
                 else:
-                    directories.append(root)
-                    expected[root] = sum(
+                    scan.directories.append(root)
+                    scan.expected[root] = sum(
                         1 for r in missing if r.kind in ("Episode", "MusicVideo")
                     )
                 for record in self.payloads.walk(missing):
                     if record.kind in ("Movie", "Episode", "MusicVideo"):
-                        expectations.append(
+                        scan.expectations.append(
                             (
                                 record.item_id,
                                 record.generation,
                                 metadata.userdata(record.item),
                             )
                         )
-        return VideoScan(directories, expected, expectations, scanned_movie_folders)
+        return scan
+
+    def _unfiled(
+        self, content, library, upserts: dict[str, Record]
+    ) -> tuple[list[Record], int]:
+        """The records of one library and content the readback shows the
+        scanner has not filed, with the count of rows it has. A show's
+        folder is bound as the show is found, since the scanner skips a
+        folder without a binding of its own."""
+        if content == "tvshows":
+            missing = self._missing_tv(upserts, library)
+            self.bind_folders(
+                "tvshows",
+                [
+                    paths.show_dir(self.key, library, r.item_id)
+                    for r in missing
+                    if r.kind == "Series"
+                ],
+            )
+            return missing, 0
+        kind = "Movie" if content == "movies" else "MusicVideo"
+        present = self.readback.scope(kind, library)
+        missing = [
+            r
+            for r in upserts.values()
+            if r.kind == kind and r.library == library and r.item_id not in present
+        ]
+        if kind == "Movie" and missing:
+            # Only a movie Kodi has filed for us can sit on a row
+            # another source's file lists (Readback.movie), and a
+            # first import files none: its mappings in one read.
+            filed = self.store.mappings_of([r.item_id for r in missing])
+            missing = [
+                r
+                for r in missing
+                if r.item_id not in filed
+                or self.readback.movie(library, r.item_id) is None
+            ]
+        return missing, len(present)
+
+    def _movie_directories(
+        self, scan: VideoScan, library, root, present, missing, asset_folders
+    ) -> None:
+        """The directories a movie library's scan lists. A movie's URL sits
+        in a folder of its own. A few new movies are scanned by folder, each
+        bound first (Kodi finds a plugin folder's scraper only through the
+        folder's own binding); a first import, or a library mostly missing,
+        scans the root once, which lists every movie as a file under its
+        folder's URL. A folder whose version files or extras Kodi has not
+        seen is scanned by name, after the root when the root walks (the
+        root lists the movie's own file alone), and bound again with folder
+        names on, which the extras need."""
+        if missing:
+            total = present + len(missing)
+            if len(missing) > total * ROOT_SCAN_SHARE:
+                scan.directories.append(root)
+                scan.expected[root] = len(missing)
+            else:
+                movie_folders = [
+                    paths.movie_dir(self.key, library, r.item_id) for r in missing
+                ]
+                scan.movie_folders.extend(movie_folders)
+                scan.directories.extend(movie_folders)
+                scan.expected.update((folder, 1) for folder in movie_folders)
+        if asset_folders:
+            scan.movie_folders.extend(
+                f for f in asset_folders if f not in scan.movie_folders
+            )
+            scan.directories.extend(
+                f for f in asset_folders if f not in scan.directories
+            )
 
     def scan_video(self, video: VideoScan):
         """Have Kodi's video scanner list what plan_video named.
