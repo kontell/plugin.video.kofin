@@ -21,9 +21,8 @@ from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from kofin.sync.shims import convert_to_local
 from . import paths
+from .paths import ASCII_SPACE
 from .store import encode, payload_hash
-
-ASCII_SPACE = " \t\n\r\v\f"
 
 MEDIATYPE = {
     "Movie": "movie",

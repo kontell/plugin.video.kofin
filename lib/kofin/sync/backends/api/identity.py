@@ -9,8 +9,7 @@ from kofin.core.settings import Credentials
 
 from . import paths
 from .kinds import CONTAINERS, FILED, KINDS, MEDIA, rpc
-from .metadata import ASCII_SPACE
-from .readback import Readback, artist_key
+from .paths import ASCII_SPACE
 from .store import Store, namespace
 
 # Kinds whose rows carry no id of ours, found through what the row holds.
@@ -121,6 +120,8 @@ def _found(store, kind, kodi_id):
             if (item.get("Name") or "").strip(ASCII_SPACE) == title
         ]
     else:
+        from .readback import artist_key
+
         name = artist_key(row.get("artist") or row.get("label"))
         named = [
             item_id
@@ -146,6 +147,8 @@ def native_id_for(item_id, media="movie"):
     kind = MEDIA.get(media)
     if placed is None or kind is None:
         return None
+    from .readback import Readback
+
     readback = Readback(store.namespace)
     if kind == "Audio":
         # One directory: a lookup must not page the whole song library.

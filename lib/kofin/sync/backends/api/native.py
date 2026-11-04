@@ -1037,7 +1037,7 @@ class Native:
             item_id: record
             for item_id, record in sets.items()
             if item_id not in pending
-            and (record.item.get("Name") or "").strip(metadata.ASCII_SPACE) in taken
+            and (record.item.get("Name") or "").strip(paths.ASCII_SPACE) in taken
         }
         self.store.invalidate(joined)
         for item_id, record in joined.items():

@@ -6,8 +6,6 @@ import shutil
 
 from kofin.core.log import Logger
 from kofin.sync import private
-from kofin.sync.catalogue import claim_backend
-from kofin.sync.private import Database
 
 LOG = Logger(__name__)
 
@@ -16,6 +14,11 @@ class APIBackend:
     name = "api"
 
     def initialize(self):
+        # The plugin process imports this package on every play and never
+        # claims the backend, so the catalogue stays out of module scope.
+        from kofin.sync.catalogue import claim_backend
+        from kofin.sync.private import Database
+
         with Database() as db:
             claim_backend(db.cursor, self.name)
         forget_companion()

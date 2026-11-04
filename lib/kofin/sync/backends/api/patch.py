@@ -298,7 +298,7 @@ class Applier:
                 int(number)
             )
         if kind == "BoxSet":
-            name = (record.item.get("Name") or "").strip(metadata.ASCII_SPACE)
+            name = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
             return self.readback.scope("BoxSet").get(name)
         if kind == "Series":
             return self.readback.show(record.library, record.item_id)
@@ -334,7 +334,7 @@ class Applier:
                 return True
             return self.row_for(record) is None
         if kind == "BoxSet":
-            name = (record.item.get("Name") or "").strip(metadata.ASCII_SPACE)
+            name = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
             return not any(
                 member in self.movies and self.collections.get(member) == name
                 for member in record.item.get("KofinMembers") or []

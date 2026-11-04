@@ -30,7 +30,6 @@ from kofin.core.urls import (
 )
 from kofin.plugin import listitems, subtitles
 from kofin.sync import private
-from kofin.sync.backends.api import capabilities
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -288,6 +287,8 @@ def wants_live_timeshift() -> bool:
     capability report, so nothing private has to be published for it. A
     Kodi without the tempo set plays the live item as it would outside a
     group, since no pulse could use the timeshift buffer."""
+    from kofin.sync.backends.api import capabilities
+
     return (
         bool(state.syncsession().get("in_group"))
         and settings.get_bool("syncPlayTempo")
@@ -653,7 +654,7 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    from kofin.sync.backends.api.provider import key_from_url
+    from kofin.sync.backends.api.paths import key_from_url
     from kofin.sync.backends.api.store import namespace
 
     key = key_from_url(request.base_url)
