@@ -6,6 +6,8 @@ and user identity; no native IDs are adopted here.
 """
 
 import json
+import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Optional
 
@@ -23,7 +25,7 @@ class EarlierLibrary(BackendMismatch):
     Library status button gives the instructions (``status.show``)."""
 
 
-def claim_backend(cursor, backend: str) -> None:
+def claim_backend(cursor: sqlite3.Cursor, backend: str) -> None:
     if backend not in ("sql", "api"):
         raise ValueError("unknown backend")
     cursor.execute(
@@ -65,7 +67,7 @@ class ItemState:
 SCHEMA_READY = "api_schema_ready"
 
 
-def schema_ready(cursor) -> bool:
+def schema_ready(cursor: sqlite3.Cursor) -> bool:
     return (
         cursor.execute(
             "SELECT 1 FROM sqlite_temp_master WHERE type = 'table' AND name = ?",
@@ -82,7 +84,7 @@ class Catalogue:
         self.namespace = namespace
 
     @classmethod
-    def _prepare(cls, cursor):
+    def _prepare(cls, cursor: sqlite3.Cursor) -> None:
         """The backend's claim and its tables, once per connection."""
         if schema_ready(cursor):
             return
@@ -90,7 +92,7 @@ class Catalogue:
         cursor.execute("CREATE TEMP TABLE %s(x)" % SCHEMA_READY)
 
     @classmethod
-    def _create(cls, cursor):
+    def _create(cls, cursor: sqlite3.Cursor) -> None:
         claim_backend(cursor, "api")
         cursor.execute("""CREATE TABLE IF NOT EXISTS api_item(
             namespace TEXT NOT NULL, item_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -106,7 +108,9 @@ class Catalogue:
             self._prepare(db.cursor)
             return self.stage_in(db.cursor, item, operation)
 
-    def stage_in(self, cursor, item: MediaItem, operation: str = "upsert") -> int:
+    def stage_in(
+        self, cursor: sqlite3.Cursor, item: MediaItem, operation: str = "upsert"
+    ) -> int:
         """Stage within the publisher's transaction, including its snapshot."""
         if operation not in ("upsert", "remove"):
             raise ValueError("unknown operation")
@@ -156,7 +160,7 @@ class Catalogue:
     def failed(self, item_id: str, generation: int, reason: str) -> None:
         self.failed_many([(item_id, generation, reason)])
 
-    def failed_many(self, rows) -> None:
+    def failed_many(self, rows: Iterable[tuple[str, int, str]]) -> None:
         """One transaction for a batch of failures: a pass whose scanner
         imported nothing fails every row."""
         rows = list(rows)
@@ -198,7 +202,7 @@ class Catalogue:
             ).fetchone()
         return int(count), int(generations)
 
-    def pending(self):
+    def pending(self) -> list[tuple[MediaItem, int, str]]:
         """Replayable desired DTOs and tombstones, ordered deterministically."""
         with Database() as db:
             self._prepare(db.cursor)

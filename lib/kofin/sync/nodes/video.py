@@ -13,6 +13,8 @@ Downloaded singles) are the addon itself and have nothing to substitute.
 
 import os
 import xml.etree.ElementTree as etree
+from collections.abc import Iterable
+from typing import Any, Optional, Union
 
 import xbmc
 import xbmcvfs
@@ -136,7 +138,7 @@ MEDIA_ICONS = {
     "episodes": "DefaultTVShows.png",
     "music": "DefaultMusicAlbums.png",
 }
-NODE_ICONS = {
+NODE_ICONS: dict[str, Union[str, dict[str, str]]] = {
     "recent": {
         "movies": "DefaultRecentlyAddedMovies.png",
         "tvshows": "DefaultRecentlyAddedEpisodes.png",
@@ -151,14 +153,13 @@ NODE_ICONS = {
 }
 
 
-def node_icon(media, node=None):
-    icon = NODE_ICONS.get(node or "")
-    if isinstance(icon, dict):
-        icon = icon.get(media)
+def node_icon(media: str, node: Optional[str] = None) -> str:
+    found = NODE_ICONS.get(node or "")
+    icon = found.get(media) if isinstance(found, dict) else found
     return icon or MEDIA_ICONS.get(media, "DefaultVideo.png")
 
 
-def _label(value, fallback=""):
+def _label(value: Union[int, str, None], fallback: str = "") -> str:
     if isinstance(value, int):
         return (
             settings.localized(value)
@@ -168,7 +169,7 @@ def _label(value, fallback=""):
     return value or fallback
 
 
-def _node_label(value, fallback=""):
+def _node_label(value: Union[int, str, None], fallback: str = "") -> str:
     """``<label>`` text for a node file.
 
     Kodi resolves a *numeric* node label against its own strings
@@ -182,7 +183,7 @@ def _node_label(value, fallback=""):
     return value or fallback
 
 
-def set_node_icon(xml, icon):
+def set_node_icon(xml: etree.Element, icon: str) -> None:
     """Set (or add) a node's ``<icon>``, keeping it before the other
     children the way Kodi's own node files write it."""
     element = xml.find("icon")
@@ -192,41 +193,41 @@ def set_node_icon(xml, icon):
     element.text = icon
 
 
-def write_xml(file, element):
+def write_xml(file: str, element: etree.Element) -> None:
     etree.ElementTree(element).write(file)
 
 
 # --- paths ---------------------------------------------------------------------
 
 
-def node_root_path():
+def node_root_path() -> str:
     """Directory holding every generated video node."""
     return os.path.join(
         xbmcvfs.translatePath("special://profile/library/video"), NODE_ROOT
     )
 
 
-def node_folder(view):
+def node_folder(view: dict[str, Any]) -> str:
     """Per-library folder name inside :data:`NODE_ROOT`."""
     return "%s%s%s" % (fs.PREFIX, view["Media"], view["Id"])
 
 
-def single_file(single):
+def single_file(single: dict[str, Any]) -> str:
     """A single node's file name. ``File`` names it when the tag cannot:
     the two Downloads singles share one tag and would otherwise collide."""
     name = single.get("File") or single["Tag"].replace(" ", "")
     return "%s_%s.xml" % (fs.PREFIX, name)
 
 
-def library_node_path(view, node):
+def library_node_path(view: dict[str, Any], node: str) -> str:
     return "library://video/%s/%s/%s.xml" % (NODE_ROOT, node_folder(view), node)
 
 
-def single_node_path(single):
+def single_node_path(single: dict[str, Any]) -> str:
     return "library://video/%s/%s" % (NODE_ROOT, single_file(single))
 
 
-def browse_url(view, node=None):
+def browse_url(view: dict[str, Any], node: Optional[str] = None) -> str:
     params = {"mode": "browse", "type": view["Media"]}
 
     if view.get("Id"):
@@ -241,7 +242,9 @@ def browse_url(view, node=None):
 # --- what goes in the tree ------------------------------------------------------
 
 
-def single_nodes(episode_tags=True, downloads=None):
+def single_nodes(
+    episode_tags: bool = True, downloads: Optional[bool] = None
+) -> list[dict[str, Any]]:
     """The tag-filtered singles beside the library nodes: the favorites
     for movies and shows always, for episodes while this Kodi keeps an
     episode's tags (``episode_tags``: a tag rule lists nothing on a Kodi
@@ -320,7 +323,7 @@ def single_nodes(episode_tags=True, downloads=None):
 # --- building one file ----------------------------------------------------------
 
 
-def _node(kind, order, icon):
+def _node(kind: str, order: int, icon: str) -> etree.Element:
     attributes = {"order": str(order)}
     if kind != "main":
         attributes["type"] = kind
@@ -329,19 +332,19 @@ def _node(kind, order, icon):
     return element
 
 
-def _tag_rule(xml, tag):
+def _tag_rule(xml: etree.Element, tag: str) -> None:
     rule = etree.SubElement(xml, "rule", {"field": "tag", "operator": "is"})
     etree.SubElement(rule, "value").text = tag
 
 
-def path_rule(xml, path):
+def path_rule(xml: etree.Element, path: str) -> None:
     """A library's rows: every one is filed under its folder
     (dynamic.node_entries)."""
     rule = etree.SubElement(xml, "rule", {"field": "path", "operator": "startswith"})
     etree.SubElement(rule, "value").text = path
 
 
-def _parts(xml, parts):
+def _parts(xml: etree.Element, parts: Iterable[tuple[Any, ...]]) -> None:
     for part in parts:
         if part[0] == "order":
             etree.SubElement(xml, "order", {"direction": part[2]}).text = part[1]
@@ -357,13 +360,13 @@ def _parts(xml, parts):
                 etree.SubElement(rule, "value").text = part[3]
 
 
-def build_parent():
+def build_parent() -> etree.Element:
     xml = _node("main", NODE_ROOT_ORDER, NODE_ROOT_ICON)
     etree.SubElement(xml, "label").text = settings.addon_name()
     return xml
 
 
-def build_index(view, mixed, order):
+def build_index(view: dict[str, Any], mixed: bool, order: int) -> etree.Element:
     """A library folder's own ``index.xml``: its position and its name."""
     xml = _node("main", order, node_icon(view["Media"]))
     etree.SubElement(xml, "label").text = (
@@ -372,7 +375,9 @@ def build_index(view, mixed, order):
     return xml
 
 
-def build_node(view, key, label, order):
+def build_node(
+    view: dict[str, Any], key: str, label: Optional[int], order: int
+) -> etree.Element:
     """One filter node of a library folder."""
     xml = _node("filter", order, node_icon(view["Media"], key))
     etree.SubElement(xml, "label").text = _node_label(label or view["Name"])
@@ -385,7 +390,7 @@ def build_node(view, key, label, order):
     return xml
 
 
-def build_single(single, order):
+def build_single(single: dict[str, Any], order: int) -> etree.Element:
     """A single node: a favourites or a Downloads listing, by its tag."""
     icon = single.get("Icon") or node_icon(single["Media"], "favorites")
     xml = _node("filter", order, icon)
@@ -401,7 +406,7 @@ def build_single(single, order):
 # --- the tree ----------------------------------------------------------------
 
 
-def write_parent(root):
+def write_parent(root: str) -> None:
     """The ``Kofin`` folder node itself. Written on creation only: ``order``
     and ``label`` are the user's to change afterwards."""
     file = os.path.join(root, "index.xml")
@@ -409,7 +414,7 @@ def write_parent(root):
         write_xml(file, build_parent())
 
 
-def write_library(root, view, mixed, order):
+def write_library(root: str, view: dict[str, Any], mixed: bool, order: int) -> None:
     """One library's folder: its index and every node of its kind."""
     folder = os.path.join(root, node_folder(view))
     if not os.path.isdir(folder):
@@ -434,11 +439,13 @@ def write_library(root, view, mixed, order):
             fs.delete_file(os.path.join(folder, name))
 
 
-def write_single(root, single, order):
+def write_single(root: str, single: dict[str, Any], order: int) -> None:
     write_xml(os.path.join(root, single_file(single)), build_single(single, order))
 
 
-def write_tree(entries, singles):
+def write_tree(
+    entries: Iterable[tuple[dict[str, Any], bool]], singles: Iterable[dict[str, Any]]
+) -> None:
     """The whole tree from what should be in it: ``entries`` are the sorted
     ``(view, mixed)`` pairs of the whitelist, ``singles`` the single nodes.
 
@@ -486,13 +493,13 @@ def write_tree(entries, singles):
 # --- taking it down ------------------------------------------------------------
 
 
-def tree_written():
+def tree_written() -> bool:
     """Whether the generated tree is on disk: its root's index, which
     ``write_tree`` writes first and ``delete_tree`` removes."""
     return os.path.isfile(os.path.join(node_root_path(), "index.xml"))
 
 
-def written_singles():
+def written_singles() -> list[dict[str, Any]]:
     """The singles whose files are in the tree, in ``single_nodes`` order:
     what the tree offers while the settings that choose them cannot be
     read."""
@@ -504,7 +511,7 @@ def written_singles():
     ]
 
 
-def delete_tree():
+def delete_tree() -> None:
     """Remove the whole generated tree."""
     root = node_root_path()
     fs.remove_managed_entries(root, also=("index.xml",))

@@ -5,6 +5,8 @@ menu, not the reconciler: a cache hit still needs ownership verification, and
 browsing needs no hit.
 """
 
+from typing import Any, Optional
+
 from kofin.core.settings import Credentials
 
 from . import paths
@@ -16,12 +18,12 @@ from .store import Store, namespace
 FOUND = ("Season", "BoxSet", "MusicAlbum", "MusicArtist")
 
 
-def current_store():
+def current_store() -> Store:
     creds = Credentials.load()
     return Store(namespace(creds.server_id, creds.user_id))
 
 
-def mapped_item(kodi_id, media):
+def mapped_item(kodi_id: int, media: str) -> Optional[str]:
     """The item id behind an owned native row, or None for anything else."""
     kind = MEDIA.get(media) or CONTAINERS.get(media)
     if kind is None:
@@ -29,18 +31,22 @@ def mapped_item(kodi_id, media):
     return _mapped(current_store(), kind, kodi_id)
 
 
-def _details(kind, kodi_id, properties):
+def _details(
+    kind: str, kodi_id: int, properties: list[str]
+) -> Optional[dict[str, Any]]:
     """Kodi's row, or None when it has no such row."""
     table = KINDS[kind]
     try:
-        return rpc(
+        reply: dict[str, Any] = rpc(
             table.getter, {table.id_param: kodi_id, "properties": properties}
-        ).get(table.result_key, {})
+        )
     except RuntimeError:
         return None
+    row: dict[str, Any] = reply.get(table.result_key, {})
+    return row
 
 
-def _mapped(store, kind, kodi_id):
+def _mapped(store: Store, kind: str, kodi_id: int) -> Optional[str]:
     if kind in FOUND:
         return _found(store, kind, kodi_id)
     properties = ["file", "uniqueid"] if kind in FILED else ["file"]
@@ -79,7 +85,7 @@ def _mapped(store, kind, kodi_id):
     return item_id if filed else None
 
 
-def _found(store, kind, kodi_id):
+def _found(store: Store, kind: str, kodi_id: int) -> Optional[str]:
     """The item a season, set, album or artist row stands for.
 
     A season is found the way the pass finds its row (patch.Applier.row_for):
@@ -92,8 +98,9 @@ def _found(store, kind, kodi_id):
     """
     if kind == "Season":
         row = _details(kind, kodi_id, ["season", "tvshowid"])
-        show = _mapped(store, "Series", row.get("tvshowid")) if row else None
-        if show is None:
+        tvshowid = row.get("tvshowid") if row else None
+        show = _mapped(store, "Series", tvshowid) if isinstance(tvshowid, int) else None
+        if show is None or row is None:
             return None
         numbered = sorted(
             item_id
@@ -132,7 +139,7 @@ def _found(store, kind, kodi_id):
     return named[0] if named else None
 
 
-def native_id_for(item_id, media="movie"):
+def native_id_for(item_id: str, media: str = "movie") -> Optional[int]:
     """The Kodi id of an imported item, verified; None when it has no row."""
     store = current_store()
     mapping = store.mapping(item_id)
@@ -156,10 +163,13 @@ def native_id_for(item_id, media="movie"):
     else:
         found = readback.scope(kind, placed.library, placed.parent_id)
     row = found.get(item_id)
-    return row[KINDS[kind].id_param] if row else None
+    if not row:
+        return None
+    kodi_id: int = row[KINDS[kind].id_param]
+    return kodi_id
 
 
-def library_url(item_id):
+def library_url(item_id: str) -> Optional[str]:
     """The resolver URL of an imported item, or None when it has no row."""
     store = current_store()
     mapping = store.mapping(item_id)

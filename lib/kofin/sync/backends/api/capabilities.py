@@ -19,6 +19,7 @@ import xbmcgui
 from kofin.core import kodirpc
 from kofin.sync import private
 from .contract import check
+from .kinds import NAMES
 
 REPORT = "api-capabilities.json"
 
@@ -46,7 +47,7 @@ def contract() -> dict[str, Any]:
     return document
 
 
-def _python_names(contract_) -> dict[str, set[str]]:
+def _python_names(contract_: dict[str, Any]) -> dict[str, set[str]]:
     """Every Python method the baseline or a feature asks about, by field."""
     wanted: dict[str, set[str]] = {}
     for field, names in contract_["python"].items():
@@ -57,7 +58,7 @@ def _python_names(contract_) -> dict[str, set[str]]:
     return wanted
 
 
-def inspect(allow_dirty=False):
+def inspect(allow_dirty: bool = False) -> dict[str, Any]:
     contract_ = contract()
     schema = kodirpc.call(
         "JSONRPC.Introspect", {"getdescriptions": False, "getmetadata": True}
@@ -101,28 +102,14 @@ def inspect(allow_dirty=False):
         {
             "backend": "api",
             "native_sync_enabled": report["interfaces_passed"],
-            "native_sync_scope": (
-                [
-                    "Movie",
-                    "Series",
-                    "Season",
-                    "Episode",
-                    "MusicVideo",
-                    "BoxSet",
-                    "Audio",
-                    "MusicAlbum",
-                    "MusicArtist",
-                ]
-                if report["interfaces_passed"]
-                else []
-            ),
+            "native_sync_scope": (list(NAMES) if report["interfaces_passed"] else []),
             "application": capture["application"],
         }
     )
     return report
 
 
-def summary(report) -> str:
+def summary(report: dict[str, Any]) -> str:
     """One line for the service log: what is on, and what is off and why."""
     found = report.get("features") or {}
     on = [name for name in FEATURES if found.get(name) is True]
