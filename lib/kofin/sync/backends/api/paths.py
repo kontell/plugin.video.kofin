@@ -21,6 +21,7 @@ whole.
 
 import re
 from dataclasses import dataclass
+from collections.abc import Iterable
 from typing import Any, Optional
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -179,47 +180,47 @@ class Location:
     probe: bool = False
 
 
-def root(key):
+def root(key: str) -> str:
     return BASE + key + "/"
 
 
-def library_root(key, library):
+def library_root(key: str, library: str) -> str:
     return root(key) + library + "/"
 
 
-def library_dir(key, library, content):
+def library_dir(key: str, library: str, content: str) -> str:
     if content not in CONTENTS:
         raise ValueError("unknown scanner content " + repr(content))
     return library_root(key, library) + content + "/"
 
 
-def show_dir(key, library, series_id):
+def show_dir(key: str, library: str, series_id: str) -> str:
     return library_dir(key, library, "tvshows") + series_id + "/"
 
 
-def movie_dir(key, library, item_id):
+def movie_dir(key: str, library: str, item_id: str) -> str:
     """One folder per movie, so a change re-scans one folder and the extras
     Kodi looks for beside a movie have somewhere to live."""
     return library_dir(key, library, "movies") + item_id + "/"
 
 
-def forgetting(directory):
+def forgetting(directory: str) -> str:
     """The request that makes Kodi forget its cached listing of ``directory``."""
     return directory + "?" + FORGET + "=1"
 
 
-def extras_dir(key, library, item_id):
+def extras_dir(key: str, library: str, item_id: str) -> str:
     return movie_dir(key, library, item_id) + EXTRAS
 
 
-def extra_name(item) -> str:
+def extra_name(item: dict[str, Any]) -> str:
     """An extra's title as a file stem: what a URL path and Kodi's parsing
     can carry. The sanitizer only; ``extra_stems`` makes the stems unique."""
     name = _UNSAFE.sub("-", str(item.get("Name") or "")).strip(" .")
     return name or "Extra"
 
 
-def extra_stems(features) -> list[tuple[str, dict[str, Any]]]:
+def extra_stems(features: Iterable[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
     """``(stem, feature)`` for each of a movie's extras, the stem unique
     within the movie: Kodi names the extra by its path below the extras
     folder, so the stem is the extra's whole identity and two features
@@ -240,7 +241,7 @@ def extra_stems(features) -> list[tuple[str, dict[str, Any]]]:
     return stems
 
 
-def video_container_of(item) -> str:
+def video_container_of(item: dict[str, Any]) -> str:
     container = str(item.get("Container") or "")
     sources = item.get("MediaSources") or []
     if not container and sources and isinstance(sources[0], dict):
@@ -252,13 +253,15 @@ def video_container_of(item) -> str:
     return FALLBACK_VIDEO_CONTAINER
 
 
-def extra_url(key, library, item_id, stem, extra):
+def extra_url(
+    key: str, library: str, item_id: str, stem: str, extra: dict[str, Any]
+) -> str:
     """The file an extra is listed as: its stem from ``extra_stems`` and
     the container of the feature."""
     return extras_dir(key, library, item_id) + stem + "." + video_container_of(extra)
 
 
-def version_url(key, library, item_id, source_id):
+def version_url(key: str, library: str, item_id: str, source_id: str) -> str:
     """The movie's URL with one of its media sources named: a version file,
     which the resolver plays from that source."""
     return (
@@ -268,7 +271,7 @@ def version_url(key, library, item_id, source_id):
     )
 
 
-def without_source(url) -> str:
+def without_source(url: Optional[str]) -> str:
     """A version file's URL reduced to its movie's."""
     parsed = urlsplit(url or "")
     if parsed.scheme != "plugin" or not parsed.query:
@@ -281,33 +284,33 @@ def without_source(url) -> str:
     return urlunsplit(parsed._replace(query=urlencode(query)))
 
 
-def is_version_url(url) -> bool:
+def is_version_url(url: Optional[str]) -> bool:
     return PARAM_MEDIA_SOURCE in parse_qs(urlsplit(url or "").query)
 
 
-def hold_dir(key, scanner="music"):
+def hold_dir(key: str, scanner: str = "music") -> str:
     return root(key) + "hold/" + scanner + "/"
 
 
-def walk_dir(key, library):
+def walk_dir(key: str, library: str) -> str:
     """The parent of the parts a pass walks the library's music by."""
     return root(key) + "walk/" + library + "/"
 
 
-def music_part(key, library, index):
+def music_part(key: str, library: str, index: int) -> str:
     """One part of the pass's walk: a directory listing MUSIC_PART album
     directories, never one a song is filed under and never one another
     listing names."""
     return walk_dir(key, library) + "%d/" % index
 
 
-def music_dir(key, library, folder):
+def music_dir(key: str, library: str, folder: str) -> str:
     if not folder:
         raise ValueError("a song directory needs its album or singles folder")
     return library_dir(key, library, "music") + folder + "/"
 
 
-def song_folder(item) -> str:
+def song_folder(item: dict[str, Any]) -> str:
     """The directory key a song files under: its album, or the singles
     folder of its first credited artist when Jellyfin gives it no album."""
     album = item.get("AlbumId")
@@ -320,7 +323,7 @@ def song_folder(item) -> str:
     return SINGLES + NO_ARTIST
 
 
-def container_of(item) -> str:
+def container_of(item: dict[str, Any]) -> str:
     """The file extension a song is named by, from its container.
 
     The server names a container family as a list ("mov,mp4,m4a,3gp,3g2,mj2"
@@ -340,11 +343,13 @@ def container_of(item) -> str:
     return FALLBACK_CONTAINER
 
 
-def song_url(key, library, folder, item_id, container):
+def song_url(key: str, library: str, folder: str, item_id: str, container: str) -> str:
     return music_dir(key, library, folder) + item_id + "." + container
 
 
-def item_dir(key, kind, library, item_id, parent_id=""):
+def item_dir(
+    key: str, kind: str, library: str, item_id: str, parent_id: str = ""
+) -> str:
     """The directory Kodi files an item of ``kind`` under."""
     if kind == "Series":
         return show_dir(key, library, item_id)
@@ -363,18 +368,25 @@ def item_dir(key, kind, library, item_id, parent_id=""):
     return library_dir(key, library, CONTENT[kind])
 
 
-def playback_url(key, kind, library, item_id, parent_id="", container=""):
+def playback_url(
+    key: str,
+    kind: str,
+    library: str,
+    item_id: str,
+    parent_id: str = "",
+    container: str = "",
+) -> str:
     directory = item_dir(key, kind, library, item_id, parent_id)
     if kind == "Audio":
         return directory + item_id + "." + (container or FALLBACK_CONTAINER)
     return directory + "?" + urlencode({"mode": "play", "id": item_id})
 
 
-def identity(key, item_id):
+def identity(key: str, item_id: str) -> str:
     return key + ":" + item_id
 
 
-def parse(url) -> Optional[Location]:
+def parse(url: Optional[str]) -> Optional[Location]:
     parsed = urlsplit(url or "")
     if parsed.scheme != "plugin" or parsed.netloc != "plugin.video.kofin":
         return None
@@ -424,7 +436,7 @@ def parse(url) -> Optional[Location]:
     return None
 
 
-def parse_item(url) -> tuple[Optional[Location], str]:
+def parse_item(url: str) -> tuple[Optional[Location], str]:
     """The directory an item URL is filed under and the item id it carries:
     the file name for a song, the query for everything else."""
     location = parse(url)
@@ -436,7 +448,7 @@ def parse_item(url) -> tuple[Optional[Location], str]:
     return location, (query.get("id") or [""])[0]
 
 
-def describe(url) -> str:
+def describe(url: str) -> str:
     """A log-safe name for a scanner directory: its content and folder."""
     location = parse(url)
     if location is None:
@@ -459,6 +471,6 @@ def describe(url) -> str:
     return " ".join(parts)
 
 
-def key_from_url(url):
+def key_from_url(url: str) -> Optional[str]:
     location = parse(url)
     return location.key if location else None

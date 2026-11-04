@@ -47,7 +47,7 @@ def contract() -> dict[str, Any]:
     return document
 
 
-def _python_names(contract_) -> dict[str, set[str]]:
+def _python_names(contract_: dict[str, Any]) -> dict[str, set[str]]:
     """Every Python method the baseline or a feature asks about, by field."""
     wanted: dict[str, set[str]] = {}
     for field, names in contract_["python"].items():
@@ -58,7 +58,7 @@ def _python_names(contract_) -> dict[str, set[str]]:
     return wanted
 
 
-def inspect(allow_dirty=False):
+def inspect(allow_dirty: bool = False) -> dict[str, Any]:
     contract_ = contract()
     schema = kodirpc.call(
         "JSONRPC.Introspect", {"getdescriptions": False, "getmetadata": True}
@@ -109,7 +109,7 @@ def inspect(allow_dirty=False):
     return report
 
 
-def summary(report) -> str:
+def summary(report: dict[str, Any]) -> str:
     """One line for the service log: what is on, and what is off and why."""
     found = report.get("features") or {}
     on = [name for name in FEATURES if found.get(name) is True]

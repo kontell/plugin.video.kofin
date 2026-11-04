@@ -16,12 +16,12 @@ directory is answered from it.
 """
 
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from collections.abc import Iterable
 
 from kofin.core.log import Logger
 from . import paths
-from .kinds import KINDS, properties, rpc
+from .kinds import KINDS, Kind, properties, rpc
 
 LOG = Logger(__name__)
 
@@ -39,7 +39,7 @@ FOREIGN_EPISODES = {
 }
 
 
-def artist_key(name) -> str:
+def artist_key(name: Optional[str]) -> str:
     return (name or "").strip(" \t\n\r\v\f").casefold()
 
 
@@ -64,7 +64,7 @@ class Readback:
         # its listing was found by, or None (show, movie).
         self._adopted: dict[tuple[str, str, str], Optional[dict[str, Any]]] = {}
 
-    def clear(self):
+    def clear(self) -> None:
         self._scopes.clear()
         self._folders.clear()
         self._directories.clear()
@@ -73,15 +73,15 @@ class Readback:
         self._adopted.clear()
 
     @staticmethod
-    def complete(reply, key):
+    def complete(reply: Any, key: str) -> list[dict[str, Any]]:
         if not isinstance(reply, dict) or "limits" not in reply:
             raise RuntimeError("incomplete native readback")
-        rows = reply.get(key, [])
+        rows: list[dict[str, Any]] = reply.get(key, [])
         if len(rows) != reply["limits"]["total"]:
             raise RuntimeError("partial native readback")
         return rows
 
-    def _paged(self, table, params) -> list[dict[str, Any]]:
+    def _paged(self, table: Kind, params: dict[str, Any]) -> list[dict[str, Any]]:
         """A complete listing in pages; the total must hold across them."""
         began = time.monotonic()
         rows: list[dict[str, Any]] = []
@@ -114,12 +114,14 @@ class Readback:
             )
         return rows
 
-    def _path_filter(self, prefix):
+    def _path_filter(self, prefix: str) -> dict[str, str]:
         return {"field": "path", "operator": "startswith", "value": prefix}
 
     # -- ownership -----------------------------------------------------------
 
-    def owns(self, kind, row, library, parent_id="") -> Optional[str]:
+    def owns(
+        self, kind: str, row: dict[str, Any], library: str, parent_id: str = ""
+    ) -> Optional[str]:
         """The item id of an owned row, or None."""
         if kind == "Audio":
             location, item_id = paths.parse_item(row.get("file") or "")
@@ -159,7 +161,9 @@ class Readback:
         return item_id
 
     @staticmethod
-    def _prefer(kept, row, id_param):
+    def _prefer(
+        kept: dict[str, Any], row: dict[str, Any], id_param: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Two movie rows of one identity: Kodi imported a version file as a
         movie of its own, which waits for the user to group it. The movie's
         own file owns the identity; between two version files the older row
@@ -173,12 +177,12 @@ class Readback:
             kept, row = row, kept
         return kept, row
 
-    def version_rows(self, library, item_id) -> list[dict[str, Any]]:
+    def version_rows(self, library: str, item_id: str) -> list[dict[str, Any]]:
         """The movie rows Kodi holds for an item's version files beside the
         row that owns its identity: ungrouped versions."""
         return self.versions_in(library).get(item_id, [])
 
-    def versions_in(self, library) -> dict[str, list[dict[str, Any]]]:
+    def versions_in(self, library: str) -> dict[str, list[dict[str, Any]]]:
         """Every item of a library with ungrouped version rows."""
         self.scope("Movie", library)
         return {
@@ -188,7 +192,13 @@ class Readback:
 
     # -- scopes --------------------------------------------------------------
 
-    def scope(self, kind, library="", parent_id="", tvshowid=None):
+    def scope(
+        self,
+        kind: str,
+        library: str = "",
+        parent_id: str = "",
+        tvshowid: Optional[int] = None,
+    ) -> dict[Any, dict[str, Any]]:
         """Owned rows of one scanner scope, cached for the pass.
 
         Seasons key by number and sets by title: neither carries an id of
@@ -273,7 +283,7 @@ class Readback:
         self._scopes[cache_key] = result
         return result
 
-    def _songs(self, library):
+    def _songs(self, library: str) -> dict[Any, dict[str, Any]]:
         cache_key = ("Audio", library, "")
         if cache_key in self._scopes:
             return self._scopes[cache_key]
@@ -309,7 +319,7 @@ class Readback:
         self._folders[library] = folders
         return result
 
-    def folders(self, library) -> dict[str, dict[str, dict[str, Any]]]:
+    def folders(self, library: str) -> dict[str, dict[str, dict[str, Any]]]:
         """Every directory of the library's songs Kodi holds, with its rows."""
         self._songs(library)
         return self._folders[library]
@@ -319,14 +329,14 @@ class Readback:
     # directories on, the library is read whole.
     WHOLE_LIBRARY_FOLDERS = 32
 
-    def songs_in(self, library, folders: Iterable[str]) -> None:
+    def songs_in(self, library: str, folders: Iterable[str]) -> None:
         """Read the songs of ``folders`` for the pass: the whole library in
         one listing when they are many, each directory alone otherwise, when
         ``scope`` first asks for it."""
         if len(set(folders)) >= self.WHOLE_LIBRARY_FOLDERS:
             self._songs(library)
 
-    def directory(self, library, folder) -> dict[str, dict[str, Any]]:
+    def directory(self, library: str, folder: str) -> dict[str, dict[str, Any]]:
         """One music directory's owned rows, read now and not cached: the
         confirmation after a scan, and the one lookup a playback needs."""
         rows = self._paged(
@@ -344,7 +354,7 @@ class Readback:
         return result
 
     def item(
-        self, kind, library, item_id
+        self, kind: str, library: str, item_id: str
     ) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
         """One movie's or one show's owned row, read now and not cached, with
         the movie's version rows Kodi filed apart: the confirmation after a
@@ -376,12 +386,12 @@ class Readback:
                 raise RuntimeError("duplicate owned %s identity" % kind)
         return found, versions
 
-    def forget_music(self, library):
+    def forget_music(self, library: str) -> None:
         """Drop every music scope of a library: a scan or a patch changed it."""
         for kind in ("Audio", "MusicAlbum", "MusicArtist"):
             self.forget(kind, library)
 
-    def forget(self, kind, library="", parent_id=""):
+    def forget(self, kind: str, library: str = "", parent_id: str = "") -> None:
         if kind == "Audio":
             self._scopes.pop(("Audio", library, ""), None)
             self._folders.pop(library, None)
@@ -409,7 +419,9 @@ class Readback:
     # episodes read a row at a time is a dozen calls where one answers.
     SMALL_SHARE = 0.5
 
-    def _scope_params(self, kind, library, parent_id):
+    def _scope_params(
+        self, kind: str, library: str, parent_id: str
+    ) -> Optional[tuple[Kind, dict[str, Any]]]:
         table = KINDS[kind]
         params: dict[str, Any] = {"properties": properties(kind, self.features)}
         if kind in ("Movie", "MusicVideo"):
@@ -427,7 +439,9 @@ class Readback:
             params["tvshowid"] = show["tvshowid"]
         return table, params
 
-    def prefetch_full(self, kind, library, parent_id, count):
+    def prefetch_full(
+        self, kind: str, library: str, parent_id: str, count: int
+    ) -> None:
         """Read a scope's full rows in one listing when most of it is about
         to be compared (a first import acknowledges every row); otherwise a
         row is read by id when its turn comes."""
@@ -449,7 +463,9 @@ class Readback:
             if table.id_param in row
         }
 
-    def full(self, kind, library, parent_id, row) -> dict[str, Any]:
+    def full(
+        self, kind: str, library: str, parent_id: str, row: dict[str, Any]
+    ) -> dict[str, Any]:
         """The full row behind a scope row: from the prefetched listing when
         there is one, else by id."""
         table = KINDS[kind]
@@ -466,20 +482,38 @@ class Readback:
             raise RuntimeError("%s row vanished during the pass" % kind)
         return detail
 
-    def remember(self, kind, library, parent_id, cache_key, row):
+    def remember(
+        self,
+        kind: str,
+        library: str,
+        parent_id: str,
+        cache_key: Union[str, int],
+        row: dict[str, Any],
+    ) -> None:
         """Put a freshly confirmed row into an existing cached scope."""
         if kind == "Audio":
+            # A song is keyed by its item id; a season by its number.
+            item_id = str(cache_key)
             if ("Audio", library, "") in self._scopes:
-                self._scopes[("Audio", library, "")][cache_key] = row
-                self._folders[library].setdefault(parent_id, {})[cache_key] = row
+                self._scopes[("Audio", library, "")][item_id] = row
+                self._folders[library].setdefault(parent_id, {})[item_id] = row
             elif (library, parent_id) in self._directories:
-                self._directories[(library, parent_id)][cache_key] = row
+                self._directories[(library, parent_id)][item_id] = row
             return
         scope_key = (kind, library, parent_id)
         if scope_key in self._scopes:
             self._scopes[scope_key][cache_key] = row
 
-    def refreshed(self, kind, library, parent_id, item_id, old_id, row, versions):
+    def refreshed(
+        self,
+        kind: str,
+        library: str,
+        parent_id: str,
+        item_id: str,
+        old_id: int,
+        row: dict[str, Any],
+        versions: Optional[Iterable[dict[str, Any]]],
+    ) -> None:
         """Put a refreshed row (``item``) into the cached scope in place of
         the one it replaced. Kodi files it under a new id, or under the old
         one again when that was the table's highest, so the full row read
@@ -500,20 +534,31 @@ class Readback:
                 self._scopes.pop((child, library, item_id), None)
                 self._full.pop((child, library, item_id), None)
 
-    def details(self, kind, kodi_id):
+    def details(self, kind: str, kodi_id: int) -> dict[str, Any]:
         table = KINDS[kind]
-        return rpc(
+        reply: dict[str, Any] = rpc(
             table.getter,
             {table.id_param: kodi_id, "properties": properties(kind, self.features)},
-        ).get(table.result_key, {})
+        )
+        row: dict[str, Any] = reply.get(table.result_key, {})
+        return row
 
-    def owned(self, kind, kodi_id, item_id, library, parent_id=""):
+    def owned(
+        self, kind: str, kodi_id: int, item_id: str, library: str, parent_id: str = ""
+    ) -> dict[str, Any]:
         row = self.details(kind, kodi_id)
         if not self.holds(kind, row, library, item_id, parent_id):
             raise RuntimeError("%s ownership changed" % kind)
         return row
 
-    def holds(self, kind, row, library, item_id, parent_id="") -> bool:
+    def holds(
+        self,
+        kind: str,
+        row: dict[str, Any],
+        library: str,
+        item_id: str,
+        parent_id: str = "",
+    ) -> bool:
         """Whether ``row`` is the item's: by its ids at its folder, or the row
         this pass found a show or a movie by (show, movie)."""
         if self.owns(kind, row, library, parent_id) == item_id:
@@ -524,7 +569,7 @@ class Readback:
 
     # -- a show another source shares ----------------------------------------
 
-    def show(self, library, series_id) -> Optional[dict[str, Any]]:
+    def show(self, library: str, series_id: str) -> Optional[dict[str, Any]]:
         """Our row for a show, by its ids at its folder or through its episodes.
 
         Kodi files a show from any source into the row it already holds for
@@ -543,7 +588,7 @@ class Readback:
             self._adopted[key] = self._adopt(library, series_id)
         return self._adopted[key]
 
-    def movie(self, library, item_id) -> Optional[dict[str, Any]]:
+    def movie(self, library: str, item_id: str) -> Optional[dict[str, Any]]:
         """Our row for a movie, by its ids and its file or by its file alone.
 
         Kodi groups a scanned movie with any movie sharing a unique id
@@ -561,7 +606,7 @@ class Readback:
             self._adopted[key] = self._adopt_movie(library, item_id)
         return self._adopted[key]
 
-    def _adopt_movie(self, library, item_id) -> Optional[dict[str, Any]]:
+    def _adopt_movie(self, library: str, item_id: str) -> Optional[dict[str, Any]]:
         try:
             # Kodi lists the file's folder to answer: one listing of the
             # movie's folder, asked only for a movie missing from the scope.
@@ -593,7 +638,7 @@ class Readback:
         )
         return row
 
-    def own_file(self, library, item_id, row) -> bool:
+    def own_file(self, library: str, item_id: str, row: dict[str, Any]) -> bool:
         """Whether Kodi lists the movie's row under our file, where a refresh
         reads our listing; under another source's it reads theirs."""
         return bool(
@@ -601,7 +646,7 @@ class Readback:
             == paths.playback_url(self.key, "Movie", library, item_id)
         )
 
-    def _adopt(self, library, series_id) -> Optional[dict[str, Any]]:
+    def _adopt(self, library: str, series_id: str) -> Optional[dict[str, Any]]:
         reply = rpc(
             "VideoLibrary.GetEpisodes",
             {
@@ -631,7 +676,7 @@ class Readback:
         )
         return row
 
-    def stripped(self, library, series_id) -> bool:
+    def stripped(self, library: str, series_id: str) -> bool:
         """Whether the show's row, found through its episodes, carries none
         of our ids: another source's scan rewrote it."""
         row = self._adopted.get(("Series", library, series_id))
@@ -640,14 +685,14 @@ class Readback:
         uid = str((row.get("uniqueid") or {}).get("kofin", ""))
         return not uid.startswith(self.key + ":")
 
-    def row_owner(self, row) -> Optional[str]:
+    def row_owner(self, row: dict[str, Any]) -> Optional[str]:
         """The series id our id on a show's row names, or None."""
         uid = str((row.get("uniqueid") or {}).get("kofin", ""))
         if not uid.startswith(self.key + ":"):
             return None
         return uid[len(self.key) + 1 :]
 
-    def foreign_episodes(self, tvshowid) -> list[dict[str, Any]]:
+    def foreign_episodes(self, tvshowid: int) -> list[dict[str, Any]]:
         """The episodes Kofin did not file on one show's row."""
         params: dict[str, Any] = {"tvshowid": tvshowid, "filter": FOREIGN_EPISODES}
         reply = rpc(
@@ -659,7 +704,7 @@ class Readback:
             KINDS["Episode"], dict(params, properties=["file", "tvshowid"])
         )
 
-    def own_folder(self, library, series_id, row) -> bool:
+    def own_folder(self, library: str, series_id: str, row: dict[str, Any]) -> bool:
         """Whether Kodi lists the show's row under our folder, where a refresh
         reads our listing; under another source's it reads theirs."""
         expected = paths.show_dir(self.key, library, series_id).rstrip("/")

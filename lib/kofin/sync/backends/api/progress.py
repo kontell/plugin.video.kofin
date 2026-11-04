@@ -78,6 +78,11 @@ def threshold() -> int:
         return 0
 
 
+# What ``phase`` saves and ``restore`` puts back: the total, the count done
+# and the kind being applied.
+Saved = tuple[int, int, Optional[tuple[str, int, int]]]
+
+
 class Progress:
     """A bar over ``total`` items of work; ``step`` counts them off.
 
@@ -87,7 +92,7 @@ class Progress:
 
     INTERVAL = 1.0
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._dialog: Optional[xbmcgui.DialogProgressBG] = None
         self._last = 0.0
         self.total = 0
@@ -100,7 +105,7 @@ class Progress:
     def open(self) -> bool:
         return self._dialog is not None
 
-    def attend(self):
+    def attend(self) -> None:
         """A viewer asked for what follows: the bar is up from now, whatever
         the threshold, and stays up until ``finish``."""
         self.attended = True
@@ -111,7 +116,7 @@ class Progress:
         else:
             self.note(stage(PREPARING))
 
-    def begin(self, total: int):
+    def begin(self, total: int) -> None:
         """Size the bar; open it when the setting and the threshold allow."""
         self.total = max(0, int(total))
         self.done = 0
@@ -122,7 +127,7 @@ class Progress:
             return
         self._open(settings.localized(30401))
 
-    def _open(self, message: str):
+    def _open(self, message: str) -> None:
         if not show_dialogs():
             return
         try:
@@ -137,20 +142,20 @@ class Progress:
         # be happening: at debug level, once a second at most.
         LOG.debug("bar up: %s", message)
 
-    def step(self, kind: str, n: int = 1):
+    def step(self, kind: str, n: int = 1) -> None:
         """One more item of ``kind`` done."""
         self.done += n
         if self._kind is not None and self._kind[0] == kind:
             self._kind = (kind, self._kind[1], self._kind[2] + n)
         self._paint(self.counted(kind), False)
 
-    def applying(self, kind: str, total: int):
+    def applying(self, kind: str, total: int) -> None:
         """The pass turns to ``total`` items of ``kind``, named now: the text
         counts them while the bar goes on measuring the whole pass."""
         self._kind = (kind, max(0, int(total)), 0)
         self._paint(self.counted(kind), True)
 
-    def track(self, kind: str, done: int, total: int):
+    def track(self, kind: str, done: int, total: int) -> None:
         """Enumeration progress: the total is known from the first page."""
         if not self.open:
             self.begin(total)
@@ -159,23 +164,23 @@ class Progress:
         self.done = min(int(done), self.total)
         self._paint(self.counted(kind), False)
 
-    def asking(self, kind: str):
+    def asking(self, kind: str) -> None:
         """The kind whose first page is being asked for: named at once, with
         nothing counted."""
         self.total = self.done = 0
         self._paint(label(kind), True)
 
-    def note(self, message: str):
+    def note(self, message: str) -> None:
         """A phase change: painted now, whatever the last paint was."""
         self._paint(message, True)
 
-    def working(self, code: int = PREPARING):
+    def working(self, code: int = PREPARING) -> None:
         """A stretch that counts nothing: the bar says so and goes back to
         its start, in place of the last count of what came before."""
         self.total = self.done = 0
         self._paint(stage(code), True)
 
-    def phase(self, total: int, message: str):
+    def phase(self, total: int, message: str) -> Saved:
         """A sub-phase with its own count, painted now; ``restore`` undoes it."""
         saved = (self.total, self.done, self._kind)
         self.total = max(0, int(total))
@@ -184,10 +189,10 @@ class Progress:
         self._paint(message, True)
         return saved
 
-    def restore(self, saved):
+    def restore(self, saved: Saved) -> None:
         self.total, self.done, self._kind = saved
 
-    def at(self, done: int, message: str):
+    def at(self, done: int, message: str) -> None:
         """Progress measured elsewhere (Kodi's own row count during a scan)."""
         self.done = max(0, min(int(done), self.total))
         self._paint(message, False)
@@ -199,7 +204,7 @@ class Progress:
             total, done = self.total, self.done
         return "%s %d / %d" % (label(kind), min(done, total), total)
 
-    def _paint(self, message: str, force: bool):
+    def _paint(self, message: str, force: bool) -> None:
         if self._dialog is None:
             return
         now = time.monotonic()
@@ -216,19 +221,19 @@ class Progress:
         else:
             LOG.debug("bar: %d %% %s", percent, message)
 
-    def close(self):
+    def close(self) -> None:
         """The end of one stretch of work. An attended bar stays up: more of
         what the viewer asked for follows, and ``finish`` takes it down."""
         if self.attended:
             return
         self._shut()
 
-    def finish(self):
+    def finish(self) -> None:
         """The end of what the viewer asked for."""
         self.attended = False
         self._shut()
 
-    def _shut(self):
+    def _shut(self) -> None:
         if self._dialog is None:
             return
         try:

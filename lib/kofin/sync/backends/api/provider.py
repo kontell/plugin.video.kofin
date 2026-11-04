@@ -8,7 +8,8 @@ A music listing cannot fail halfway (``_music_folder``).
 """
 
 import time
-from typing import Any
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING, Any, Optional
 
 import xbmcgui
 import xbmcplugin
@@ -21,7 +22,14 @@ from kofin.core.log import Logger
 from kofin.core.urls import PARAM_MEDIA_SOURCE
 from . import capabilities, metadata, paths, walk
 from .records import PayloadWindow
+from .records import Record
 from .store import Store
+
+if TYPE_CHECKING:
+    from kofin.plugin.router import Request
+
+# What a listing hands Kodi: (url, item, is a folder).
+Entry = tuple[str, xbmcgui.ListItem, bool]
 
 LOG = Logger(__name__)
 
@@ -30,7 +38,7 @@ LOG = Logger(__name__)
 HOLD_LIMIT = 600.0
 
 
-def _roots():
+def _roots() -> list[str]:
     """Every scanner root, for Kodi's own walk of the plugin: the bound video
     roots, and the music root of every library with a song."""
     from kofin.sync.private import Database
@@ -54,14 +62,14 @@ def _roots():
     return sorted(set(roots))
 
 
-def _listing(request, entries, content):
+def _listing(request: "Request", entries: list[Entry], content: str) -> None:
     if content:
         xbmcplugin.setContent(request.handle, content)
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.endOfDirectory(request.handle, succeeded=True, cacheToDisc=False)
 
 
-def _folders(request, directories, label):
+def _folders(request: "Request", directories: Iterable[str], label: str) -> None:
     _listing(
         request,
         [(d, xbmcgui.ListItem(label, offscreen=True), True) for d in directories],
@@ -69,7 +77,13 @@ def _folders(request, directories, label):
     )
 
 
-def exists(store, location, item_id, source="", features=frozenset()):
+def exists(
+    store: Store,
+    location: paths.Location,
+    item_id: Optional[str],
+    source: str = "",
+    features: Collection[str] = frozenset(),
+) -> bool:
     """Whether Kodi may keep a row: unknown state is unavailable, never proof
     of deletion. Only an explicit committed tombstone says an item is gone,
     and only a movie's own payload says a version file or an extra is: the
@@ -131,7 +145,7 @@ def exists(store, location, item_id, source="", features=frozenset()):
     return True
 
 
-def serve(request):
+def serve(request: "Request") -> None:
     # One database connection for the life of this interpreter: a scanner
     # that reuses it between listings then pays the open once.
     private.pool_connections(True)
@@ -160,7 +174,7 @@ def serve(request):
     # What this Kodi offers (the feature table) shapes every row listed and
     # every answer about one: read once per request, never per item.
     features = capabilities.features()
-    if location.walk and action != "check_exists":
+    if location.walk and location.library is not None and action != "check_exists":
         if location.part is None:
             _walk_parts(request, store, location.key, location.library)
         else:
@@ -366,8 +380,15 @@ def serve(request):
 
 
 def _movie_entries(
-    record, server, key, library, separator, set_name, assets, features=frozenset()
-):
+    record: Record,
+    server: str,
+    key: str,
+    library: str,
+    separator: str,
+    set_name: str,
+    assets: bool,
+    features: Collection[str] = frozenset(),
+) -> list[Entry]:
     """A movie's file, and with ``assets`` a file per further media source,
     each carrying the whole tag and the source's name as its video asset
     title, and the movie's extras folder (see metadata.Version).
@@ -383,7 +404,9 @@ def _movie_entries(
     # source plays; the extras folder is Kodi 22's too.
     sources = metadata.version_sources(item) if "video_versions" in features else []
 
-    def row(name="", source=None):
+    def row(
+        name: str = "", source: Optional[dict[str, Any]] = None
+    ) -> xbmcgui.ListItem:
         shown = item
         if source is not None:
             # The version's own streams and runtime, where the source has them.
@@ -392,7 +415,7 @@ def _movie_entries(
                 shown["MediaStreams"] = source["MediaStreams"]
             if source.get("RunTimeTicks"):
                 shown["RunTimeTicks"] = source["RunTimeTicks"]
-        return metadata.listitem(
+        li: xbmcgui.ListItem = metadata.listitem(
             shown,
             server,
             key,
@@ -408,6 +431,7 @@ def _movie_entries(
                 else None
             ),
         )
+        return li
 
     entries = [(url, row(metadata.version_label(sources[0]) if sources else ""), False)]
     if not assets:
@@ -431,7 +455,14 @@ def _movie_entries(
     return entries
 
 
-def _extras_folder(request, store, key, library, movie_id, kodi_features=frozenset()):
+def _extras_folder(
+    request: "Request",
+    store: Store,
+    key: str,
+    library: str,
+    movie_id: str,
+    kodi_features: Collection[str] = frozenset(),
+) -> None:
     """A movie's extras: a file per special feature, named by its title with
     a video extension, built from the movie's payload."""
     server = store.server()
@@ -451,7 +482,7 @@ def _extras_folder(request, store, key, library, movie_id, kodi_features=frozens
     _listing(request, entries, "videos")
 
 
-def resolve_extra(location) -> str:
+def resolve_extra(location: paths.Location) -> str:
     """The item id of the extra a file-style extras URL names, from the
     movie's payload alone: every publish path attaches the features
     (library.attach_extras), so a stem the catalogue does not name is a
@@ -470,13 +501,15 @@ def resolve_extra(location) -> str:
 # -- music ---------------------------------------------------------------------
 
 
-def _music_root(request, store, key, library):
+def _music_root(request: "Request", store: Store, key: str, library: str) -> None:
     """The library's album directories: every live one, and every one that
     still has songs to shed (walk.root_folders)."""
     _album_folders(request, key, library, walk.rows(store, library))
 
 
-def _music_part(request, store, key, library, index):
+def _music_part(
+    request: "Request", store: Store, key: str, library: str, index: int
+) -> None:
     """One part of the scan the pass planned (store.plan_walk): its
     directories under the labels planned for them, with no payload read. A
     part the plan does not reach lists nothing, and that costs nothing: no
@@ -486,7 +519,7 @@ def _music_part(request, store, key, library, index):
     )
 
 
-def _walk_parts(request, store, key, library):
+def _walk_parts(request: "Request", store: Store, key: str, library: str) -> None:
     """The parts of the plan, for whoever lists their parent: Kodi takes a
     directory to exist from the cached listing of its parent when it has
     one, so this listing never leaves a part of the plan out."""
@@ -500,7 +533,9 @@ def _walk_parts(request, store, key, library):
     )
 
 
-def _album_folders(request, key, library, rows):
+def _album_folders(
+    request: "Request", key: str, library: str, rows: Iterable[tuple[str, str]]
+) -> None:
     _listing(
         request,
         [
@@ -519,12 +554,19 @@ RETRY_DELAY = 5.0
 KNOWN_PAGE = 500
 
 
-def _wait(seconds) -> bool:
+def _wait(seconds: float) -> bool:
     """Pause inside a listing; True when Kodi is shutting down."""
     return xbmc.Monitor().waitForAbort(seconds)
 
 
-def _music_folder(request, store, key, library, folder, features=frozenset()):
+def _music_folder(
+    request: "Request",
+    store: Store,
+    key: str,
+    library: str,
+    folder: str,
+    features: Collection[str] = frozenset(),
+) -> None:
     """One album's complete listing, in one call, however long it takes.
 
     The scanner never reads the succeeded flag: RetrieveMusicInfo removes
@@ -568,7 +610,13 @@ def _music_folder(request, store, key, library, folder, features=frozenset()):
     )
 
 
-def _song_entries(store, key, library, folder, features=frozenset()):
+def _song_entries(
+    store: Store,
+    key: str,
+    library: str,
+    folder: str,
+    features: Collection[str] = frozenset(),
+) -> list[Entry]:
     began = time.monotonic()
     songs = store.records(kind="Audio", library=library, parent_id=folder)
     album = None
@@ -597,7 +645,7 @@ def _song_entries(store, key, library, folder, features=frozenset()):
     return entries
 
 
-def _known_entries(directory):
+def _known_entries(directory: str) -> list[Entry]:
     """Kodi's own rows for the directory, proven complete, as a listing it
     will keep: the tags are Kodi's readback, the ids and play counts survive
     by file name, and the next pass finds the hash moved and lists the
@@ -685,7 +733,7 @@ def _known_entries(directory):
 # -- the scanner hold ----------------------------------------------------------
 
 
-def _hold(request, scanner):
+def _hold(request: "Request", scanner: str) -> None:
     """Keep the scanner's listing of the hold directory open while the pass
     writes, then list it empty (native.hold).
 

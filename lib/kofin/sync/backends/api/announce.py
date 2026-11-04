@@ -7,7 +7,7 @@ libraries, the schedule) and a repair announce nothing, and a played item is
 never announced (newcontent.entry_for).
 """
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from collections.abc import Collection, Iterable
 
 import xbmc
@@ -16,6 +16,11 @@ from kofin.core import settings, toast
 from kofin.core.log import Logger
 from kofin.downloads import auto as downloads_auto
 from kofin.sync import newcontent
+
+if TYPE_CHECKING:
+    from kofin.core.api import Api
+
+    from .store import Store
 
 LOG = Logger(__name__)
 
@@ -30,7 +35,7 @@ class Arrivals:
     """Items new to the catalogue, held until the pass has filed them, and
     then until a toast may be raised for them."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Published, not filed yet: item id -> entry, oldest first.
         self.arriving: dict[str, newcontent.Entry] = {}
         # Filed, not announced yet.
@@ -46,7 +51,7 @@ class Arrivals:
         items: Iterable[dict[str, Any]],
         known: Collection[str],
         membership: Optional[dict[str, str]] = None,
-    ):
+    ) -> None:
         """Note what a catch-up publishes that ``known``, the ids the
         catalogue placed before the publish, did not hold."""
         for item in items:
@@ -60,7 +65,7 @@ class Arrivals:
             elif entry.type == "Audio" and (membership or {}).get(entry.item_id):
                 self.songs[entry.item_id] = (membership or {})[entry.item_id]
 
-    def flush(self, store, api, player) -> None:
+    def flush(self, store: "Store", api: "Api", player: Optional[xbmc.Player]) -> None:
         """Hand what the pass has filed to the downloads, and announce it
         unless a video is playing."""
         self._claim_songs(store)
@@ -76,7 +81,7 @@ class Arrivals:
             del self.backlog[:-LIMIT]
         self._announce(player)
 
-    def _landed(self, store) -> list[newcontent.Entry]:
+    def _landed(self, store: "Store") -> list[newcontent.Entry]:
         if not self.arriving:
             return []
         states = store.states(list(self.arriving))
@@ -90,7 +95,7 @@ class Arrivals:
                 landed.append(self.arriving.pop(item_id))
         return landed
 
-    def _claim_songs(self, store) -> None:
+    def _claim_songs(self, store: "Store") -> None:
         if not self.songs:
             return
         states = store.states(list(self.songs))
@@ -113,7 +118,7 @@ class Arrivals:
             LOG.exception("music-library subscription claim failed")
             self.songs.update(filed)
 
-    def _announce(self, player) -> None:
+    def _announce(self, player: Optional[xbmc.Player]) -> None:
         if not self.backlog:
             return
         if not settings.get_bool("notifyNewContent"):

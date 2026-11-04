@@ -8,7 +8,7 @@ native row at all.
 """
 
 from typing import Any, NamedTuple, Optional
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from kofin.core import kodirpc
 
@@ -215,7 +215,9 @@ FEATURE_FIELDS: dict[str, dict[str, str]] = {
 }
 
 
-def properties(kind: str, features, minimal: bool = False) -> list[str]:
+def properties(
+    kind: str, features: Collection[str], minimal: bool = False
+) -> list[str]:
     """The readback properties of ``kind`` on a Kodi with ``features``: the
     scope's minimal set with ``minimal``, else the full row."""
     names = MINIMAL.get(kind, PROPERTIES[kind]) if minimal else PROPERTIES[kind]

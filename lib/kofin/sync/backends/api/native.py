@@ -1261,12 +1261,16 @@ class Native:
         owed = {
             paths.library_dir(location.key, location.library, "movies")
             for location in map(paths.parse, video.movie_folders)
-            if location is not None
+            if location is not None and location.library is not None
         }
 
         def prepare(directory):
             location = paths.parse(directory)
-            if location is not None and location.movie is not None:
+            if (
+                location is not None
+                and location.movie is not None
+                and location.library is not None
+            ):
                 root = paths.library_dir(location.key, location.library, "movies")
                 if root in owed:
                     owed.discard(root)

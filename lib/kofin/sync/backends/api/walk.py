@@ -6,13 +6,16 @@ the ones it names and no others, a part at a time (``paths.MUSIC_PART``),
 in the same order under the same labels.
 """
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from collections.abc import Iterable
 
 from . import metadata, paths
 
+if TYPE_CHECKING:
+    from .store import Store
 
-def root_folders(store, library) -> set:
+
+def root_folders(store: "Store", library: str) -> set[str]:
     """Every directory the library's root lists: one with a live song, and
     one that still has songs to shed. A tombstone leaves Kodi only through
     the complete listing of its directory, so a directory whose songs are
@@ -27,8 +30,8 @@ def root_folders(store, library) -> set:
 
 
 def rows(
-    store,
-    library,
+    store: "Store",
+    library: str,
     folders: Optional[Iterable[str]] = None,
     albums: Optional[dict[str, dict[str, Any]]] = None,
 ) -> list[tuple[str, str]]:
