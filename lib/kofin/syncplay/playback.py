@@ -14,7 +14,8 @@ from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
-from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS, VIDEO_PLAYER
+from kofin.syncplay.liveclock import LiveClock
+from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager
@@ -27,11 +28,9 @@ LOG = Logger(__name__)
 # Kodi's presentationtime is read at most this often once it has answered: the
 # offset it gives holds across a tempo and a pause, and moves only where the
 # stream's own timestamps jump.
-PRESENTATION_READ_MS = 1000.0
 # Until it has answered, it is asked again this soon: one controller tick, so
 # the stream's clock is taken up as soon as it exists, while a stream that never
 # has one (a server remux) costs a read a tick and no more.
-PRESENTATION_RETRY_MS = 250.0
 
 
 class PlaybackController:
@@ -87,16 +86,7 @@ class PlaybackController:
         self.tempo = PulseScheduler(self)
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
         self._live_seek_logged = False
-        # A hold in progress: how long it was for.
-        self._live_hold_ms: Optional[float] = None
-        self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
-        # Server-clock instant of this stream's player t=0: the live clock of
-        # a stream whose own timestamps no other member shares (a remux
-        # restamps from zero), since the edge a member opened at is the same
-        # moment of the broadcast for every member.
-        self._live_origin_server_ms: Optional[float] = None
-        # (read at, offset) of Kodi's presentationtime, the stream's own clock.
-        self._presentation: Optional[tuple[float, Optional[float]]] = None
+        self.live = LiveClock(self)
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -246,7 +236,7 @@ class PlaybackController:
             self.tempo.cancel(name)
 
             if name == "Unpause":
-                if not self._keep_source_clock(ticks):
+                if not self.live._keep_source_clock(ticks):
                     self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
                 if self.manager.phase == Phase.LOADING:
                     # Do not set last_command: this Unpause has not run, and
@@ -264,11 +254,11 @@ class PlaybackController:
                     rebind_origin=command.get("_rebind_origin", True),
                 )
             elif name == "Pause":
-                if not self._keep_source_clock(ticks):
+                if not self.live._keep_source_clock(ticks):
                     self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
                 self._do_pause(ticks)
             elif name == "Seek":
-                if not self._keep_source_clock(ticks):
+                if not self.live._keep_source_clock(ticks):
                     self._reference = (
                         utils.ticks_to_ms(ticks),
                         when_ms,
@@ -305,14 +295,14 @@ class PlaybackController:
         # When the group already played through; rebinding then maps a newer
         # picture onto that position and pulses will not close it.
         late_ms = self.manager.server_now_ms() - (when_ms or 0)
-        if rebind_origin and late_ms <= 1000.0 and self._skip_live_seek():
-            self.bind_live_origin_to_group()
+        if rebind_origin and late_ms <= 1000.0 and self.live._skip_live_seek():
+            self.live.bind_live_origin_to_group()
 
         # Late command (When already past): jump to the extrapolated live
         # position instead of starting behind the group. Session-time ticks
         # on a source-clock group are not a live position — align to the
         # group clock we kept.
-        if self._keep_source_clock(ticks):
+        if self.live._keep_source_clock(ticks):
             target_ms = self.estimate_position_ms()
             if target_ms is None:
                 target_ms = self._position_ms()
@@ -408,11 +398,11 @@ class PlaybackController:
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
             return
 
-        if self._live_claim() is not None:
+        if self.live._live_claim() is not None:
             # A live member has no seek: ahead by more than LIVE_HOLD_MIN_MS
             # it holds, otherwise fine sync.
             if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
-                self._live_hold(-behind_ms)
+                self.live._live_hold(-behind_ms)
             else:
                 LOG.debug(
                     "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
@@ -560,7 +550,7 @@ class PlaybackController:
             )
             return
 
-        if self._skip_live_seek():
+        if self.live._skip_live_seek():
             # Live before Transcode: Jellyfin labels a live HLS remux
             # Transcode, and the reload path below would Player.Open the
             # same channel. Kodi does not restart it, OnAVStarted never
@@ -641,7 +631,7 @@ class PlaybackController:
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
-        self._presentation = None  # a new stream: its own clock
+        self.live.new_stream()
         self.note_live_origin()
         self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
@@ -772,8 +762,7 @@ class PlaybackController:
         self.last_command = None
         self._deferred_unpause = None
         self._reference = None
-        self._live_origin_server_ms = None
-        self._presentation = None
+        self.live.reset()
 
     def _loop(self) -> None:
         LOG.debug("--->[ syncplay loop ]")
@@ -889,7 +878,7 @@ class PlaybackController:
         except Exception:
             return 0.0
 
-        offset = self._live_source_offset_ms()
+        offset = self.live._live_source_offset_ms()
 
         if offset is None:
             return player_ms
@@ -904,165 +893,16 @@ class PlaybackController:
         current = getattr(self.manager, "current_claim", None)
         return current() if current is not None else None
 
-    def _live_claim(self) -> Optional["Claim"]:
-        """The current claim when it names a live stream, else None."""
-        claim = self._current_claim()
-        return claim if utils.claim_is_live(claim) else None
-
-    def _skip_live_seek(self) -> bool:
-        """Whether this playback must not be seeked.
-
-        A live item is never seeked: ffmpeg's HLS demuxer refuses a seek
-        on a live playlist, and a source-clock position is not a stream
-        offset. Fine sync closes what it can.
-
-        Before the claim, a delegated start (pvr.kofin) is treated as live,
-        since a seek would send a live channel to 0. Once a claim exists,
-        claim_is_live is the only signal: catchup is also pvr.kofin and must
-        seek.
-        """
-        if self._live_claim() is not None:
-            return True
-
-        if self._current_claim() is not None:
-            return False
-
-        provider = getattr(self.manager, "current_provider", None)
-        providers = getattr(self.manager, "providers", None)
-        is_delegated = getattr(providers, "is_delegated", None)
-        return bool(provider) and callable(is_delegated) and is_delegated(provider)
-
-    def _keep_source_clock(self, ticks: int) -> bool:
-        """Whether command ticks must not replace a live-anchored group clock.
-
-        A live Seek is refused, then Unpause (and Pause) arrive at the same
-        PositionTicks — Kodi Player.Time on PVR, EPG-relative session time.
-        Adopting those ticks knocks PTS members off the broadcast clock.
-        """
-        if not self._skip_live_seek():
-            return False
-
-        if not utils.live_anchored(self.estimate_position_ms()):
-            return False
-
-        return not utils.live_anchored(utils.ticks_to_ms(ticks))
+    # -- the live clock (liveclock.py) -----------------------------------------
 
     def note_live_origin(self) -> None:
-        """Stamp this stream's player t=0 on the server clock.
-
-        A remux that restamped from ~10 s has no broadcast PTS; t=0 is
-        the live edge at this member's open.
-        """
-        try:
-            player_ms = self.player.getTime() * 1000.0
-        except Exception:
-            player_ms = 0.0
-
-        self._live_origin_server_ms = self.manager.server_now_ms() - player_ms
-
-    def bind_live_origin_to_group(self) -> None:
-        """Map this member's player t onto the group position.
-
-        Origin is a raw offset: ``_position_ms`` unwraps player+origin onto
-        the epoch. Storing the already-unwrapped group position here
-        double-applies the epoch.
-
-        Call only for a shared-start Unpause. A later open's gap is the
-        picture offset; zeroing it leaves pictures apart with residual ~0.
-        """
-        try:
-            player_ms = self.player.getTime() * 1000.0
-        except Exception:
-            player_ms = 0.0
-
-        group_ms = self.estimate_position_ms()
-
-        if group_ms is None:
-            return
-
-        raw_ms = group_ms - utils.LIVE_PTS_EPOCH_S * 1000.0
-        self._live_origin_server_ms = raw_ms - player_ms
-        LOG.debug(
-            "[ syncplay/live ] join clock rebound to the group (player %.1fs)",
-            player_ms / 1000.0,
-        )
-
-    def _live_source_offset_ms(self) -> Optional[float]:
-        """player clock → live clock; None for anything but a live item.
-
-        The live clock is the stream's own when Kodi reports it
-        (``presentationtime``: a broadcast's PTS, one clock for every member's
-        stream whatever moment it opened), and otherwise the join origin:
-        player t=0 plus the server time at open, which is the live edge this
-        member started on.
-        """
-        if self._live_claim() is None:
-            return None
-
-        offset = self._presentation_offset_ms()
-
-        if offset is not None:
-            return offset
-
-        return self._live_origin_server_ms
-
-    def _presentation_offset_ms(self) -> Optional[float]:
-        """The stream's own clock against the player clock, or None until Kodi
-        has reported it.
-
-        Only a reading is kept. A miss (a timeshift buffer with no timestamp
-        yet, a failed read) keeps the last offset, and with none yet is asked
-        again a tick later rather than held: None means the join origin,
-        another clock, and held for a read interval it would put the group's
-        anchor and the window on it.
-        """
-        now = utils.local_ms()
-        known = None
-
-        if self._presentation is not None:
-            asked_at, known = self._presentation
-            interval = (
-                PRESENTATION_READ_MS if known is not None else PRESENTATION_RETRY_MS
-            )
-
-            if 0 <= now - asked_at < interval:
-                return known
-
-        offset = utils.presentation_offset_ms(
-            kodirpc.player_properties(["time", "presentationtime"], VIDEO_PLAYER)
-        )
-
-        if offset is not None:
-            known = offset
-
-        self._presentation = (now, known)
-        return known
+        self.live.note_live_origin()
 
     def live_on_source_clock(self) -> bool:
-        """Whether this member and the group share the source clock: the
-        member can read its own, and the group's position is anchored on
-        it rather than on a proposer's session time."""
-        if self._live_source_offset_ms() is None:
-            return False
-
-        return utils.live_anchored(self.estimate_position_ms())
+        return self.live.live_on_source_clock()
 
     def live_anchor_ms(self) -> Optional[float]:
-        """The group position to propose for the live item playing here:
-        LIVE_DELAY_S behind this member's own source-clock reading, or None
-        when it has no such reading (the proposal then tunes together from
-        zero)."""
-        offset = self._live_source_offset_ms()
-
-        if offset is None:
-            return None
-
-        try:
-            player_ms = self.player.getTime() * 1000.0
-        except Exception:
-            return None
-
-        return utils.live_anchor_ms(player_ms + offset)
+        return self.live.live_anchor_ms()
 
     def reported_position_s(self, promise: bool = True) -> float:
         """The position a report carries. With ``promise``, a live member
@@ -1072,46 +912,13 @@ class PlaybackController:
         delay ahead of its anchor — is one the server's ready barrier does
         not release on. Without it, the real reading: what a Buffering report
         must say, since the group pauses there."""
-        if promise and self._live_claim() is not None:
+        if promise and self.live._live_claim() is not None:
             estimate = self.estimate_position_ms()
 
             if estimate is not None:
                 return estimate / 1000.0
 
         return self._position_ms() / 1000.0
-
-    def _live_hold(self, hold_ms: float) -> None:
-        """Pause for ``hold_ms`` so the group catches this member up, then
-        resume through the dispatcher. The timeshift buffer keeps the
-        stream; fine sync trims what the pause and resume leave."""
-        hold_ms = min(hold_ms, utils.LIVE_HOLD_MAX_S * 1000.0)
-        self._live_hold_ms = hold_ms
-        self._live_hold_seq += 1
-        self.tempo.cancel("hold")
-        LOG.debug(
-            "[ syncplay/live ] %.1fs ahead of the group: holding for it",
-            hold_ms / 1000.0,
-        )
-        self.ensure_paused()
-        utils.later(
-            hold_ms / 1000.0, self.manager._post, self._live_resume, self._live_hold_seq
-        )
-
-    def _live_resume(self, seq: int) -> None:
-        if seq != self._live_hold_seq:
-            return
-
-        held = self._live_hold_ms
-        self._live_hold_ms = None
-
-        if held is None or not self.reference_is_playing():
-            # The group paused meanwhile: its own Unpause resumes us, and
-            # the residual it leaves is fine sync's.
-            return
-
-        self.ensure_playing()
-        self.tempo.note_settle()
-        LOG.debug("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
 
     def correct_position(self) -> None:
         """The fine-sync scheduler found a residual beyond what a pulse can
@@ -1172,7 +979,7 @@ class PlaybackController:
         stay paused has to undo that, and a caller about to resume must *not*,
         or the two fight and the player can end up stopped.
         """
-        if self._skip_live_seek():
+        if self.live._skip_live_seek():
             if not self._live_seek_logged:
                 self._live_seek_logged = True
                 LOG.debug("[ syncplay/align ] skipped: live item, pulses only")
