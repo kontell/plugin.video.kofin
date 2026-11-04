@@ -152,10 +152,8 @@ def enabled_kinds() -> set[str]:
     }
     with private.Database() as db:
         views = [
-            {"Id": view_id, "media_type": media}
-            for view_id, _name, media in db.cursor.execute(
-                "SELECT view_id, view_name, media_type FROM view"
-            ).fetchall()
+            {"Id": view.view_id, "media_type": view.media_type}
+            for view in kofindb.JellyfinDatabase(db.cursor).views()
         ]
     return playlists.enabled_kinds(views, whitelist)
 

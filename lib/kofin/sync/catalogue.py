@@ -60,13 +60,37 @@ class ItemState:
     error: str
 
 
+# A TEMP table marks a connection that has run the schema; it goes with the
+# connection, so the DDL runs once per connection and never per call.
+SCHEMA_READY = "api_schema_ready"
+
+
+def schema_ready(cursor) -> bool:
+    return (
+        cursor.execute(
+            "SELECT 1 FROM sqlite_temp_master WHERE type = 'table' AND name = ?",
+            (SCHEMA_READY,),
+        ).fetchone()
+        is not None
+    )
+
+
 class Catalogue:
     def __init__(self, namespace: str):
         if not namespace:
             raise ValueError("server/user namespace is required")
         self.namespace = namespace
 
-    def _prepare(self, cursor):
+    @classmethod
+    def _prepare(cls, cursor):
+        """The backend's claim and its tables, once per connection."""
+        if schema_ready(cursor):
+            return
+        cls._create(cursor)
+        cursor.execute("CREATE TEMP TABLE %s(x)" % SCHEMA_READY)
+
+    @classmethod
+    def _create(cls, cursor):
         claim_backend(cursor, "api")
         cursor.execute("""CREATE TABLE IF NOT EXISTS api_item(
             namespace TEXT NOT NULL, item_id TEXT NOT NULL, kind TEXT NOT NULL,

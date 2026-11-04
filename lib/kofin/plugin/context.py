@@ -565,6 +565,7 @@ def manage_download_playlist() -> None:
     """Download actions for one file in the managed music playlist folder."""
     from kofin.downloads import store, subscriptions
     from kofin.sync import playlists
+    from kofin.sync import kofindb
     from kofin.sync.private import Database
 
     path = xbmc.getInfoLabel("ListItem.FileNameAndPath")
@@ -574,15 +575,10 @@ def manage_download_playlist() -> None:
         return
     filename = os.path.basename(candidate)
     with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id FROM playlist_state "
-            "WHERE media_type = 'Audio' AND filename = ?",
-            (filename,),
-        )
-        row = opened.cursor.fetchone()
-        if not row:
-            return
-        playlist_id = row[0]
+        tables = kofindb.JellyfinDatabase(opened.cursor)
+        playlist_id = tables.playlist_for_file(filename, side="Audio")
+    if not playlist_id:
+        return
     enabled = playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING)
     states = list(store.playlist_unclaimed_states(playlist_id).values())
     entries: list[tuple[str, dict]] = []

@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from kofin.sync import kofindb
+from kofin.sync import kofindb, private
 
 
 def _rows(sql):
@@ -34,3 +34,40 @@ def test_different_column_lists_never_share_a_class():
     other = _rows("SELECT 1 AS b, 2 AS a")[0]
     assert type(one) is not type(other)
     assert one.a == 1 and other.a == 2
+
+
+def _tables():
+    cursor = sqlite3.connect(":memory:").cursor()
+    private.kofin_tables(cursor)
+    return kofindb.JellyfinDatabase(cursor)
+
+
+def test_views_round_trip():
+    tables = _tables()
+    tables.remember_view("v1", "Films", "movies")
+    tables.remember_view("v2", "Tunes", "music")
+    assert [(v.view_id, v.name, v.media_type) for v in tables.views()] == [
+        ("v1", "Films", "movies"),
+        ("v2", "Tunes", "music"),
+    ]
+    assert tables.view_names() == {"v1": "Films", "v2": "Tunes"}
+    assert tables.view_name("v2") == "Tunes"
+    assert tables.view_name("v9") is None
+    assert tables.view_media("v2") == "music"
+    assert tables.view_media("v9") == ""
+    tables.remember_view("v2", "Tunes II", "music")
+    assert tables.view_name("v2") == "Tunes II"
+
+
+def test_playlist_state_lookups():
+    tables = _tables()
+    tables.add_playlist_state("p1", "Audio", "Mix.m3u8", "e|plugin")
+    tables.add_playlist_state("p2", "Video", "Films.m3u8", "")
+    tables.add_playlist_state("p3", "Audio", "", "")
+    assert tables.playlist_filename("p1") == "Mix.m3u8"
+    assert tables.playlist_filename("p3") == ""
+    assert tables.playlist_filename("p9") is None
+    assert tables.playlist_for_file("Films.m3u8") == "p2"
+    assert tables.playlist_for_file("Films.m3u8", side="Audio") == ""
+    assert tables.playlist_for_file("Films.m3u8", side="Video") == "p2"
+    assert tables.playlist_for_file("Nothing.m3u8") == ""

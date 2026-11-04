@@ -24,7 +24,7 @@ import xbmcgui
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import changefeed, private
+from kofin.sync import changefeed, kofindb, private
 from . import capabilities, metadata, progress
 
 LOG = Logger(__name__)
@@ -193,10 +193,8 @@ def snapshot(store, scanner_format: int) -> Snapshot:
     """The catalogue as the dialog shows it, in a handful of queries."""
     with private.Database() as db:
         views = {
-            view_id: (name, media)
-            for view_id, name, media in db.cursor.execute(
-                "SELECT view_id, view_name, media_type FROM view"
-            ).fetchall()
+            view.view_id: (view.name, view.media_type)
+            for view in kofindb.JellyfinDatabase(db.cursor).views()
         }
     whitelist = private.get_sync()["Whitelist"]
     counts = store.summary()

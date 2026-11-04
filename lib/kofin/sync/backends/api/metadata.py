@@ -9,20 +9,56 @@ full premiere date -- and ``details`` speaks that representation.
 """
 
 import hashlib
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, NamedTuple, Optional
 from collections.abc import Iterable
 
 import xbmc
 import xbmcgui
 
+from kofin.core.log import Logger
 from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
-from kofin.sync.shims import convert_to_local
 from . import paths
 from .paths import ASCII_SPACE
 from .store import encode, payload_hash
+
+LOG = Logger(__name__)
+
+_DATE_RE = re.compile(
+    r"^(\d{1,4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?"
+)
+
+
+def convert_to_local(date):
+    """A Jellyfin UTC timestamp in local time (``YYYY-MM-DDTHH:MM:SS``).
+    Handles 7-digit tick fractions and the year-1 "no date" sentinel."""
+    try:
+        if isinstance(date, datetime):
+            parsed = date
+        else:
+            match = _DATE_RE.match(str(date))
+            if not match:
+                raise ValueError("unrecognized date: %r" % date)
+            year, month, day, hour, minute, second = (
+                int(part) for part in match.groups()[:6]
+            )
+            parsed = datetime(year, month, day, hour, minute, second)
+        parsed = parsed.replace(tzinfo=timezone.utc)
+        # Bad metadata defaults to date 1-1-1. astimezone() on it can
+        # underflow, and it only means "no date" anyway.
+        if parsed.year < 1900:
+            return (
+                f"{parsed.year:04d}-{parsed.month:02d}-{parsed.day:02d}"
+                f"T{parsed.hour:02d}:{parsed.minute:02d}:{parsed.second:02d}"
+            )
+        return parsed.astimezone().strftime("%Y-%m-%dT%H:%M:%S")
+    except Exception as error:
+        LOG.exception("Item date: %s --- %s", str(date), error)
+        return str(date)
+
 
 MEDIATYPE = {
     "Movie": "movie",
@@ -1021,7 +1057,7 @@ def inputs_token(
     next change of that input should have moved. Besides the caller's
     arguments ``details`` reads the artwork cap and encoding
     (``listitems.art_query``) and renders its timestamps in the local zone
-    (``shims.convert_to_local``); both are here, and anything new that
+    (``convert_to_local``); both are here, and anything new that
     ``details`` reads joins them.
     """
     return _token(

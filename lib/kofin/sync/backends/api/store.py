@@ -174,8 +174,9 @@ class Placements(abc.Mapping):
 
 
 class Store(Catalogue):
-    def _prepare(self, cursor):
-        super()._prepare(cursor)
+    @classmethod
+    def _create(cls, cursor):
+        super()._create(cursor)
         cursor.executescript("""
             CREATE TABLE IF NOT EXISTS api_root(
                 namespace TEXT PRIMARY KEY, current INTEGER NOT NULL DEFAULT 0,

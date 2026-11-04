@@ -14,6 +14,7 @@ from kofin.core import ipc, settings
 from kofin.core.log import Logger
 from kofin.core.api import paged
 from kofin.downloads import store
+from kofin.sync import kofindb
 from kofin.sync.private import Database
 
 LOG = Logger(__name__)
@@ -83,20 +84,15 @@ def _owner_name(owner_id: str) -> str:
     if not item_id:
         return owner_id
     with Database("kofin") as opened:
+        tables = kofindb.JellyfinDatabase(opened.cursor)
         if kind == "playlist":
-            opened.cursor.execute(
-                "SELECT filename FROM playlist_state WHERE jellyfin_id = ?", (item_id,)
-            )
-            row = opened.cursor.fetchone()
-            if row and row[0]:
-                return str(os.path.splitext(row[0])[0])
+            filename = tables.playlist_filename(item_id)
+            if filename:
+                return str(os.path.splitext(filename)[0])
         elif kind == "musiclibrary":
-            opened.cursor.execute(
-                "SELECT view_name FROM view WHERE view_id = ?", (item_id,)
-            )
-            row = opened.cursor.fetchone()
-            if row and row[0]:
-                return str(row[0])
+            name = tables.view_name(item_id)
+            if name:
+                return name
     return item_id
 
 

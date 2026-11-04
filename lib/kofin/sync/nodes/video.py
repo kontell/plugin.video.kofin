@@ -21,7 +21,6 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.core.urls import plugin_url
 from kofin.sync.nodes import fs
-from kofin.sync.shims import localized
 
 LOG = Logger(__name__)
 
@@ -161,7 +160,11 @@ def node_icon(media, node=None):
 
 def _label(value, fallback=""):
     if isinstance(value, int):
-        return localized(value) if value >= 30000 else xbmc.getLocalizedString(value)
+        return (
+            settings.localized(value)
+            if value >= 30000
+            else xbmc.getLocalizedString(value)
+        )
     return value or fallback
 
 
@@ -175,7 +178,7 @@ def _node_label(value, fallback=""):
     ids stay numeric so they keep following the UI language.
     """
     if isinstance(value, int):
-        return localized(value) if value >= 30000 else str(value)
+        return settings.localized(value) if value >= 30000 else str(value)
     return value or fallback
 
 
@@ -247,12 +250,24 @@ def single_nodes(episode_tags=True, downloads=None):
     as the favorites. One list for both the node files and the window
     properties, so the two surfaces cannot disagree."""
     singles = [
-        {"Name": localized(30358), "Tag": "Favorite movies", "Media": "movies"},
-        {"Name": localized(30359), "Tag": "Favorite tvshows", "Media": "tvshows"},
+        {
+            "Name": settings.localized(30358),
+            "Tag": "Favorite movies",
+            "Media": "movies",
+        },
+        {
+            "Name": settings.localized(30359),
+            "Tag": "Favorite tvshows",
+            "Media": "tvshows",
+        },
     ]
     if episode_tags:
         singles.append(
-            {"Name": localized(30360), "Tag": "Favorite episodes", "Media": "episodes"}
+            {
+                "Name": settings.localized(30360),
+                "Tag": "Favorite episodes",
+                "Media": "episodes",
+            }
         )
     if downloads is None:
         try:
@@ -265,7 +280,7 @@ def single_nodes(episode_tags=True, downloads=None):
 
         singles.append(
             {
-                "Name": localized(30718),
+                "Name": settings.localized(30718),
                 "Tag": DOWNLOADS_TAG,
                 "Media": "movies",
                 "File": "DownloadedMovies",
@@ -275,7 +290,7 @@ def single_nodes(episode_tags=True, downloads=None):
         )
         singles.append(
             {
-                "Name": localized(30719),
+                "Name": settings.localized(30719),
                 "Tag": DOWNLOADS_TAG,
                 "Media": "tvshows",
                 "File": "DownloadedShows",
@@ -291,7 +306,7 @@ def single_nodes(episode_tags=True, downloads=None):
         # Kodi without episode tags has no Downloaded-episodes single.
         singles.append(
             {
-                "Name": localized(30721),
+                "Name": settings.localized(30721),
                 "Tag": EPISODE_TAG,
                 "Media": "episodes",
                 "File": "DownloadedEpisodes",

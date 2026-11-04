@@ -170,9 +170,9 @@ def container_states(container_id: str) -> dict[str, str]:
 
     ``series_id`` is written as ``SeriesId or AlbumId`` (manager._transfer),
     which answers a Series and a MusicAlbum; a Season is answered through the
-    catalogue, and a playlist or a music library by the request or the
-    origin that names it. One connection, and no server — the context menu
-    that asks this has to answer offline too.
+    catalogue (``_season_states``), and a playlist or a music library by the
+    request or the origin that names it. No server: the context menu that
+    asks this has to answer offline too.
     """
     if not container_id:
         return {}
@@ -183,47 +183,6 @@ def container_states(container_id: str) -> dict[str, str]:
             (container_id,),
         )
         states.update(opened.cursor.fetchall())
-        # The catalogue files an episode under its series (store.parent_of),
-        # so a season's downloads are the series' whose payload names the
-        # season: the downloads under one series are few, and their payloads
-        # are read for that one key.
-        import json
-        import sqlite3
-
-        from kofin.sync.backends.api.identity import current_store
-
-        # The catalogue is namespaced per server and user and the
-        # download table is not: the season, its episodes and their
-        # payloads are read from the active namespace alone.
-        try:
-            namespace = current_store().namespace
-        except Exception:
-            namespace = ""
-        try:
-            opened.cursor.execute(
-                "SELECT d.jellyfin_id, d.state, i.payload FROM download d "
-                "JOIN api_entry s ON s.namespace = ? AND s.item_id = ? "
-                "AND s.removed IS NULL AND s.kind = 'Season' "
-                "JOIN api_entry e ON e.namespace = s.namespace "
-                "AND e.item_id = d.jellyfin_id AND e.removed IS NULL "
-                "AND e.kind = 'Episode' AND e.parent_id = s.parent_id "
-                "JOIN api_item i ON i.namespace = s.namespace "
-                "AND i.item_id = d.jellyfin_id AND i.operation = 'upsert'",
-                (namespace, container_id),
-            )
-            filed = opened.cursor.fetchall()
-        except sqlite3.OperationalError:
-            # A profile the service has not yet initialised the catalogue in:
-            # nothing is filed there to find a season's episodes by.
-            filed = []
-        for jellyfin_id, download_state, payload in filed:
-            try:
-                item = json.loads(payload)
-            except (TypeError, ValueError):
-                continue
-            season = str(item.get("SeasonId") or item.get("ParentId") or "")
-            if season == container_id:
-                states[jellyfin_id] = download_state
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE request_id = ? "
             "OR origin IN (?, ?)",
@@ -234,7 +193,37 @@ def container_states(container_id: str) -> dict[str, str]:
             ),
         )
         states.update(opened.cursor.fetchall())
+    states.update(_season_states(container_id))
     return states
+
+
+def _season_states(season_id: str) -> dict[str, str]:
+    """A season's downloads, through the catalogue: it files an episode under
+    its series (store.parent_of), so the season's downloads are the series'
+    whose payload names the season. The downloads under one series are few,
+    and their payloads are read for that one key. The catalogue is
+    namespaced per server and user and the download table is not, so the
+    active namespace alone is asked; with none, nothing is filed to find."""
+    from kofin.sync.backends.api.identity import current_store
+
+    try:
+        catalogue = current_store()
+        season = catalogue.entry(season_id)
+    except Exception:
+        return {}
+    if season is None or season.kind != "Season":
+        return {}
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id, state FROM download WHERE series_id = ?",
+            (season.parent_id,),
+        )
+        candidates = dict(opened.cursor.fetchall())
+    found: dict[str, str] = {}
+    for jellyfin_id, item in catalogue.payloads(catalogue.known(candidates)).items():
+        if str(item.get("SeasonId") or item.get("ParentId") or "") == season_id:
+            found[jellyfin_id] = candidates[jellyfin_id]
+    return found
 
 
 def request_counts(request_id: str) -> dict[str, int]:

@@ -90,9 +90,9 @@ PR zips are Actions artifacts only; production install zips come from published 
 
 **No module-global state.** Service restart tears down and rebuilds objects in-process (no module reload). Module-level mutable state breaks that path. The few exemptions carry in-place comments explaining why they are restart-safe; new globals need the same argument or a different design.
 
-**One backend.** `sync/backends/api/` is the library pipeline: `store.py` the catalogue (kofin.db), `library.py` the thread, `native.py` the pass, `provider.py` the scanner's source, `metadata.py` the serializer, `patch.py` the comparator, `readback.py`, `removal.py` and `kinds.py` the kind table. `sync/private.py` is the only entry point to kofin.db. `tools/package_manifest.py` lists what the zip and the development install ship, and both carry the whole tree. `docs/research/kofin-or/phase1/README.md` records the contracts the pipeline was built to.
+**One backend.** `sync/backends/api/` is the library pipeline: `store.py` the catalogue (kofin.db), `library.py` the thread, `native.py` the pass, `provider.py` the scanner's source, `metadata.py` the serializer, `patch.py` the comparator, `readback.py`, `removal.py` and `kinds.py` the kind table. `sync/private.py` is the only entry point to kofin.db, `sync/kofindb.py` reads and writes its `view` and `playlist_state` tables for everything outside the pipeline, and the `api_*` tables are the store's alone: raw SQL on kofin.db lives in those three places and nowhere else. `tools/package_manifest.py` lists what the zip and the development install ship, and both carry the whole tree. `docs/research/kofin-or/phase1/README.md` records the contracts the pipeline was built to.
 
-**Nothing here is a port.** `lib/kofin/syncplay/` was written for Kontell's fork of `jellyfin-kodi` and came over when kofin replaced it; it is held to the same rules as every other module, and its older idioms (`object` bases, banner comments, untyped signatures) are debt to pay down, not a shape to preserve. `sync/shims.py` is three helpers left from the compat layer the SQL build's writers imported. The database writers, the sync orchestrator and the L2 schema suite that proved them went with the SQL build.
+**Nothing here is a port.** `lib/kofin/syncplay/` was written for Kontell's fork of `jellyfin-kodi` and came over when kofin replaced it; it is held to the same rules as every other module, and its older idioms (`object` bases, banner comments, untyped signatures) are debt to pay down, not a shape to preserve. The database writers, the sync orchestrator and the L2 schema suite that proved them went with the SQL build.
 
 **Two stores, and none of Kodi's.** `kofin.db` holds the catalogue (payloads, placements, acknowledgements and the mapping to Kodi's ids), the playlist state and the download table; `sync.json` holds the whitelist and the sync state. Kodi's MyVideos and MyMusic are never opened: `tests/package/probe.py` runs the shipped tree with every such open refused.
 
@@ -237,7 +237,7 @@ What remains is kofin's own:
   returns it) and a collection with no synced member. A show's `dateadded` is never set:
   `tvshowcounts` derives it from the newest episode file and `SetTVShowDetails` cannot move it.
 - **The API backend writes `lastplayed` and `dateadded` in local time** (`metadata._timestamp`
-  through `shims.convert_to_local`), as Kodi does for its own writes; a UTC string read an
+  through `metadata.convert_to_local`), as Kodi does for its own writes; a UTC string read an
   hour off and differed from every value a playback set. Calendar dates stay as given.
 - **A scanner row that matches `metadata.details` needs no patch.** The 0.91.0 imports of
   1,788 movies and 4,316 episodes applied in 36 s passes that wrote nothing, where a pass that
@@ -750,7 +750,7 @@ What remains is kofin's own:
   rewrite of every such row on every repair.
 - **A library listed for fewer fields is listed again by name** (`library.LISTING`,
   `Library.stale_listings`, `store.remember_listing`). A catch-up fetches changed items alone,
-  so a field added to `downloader.info` or `MUSIC_FIELDS` would otherwise never reach a row
+  so a field added to `library.VIDEO_FIELDS` or `MUSIC_FIELDS` would otherwise never reach a row
   filed before it: `OriginalTitle` was missing from the listing, and every movie's original
   title was empty in Kodi. The record is per library and written only for a library whose
   listing was published; a selected library the server's views left out, or one being rebuilt,
@@ -862,6 +862,10 @@ What remains is kofin's own:
   record and fails nothing, since raised from `reconcile` it would fail every pass for as
   long as Kodi refused; `Native.settings_owed` has the library thread ask again every five
   minutes while nothing is pending (`Library.apply`), warned about once.
+- **The `api_*` schema is created once per connection** (`catalogue.Catalogue._prepare`): a
+  TEMP table marks a connection that has run the DDL, and goes with it. Every store call ran
+  the nineteen statements before; a plugin listing pays them once per pooled connection and
+  the library thread once per generation.
 - **A pooled private connection leaves every block idle.** `Database.__exit__` reads
   `total_changes` as a delta from `__enter__` and commits a block that opened a transaction
   without changing a row, or the next listing on that interpreter ran inside it and a

@@ -182,3 +182,20 @@ def test_placements_read_by_the_item_until_a_caller_walks_them(store, monkeypatc
     for item_id in ("m1", "m2", "m3"):
         assert placements[item_id].item_id == item_id
     assert len(wholes) == 2
+
+
+def test_the_schema_is_created_once_per_connection(store):
+    """A TEMP table marks a connection that has run the DDL, so the second
+    store call on the same connection runs none of it."""
+    from kofin.sync import private
+    from kofin.sync.backends.api.store import Store
+
+    statements = []
+    with private.Database() as db:
+        db.conn.set_trace_callback(statements.append)
+        Store._prepare(db.cursor)
+        first = sum("CREATE TABLE" in s for s in statements)
+        Store._prepare(db.cursor)
+        db.conn.set_trace_callback(None)
+    assert first > 0
+    assert sum("CREATE TABLE" in s for s in statements) == first
