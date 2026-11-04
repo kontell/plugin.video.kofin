@@ -32,7 +32,6 @@ QUOTES_VERBATIM = {
     "#30794": ["#30618"],  # account caveat -> the default-tracks setting label
     "#30080": ["#30817"],  # shortlist help -> the "All" row of its own dialog
     "#30826": ["#30052"],  # discovery help -> the field it fills in
-    "#30612": ["#30841"],  # playlist sync help -> Save to Jellyfin
 }
 
 
