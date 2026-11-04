@@ -26,21 +26,10 @@ from kofin.sync.model import MediaItem
 from kofin.core.log import Logger
 from kofin.sync.private import Database
 from . import paths
+from .kinds import NAMES
 from .records import Record
 
 LOG = Logger(__name__)
-
-KINDS = (
-    "Movie",
-    "Series",
-    "Season",
-    "Episode",
-    "MusicVideo",
-    "BoxSet",
-    "Audio",
-    "MusicAlbum",
-    "MusicArtist",
-)
 
 
 def namespace(server_id: str, user_id: str) -> str:
@@ -512,7 +501,7 @@ class Store(Catalogue):
         media = [MediaItem.from_dto(item) for item in items]
         parents = {}
         for medium in media:
-            if medium.kind not in KINDS or not medium.payload.get("Name"):
+            if medium.kind not in NAMES or not medium.payload.get("Name"):
                 raise ValueError("complete %s metadata required" % medium.kind)
             parents[medium.item_id] = parent_of(medium.kind, medium.payload)
         if len({m.item_id for m in media}) != len(media):

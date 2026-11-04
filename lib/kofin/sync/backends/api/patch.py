@@ -342,32 +342,17 @@ class Applier:
         return False
 
     def plan(self, record: Record, repair) -> Optional[Patch]:
+        """The patch a record needs, or None once it is acknowledged, left to
+        a viewer's edit or to the item of ours that owns its row; raises when
+        the scanner has not filed it yet. In order: the kinds applied without
+        a row, the row, music's own plan, the viewer's edit, the row another
+        item owns, the acknowledgement short-circuit, the refresh, the compare.
+        """
         kind = record.kind
         if self.rowless(record):
             self.ack(record.item_id, record.generation, None, {}, kind)
             return None
-        row = self.row_for(record)
-        if row is None:
-            if kind in ("Season", "BoxSet", "MusicAlbum"):
-                # Its episodes, movies or songs are being imported this pass
-                # or the next; nothing native to confirm yet.
-                raise RuntimeError("%s has no native row yet" % kind)
-            if kind == "Audio" and (
-                (record.library, record.parent_id) in self.native.music.rescanned
-                or (record.library, "*") in self.native.music.rescanned
-            ):
-                # Listed and scanned this pass and still absent: Kodi skipped
-                # the directory "due to no change". Salt the listing, once
-                # per directory and pass, so the next scan sees a change
-                # (store.salt).
-                if record.parent_id not in self._salted:
-                    self._salted.add(record.parent_id)
-                    self.store.bump_salt(record.parent_id)
-                raise RuntimeError(
-                    "scanner did not import Audio; directory salted (%d)"
-                    % self.store.salt(record.parent_id)
-                )
-            raise RuntimeError("scanner did not import %s" % kind)
+        row = self._filed_row(record)
         if kind in DERIVED or kind == "Audio":
             return self.plan_music(record, row, repair)
         seasons = (
@@ -390,34 +375,10 @@ class Applier:
         )
         mapping = self.mapping(record.item_id)
         previous = mapping.applied if mapping else {}
-        if record.item_id in self.local:
-            # Deliver the real user edit first. Never overwrite it with an
-            # older server snapshot during a retry or a refresh.
+        if self._viewer_edited(record, row, previous):
             return None
-        if kind in PLAYABLE and previous.get("userdata"):
-            # The scope row carries the userdata, so a viewer's edit is seen
-            # before anything else is read or built.
-            edits = local_edits(
-                row, previous["userdata"], metadata.userdata(record.item)
-            )
-            if edits:
-                self.store.local(record.item_id, edits)
-                return None
         kodi_id = row[KINDS[kind].id_param]
-        owner = self.readback.row_owner(row) if kind in ("Series", "Movie") else None
-        if owner is not None and owner != record.item_id:
-            # Two items of ours that Kodi filed on one row (one show in two of
-            # our libraries, one movie Kodi grouped with another): the one
-            # whose id the row carries owns its details, and this one is
-            # mapped to it and left.
-            LOG.debug(
-                "%s %s shares Kodi's row %d with %s",
-                kind.lower(),
-                record.item_id,
-                kodi_id,
-                owner,
-            )
-            self.ack(record.item_id, record.generation, kodi_id, {}, kind)
+        if self._owned_by_another(record, row, kodi_id):
             return None
         payload = payload_hash(record.item)
         inputs = metadata.inputs_token(
@@ -430,20 +391,127 @@ class Applier:
             downloaded=mark,
             features=self.native.features,
         )
-        # The versions and extras the movie's folder listed, acknowledged so
-        # the pass stops scanning the folder for them (native._asset_folders).
-        assets = (
-            metadata.assets_token(record.item, self.native.features)
-            if kind == "Movie"
-            else None
+        assets, files = self._assets(record)
+        if self._acknowledged(
+            record, kodi_id, mapping, previous, inputs, assets, files, repair
+        ):
+            return None
+        desired = metadata.details(
+            record.item,
+            self.native.server_url(),
+            self.key,
+            record.library,
+            self.native.separator,
+            seasons,
+            set_name,
+            features=self.native.features,
         )
-        files = (
+        downloaded.apply(kind, desired, mark)
+        parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
+        if kind in FILED:
+            row = self._refreshed(record, row, kodi_id, desired, parts, previous)
+            kodi_id = row[KINDS[kind].id_param]
+        # Only now the full row: the scope carries what finds and owns it.
+        row = self.readback.full(kind, record.library, record.parent_id, row)
+        applied = {
+            "hash": payload,
+            "inputs": inputs,
+            "owned": metadata.owned(desired),
+        }
+        if parts:
+            applied["refresh"] = parts
+        if assets is not None:
+            applied["assets"] = assets
+        applied = _with_asset_files(applied, assets, files, previous)
+        self._note_dropped_assets(record, previous, applied)
+        return self._compared(
+            record, row, kodi_id, desired, applied, previous, mapping, repair, mark
+        )
+
+    def _filed_row(self, record: Record) -> dict:
+        """The row Kodi filed for the record; raises when the scanner has not
+        imported it. A season, a set or an album has its episodes, movies or
+        songs imported this pass or the next, with nothing native to confirm
+        yet. A song listed and scanned this pass and still absent is a
+        directory Kodi skipped "due to no change": its listing is salted,
+        once per directory and pass, so the next scan sees a change
+        (store.salt)."""
+        row: Optional[dict] = self.row_for(record)
+        if row is not None:
+            return row
+        kind = record.kind
+        if kind in ("Season", "BoxSet", "MusicAlbum"):
+            raise RuntimeError("%s has no native row yet" % kind)
+        if kind == "Audio" and (
+            (record.library, record.parent_id) in self.native.music.rescanned
+            or (record.library, "*") in self.native.music.rescanned
+        ):
+            if record.parent_id not in self._salted:
+                self._salted.add(record.parent_id)
+                self.store.bump_salt(record.parent_id)
+            raise RuntimeError(
+                "scanner did not import Audio; directory salted (%d)"
+                % self.store.salt(record.parent_id)
+            )
+        raise RuntimeError("scanner did not import %s" % kind)
+
+    def _viewer_edited(self, record: Record, row, previous) -> bool:
+        """Whether a viewer's edit of the row goes first: a real edit is
+        delivered before any server snapshot and never overwritten by an
+        older one during a retry or a refresh. The scope row carries the
+        userdata, so the edit is seen before anything else is read or
+        built."""
+        if record.item_id in self.local:
+            return True
+        if record.kind in PLAYABLE and previous.get("userdata"):
+            edits = local_edits(
+                row, previous["userdata"], metadata.userdata(record.item)
+            )
+            if edits:
+                self.store.local(record.item_id, edits)
+                return True
+        return False
+
+    def _owned_by_another(self, record: Record, row, kodi_id) -> bool:
+        """Two items of ours that Kodi filed on one row (one show in two of
+        our libraries, one movie Kodi grouped with another): the one whose
+        id the row carries owns its details, and this one is mapped to it
+        and left."""
+        kind = record.kind
+        owner = self.readback.row_owner(row) if kind in ("Series", "Movie") else None
+        if owner is None or owner == record.item_id:
+            return False
+        LOG.debug(
+            "%s %s shares Kodi's row %d with %s",
+            kind.lower(),
+            record.item_id,
+            kodi_id,
+            owner,
+        )
+        self.ack(record.item_id, record.generation, kodi_id, {}, kind)
+        return True
+
+    def _assets(self, record: Record):
+        """The versions and extras a movie's folder listed, as the token and
+        the file list, acknowledged so the pass stops scanning the folder
+        for them (native._asset_folders); None for every other kind."""
+        if record.kind != "Movie":
+            return None, None
+        return (
+            metadata.assets_token(record.item, self.native.features),
             metadata.asset_files(
                 record.item, self.key, record.library, self.native.features
-            )
-            if kind == "Movie"
-            else None
+            ),
         )
+
+    def _acknowledged(
+        self, record: Record, kodi_id, mapping, previous, inputs, assets, files, repair
+    ) -> bool:
+        """The desired state this payload and these inputs produce was
+        acknowledged against this very row: nothing to build, read or
+        compare. A retried pass and a re-published item take this path, and
+        a repair never does."""
+        kind = record.kind
         if (
             not repair
             # A set's id is no proof of its row: Kodi numbers a new set from
@@ -461,71 +529,65 @@ class Applier:
             and hash_matches(previous.get("hash"), record.item)
             and previous.get("inputs") == inputs
         ):
-            # The desired state this payload and these inputs produce was
-            # acknowledged against this very row: nothing to build, read or
-            # compare. A retried pass and a re-published item take this path.
             acked = previous
             if assets is not None and previous.get("assets", "") != assets:
                 acked = dict(previous, assets=assets)
             acked = _with_asset_files(acked, assets, files, previous)
             self._note_dropped_assets(record, previous, acked)
             self.ack(record.item_id, record.generation, kodi_id, acked, kind)
-            return None
-        desired = metadata.details(
-            record.item,
-            self.native.server_url(),
-            self.key,
-            record.library,
-            self.native.separator,
-            seasons,
-            set_name,
-            features=self.native.features,
+            return True
+        return False
+
+    def _refreshed(self, record: Record, row, kodi_id, desired, parts, previous):
+        """The row after the refresh a moved token calls for, or the row as
+        it is: listed under another source's folder or file, a show or a
+        movie would be refreshed from that source, and the setter writes our
+        ids instead."""
+        kind = record.kind
+        token = desired["uniqueid"]["kofinrefresh"]
+        if (row.get("uniqueid") or {}).get("kofinrefresh") == token:
+            return row
+        if (
+            kind == "Series"
+            and not self.readback.own_folder(record.library, record.item_id, row)
+        ) or (
+            kind == "Movie"
+            and not self.readback.own_file(record.library, record.item_id, row)
+        ):
+            LOG.debug(
+                "%s %s is listed under another source's file: not refreshed",
+                kind.lower(),
+                record.item_id,
+            )
+            return row
+        LOG.debug(
+            "refreshing %s %s: %s",
+            kind.lower(),
+            record.item_id,
+            moved_parts(previous.get("refresh"), parts),
         )
-        downloaded.apply(kind, desired, mark)
-        parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
-        if kind in FILED:
-            token = desired["uniqueid"]["kofinrefresh"]
-            if (row.get("uniqueid") or {}).get("kofinrefresh") != token and (
-                (
-                    kind == "Series"
-                    and not self.readback.own_folder(
-                        record.library, record.item_id, row
-                    )
-                )
-                or (
-                    kind == "Movie"
-                    and not self.readback.own_file(record.library, record.item_id, row)
-                )
-            ):
-                # Listed under another source's folder or file, the row would
-                # be refreshed from that source: the setter writes our ids.
-                LOG.debug(
-                    "%s %s is listed under another source's file: not refreshed",
-                    kind.lower(),
-                    record.item_id,
-                )
-            elif (row.get("uniqueid") or {}).get("kofinrefresh") != token:
-                LOG.debug(
-                    "refreshing %s %s: %s",
-                    kind.lower(),
-                    record.item_id,
-                    moved_parts(previous.get("refresh"), parts),
-                )
-                row = self.refresh(record, kodi_id, token)
-                kodi_id = row[KINDS[kind].id_param]
-        # Only now the full row: the scope carries what finds and owns it.
-        row = self.readback.full(kind, record.library, record.parent_id, row)
-        applied = {
-            "hash": payload,
-            "inputs": inputs,
-            "owned": metadata.owned(desired),
-        }
-        if parts:
-            applied["refresh"] = parts
-        if assets is not None:
-            applied["assets"] = assets
-        applied = _with_asset_files(applied, assets, files, previous)
-        self._note_dropped_assets(record, previous, applied)
+        return self.refresh(record, kodi_id, token)
+
+    def _compared(
+        self,
+        record: Record,
+        row,
+        kodi_id,
+        desired,
+        applied,
+        previous,
+        mapping,
+        repair,
+        mark,
+    ) -> Optional[Patch]:
+        """The patch for a row that differs from the desired state, or None
+        for one acknowledged as it stands. Repair re-sends a row whose
+        acknowledged hash moved, for the fields a readback cannot show; a
+        row with no acknowledgement yet was just filed by the scanner from
+        this very listing, so there is nothing stale behind it, and the pass
+        that follows every complete enumeration runs as a repair. A
+        withdrawn season name is a clear the readback cannot show."""
+        kind = record.kind
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)
@@ -533,16 +595,10 @@ class Applier:
             self._expectations.append(
                 (record.item_id, record.generation, applied["userdata"])
             )
-        # A withdrawn season name is a clear the readback cannot show.
         clearing = kind == "Season" and desired.get("title") == ""
         if (
             not clearing
             and matches(row, compare)
-            # Repair re-sends a row whose acknowledged hash moved, for the
-            # fields a readback cannot show. A row with no acknowledgement
-            # yet was just filed by the scanner from this very listing:
-            # there is nothing stale behind it, and the pass that follows
-            # every complete enumeration runs as a repair.
             and (
                 not repair
                 or mapping is None

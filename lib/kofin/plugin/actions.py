@@ -815,6 +815,38 @@ def size_rows(report: Any) -> list[tuple]:
     return rows
 
 
+def _music_targets(
+    request: Request, item_id: str, states: tuple[str, ...]
+) -> Optional[list[str]]:
+    """The songs a music container's download entry acts on, those in the
+    given states; None for an entry that is not a music container's. A
+    playlist or a library a subscription keeps answers no song: the
+    subscription owns its downloads."""
+    music_scope = (
+        "playlist"
+        if request.params.get("playlist") == "1"
+        else "musiclibrary" if request.params.get("library") == "1" else ""
+    )
+    if not music_scope:
+        return None
+    from kofin.downloads import store, subscriptions
+
+    setting = (
+        subscriptions.PLAYLIST_SETTING
+        if music_scope == "playlist"
+        else subscriptions.LIBRARY_SETTING
+    )
+    if item_id in subscriptions.subscribed(setting):
+        return []
+    return [
+        song_id
+        for song_id, state in store.music_container_unclaimed_states(
+            item_id, music_scope
+        ).items()
+        if state in states
+    ]
+
+
 def cancel_download(request: Request) -> None:
     """Cancel one download, or every unfinished one under a container.
 
@@ -827,29 +859,8 @@ def cancel_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    music_scope = (
-        "playlist"
-        if request.params.get("playlist") == "1"
-        else "musiclibrary" if request.params.get("library") == "1" else ""
-    )
-    if music_scope:
-        from kofin.downloads import subscriptions
-
-        setting = (
-            subscriptions.PLAYLIST_SETTING
-            if music_scope == "playlist"
-            else subscriptions.LIBRARY_SETTING
-        )
-        if item_id in subscriptions.subscribed(setting):
-            return
-        targets = [
-            song_id
-            for song_id, state in store.music_container_unclaimed_states(
-                item_id, music_scope
-            ).items()
-            if state in (store.QUEUED, store.ACTIVE)
-        ]
-    else:
+    targets = _music_targets(request, item_id, (store.QUEUED, store.ACTIVE))
+    if targets is None:
         targets = (
             [item_id] if store.get(item_id) else store.container_pending_ids(item_id)
         )
@@ -873,31 +884,12 @@ def remove_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    music_scope = (
-        "playlist"
-        if request.params.get("playlist") == "1"
-        else "musiclibrary" if request.params.get("library") == "1" else ""
-    )
-    if music_scope:
-        from kofin.downloads import subscriptions
-
-        setting = (
-            subscriptions.PLAYLIST_SETTING
-            if music_scope == "playlist"
-            else subscriptions.LIBRARY_SETTING
+    targets = _music_targets(request, item_id, (store.DONE,))
+    if targets is None:
+        targets = (
+            [item_id]
+            if store.get(item_id) is not None
+            else store.container_done_ids(item_id)
         )
-        if item_id in subscriptions.subscribed(setting):
-            return
-        targets = [
-            song_id
-            for song_id, state in store.music_container_unclaimed_states(
-                item_id, music_scope
-            ).items()
-            if state == store.DONE
-        ]
-    elif store.get(item_id) is not None:
-        targets = [item_id]
-    else:
-        targets = store.container_done_ids(item_id)
     if targets:
         ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": targets})

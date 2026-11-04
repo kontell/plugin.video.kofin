@@ -64,17 +64,6 @@ def convert_to_local(date: Union[str, datetime]) -> str:
         return str(date)
 
 
-MEDIATYPE = {
-    "Movie": "movie",
-    "Series": "tvshow",
-    "Season": "season",
-    "Episode": "episode",
-    "MusicVideo": "musicvideo",
-    "BoxSet": "set",
-    "Audio": "song",
-    "MusicAlbum": "album",
-    "MusicArtist": "artist",
-}
 MUSIC = ("Audio", "MusicAlbum", "MusicArtist")
 # Jellyfin's "no date" for music: year 1, 0001-01-01.
 NO_YEAR = 1
@@ -1205,7 +1194,7 @@ def listitem(
     li = xbmcgui.ListItem(data.get("title", item.get("Name", "")), offscreen=True)
     li.setArt(data["art"])
     tag = li.getVideoInfoTag()
-    tag.setMediaType(MEDIATYPE[kind])
+    tag.setMediaType(listitems.MEDIATYPE[kind])
     tag.setTitle(data["title"])
     tag.setPlot(data.get("plot", ""))
     if data.get("originaltitle"):
