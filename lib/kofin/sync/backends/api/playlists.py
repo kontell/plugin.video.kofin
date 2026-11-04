@@ -8,13 +8,16 @@ the prune rules are the shared module's (sync/playlists.py).
 """
 
 import re
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from collections.abc import Iterable
 
 from kofin.core.log import Logger
 from kofin.sync import dynamic, kofindb, playlists, private
 from . import paths
 from .store import Store
+
+if TYPE_CHECKING:
+    from kofin.core.api import Api
 
 LOG = Logger(__name__)
 
@@ -158,7 +161,7 @@ def enabled_kinds() -> set[str]:
     return playlists.enabled_kinds(views, whitelist)
 
 
-def _drop_side(side: str, state, root) -> int:
+def _drop_side(side: str, state: kofindb.JellyfinDatabase, root: Optional[str]) -> int:
     """The managed files and the states of a side whose last library left
     the selection, the way the whole feature's go when it is turned off."""
     stale = [row for row in state.get_playlist_states() if row[1] == side]
@@ -175,7 +178,10 @@ def _drop_side(side: str, state, root) -> int:
 
 
 def reconcile(
-    api, store: Store, music_root=None, video_root=None
+    api: "Api",
+    store: Store,
+    music_root: Optional[str] = None,
+    video_root: Optional[str] = None,
 ) -> Optional[dict[str, int]]:
     """Every server playlist of the enabled sides, written and pruned; a
     side with no synced library left loses its files and states, and with
@@ -207,7 +213,11 @@ def reconcile(
 
 
 def apply(
-    api, store: Store, playlist_id: str, music_root=None, video_root=None
+    api: "Api",
+    store: Store,
+    playlist_id: str,
+    music_root: Optional[str] = None,
+    video_root: Optional[str] = None,
 ) -> Optional[bool]:
     """One server playlist, written or pruned; None while the switch cannot
     be read."""
@@ -243,7 +253,7 @@ def owed() -> bool:
         return bool(kofindb.JellyfinDatabase(db.cursor).get_playlist_states())
 
 
-def cleanup(music_root=None, video_root=None) -> int:
+def cleanup(music_root: Optional[str] = None, video_root: Optional[str] = None) -> int:
     """The managed playlists go, both sides, and the state with them; the
     number of files removed."""
     removed = playlists.cleanup_managed_playlists(music_root)

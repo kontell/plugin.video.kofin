@@ -14,13 +14,17 @@ hold and ``Native.scan``.
 import collections
 import time
 from collections import abc
-from typing import Optional
+from collections.abc import Collection
+from typing import TYPE_CHECKING, Optional
 
 from kofin.core.log import Logger
 from . import metadata, paths, progress, walk
 from .readback import artist_key
 from .records import Record
 from .store import Entry, Mapping, Placements
+
+if TYPE_CHECKING:
+    from .native import Native
 
 LOG = Logger(__name__)
 
@@ -32,7 +36,7 @@ class MusicPass:
     and a song's hash is a payload walk, a tag build and a digest.
     ``Native.reconcile`` makes one for each pass."""
 
-    def __init__(self, native):
+    def __init__(self, native: "Native") -> None:
         self.native = native
         self.store = native.store
         self.key = native.key
@@ -59,7 +63,7 @@ class MusicPass:
         self._album_owners: Optional[dict[int, str]] = None
         self._artist_owners: Optional[dict[str, str]] = None
 
-    def forget(self):
+    def forget(self) -> None:
         """Drop what the pass read; what it re-listed stays on record."""
         self._album_items = {}
         self._song_mappings = {}
@@ -70,7 +74,7 @@ class MusicPass:
         self._album_owners = None
         self._artist_owners = None
 
-    def song_mappings(self, library) -> dict[str, Mapping]:
+    def song_mappings(self, library: str) -> dict[str, Mapping]:
         """The library's song mappings, read once a pass: nothing between
         the directory picker and the lost-song check acknowledges a song."""
         if library not in self._song_mappings:
@@ -79,7 +83,7 @@ class MusicPass:
             )
         return self._song_mappings[library]
 
-    def album_items(self, library) -> dict[str, dict]:
+    def album_items(self, library: str) -> dict[str, dict]:
         """The library's album payloads, read once a pass: a song's tag hash
         takes its album's artists and MusicBrainz ids."""
         if library not in self._album_items:
@@ -91,12 +95,12 @@ class MusicPass:
             }
         return self._album_items[library]
 
-    def song_folders(self, library) -> set[str]:
+    def song_folders(self, library: str) -> set[str]:
         if library not in self._song_folders:
             self._song_folders[library] = set(self.store.folders("Audio", library))
         return self._song_folders[library]
 
-    def credited(self, library) -> set[str]:
+    def credited(self, library: str) -> set[str]:
         """The artist ids the library's live albums credit."""
         if library not in self._credited:
             artists: set[str] = set()
@@ -122,7 +126,7 @@ class MusicPass:
             artist_key(record.item.get("Name")), record.item_id
         )
 
-    def album_ids(self, library) -> dict[str, Optional[int]]:
+    def album_ids(self, library: str) -> dict[str, Optional[int]]:
         if library not in self._album_ids:
             ids: dict[str, Optional[int]] = {}
             for folder, rows in sorted(self.native.readback.folders(library).items()):
@@ -139,7 +143,7 @@ class MusicPass:
         one most of them share."""
         return self.album_ids(record.library).get(record.item_id)
 
-    def album_owner(self, albumid) -> Optional[str]:
+    def album_owner(self, albumid: int) -> Optional[str]:
         """Of our albums Kodi merged into one row, the first by id owns the
         row's art and description; the others are mapped and left."""
         if self._album_owners is None:
@@ -163,8 +167,8 @@ class MusicPass:
         return found
 
     def import_missing(
-        self, upserts: dict[str, Record], library, entries: abc.Mapping[str, Entry]
-    ):
+        self, upserts: dict[str, Record], library: str, entries: abc.Mapping[str, Entry]
+    ) -> None:
         """Have Kodi list every directory of the library that needs it, and
         put back to pending whatever the scan should have filed and did
         not."""
@@ -194,7 +198,7 @@ class MusicPass:
         if library in self._compared:
             self.native.music_checked.add(library)
 
-    def scan(self, library, folders: set[str], expected=0):
+    def scan(self, library: str, folders: set[str], expected: int = 0) -> None:
         """Have Kodi list the changed album directories again.
 
         The directories are planned in listing order (``walk.rows``) and
@@ -250,7 +254,9 @@ class MusicPass:
         if every <= set(folders):
             self.rescanned.add((library, "*"))
 
-    def lost_songs(self, library, folders: set[str], entries) -> list[str]:
+    def lost_songs(
+        self, library: str, folders: set[str], entries: abc.Mapping[str, Entry]
+    ) -> list[str]:
         """Acknowledged songs the scan just run should have re-filed and did
         not: a listing that failed half way, or a scan stopped between its
         delete and its re-add. Nothing pending names them, so they are found
@@ -287,7 +293,7 @@ class MusicPass:
         return lost
 
     def directories(
-        self, upserts: dict[str, Record], library, entries: abc.Mapping[str, Entry]
+        self, upserts: dict[str, Record], library: str, entries: abc.Mapping[str, Entry]
     ) -> set[str]:
         """The album directories whose listing Kodi must read again.
 
@@ -357,7 +363,7 @@ class MusicPass:
             began = time.monotonic()
             self.native.progress.note(progress.label("Audio"))
 
-            def moved(record):
+            def moved(record: Record) -> None:
                 folders.add(record.parent_id)
                 if record.item_id not in upserts:
                     revived[record.item_id] = record
@@ -423,7 +429,9 @@ class MusicPass:
         self._compared.add(library)
         return folders
 
-    def check_due(self, library, songs: dict[str, Record], changed_albums) -> bool:
+    def check_due(
+        self, library: str, songs: dict[str, Record], changed_albums: Collection[str]
+    ) -> bool:
         """Whether this pass compares every song of the library with Kodi's
         rows: once a library after the service starts, after a repair or a
         music scan or clean that was not the pass's own
@@ -438,7 +446,7 @@ class MusicPass:
         )
 
 
-def _read_every(entries) -> None:
+def _read_every(entries: abc.Mapping[str, Entry]) -> None:
     """Every placement at once, for a caller about to read most of them one
     by one; a plain dict already holds them."""
     if isinstance(entries, Placements):

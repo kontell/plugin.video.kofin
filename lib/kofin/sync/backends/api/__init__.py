@@ -3,6 +3,7 @@ companion folder an earlier build left."""
 
 import os
 import shutil
+from typing import Any
 
 from kofin.core.log import Logger
 from kofin.sync import private
@@ -13,7 +14,7 @@ LOG = Logger(__name__)
 class APIBackend:
     name = "api"
 
-    def initialize(self):
+    def initialize(self) -> None:
         # The plugin process imports this package on every play and never
         # claims the backend, so the catalogue stays out of module scope.
         from kofin.sync.catalogue import claim_backend
@@ -23,13 +24,13 @@ class APIBackend:
             claim_backend(db.cursor, self.name)
         forget_companion()
 
-    def capabilities(self):
+    def capabilities(self) -> dict[str, Any]:
         from .capabilities import inspect
 
         return inspect()
 
 
-def forget_companion():
+def forget_companion() -> None:
     """Delete the companion/ folder an earlier build left in addon_data."""
     folder = os.path.join(private.addon_data_path(), "companion")
     if os.path.isdir(folder):
