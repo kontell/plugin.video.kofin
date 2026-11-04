@@ -18,11 +18,13 @@ raises) and ``tempo`` (the tempo set, by the ``correction`` flag #38 adds to
 from typing import Any
 
 
-def version(value):
+def version(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
-def _check_addons(capture, addons, errors: list[str]) -> None:
+def _check_addons(
+    capture: dict[str, Any], addons: dict[str, str], errors: list[str]
+) -> None:
     for addon, minimum in addons.items():
         try:
             adequate = version(
@@ -34,7 +36,9 @@ def _check_addons(capture, addons, errors: list[str]) -> None:
             errors.append(addon + " >= " + minimum + " is required")
 
 
-def _check_methods(capture, methods, errors: list[str]) -> None:
+def _check_methods(
+    capture: dict[str, Any], methods: dict[str, dict[str, Any]], errors: list[str]
+) -> None:
     for method, parameters in methods.items():
         definition = capture.get("methods", {}).get(method)
         if definition is None:
@@ -48,14 +52,18 @@ def _check_methods(capture, methods, errors: list[str]) -> None:
                 errors.append("missing enum values " + method + "." + name)
 
 
-def _check_python(capture, python, errors: list[str]) -> None:
+def _check_python(
+    capture: dict[str, Any], python: dict[str, list[str]], errors: list[str]
+) -> None:
     for field, methods in python.items():
         for method in methods:
             if capture.get(field, {}).get(method) is not True:
                 errors.append("missing Python capability " + field + "." + method)
 
 
-def _check_fields(capture, fields, errors: list[str]) -> None:
+def _check_fields(
+    capture: dict[str, Any], fields: dict[str, list[str]], errors: list[str]
+) -> None:
     """A value a field enum must list: a property a readback may ask for
     only while Kodi names it, since an unknown one fails the whole call."""
     for type_name, values in fields.items():
@@ -66,7 +74,9 @@ def _check_fields(capture, fields, errors: list[str]) -> None:
                 errors.append("missing field " + type_name + "." + value)
 
 
-def check(capture, contract, allow_dirty=False) -> dict[str, Any]:
+def check(
+    capture: dict[str, Any], contract: dict[str, Any], allow_dirty: bool = False
+) -> dict[str, Any]:
     capture = capture.get("result", capture)
     errors: list[str] = []
     application = capture.get("application", {}).get("version", {})

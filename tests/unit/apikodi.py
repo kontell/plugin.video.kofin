@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 
 from kofin.sync.backends.api import capabilities, metadata, native, paths, provider
-from kofin.sync.backends.api.kinds import FEATURE_FIELDS
+from kofin.sync.backends.api.kinds import FEATURE_FIELDS, NAMES
 
 SERVER = "http://fixture.invalid"
 
@@ -50,7 +50,7 @@ class Kodi:
     def __init__(self, store):
         self.store = store
         self.key = store.namespace
-        self.rows = {kind: {} for kind in metadata.MEDIATYPE}
+        self.rows = {kind: {} for kind in NAMES}
         self.bindings = {}
         self.recursive = {}
         self.next_id = 1
