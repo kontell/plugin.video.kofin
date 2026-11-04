@@ -168,18 +168,6 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr "仅在服务器使用自签名证书时关闭。"
 
-msgctxt "#30068"
-msgid "Device name"
-msgstr "设备名称"
-
-msgctxt "#30069"
-msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr "本设备在 Jellyfin 控制台和投放菜单中显示的名称。"
-
-msgctxt "#30070"
-msgid "Connection"
-msgstr "连接"
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "高级"
@@ -380,10 +368,6 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr "“以转码方式播放”提供的比特率。仅选中一项时会跳过弹出菜单。"
 
-msgctxt "#30128"
-msgid "Music"
-msgstr "音乐"
-
 msgctxt "#30129"
 msgid "Maximum music bitrate"
 msgstr "最大音乐比特率"
@@ -411,10 +395,6 @@ msgstr "转码音乐流使用的比特率。"
 msgctxt "#30135"
 msgid "Transcode music"
 msgstr "转码音乐"
-
-msgctxt "#30136"
-msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
-msgstr "让音乐播放经由插件，使下面的设置生效。关闭时，歌曲直接从服务器原样播放。更改此项后需要对音乐媒体库执行一次修复，以重写其路径。"
 
 msgctxt "#30150"
 msgid "H.264 (AVC)"
@@ -648,18 +628,6 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr "谁在看？"
 
-msgctxt "#30042"
-msgid "Add a user"
-msgstr "添加用户"
-
-msgctxt "#30043"
-msgid "Remove a user"
-msgstr "移除用户"
-
-msgctxt "#30044"
-msgid "Select user"
-msgstr "选择用户"
-
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr "服务器上尚无活动会话"
@@ -692,21 +660,9 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr "选择哪些服务器媒体库镜像到 Kodi 媒体库。确认选择后更改生效。"
 
-msgctxt "#30254"
-msgid "Synced libraries"
-msgstr "已同步的媒体库"
-
-msgctxt "#30255"
-msgid "The libraries currently mirrored into the Kodi database."
-msgstr "当前镜像到 Kodi 数据库中的媒体库。"
-
 msgctxt "#30256"
 msgid "Update libraries"
 msgstr "更新媒体库"
-
-msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
-msgstr "同步服务器上的变更，并从你选择的媒体库中清除已移除的项目。确认选择后运行。"
 
 msgctxt "#30258"
 msgid "Repair libraries"
@@ -716,21 +672,9 @@ msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr "移除并从头重新同步你选择的媒体库，同时从服务器恢复观看状态。确认选择后运行。"
 
-msgctxt "#30260"
-msgid "Refresh boxsets"
-msgstr "刷新电影集"
-
-msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr "根据服务器上的合集重建电影集链接。立即运行。"
-
 msgctxt "#30262"
 msgid "Sync status"
 msgstr "同步状态"
-
-msgctxt "#30263"
-msgid "Companion plugin tier and schema-gate state."
-msgstr "配套插件级别与数据库架构检查状态。"
 
 msgctxt "#30264"
 msgid "Remove synced library?"
@@ -756,18 +700,6 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr "没有可用的媒体库"
 
-msgctxt "#30270"
-msgid "Update which libraries?"
-msgstr "更新哪些媒体库？"
-
-msgctxt "#30300"
-msgid "Sync"
-msgstr "同步"
-
-msgctxt "#30301"
-msgid "How library changes are downloaded and written."
-msgstr "媒体库变更如何下载和写入。"
-
 msgctxt "#30302"
 msgid "Hide update status below (items)"
 msgstr "低于此项目数时隐藏更新状态"
@@ -775,34 +707,6 @@ msgstr "低于此项目数时隐藏更新状态"
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr "同步项目数少于此值时，隐藏 Kodi 的媒体库更新进度。0 表示始终显示。"
-
-msgctxt "#30306"
-msgid "Sync during video playback"
-msgstr "视频播放期间同步"
-
-msgctxt "#30307"
-msgid "Keep applying library updates while a video is playing."
-msgstr "视频播放时继续应用媒体库更新。"
-
-msgctxt "#30310"
-msgid "Items per request"
-msgstr "每次请求的项目数"
-
-msgctxt "#30311"
-msgid "Page size for library downloads. Recommended: 50."
-msgstr "媒体库下载的分页大小。推荐值：50。"
-
-msgctxt "#30312"
-msgid "Download threads"
-msgstr "下载线程数"
-
-msgctxt "#30313"
-msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr "同步期间的并行下载连接数。推荐值：3；仅在服务器很快时调高。"
-
-msgctxt "#30314"
-msgid "Artwork"
-msgstr "艺术图"
 
 msgctxt "#30318"
 msgid "Compress artwork"
@@ -872,10 +776,6 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr "正在观看的剧集"
 
-msgctxt "#30357"
-msgid "Next episodes"
-msgstr "接下来的剧集"
-
 msgctxt "#30358"
 msgid "Favorite movies"
 msgstr "收藏的电影"
@@ -888,69 +788,17 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr "收藏的剧集"
 
-msgctxt "#30361"
-msgid "Favorites"
-msgstr "收藏"
-
-msgctxt "#30362"
-msgid "First letter"
-msgstr "首字母"
-
-msgctxt "#30400"
-msgid "Gathering:"
-msgstr "正在收集："
-
 msgctxt "#30401"
 msgid "Updating media"
 msgstr "正在更新媒体"
-
-msgctxt "#30402"
-msgid "Large update: %s items pending"
-msgstr "大批更新：%s 个项目待处理"
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
 msgstr "同步未完成；稍后重试"
 
-msgctxt "#30404"
-msgid "Resuming interrupted library sync"
-msgstr "正在继续中断的媒体库同步"
-
-msgctxt "#30405"
-msgid "New"
-msgstr "新增"
-
-msgctxt "#30406"
-msgid "Library sync failed"
-msgstr "媒体库同步失败"
-
-msgctxt "#30407"
-msgid "Boxsets"
-msgstr "电影集"
-
 msgctxt "#30408"
 msgid "Removing library"
 msgstr "正在移除媒体库"
-
-msgctxt "#30409"
-msgid "Full sync completed in"
-msgstr "完整同步完成，用时"
-
-msgctxt "#30410"
-msgid "A sync is already running"
-msgstr "已有同步正在运行"
-
-msgctxt "#30411"
-msgid "Official KodiSyncQueue companion"
-msgstr "官方 KodiSyncQueue 配套插件"
-
-msgctxt "#30412"
-msgid "No companion plugin — realtime updates only"
-msgstr "无配套插件 — 仅实时更新"
-
-msgctxt "#30413"
-msgid "Sync paused: unknown Kodi database v%s"
-msgstr "同步已暂停：未知的 Kodi 数据库 v%s"
 
 msgctxt "#30415"
 msgid "Connected to %s"
@@ -972,10 +820,6 @@ msgctxt "#30420"
 msgid "Library sync is off: %s"
 msgstr "媒体库同步已关闭：%s"
 
-msgctxt "#30414"
-msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr "advancedsettings.xml 启用了 cleanonupdate — 与媒体库同步不兼容"
-
 msgctxt "#30450"
 msgid "Skipping & Play next"
 msgstr "跳过与播放下一集"
@@ -983,10 +827,6 @@ msgstr "跳过与播放下一集"
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
 msgstr "媒体片段跳过与“播放下一集”提示。"
-
-msgctxt "#30452"
-msgid "Media segments"
-msgstr "媒体片段"
 
 msgctxt "#30453"
 msgid "Skip media segments"
@@ -1047,10 +887,6 @@ msgstr "自动"
 msgctxt "#30467"
 msgid "Ask"
 msgstr "询问"
-
-msgctxt "#30468"
-msgid "Play next"
-msgstr "播放下一集"
 
 msgctxt "#30469"
 msgid "Offer Play Next"
@@ -1176,22 +1012,6 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr "与其他 Jellyfin 客户端同步观看。请在 Kodi 中关闭“同步播放到显示器”，体验会更稳定"
 
-msgctxt "#30553"
-msgid "Drift correction"
-msgstr "漂移校正"
-
-msgctxt "#30554"
-msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr "轻微调整播放速度以与群组保持同步（需要 Kodi 的“同步播放到显示器”）。关闭：仅遵循预定的命令。"
-
-msgctxt "#30555"
-msgid "Sync tolerance (ms)"
-msgstr "同步容差（毫秒）"
-
-msgctxt "#30556"
-msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr "低于此值的漂移不作处理，超过后才启动校正。值越小越精确，但校正也越频繁。"
-
 msgctxt "#30557"
 msgid "Group notifications"
 msgstr "群组通知"
@@ -1312,22 +1132,6 @@ msgctxt "#30587"
 msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
 msgstr "通过短暂地加快或放慢播放，让此设备保持在群组位置上。进行视频校正时，直通音频会被解码，直到下一个项目。"
 
-msgctxt "#30588"
-msgid "Fine sync with audio passthrough on"
-msgstr "音频直通开启时仍精细同步"
-
-msgctxt "#30589"
-msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
-msgstr "即使 Kodi 的音频直通已开启也使用精细同步。会话期间功放收到的是多声道 PCM 而不是码流：大多数设备没有问题，但 Atmos 和 DTS:X 对象音频会丢失。关闭则保留直通，群组仅靠命令收敛。"
-
-msgctxt "#30590"
-msgid "Shorter video queue during sessions (Kodi 22)"
-msgstr "会话期间使用更短的视频队列 (Kodi 22)"
-
-msgctxt "#30591"
-msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
-msgstr "加入群组时将 Kodi 的音视频队列时间设为 1 秒，之后恢复。速度变化要等队列播放完才能听到，所以更短的队列让校正在约 2 秒而不是 5 秒内生效。网络缓慢或不稳定时请关闭。Kodi 21 的队列固定为 8 秒。"
-
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "精细同步已停止：速率不匹配"
@@ -1348,34 +1152,6 @@ msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
 msgstr "校正期间播放速度最多可改变的幅度。在 25% 时，2.5 秒的误差需 10 秒校正；越低越不明显，但越慢。较大的改变会逐步切入切出。"
 
-msgctxt "#30597"
-msgid "Fine sync on AV1 video"
-msgstr "对 AV1 视频启用精细同步"
-
-msgctxt "#30598"
-msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
-msgstr "默认关闭，并请注意：在 Pixel 7 上，变速后紧接跳转曾使 AV1 硬件解码器乃至整部手机卡死。Bravia 的 AV1 解码器则没有问题。仅当您的设备能承受时才开启；否则 AV1 条目仅靠命令跟随群组。"
-
-msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "精细同步需要 inputstream.tempo 21.4.1 / 22.4.1"
-
-msgctxt "#30600"
-msgid "KofinSyncQueue companion (fast path)"
-msgstr "KofinSyncQueue 配套插件（快速通道）"
-
-msgctxt "#30601"
-msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr "变更队列保留期已超出 — 正在更新媒体库以恢复"
-
-msgctxt "#30602"
-msgid "New: %s | Updates: %s | User data: %s"
-msgstr "新增：%s | 更新：%s | 用户数据：%s"
-
-msgctxt "#30603"
-msgid "Comparing with the server"
-msgstr "正在与服务器比对"
-
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1383,34 +1159,6 @@ msgstr "480p"
 msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
-
-msgctxt "#30606"
-msgid "Jellyfin song lyrics"
-msgstr "Jellyfin 歌词"
-
-msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr "播放歌曲时显示来自 Jellyfin 的歌词，而不是由歌词插件到网上搜索。\"使用 Kofin Lyrics 显示\"会把歌词交给 Kofin Lyrics 插件，由它自己绘制或让皮肤绘制。\"交给歌词插件\"可配合任何歌词插件使用，例如 CU LRC Lyrics。"
-
-msgctxt "#30608"
-msgid "Off"
-msgstr "关闭"
-
-msgctxt "#30609"
-msgid "Show with Kofin Lyrics"
-msgstr "使用 Kofin Lyrics 显示"
-
-msgctxt "#30610"
-msgid "Hand to a lyrics addon"
-msgstr "交给歌词插件"
-
-msgctxt "#30611"
-msgid "Sync playlists"
-msgstr "同步播放列表"
-
-msgctxt "#30612"
-msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
-msgstr "将 Jellyfin 播放列表复制为 Kodi 原生播放列表。同步了音乐资料库时，音乐播放列表出现在 音乐 → 播放列表 → Kofin；同步了视频资料库时，视频播放列表出现在 视频 → 播放列表 → Kofin。这些文件的本地编辑会在刷新时被覆盖 — 使用 \"保存到 Jellyfin\" 将本地播放列表发回。"
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -1439,14 +1187,6 @@ msgstr "使用 Jellyfin 的默认轨道"
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "按你的 Jellyfin 账户所要求的音频和字幕轨道开始播放，而不是由 Kodi 自己的语言设置来挑选。服务器会根据你的 Jellyfin 配置解析两者，因此这个选择会跟随你到每一个客户端。"
-
-msgctxt "#30620"
-msgid "Chapter images from the server"
-msgstr "来自服务器的章节图像"
-
-msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
-msgstr "在 Kodi 的章节列表中显示 Jellyfin 的章节图像。图像在播放开始时按需获取。"
 
 msgctxt "#30622"
 msgid "Notify about new content"
@@ -1516,102 +1256,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "在插件背后显示 Jellyfin 服务器的启动画面，而不是内置的艺术图。服务连接时刷新，每天最多一次。"
 
-msgctxt "#30650"
-msgid "Clean databases"
-msgstr "清理数据库"
-
-msgctxt "#30651"
-msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr "从此 Kodi 配置文件中移除所有 Kofin 和 Jellyfin for Kodi 的媒体库数据、节点和播放列表。用于从 Jellyfin for Kodi 迁移，或在卸载 Kofin 之前使用。不会改动 Jellyfin 服务器。"
-
-msgctxt "#30652"
-msgid "Sign out before cleaning the databases."
-msgstr "清理数据库前请先注销。"
-
-msgctxt "#30653"
-msgid "A sync is still running — try again when it finishes."
-msgstr "同步仍在进行 — 请在其完成后重试。"
-
-msgctxt "#30654"
-msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr "请先禁用或卸载 Jellyfin for Kodi 插件：它的后台服务会把一切重新同步回来。"
-
-msgctxt "#30655"
-msgid "Unsupported Kodi database: %s"
-msgstr "不受支持的 Kodi 数据库：%s"
-
-msgctxt "#30656"
-msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr "这会移除 Kodi 视频库中的所有内容 — 包括其他插件或本地来源添加的项目 — 以及观看状态和续播位置。不会改动 Jellyfin 服务器。是否继续？"
-
-msgctxt "#30657"
-msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr "同时清理音乐库吗？此配置文件的 Kodi 音乐库中的每一首歌曲、每一张专辑和每一位艺术家都将被移除。"
-
-msgctxt "#30658"
-msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr "同时移除所有媒体库节点，包括手动创建和节点编辑器生成的文件吗？Kodi 的菜单将恢复默认。选择“否”则仅移除 Kofin 和 Jellyfin for Kodi 自己的节点。"
-
-msgctxt "#30659"
-msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr "同时移除缓存的服务器艺术图吗？Kodi 会重新下载仍然需要的图像。"
-
-msgctxt "#30660"
-msgid "Cleaning video library…"
-msgstr "正在清理视频库…"
-
-msgctxt "#30661"
-msgid "Cleaning music library…"
-msgstr "正在清理音乐库…"
-
-msgctxt "#30662"
-msgid "Removing add-on state…"
-msgstr "正在移除插件状态…"
-
-msgctxt "#30663"
-msgid "Removing library nodes and playlists…"
-msgstr "正在移除媒体库节点和播放列表…"
-
-msgctxt "#30664"
-msgid "Removing cached artwork…"
-msgstr "正在移除缓存的艺术图…"
-
-msgctxt "#30665"
-msgid "Clean complete. Kodi will now restart."
-msgstr "清理完成。Kodi 现在将重启。"
-
-msgctxt "#30666"
-msgid "Movies: prefer critic rating"
-msgstr "电影：优先使用影评人评分"
-
-msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr "显示服务器上的影评人评分（Rotten Tomatoes）而不是社区评分。百分比会换算，78% 变为 7.8。"
-
-msgctxt "#30668"
-msgid "Pre-cache cast images when idle"
-msgstr "空闲时预缓存演员图像"
-
-msgctxt "#30669"
-msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr "在 Kodi 空闲时缓存演员缩略图，这样项目的信息对话框可以立即显示它们。会占用 Kodi 缩略图缓存的磁盘空间 — 每人约 60 KB，媒体库很大时可能达到数 GB。"
-
-msgctxt "#30670"
-msgid "Pre-cache cast images now"
-msgstr "立即预缓存演员图像"
-
-msgctxt "#30671"
-msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr "立即获取所有尚未缓存的演员缩略图，不必等待空闲时间。"
-
-msgctxt "#30672"
-msgid "Caching cast images"
-msgstr "正在缓存演员图像"
-
-msgctxt "#30673"
-msgid "Cached %d cast image(s)"
-msgstr "已缓存 %d 张演员图像"
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr "下载"
@@ -1656,10 +1300,6 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr "删除下载"
 
-msgctxt "#30711"
-msgid "%s download(s) queued"
-msgstr "已加入下载队列 %s 项"
-
 msgctxt "#30712"
 msgid "Download complete: %s"
 msgstr "下载完成：%s"
@@ -1675,10 +1315,6 @@ msgstr "删除 %s 的下载文件？"
 msgctxt "#30715"
 msgid "Not enough free space for %s"
 msgstr "可用空间不足，无法下载 %s"
-
-msgctxt "#30716"
-msgid "Download %s item(s) (%s)?"
-msgstr "下载 %s 个项目（%s）？"
 
 msgctxt "#30717"
 msgid "The downloads folder is not writable"
@@ -1756,10 +1392,6 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr "转码曲目使用的比特率。128 kbps 的 Opus 对大多数聆听场景已经是透明音质。"
 
-msgctxt "#30736"
-msgid "Downloaded music"
-msgstr "已下载的音乐"
-
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr "Kofin 下载"
@@ -1788,14 +1420,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr "新添加到已同步媒体库的电影会自动下载。"
 
-msgctxt "#30744"
-msgid "Remove watched automatic downloads"
-msgstr "移除已观看的自动下载"
-
-msgctxt "#30745"
-msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr "自动下载的项目在你观看之后会被移除。你自己加入队列的下载永远不会被自动移除。"
-
 msgctxt "#30746"
 msgid "Delete download after watching"
 msgstr "观看后删除下载"
@@ -1803,18 +1427,6 @@ msgstr "观看后删除下载"
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
 msgstr "当你看完一个已下载的项目后，它的本地副本会被移除。该项目仍保留在服务器和媒体库中。"
-
-msgctxt "#30748"
-msgid "Keep it"
-msgstr "保留"
-
-msgctxt "#30749"
-msgid "Ask to remove it"
-msgstr "询问是否移除"
-
-msgctxt "#30750"
-msgid "Remove it without asking"
-msgstr "不询问直接移除"
 
 msgctxt "#30751"
 msgid "%s new movies were not downloaded automatically"
@@ -1907,10 +1519,6 @@ msgstr "并行音乐下载数"
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "同时下载多少首曲目。曲目很小，开销主要在连接上，因此这个值可以远高于视频的数值。"
-
-msgctxt "#30774"
-msgid "Delete %s download(s) of %s?"
-msgstr "删除 %s 个下载文件（%s）？"
 
 msgctxt "#30775"
 msgid "downloaded from the server"
@@ -2072,14 +1680,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "一个下载文件在被移除前可以闲置多久。再次播放会重新开始计时。"
 
-msgctxt "#30815"
-msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr "同时删除你的 %s 个已下载文件吗？清理会移除 Kofin 对它们的记录，因此保留下来的文件会留在磁盘上，由你自己管理。"
-
-msgctxt "#30816"
-msgid "Removing downloaded files…"
-msgstr "正在移除已下载的文件…"
-
 msgctxt "#30817"
 msgid "All"
 msgstr "全部"
@@ -2099,10 +1699,6 @@ msgstr "为插件的短列表 — 最近添加、正在观看、接下来观看�
 msgctxt "#30821"
 msgid "Server error — %s"
 msgstr "服务器错误 — %s"
-
-msgctxt "#30822"
-msgid "Kept %s — its library entry could not be restored"
-msgstr "已保留《%s》— 无法恢复其媒体库条目"
 
 msgctxt "#30823"
 msgid "Download deleted: %s"
@@ -2164,18 +1760,6 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr "与其他 Jellyfin 客户端同步观看。"
 
-msgctxt "#30838"
-msgid "Reuse language invoker"
-msgstr "复用 language invoker"
-
-msgctxt "#30839"
-msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
-msgstr "若皮肤小组件使用了多条 plugin:// 路径，请关闭此项。需要重启 Kodi。"
-
-msgctxt "#30840"
-msgid "Restart Kodi to apply this"
-msgstr "重启 Kodi 以应用此项"
-
 msgctxt "#30841"
 msgid "Save to Jellyfin"
 msgstr "保存到 Jellyfin"
@@ -2236,10 +1820,6 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr "为已同步的视频资料库创建 Kodi 资料库节点和智能播放列表，并将 Jellyfin 播放列表复制到 Kodi 的 视频 → 播放列表 → Kofin 和 音乐 → 播放列表 → Kofin。关闭后会删除 Kofin 创建的所有节点和播放列表。"
 
-msgctxt "#30858"
-msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr "已关闭 Kodi 的“扫描时忽略视频花絮”设置，以便导入电影花絮"
-
 msgctxt "#30859"
 msgid "Library status"
 msgstr "媒体库状态"
@@ -2267,10 +1847,6 @@ msgstr "失败"
 msgctxt "#30865"
 msgid "Last full update"
 msgstr "上次完整更新"
-
-msgctxt "#30866"
-msgid "Companion add-on"
-msgstr "配套插件"
 
 msgctxt "#30867"
 msgid "Repair to add codec details"
@@ -2387,7 +1963,3 @@ msgstr "已不在服务器上"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s 已不在服务器上，已从媒体库中移除"
-
-msgctxt "#30990"
-msgid "Not available in this preview"
-msgstr "此预览版暂不支持"

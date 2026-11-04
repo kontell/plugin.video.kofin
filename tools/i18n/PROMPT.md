@@ -35,24 +35,21 @@ A user reads these strings next to Kodi's own.
 The ids that are *nothing but* such a token are in `PASSTHROUGH` in `classify.py` and never reach you.
 The ones that reach you pair a token with real words — "Dolby Vision with HDR10 fallback" — where the token stays and the rest is translated.
 
-**Kodi UI paths**: `Music → Playlists → Kofin` in `#30612` names folders Kodi draws in the user's own language; translate the folder words to whatever that locale's Kodi calls them, and keep `Kofin` and the `→`.
+**Kodi UI paths**: `Music → Playlists → Kofin` in `#30857` names folders Kodi draws in the user's own language; translate the folder words to whatever that locale's Kodi calls them, and keep `Kofin` and the `→`.
 
 **Kodi setting names**: where a string points the user at one of Kodi's own settings — `Sync Playback to Display` in `#30552` — use the wording that locale's Kodi uses for it, not a literal translation of the English. The user has to find the setting by the name on their screen.
 
 ## Rules that break the add-on if you get them wrong
 
-**Format specifiers.** 52 ids contain `%s` or `%d`. Kodi formats these with a plain `%` tuple — there is no positional `%1$s` form anywhere in kofin — so the specifiers must appear the same number of times **and in the same order** as the English.
+**Format specifiers.** 48 ids contain `%s` or `%d`. Kodi formats these with a plain `%` tuple — there is no positional `%1$s` form anywhere in kofin — so the specifiers must appear the same number of times **and in the same order** as the English.
 
-Nine ids carry more than one, and are the ones that fail silently rather than loudly:
+Six ids carry more than one, and are the ones that fail silently rather than loudly:
 
 ```
 #30021  Connection OK — %s (%s)                       server, then detail
-#30602  New: %s | Updates: %s | User data: %s         three counts, in that order
 #30628  %s episode of %s added to library             count, then show name
 #30629  %s episodes of %s added to library            count, then show name
-#30716  Download %s item(s) (%s)?                     count, then size
 #30771  Download %s item(s), about %s? %s free        count, size, free space
-#30774  Delete %s download(s) of %s?                  count, then item name
 #30806  Delete all %s download(s), freeing about %s?  count, then size
 #30810  Needs %s, only %s free                        required, then available
 ```
@@ -60,7 +57,7 @@ Nine ids carry more than one, and are the ones that fail silently rather than lo
 If the target language wants a different word order, rewrite the sentence around the placeholders rather than reordering them.
 `#30810` in a language that puts the available space first must still read `%s` = required, `%s` = available.
 
-**Literal percent signs.** Three help strings contain a `%` that is not a placeholder — the `100%` in `#30478`, the `78%` in `#30667`, and the `50%` in `#30739`.
+**Literal percent signs.** Two help strings contain a `%` that is not a placeholder — the `100%` in `#30478` and the `50%` in `#30739`.
 Leave them as a bare `%`. Do not double them to `%%`; these strings are never `%`-formatted.
 
 **Kodi bbcode.** `#30015` is `Enter code [B]%s[/B] in the Jellyfin app or web interface.` The `[B]`/`[/B]` tags stay exactly as they are.
@@ -79,13 +76,12 @@ Kodi's notification toast fits about 33 characters and scrolls the rest.
 The English source was deliberately shortened for this, so a translation that runs long undoes the work.
 Aim for the same length rather than the same literal wording — but only where the string really is a toast.
 
-The budget applies to the sync and playback toasts (`#30404`, `#30406`, `#30409`, `#30410`, `#30414`, `#30420`), the download toasts (`#30708`, `#30717`, `#30720`, `#30806`, `#30807`, `#30810`), the new-content lines (`#30624`–`#30636`), and the Play Next / segment-skip toasts (`#30481`–`#30489`).
+The budget applies to the sync and playback toasts (`#30420`), the download toasts (`#30708`, `#30717`, `#30720`, `#30806`, `#30807`, `#30810`), the new-content lines (`#30624`–`#30636`), and the Play Next / segment-skip toasts (`#30481`–`#30489`).
 
 It does **not** apply to these, which sit in a panel or a dialog with room to be clear:
 
-- `#30411`, `#30412`, `#30413`, `#30600` — the Library tab's read-only status labels of the retired SQL build (kept for the locales that shipped them). An earlier version of this brief wrongly called them toasts, and locales compressed them for no reason.
 - Most of `#30560`–`#30585` — SyncPlay menu entries and dialog bodies. Only `#30574` is a toast.
-- `#30808`, `#30809`, `#30812`, `#30814`, `#30815` — settings labels, help, and confirm-dialog bodies.
+- `#30808`, `#30809`, `#30812`, `#30814` — settings labels, help, and confirm-dialog bodies.
 
 If you are unsure whether an id is a toast, check its call site in `lib/kofin/` rather than assuming from the number: a settings label that has been squeezed to 33 characters reads worse than the English for no benefit.
 

@@ -65,13 +65,7 @@ def wired(monkeypatch):
     # Every string carries a placeholder: several of these ids take a
     # substitution, and a fake without one turns "the dialog was raised at
     # all" into a formatting error — which would pass for the wrong reason.
-    # Placeholder counts follow the real strings.po: 30716 ("Download %s
-    # item(s) (%s)?") takes two, the rest take one.
-    monkeypatch.setattr(
-        actions.settings,
-        "localized",
-        lambda i: "L%d %%s %%s" % i if i == 30716 else "L%d %%s" % i,
-    )
+    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d %%s" % i)
     monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
     monkeypatch.setattr(actions, "_selection_names", lambda ids: list(ids))
     monkeypatch.setattr(
@@ -250,7 +244,6 @@ def download_wired(monkeypatch):
         actions.settings,
         "localized",
         lambda i: {
-            30716: "L30716 %s %s",
             30771: "L30771 %s %s %s",
             30806: "L30806 %s %s",
             30810: "L30810 %s %s",

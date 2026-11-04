@@ -168,18 +168,6 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr "자체 서명 인증서를 사용하는 서버에서만 끄세요."
 
-msgctxt "#30068"
-msgid "Device name"
-msgstr "기기 이름"
-
-msgctxt "#30069"
-msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr "Jellyfin 대시보드와 캐스트 메뉴에 이 기기가 표시되는 이름."
-
-msgctxt "#30070"
-msgid "Connection"
-msgstr "연결"
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "고급"
@@ -380,10 +368,6 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr "‘트랜스코딩으로 재생’이 제시하는 비트레이트. 하나만 선택하면 팝업을 건너뜁니다."
 
-msgctxt "#30128"
-msgid "Music"
-msgstr "음악"
-
 msgctxt "#30129"
 msgid "Maximum music bitrate"
 msgstr "최대 음악 비트레이트"
@@ -411,10 +395,6 @@ msgstr "트랜스코딩된 음악 스트림의 비트레이트."
 msgctxt "#30135"
 msgid "Transcode music"
 msgstr "음악 트랜스코딩"
-
-msgctxt "#30136"
-msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
-msgstr "음악 재생을 애드온을 거치게 해 아래 설정이 적용되도록 합니다. 끄면 노래가 서버에서 그대로 스트리밍됩니다. 이 설정을 바꾸면 경로를 다시 쓰기 위해 음악 라이브러리 복구가 필요합니다."
 
 msgctxt "#30150"
 msgid "H.264 (AVC)"
@@ -648,18 +628,6 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr "누가 보고 있나요?"
 
-msgctxt "#30042"
-msgid "Add a user"
-msgstr "사용자 추가"
-
-msgctxt "#30043"
-msgid "Remove a user"
-msgstr "사용자 제거"
-
-msgctxt "#30044"
-msgid "Select user"
-msgstr "사용자 선택"
-
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr "서버에 아직 활성 세션이 없습니다"
@@ -692,21 +660,9 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr "어떤 서버 라이브러리를 Kodi 라이브러리에 미러링할지 고릅니다. 선택을 확인하면 적용됩니다."
 
-msgctxt "#30254"
-msgid "Synced libraries"
-msgstr "동기화된 라이브러리"
-
-msgctxt "#30255"
-msgid "The libraries currently mirrored into the Kodi database."
-msgstr "현재 Kodi 데이터베이스에 미러링되어 있는 라이브러리."
-
 msgctxt "#30256"
 msgid "Update libraries"
 msgstr "라이브러리 업데이트"
-
-msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
-msgstr "선택한 라이브러리에 서버 변경 사항을 반영하고 제거된 항목을 정리합니다. 선택을 확인하면 실행됩니다."
 
 msgctxt "#30258"
 msgid "Repair libraries"
@@ -716,21 +672,9 @@ msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr "선택한 라이브러리를 제거하고 처음부터 다시 동기화하며, 시청 상태는 서버에서 복원합니다. 선택을 확인하면 실행됩니다."
 
-msgctxt "#30260"
-msgid "Refresh boxsets"
-msgstr "박스세트 새로 고침"
-
-msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr "서버의 컬렉션에서 영화 세트 연결을 다시 만듭니다. 즉시 실행됩니다."
-
 msgctxt "#30262"
 msgid "Sync status"
 msgstr "동기화 상태"
-
-msgctxt "#30263"
-msgid "Companion plugin tier and schema-gate state."
-msgstr "컴패니언 플러그인 등급과 스키마 게이트 상태."
 
 msgctxt "#30264"
 msgid "Remove synced library?"
@@ -756,18 +700,6 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr "사용할 수 있는 라이브러리가 없습니다"
 
-msgctxt "#30270"
-msgid "Update which libraries?"
-msgstr "어떤 라이브러리를 업데이트할까요?"
-
-msgctxt "#30300"
-msgid "Sync"
-msgstr "동기화"
-
-msgctxt "#30301"
-msgid "How library changes are downloaded and written."
-msgstr "라이브러리 변경 사항을 내려받아 기록하는 방식."
-
 msgctxt "#30302"
 msgid "Hide update status below (items)"
 msgstr "아래 업데이트 상태 숨기기(항목 수)"
@@ -775,34 +707,6 @@ msgstr "아래 업데이트 상태 숨기기(항목 수)"
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr "이보다 작은 동기화에서는 Kodi의 라이브러리 업데이트 진행 표시를 숨깁니다. 0이면 항상 표시합니다."
-
-msgctxt "#30306"
-msgid "Sync during video playback"
-msgstr "비디오 재생 중 동기화"
-
-msgctxt "#30307"
-msgid "Keep applying library updates while a video is playing."
-msgstr "비디오를 재생하는 동안에도 라이브러리 업데이트를 계속 적용합니다."
-
-msgctxt "#30310"
-msgid "Items per request"
-msgstr "요청당 항목 수"
-
-msgctxt "#30311"
-msgid "Page size for library downloads. Recommended: 50."
-msgstr "라이브러리 다운로드의 페이지 크기. 권장값: 50."
-
-msgctxt "#30312"
-msgid "Download threads"
-msgstr "다운로드 스레드"
-
-msgctxt "#30313"
-msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr "동기화 중 병렬 다운로드 연결 수. 권장값: 3. 빠른 서버에서만 늘리세요."
-
-msgctxt "#30314"
-msgid "Artwork"
-msgstr "아트워크"
 
 msgctxt "#30318"
 msgid "Compress artwork"
@@ -872,10 +776,6 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr "시청 중인 에피소드"
 
-msgctxt "#30357"
-msgid "Next episodes"
-msgstr "다음 에피소드"
-
 msgctxt "#30358"
 msgid "Favorite movies"
 msgstr "즐겨찾는 영화"
@@ -888,69 +788,17 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr "즐겨찾는 에피소드"
 
-msgctxt "#30361"
-msgid "Favorites"
-msgstr "즐겨찾기"
-
-msgctxt "#30362"
-msgid "First letter"
-msgstr "첫 글자"
-
-msgctxt "#30400"
-msgid "Gathering:"
-msgstr "수집 중:"
-
 msgctxt "#30401"
 msgid "Updating media"
 msgstr "미디어 업데이트 중"
-
-msgctxt "#30402"
-msgid "Large update: %s items pending"
-msgstr "대규모 업데이트: %s개 항목 대기 중"
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
 msgstr "동기화 미완료. 곧 다시 시도합니다"
 
-msgctxt "#30404"
-msgid "Resuming interrupted library sync"
-msgstr "중단된 라이브러리 동기화 재개"
-
-msgctxt "#30405"
-msgid "New"
-msgstr "신규"
-
-msgctxt "#30406"
-msgid "Library sync failed"
-msgstr "라이브러리 동기화 실패"
-
-msgctxt "#30407"
-msgid "Boxsets"
-msgstr "박스세트"
-
 msgctxt "#30408"
 msgid "Removing library"
 msgstr "라이브러리 제거 중"
-
-msgctxt "#30409"
-msgid "Full sync completed in"
-msgstr "전체 동기화 완료:"
-
-msgctxt "#30410"
-msgid "A sync is already running"
-msgstr "이미 동기화가 실행 중입니다"
-
-msgctxt "#30411"
-msgid "Official KodiSyncQueue companion"
-msgstr "공식 KodiSyncQueue 컴패니언"
-
-msgctxt "#30412"
-msgid "No companion plugin — realtime updates only"
-msgstr "컴패니언 플러그인 없음 — 실시간 업데이트만 사용"
-
-msgctxt "#30413"
-msgid "Sync paused: unknown Kodi database v%s"
-msgstr "동기화 일시 중지: 알 수 없는 Kodi 데이터베이스 v%s"
 
 msgctxt "#30415"
 msgid "Connected to %s"
@@ -972,10 +820,6 @@ msgctxt "#30420"
 msgid "Library sync is off: %s"
 msgstr "라이브러리 동기화 꺼짐: %s"
 
-msgctxt "#30414"
-msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr "advancedsettings.xml에 cleanonupdate가 켜져 있습니다 — 라이브러리 동기화와 호환되지 않습니다"
-
 msgctxt "#30450"
 msgid "Skipping & Play next"
 msgstr "건너뛰기 및 다음 재생"
@@ -983,10 +827,6 @@ msgstr "건너뛰기 및 다음 재생"
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
 msgstr "미디어 구간 건너뛰기와 다음 재생 안내."
-
-msgctxt "#30452"
-msgid "Media segments"
-msgstr "미디어 구간"
 
 msgctxt "#30453"
 msgid "Skip media segments"
@@ -1047,10 +887,6 @@ msgstr "자동"
 msgctxt "#30467"
 msgid "Ask"
 msgstr "묻기"
-
-msgctxt "#30468"
-msgid "Play next"
-msgstr "다음 재생"
 
 msgctxt "#30469"
 msgid "Offer Play Next"
@@ -1176,22 +1012,6 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr "다른 Jellyfin 클라이언트와 함께 시청합니다. 안정적인 동작을 위해 Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요"
 
-msgctxt "#30553"
-msgid "Drift correction"
-msgstr "드리프트 보정"
-
-msgctxt "#30554"
-msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr "재생 속도를 미세하게 조절해 그룹과 위치를 맞춥니다(Kodi의 ‘재생을 디스플레이에 동기화’ 필요). 끄면 예약된 명령만 따릅니다."
-
-msgctxt "#30555"
-msgid "Sync tolerance (ms)"
-msgstr "동기화 허용 오차(ms)"
-
-msgctxt "#30556"
-msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr "이보다 작은 오차는 그대로 두고, 이를 넘을 때만 보정에 들어갑니다. 값이 작을수록 더 정밀하지만 보정이 잦아집니다."
-
 msgctxt "#30557"
 msgid "Group notifications"
 msgstr "그룹 알림"
@@ -1312,22 +1132,6 @@ msgctxt "#30587"
 msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
 msgstr "잠시 빠르거나 느리게 재생하여 이 기기를 그룹 위치에 맞춥니다. 동영상을 보정하면 다음 항목까지 패스스루 오디오가 디코딩됩니다."
 
-msgctxt "#30588"
-msgid "Fine sync with audio passthrough on"
-msgstr "오디오 패스스루가 켜져 있어도 정밀 동기화"
-
-msgctxt "#30589"
-msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
-msgstr "Kodi의 오디오 패스스루가 켜져 있어도 정밀 동기화를 사용합니다. 세션 동안 리시버는 비트스트림 대신 멀티채널 PCM을 받습니다. 대부분의 구성에서는 문제없지만 Atmos와 DTS:X 오브젝트 오디오는 사라집니다. 끄면 패스스루를 유지하고 그룹 동기화는 명령에만 맡깁니다."
-
-msgctxt "#30590"
-msgid "Shorter video queue during sessions (Kodi 22)"
-msgstr "세션 중 더 짧은 동영상 큐 (Kodi 22)"
-
-msgctxt "#30591"
-msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
-msgstr "그룹에 있는 동안 Kodi의 오디오/동영상 큐 시간을 1초로 설정하고 이후 되돌립니다. 속도 변경은 큐가 재생된 뒤에야 들리므로 큐가 짧을수록 보정이 5초가 아닌 약 2초 만에 반영됩니다. 느리거나 불안정한 네트워크에서는 끄세요. Kodi 21의 큐는 8초로 고정되어 있습니다."
-
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "정밀 동기화 중지: 속도 불일치"
@@ -1348,34 +1152,6 @@ msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
 msgstr "보정 중 재생 속도가 바뀔 수 있는 최대치입니다. 25%에서는 2.5초 오차를 10초에 해소합니다. 낮을수록 덜 티 나지만 느립니다. 큰 변경은 점진적으로 적용됩니다."
 
-msgctxt "#30597"
-msgid "Fine sync on AV1 video"
-msgstr "AV1 동영상에서 정밀 동기화"
-
-msgctxt "#30598"
-msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
-msgstr "기본은 꺼짐이며 주의가 필요합니다. Pixel 7에서는 속도 변경 직후 탐색 시 AV1 하드웨어 디코더가, 이어서 휴대폰 자체가 멈췄습니다. Bravia의 AV1 디코더는 문제가 없었습니다. 기기가 감당할 때만 켜세요. 끄면 AV1 항목은 명령만으로 그룹을 따릅니다."
-
-msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "정밀 동기화에는 inputstream.tempo 21.4.1 / 22.4.1이 필요합니다"
-
-msgctxt "#30600"
-msgid "KofinSyncQueue companion (fast path)"
-msgstr "KofinSyncQueue 컴패니언(빠른 경로)"
-
-msgctxt "#30601"
-msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr "변경 대기열 보존 기간 초과 — 복구를 위해 라이브러리를 업데이트합니다"
-
-msgctxt "#30602"
-msgid "New: %s | Updates: %s | User data: %s"
-msgstr "신규: %s | 업데이트: %s | 사용자 데이터: %s"
-
-msgctxt "#30603"
-msgid "Comparing with the server"
-msgstr "서버와 비교하는 중"
-
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1383,34 +1159,6 @@ msgstr "480p"
 msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
-
-msgctxt "#30606"
-msgid "Jellyfin song lyrics"
-msgstr "Jellyfin 노래 가사"
-
-msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr "가사 애드온이 온라인에서 찾아오는 대신, 재생 중인 노래의 가사를 Jellyfin에서 가져와 보여줍니다. \"Kofin Lyrics로 표시\"는 가사를 Kofin Lyrics 애드온에 넘겨 애드온이 직접 그리거나 스킨이 그리도록 합니다. \"가사 애드온에 전달\"은 CU LRC Lyrics 같은 어떤 가사 애드온과도 함께 동작합니다."
-
-msgctxt "#30608"
-msgid "Off"
-msgstr "끔"
-
-msgctxt "#30609"
-msgid "Show with Kofin Lyrics"
-msgstr "Kofin Lyrics로 표시"
-
-msgctxt "#30610"
-msgid "Hand to a lyrics addon"
-msgstr "가사 애드온에 전달"
-
-msgctxt "#30611"
-msgid "Sync playlists"
-msgstr "재생목록 동기화"
-
-msgctxt "#30612"
-msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
-msgstr "Jellyfin 재생목록을 Kodi 기본 재생목록으로 복사합니다. 음악 라이브러리가 동기화되면 음악 재생목록은 음악 → 재생목록 → Kofin에, 비디오 라이브러리가 동기화되면 비디오 재생목록은 비디오 → 재생목록 → Kofin에 나타납니다. 해당 파일의 로컬 편집은 새로 고침 시 덮어씁니다. 로컬 재생목록을 보내려면 \"Jellyfin에 저장\"을 사용하세요."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -1439,14 +1187,6 @@ msgstr "Jellyfin의 기본 트랙 사용"
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "Kodi의 언어 설정이 고르는 트랙 대신, Jellyfin 계정이 요청하는 오디오와 자막 트랙으로 재생을 시작합니다. 서버가 Jellyfin 프로필을 바탕으로 둘 다 결정하므로, 어느 클라이언트에서나 같은 선택이 따라옵니다."
-
-msgctxt "#30620"
-msgid "Chapter images from the server"
-msgstr "서버의 챕터 이미지"
-
-msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
-msgstr "Kodi 챕터 목록에 Jellyfin의 챕터 이미지를 표시합니다. 이미지는 재생을 시작할 때 필요한 만큼 가져옵니다."
 
 msgctxt "#30622"
 msgid "Notify about new content"
@@ -1516,102 +1256,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "기본 제공 아트워크 대신 Jellyfin 서버의 스플래시 화면을 애드온 배경으로 표시합니다. 서비스가 연결될 때, 하루 한 번까지만 갱신됩니다."
 
-msgctxt "#30650"
-msgid "Clean databases"
-msgstr "데이터베이스 정리"
-
-msgctxt "#30651"
-msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr "이 Kodi 프로필에서 Kofin과 Jellyfin for Kodi의 라이브러리 데이터, 노드, 재생목록을 모두 제거합니다. Jellyfin for Kodi에서 옮겨 오거나 Kofin을 삭제하기 전에 사용하세요. Jellyfin 서버는 건드리지 않습니다."
-
-msgctxt "#30652"
-msgid "Sign out before cleaning the databases."
-msgstr "데이터베이스를 정리하기 전에 로그아웃하세요."
-
-msgctxt "#30653"
-msgid "A sync is still running — try again when it finishes."
-msgstr "아직 동기화가 실행 중입니다 — 끝난 뒤에 다시 시도하세요."
-
-msgctxt "#30654"
-msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr "Jellyfin for Kodi 애드온을 먼저 비활성화하거나 삭제하세요. 그 백그라운드 서비스가 모든 것을 곧바로 다시 동기화합니다."
-
-msgctxt "#30655"
-msgid "Unsupported Kodi database: %s"
-msgstr "지원하지 않는 Kodi 데이터베이스: %s"
-
-msgctxt "#30656"
-msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr "다른 애드온이나 로컬 소스가 추가한 항목까지 포함해, Kodi 비디오 라이브러리의 모든 것을 시청 상태와 이어보기 지점과 함께 제거합니다. Jellyfin 서버는 건드리지 않습니다. 계속할까요?"
-
-msgctxt "#30657"
-msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr "음악 라이브러리도 정리할까요? 이 프로필의 Kodi 음악 라이브러리에 있는 노래, 앨범, 아티스트가 모두 제거됩니다."
-
-msgctxt "#30658"
-msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr "직접 만든 노드와 노드 편집기 파일을 포함해 모든 라이브러리 노드도 제거할까요? Kodi 메뉴가 기본값으로 돌아갑니다. 아니요를 고르면 Kofin과 Jellyfin for Kodi의 노드만 제거합니다."
-
-msgctxt "#30659"
-msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr "캐시된 서버 아트워크도 제거할까요? 아직 필요한 이미지는 Kodi가 다시 내려받습니다."
-
-msgctxt "#30660"
-msgid "Cleaning video library…"
-msgstr "비디오 라이브러리 정리 중…"
-
-msgctxt "#30661"
-msgid "Cleaning music library…"
-msgstr "음악 라이브러리 정리 중…"
-
-msgctxt "#30662"
-msgid "Removing add-on state…"
-msgstr "애드온 상태 제거 중…"
-
-msgctxt "#30663"
-msgid "Removing library nodes and playlists…"
-msgstr "라이브러리 노드와 재생목록 제거 중…"
-
-msgctxt "#30664"
-msgid "Removing cached artwork…"
-msgstr "캐시된 아트워크 제거 중…"
-
-msgctxt "#30665"
-msgid "Clean complete. Kodi will now restart."
-msgstr "정리가 끝났습니다. 이제 Kodi를 다시 시작합니다."
-
-msgctxt "#30666"
-msgid "Movies: prefer critic rating"
-msgstr "영화: 평론가 평점 우선"
-
-msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr "커뮤니티 평점 대신 서버의 평론가 평점(Rotten Tomatoes)을 표시합니다. 백분율은 다시 환산되어 78%는 7.8이 됩니다."
-
-msgctxt "#30668"
-msgid "Pre-cache cast images when idle"
-msgstr "유휴 시간에 출연진 이미지 미리 캐시"
-
-msgctxt "#30669"
-msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr "Kodi가 유휴 상태일 때 출연진 썸네일을 캐시해, 항목 정보 창이 곧바로 그려지게 합니다. Kodi 썸네일 캐시의 디스크를 쓰며 인물당 약 60 KB로, 라이브러리가 크면 기가바이트에 이를 수 있습니다."
-
-msgctxt "#30670"
-msgid "Pre-cache cast images now"
-msgstr "지금 출연진 이미지 캐시"
-
-msgctxt "#30671"
-msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr "유휴 시간을 기다리지 않고, 아직 캐시되지 않은 출연진 썸네일을 모두 가져옵니다."
-
-msgctxt "#30672"
-msgid "Caching cast images"
-msgstr "출연진 이미지 캐시 중"
-
-msgctxt "#30673"
-msgid "Cached %d cast image(s)"
-msgstr "출연진 이미지 %d개를 캐시했습니다"
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr "다운로드"
@@ -1656,10 +1300,6 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr "다운로드 삭제"
 
-msgctxt "#30711"
-msgid "%s download(s) queued"
-msgstr "다운로드 %s개를 대기열에 넣었습니다"
-
 msgctxt "#30712"
 msgid "Download complete: %s"
 msgstr "다운로드 완료: %s"
@@ -1675,10 +1315,6 @@ msgstr "%s의 다운로드를 삭제할까요?"
 msgctxt "#30715"
 msgid "Not enough free space for %s"
 msgstr "여유 공간 부족: %s"
-
-msgctxt "#30716"
-msgid "Download %s item(s) (%s)?"
-msgstr "항목 %s개(%s)를 다운로드할까요?"
 
 msgctxt "#30717"
 msgid "The downloads folder is not writable"
@@ -1756,10 +1392,6 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr "트랜스코딩한 트랙을 인코딩할 비트레이트. 128 kbps Opus면 대부분의 감상에서 원본과 구분되지 않습니다."
 
-msgctxt "#30736"
-msgid "Downloaded music"
-msgstr "다운로드한 음악"
-
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr "Kofin 다운로드"
@@ -1788,14 +1420,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr "동기화하는 라이브러리에 새로 추가된 영화를 자동으로 다운로드합니다."
 
-msgctxt "#30744"
-msgid "Remove watched automatic downloads"
-msgstr "시청한 자동 다운로드 제거"
-
-msgctxt "#30745"
-msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr "자동으로 다운로드한 항목은 시청을 마치면 제거됩니다. 직접 대기열에 넣은 다운로드는 자동으로 제거되지 않습니다."
-
 msgctxt "#30746"
 msgid "Delete download after watching"
 msgstr "시청 후 다운로드 삭제"
@@ -1803,18 +1427,6 @@ msgstr "시청 후 다운로드 삭제"
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
 msgstr "다운로드한 항목의 시청을 마치면 로컬 사본을 제거합니다. 항목은 서버와 라이브러리에 그대로 남습니다."
-
-msgctxt "#30748"
-msgid "Keep it"
-msgstr "그대로 두기"
-
-msgctxt "#30749"
-msgid "Ask to remove it"
-msgstr "제거할지 묻기"
-
-msgctxt "#30750"
-msgid "Remove it without asking"
-msgstr "묻지 않고 제거"
 
 msgctxt "#30751"
 msgid "%s new movies were not downloaded automatically"
@@ -1907,10 +1519,6 @@ msgstr "병렬 음악 다운로드 수"
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "트랙을 동시에 몇 개까지 다운로드할지. 트랙은 작고 대부분 오버헤드라, 비디오 값보다 훨씬 높게 잡아도 됩니다."
-
-msgctxt "#30774"
-msgid "Delete %s download(s) of %s?"
-msgstr "다운로드 %s개를 삭제할까요? (%s)"
 
 msgctxt "#30775"
 msgid "downloaded from the server"
@@ -2072,14 +1680,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "다운로드를 재생하지 않은 채 얼마나 두면 제거할지. 다시 재생하면 기간을 처음부터 셉니다."
 
-msgctxt "#30815"
-msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr "다운로드한 파일 %s개도 삭제할까요? 정리하면 Kofin이 가진 기록이 사라지므로, 남겨 둔 파일은 디스크에 그대로 남아 직접 관리해야 합니다."
-
-msgctxt "#30816"
-msgid "Removing downloaded files…"
-msgstr "다운로드한 파일 제거 중…"
-
 msgctxt "#30817"
 msgid "All"
 msgstr "전체"
@@ -2099,10 +1699,6 @@ msgstr "애드온의 짧은 목록 — 최근 추가됨, 시청 중, 다음 볼 
 msgctxt "#30821"
 msgid "Server error — %s"
 msgstr "서버 오류 — %s"
-
-msgctxt "#30822"
-msgid "Kept %s — its library entry could not be restored"
-msgstr "%s 유지됨 — 라이브러리 항목을 복원할 수 없음"
 
 msgctxt "#30823"
 msgid "Download deleted: %s"
@@ -2164,18 +1760,6 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr "다른 Jellyfin 클라이언트와 함께 시청합니다."
 
-msgctxt "#30838"
-msgid "Reuse language invoker"
-msgstr "Language invoker 재사용"
-
-msgctxt "#30839"
-msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
-msgstr "스킨 위젯에서 plugin:// 경로를 여러 개 쓰는 경우 끄세요. Kodi를 다시 시작해야 합니다."
-
-msgctxt "#30840"
-msgid "Restart Kodi to apply this"
-msgstr "적용하려면 Kodi를 다시 시작하세요"
-
 msgctxt "#30841"
 msgid "Save to Jellyfin"
 msgstr "Jellyfin에 저장"
@@ -2236,10 +1820,6 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr "동기화된 비디오 라이브러리에 Kodi 라이브러리 노드와 스마트 재생목록을 만들고, Jellyfin 재생목록을 비디오 → 재생목록 → Kofin과 음악 → 재생목록 → Kofin에 복사합니다. 끄면 Kofin이 만든 모든 노드와 재생목록을 제거합니다."
 
-msgctxt "#30858"
-msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr "영화 부가 영상을 가져올 수 있도록 Kodi의 '스캔 시 비디오 부가 영상 무시' 설정을 껐습니다"
-
 msgctxt "#30859"
 msgid "Library status"
 msgstr "라이브러리 상태"
@@ -2267,10 +1847,6 @@ msgstr "실패"
 msgctxt "#30865"
 msgid "Last full update"
 msgstr "마지막 전체 업데이트"
-
-msgctxt "#30866"
-msgid "Companion add-on"
-msgstr "컴패니언 애드온"
 
 msgctxt "#30867"
 msgid "Repair to add codec details"
@@ -2387,7 +1963,3 @@ msgstr "더 이상 서버에 없음"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s이(가) 더 이상 서버에 없어 라이브러리에서 제거되었습니다"
-
-msgctxt "#30990"
-msgid "Not available in this preview"
-msgstr "이 미리 보기 버전에서는 사용할 수 없습니다"

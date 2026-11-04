@@ -168,18 +168,6 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr "Vypnite len pre servery s vlastnoručne podpísanými certifikátmi."
 
-msgctxt "#30068"
-msgid "Device name"
-msgstr "Názov zariadenia"
-
-msgctxt "#30069"
-msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr "Ako sa toto zariadenie zobrazuje na nástenke Jellyfin a v ponukách odosielania."
-
-msgctxt "#30070"
-msgid "Connection"
-msgstr "Pripojenie"
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "Pokročilé"
@@ -380,10 +368,6 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr "Dátové toky ponúkané položkou „Prehrať s prekódovaním“. Pri jedinom vybranom sa vyskakovacie okno preskočí."
 
-msgctxt "#30128"
-msgid "Music"
-msgstr "Hudba"
-
 msgctxt "#30129"
 msgid "Maximum music bitrate"
 msgstr "Maximálny dátový tok hudby"
@@ -411,10 +395,6 @@ msgstr "Dátový tok pre prekódované hudobné streamy."
 msgctxt "#30135"
 msgid "Transcode music"
 msgstr "Prekódovať hudbu"
-
-msgctxt "#30136"
-msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
-msgstr "Vedie prehrávanie hudby cez doplnok, aby platili nastavenia nižšie. Keď je vypnuté, skladby sa streamujú priamo zo servera bez zmeny. Zmena tohto nastavenia vyžaduje opravu vašich hudobných knižníc, aby sa prepísali ich cesty."
 
 msgctxt "#30150"
 msgid "H.264 (AVC)"
@@ -648,18 +628,6 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr "Kto pozerá?"
 
-msgctxt "#30042"
-msgid "Add a user"
-msgstr "Pridať používateľa"
-
-msgctxt "#30043"
-msgid "Remove a user"
-msgstr "Odobrať používateľa"
-
-msgctxt "#30044"
-msgid "Select user"
-msgstr "Vyberte používateľa"
-
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr "Na serveri zatiaľ nie je aktívna relácia"
@@ -692,21 +660,9 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr "Vyberte, ktoré serverové knižnice sa zrkadlia do knižnice Kodi. Zmeny sa použijú po potvrdení výberu."
 
-msgctxt "#30254"
-msgid "Synced libraries"
-msgstr "Synchronizované knižnice"
-
-msgctxt "#30255"
-msgid "The libraries currently mirrored into the Kodi database."
-msgstr "Knižnice momentálne zrkadlené do databázy Kodi."
-
 msgctxt "#30256"
 msgid "Update libraries"
 msgstr "Aktualizovať knižnice"
-
-msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
-msgstr "Doplní zmeny zo servera a odstráni zmazané položky z knižníc, ktoré vyberiete. Spustí sa po potvrdení výberu."
 
 msgctxt "#30258"
 msgid "Repair libraries"
@@ -716,21 +672,9 @@ msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr "Odstráni a nanovo synchronizuje knižnice, ktoré vyberiete, a obnoví stav zhliadnutia zo servera. Spustí sa po potvrdení výberu."
 
-msgctxt "#30260"
-msgid "Refresh boxsets"
-msgstr "Obnoviť kolekcie"
-
-msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr "Znova zostaví prepojenia filmových kolekcií zo zbierok na serveri. Spustí sa ihneď."
-
 msgctxt "#30262"
 msgid "Sync status"
 msgstr "Stav synchronizácie"
-
-msgctxt "#30263"
-msgid "Companion plugin tier and schema-gate state."
-msgstr "Úroveň sprievodného doplnku a stav kontroly schémy databázy."
 
 msgctxt "#30264"
 msgid "Remove synced library?"
@@ -756,18 +700,6 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr "Nie sú dostupné žiadne knižnice"
 
-msgctxt "#30270"
-msgid "Update which libraries?"
-msgstr "Ktoré knižnice aktualizovať?"
-
-msgctxt "#30300"
-msgid "Sync"
-msgstr "Synchronizácia"
-
-msgctxt "#30301"
-msgid "How library changes are downloaded and written."
-msgstr "Ako sa zmeny v knižnici sťahujú a zapisujú."
-
 msgctxt "#30302"
 msgid "Hide update status below (items)"
 msgstr "Skryť stav aktualizácie pod (položiek)"
@@ -775,34 +707,6 @@ msgstr "Skryť stav aktualizácie pod (položiek)"
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr "Skryje priebeh aktualizácie knižnice v Kodi pri synchronizáciách menších ako toto. 0 ho zobrazí vždy."
-
-msgctxt "#30306"
-msgid "Sync during video playback"
-msgstr "Synchronizovať počas prehrávania videa"
-
-msgctxt "#30307"
-msgid "Keep applying library updates while a video is playing."
-msgstr "Aktualizácie knižnice sa budú aplikovať aj počas prehrávania videa."
-
-msgctxt "#30310"
-msgid "Items per request"
-msgstr "Položiek na požiadavku"
-
-msgctxt "#30311"
-msgid "Page size for library downloads. Recommended: 50."
-msgstr "Veľkosť stránky pri sťahovaní knižnice. Odporúčané: 50."
-
-msgctxt "#30312"
-msgid "Download threads"
-msgstr "Vlákna sťahovania"
-
-msgctxt "#30313"
-msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr "Počet paralelných spojení pri synchronizácii. Odporúčané: 3; zvyšujte len pri rýchlom serveri."
-
-msgctxt "#30314"
-msgid "Artwork"
-msgstr "Grafika"
 
 msgctxt "#30318"
 msgid "Compress artwork"
@@ -872,10 +776,6 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr "Rozpozerané epizódy"
 
-msgctxt "#30357"
-msgid "Next episodes"
-msgstr "Ďalšie epizódy"
-
 msgctxt "#30358"
 msgid "Favorite movies"
 msgstr "Obľúbené filmy"
@@ -888,69 +788,17 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr "Obľúbené epizódy"
 
-msgctxt "#30361"
-msgid "Favorites"
-msgstr "Obľúbené"
-
-msgctxt "#30362"
-msgid "First letter"
-msgstr "Prvé písmeno"
-
-msgctxt "#30400"
-msgid "Gathering:"
-msgstr "Načítava sa:"
-
 msgctxt "#30401"
 msgid "Updating media"
 msgstr "Aktualizujú sa médiá"
-
-msgctxt "#30402"
-msgid "Large update: %s items pending"
-msgstr "Veľká aktualizácia: %s položiek"
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
 msgstr "Synchronizácia neúplná; opakujem"
 
-msgctxt "#30404"
-msgid "Resuming interrupted library sync"
-msgstr "Obnovujem prerušenú synchronizáciu"
-
-msgctxt "#30405"
-msgid "New"
-msgstr "Nové"
-
-msgctxt "#30406"
-msgid "Library sync failed"
-msgstr "Synchronizácia knižnice zlyhala"
-
-msgctxt "#30407"
-msgid "Boxsets"
-msgstr "Kolekcie"
-
 msgctxt "#30408"
 msgid "Removing library"
 msgstr "Odstraňuje sa knižnica"
-
-msgctxt "#30409"
-msgid "Full sync completed in"
-msgstr "Úplná synchronizácia trvala"
-
-msgctxt "#30410"
-msgid "A sync is already running"
-msgstr "Synchronizácia už prebieha"
-
-msgctxt "#30411"
-msgid "Official KodiSyncQueue companion"
-msgstr "Oficiálny doplnok KodiSyncQueue"
-
-msgctxt "#30412"
-msgid "No companion plugin — realtime updates only"
-msgstr "Bez sprievodného doplnku — len v reálnom čase"
-
-msgctxt "#30413"
-msgid "Sync paused: unknown Kodi database v%s"
-msgstr "Synchronizácia pozastavená: neznáma DB Kodi v%s"
 
 msgctxt "#30415"
 msgid "Connected to %s"
@@ -972,10 +820,6 @@ msgctxt "#30420"
 msgid "Library sync is off: %s"
 msgstr "Synchronizácia knižnice vypnutá: %s"
 
-msgctxt "#30414"
-msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr "advancedsettings.xml zapína cleanonupdate — nezlučiteľné so synchronizáciou knižnice"
-
 msgctxt "#30450"
 msgid "Skipping & Play next"
 msgstr "Preskakovanie a prehrať ďalšie"
@@ -983,10 +827,6 @@ msgstr "Preskakovanie a prehrať ďalšie"
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
 msgstr "Preskakovanie segmentov médií a výzva Prehrať ďalšie."
-
-msgctxt "#30452"
-msgid "Media segments"
-msgstr "Segmenty médií"
 
 msgctxt "#30453"
 msgid "Skip media segments"
@@ -1047,10 +887,6 @@ msgstr "Automaticky"
 msgctxt "#30467"
 msgid "Ask"
 msgstr "Opýtať sa"
-
-msgctxt "#30468"
-msgid "Play next"
-msgstr "Prehrať ďalšie"
 
 msgctxt "#30469"
 msgid "Offer Play Next"
@@ -1176,22 +1012,6 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr "Sledujte synchronizovane s ostatnými klientmi Jellyfin. Pre spoľahlivý zážitok nechajte v Kodi vypnutú možnosť Synchronizovať prehrávanie s obrazovkou"
 
-msgctxt "#30553"
-msgid "Drift correction"
-msgstr "Korekcia odchýlky"
-
-msgctxt "#30554"
-msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr "Jemne upravuje rýchlosť prehrávania, aby držala pozíciu so skupinou (vyžaduje možnosť Kodi „Synchronizovať prehrávanie s obrazovkou“). Vypnuté: riadi sa len naplánovanými príkazmi."
-
-msgctxt "#30555"
-msgid "Sync tolerance (ms)"
-msgstr "Tolerancia synchronizácie (ms)"
-
-msgctxt "#30556"
-msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr "Odchýlka pod touto hodnotou sa ponechá; korekcia sa zapne až nad ňou. Nižšia je presnejšia, ale koriguje častejšie."
-
 msgctxt "#30557"
 msgid "Group notifications"
 msgstr "Upozornenia skupiny"
@@ -1312,22 +1132,6 @@ msgctxt "#30587"
 msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
 msgstr "Drží toto zariadenie na pozícii skupiny tak, že krátko prehráva rýchlejšie alebo pomalšie. Korekcia videa dekóduje passthrough zvuk až do ďalšej položky."
 
-msgctxt "#30588"
-msgid "Fine sync with audio passthrough on"
-msgstr "Jemná synchronizácia so zapnutým passthrough zvuku"
-
-msgctxt "#30589"
-msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
-msgstr "Použiť jemnú synchronizáciu aj pri zapnutom passthrough zvuku v Kodi. Prijímač počas relácie dostáva viackanálové PCM namiesto bitstreamu: pre väčšinu zostáv v poriadku, ale objektový zvuk Atmos a DTS:X sa stratí. Vypnuté zachová passthrough a nechá skupinu zbiehať len podľa príkazov."
-
-msgctxt "#30590"
-msgid "Shorter video queue during sessions (Kodi 22)"
-msgstr "Kratší front videa počas relácií (Kodi 22)"
-
-msgctxt "#30591"
-msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
-msgstr "Nastaví čas frontu zvuku/videa v Kodi na 1 sekundu, kým si v skupine, a potom ho obnoví. Zmena rýchlosti je počuť až po prehraní frontu, takže kratší front nechá opravy dopadnúť zhruba za 2 sekundy namiesto 5. Na pomalej alebo nespoľahlivej sieti to vypni. Kodi 21 má pevný front 8 sekúnd."
-
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "Jemná synchronizácia zastavená: tempo nesedí"
@@ -1348,34 +1152,6 @@ msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
 msgstr "O koľko sa smie počas opravy najviac zmeniť rýchlosť prehrávania. Pri 25 % sa chyba 2,5 sekundy vyrovná za 10 sekúnd; nižšia je menej nápadná, ale pomalšia. Veľké zmeny sa zavádzajú a ukončujú postupne."
 
-msgctxt "#30597"
-msgid "Fine sync on AV1 video"
-msgstr "Jemná synchronizácia pri videu AV1"
-
-msgctxt "#30598"
-msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
-msgstr "Predvolene vypnuté, s varovaním: na Pixeli 7 zmena rýchlosti nasledovaná skokom zasekla hardvérový dekodér AV1 a potom aj samotný telefón. Dekodér AV1 v Bravii bol v poriadku. Zapni iba vtedy, keď to tvoje zariadenie zvláda; inak tituly AV1 sledujú skupinu len podľa príkazov."
-
-msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
-
-msgctxt "#30600"
-msgid "KofinSyncQueue companion (fast path)"
-msgstr "Sprievodný doplnok KofinSyncQueue (rýchla cesta)"
-
-msgctxt "#30601"
-msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr "Prekročená doba uchovania fronty zmien — knižnice sa aktualizujú na zotavenie"
-
-msgctxt "#30602"
-msgid "New: %s | Updates: %s | User data: %s"
-msgstr "Nové: %s | Zmeny: %s | Údaje používateľa: %s"
-
-msgctxt "#30603"
-msgid "Comparing with the server"
-msgstr "Porovnáva sa so serverom"
-
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1383,34 +1159,6 @@ msgstr "480p"
 msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
-
-msgctxt "#30606"
-msgid "Jellyfin song lyrics"
-msgstr "Texty piesní z Jellyfinu"
-
-msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr "Zobrazí text piesne z Jellyfinu počas prehrávania namiesto toho, aby ho doplnok na texty hľadal online. \"Zobraziť pomocou Kofin Lyrics\" ho odovzdá doplnku Kofin Lyrics, ktorý ho vykreslí sám alebo to nechá na vzhľad. \"Odovzdať doplnku na texty\" funguje s ľubovoľným doplnkom na texty, napríklad CU LRC Lyrics."
-
-msgctxt "#30608"
-msgid "Off"
-msgstr "Vypnuté"
-
-msgctxt "#30609"
-msgid "Show with Kofin Lyrics"
-msgstr "Zobraziť pomocou Kofin Lyrics"
-
-msgctxt "#30610"
-msgid "Hand to a lyrics addon"
-msgstr "Odovzdať doplnku na texty"
-
-msgctxt "#30611"
-msgid "Sync playlists"
-msgstr "Synchronizovať zoznamy skladieb"
-
-msgctxt "#30612"
-msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
-msgstr "Kopírovať zoznamy Jellyfin do Kodi ako natívne zoznamy. Hudobné sa objavia v Hudba → Zoznamy skladieb → Kofin, keď je synchronizovaná hudobná knižnica; video v Video → Zoznamy skladieb → Kofin, keď je synchronizovaná video knižnica. Miestne úpravy týchto súborov sa pri obnovení prepíšu — použite \"Uložiť do Jellyfin\" na odoslanie miestneho zoznamu."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -1439,14 +1187,6 @@ msgstr "Používať predvolené stopy Jellyfinu"
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "Prehrávanie sa spustí na zvukových stopách a titulkoch, ktoré žiada váš účet Jellyfin, namiesto tých, ktoré vyberú jazykové nastavenia Kodi. Obe určí server z vášho profilu Jellyfin, takže voľba vás sprevádza na každom klientovi."
-
-msgctxt "#30620"
-msgid "Chapter images from the server"
-msgstr "Obrázky kapitol zo servera"
-
-msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
-msgstr "Zobrazí obrázky kapitol z Jellyfinu v zozname kapitol Kodi. Načítajú sa na požiadanie pri spustení prehrávania."
 
 msgctxt "#30622"
 msgid "Notify about new content"
@@ -1516,102 +1256,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "Zobrazí za doplnkom úvodný obrázok servera Jellyfin namiesto priloženej grafiky. Obnoví sa pri pripojení služby, najviac raz za deň."
 
-msgctxt "#30650"
-msgid "Clean databases"
-msgstr "Vyčistiť databázy"
-
-msgctxt "#30651"
-msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr "Odstráni z tohto profilu Kodi všetky knižničné údaje, uzly a zoznamy skladieb doplnkov Kofin a Jellyfin for Kodi. Na migráciu z Jellyfin for Kodi alebo pred odinštalovaním Kofinu. Servera Jellyfin sa to netýka."
-
-msgctxt "#30652"
-msgid "Sign out before cleaning the databases."
-msgstr "Pred vyčistením databáz sa odhláste."
-
-msgctxt "#30653"
-msgid "A sync is still running — try again when it finishes."
-msgstr "Synchronizácia stále beží — skúste to znova, keď skončí."
-
-msgctxt "#30654"
-msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr "Najprv vypnite alebo odinštalujte doplnok Jellyfin for Kodi: jeho služba na pozadí by všetko hneď synchronizovala späť."
-
-msgctxt "#30655"
-msgid "Unsupported Kodi database: %s"
-msgstr "Nepodporovaná databáza Kodi: %s"
-
-msgctxt "#30656"
-msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr "Toto odstráni VŠETKO z video knižnice Kodi — vrátane položiek pridaných inými doplnkami alebo z miestnych zdrojov — spolu so stavmi zhliadnutia a bodmi pokračovania. Servera Jellyfin sa to netýka. Pokračovať?"
-
-msgctxt "#30657"
-msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr "Vyčistiť aj hudobnú knižnicu? Odstráni sa každá skladba, album a interpret z hudobnej knižnice tohto profilu Kodi."
-
-msgctxt "#30658"
-msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr "Odstrániť aj VŠETKY uzly knižnice vrátane ručne vytvorených a súborov z editora uzlov? Ponuky Kodi sa vrátia na predvolené. Voľbou Nie sa odstránia len uzly Kofinu a Jellyfin for Kodi."
-
-msgctxt "#30659"
-msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr "Odstrániť aj grafiku servera z vyrovnávacej pamäte? Kodi znova stiahne obrázky, ktoré ešte potrebuje."
-
-msgctxt "#30660"
-msgid "Cleaning video library…"
-msgstr "Čistí sa video knižnica…"
-
-msgctxt "#30661"
-msgid "Cleaning music library…"
-msgstr "Čistí sa hudobná knižnica…"
-
-msgctxt "#30662"
-msgid "Removing add-on state…"
-msgstr "Odstraňuje sa stav doplnku…"
-
-msgctxt "#30663"
-msgid "Removing library nodes and playlists…"
-msgstr "Odstraňujú sa uzly knižnice a zoznamy skladieb…"
-
-msgctxt "#30664"
-msgid "Removing cached artwork…"
-msgstr "Odstraňuje sa grafika z vyrovnávacej pamäte…"
-
-msgctxt "#30665"
-msgid "Clean complete. Kodi will now restart."
-msgstr "Čistenie dokončené. Kodi sa teraz reštartuje."
-
-msgctxt "#30666"
-msgid "Movies: prefer critic rating"
-msgstr "Filmy: uprednostniť hodnotenie kritikov"
-
-msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr "Zobrazí hodnotenie kritikov z vášho servera (Rotten Tomatoes) namiesto hodnotenia komunity. Percentá sa prepočítajú, takže z 78% bude 7,8."
-
-msgctxt "#30668"
-msgid "Pre-cache cast images when idle"
-msgstr "Prednačítať obrázky hercov pri nečinnosti"
-
-msgctxt "#30669"
-msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr "Ukladá miniatúry hercov do vyrovnávacej pamäte, kým je Kodi nečinné, aby sa informačné okno položky vykreslilo okamžite. Zaberá miesto vo vyrovnávacej pamäti miniatúr Kodi — zhruba 60 KB na osobu, čo pri veľkej knižnici môže dosiahnuť gigabajty."
-
-msgctxt "#30670"
-msgid "Pre-cache cast images now"
-msgstr "Prednačítať obrázky hercov teraz"
-
-msgctxt "#30671"
-msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr "Načíta každú miniatúru herca, ktorá ešte nie je vo vyrovnávacej pamäti, bez čakania na nečinnosť."
-
-msgctxt "#30672"
-msgid "Caching cast images"
-msgstr "Ukladajú sa obrázky hercov"
-
-msgctxt "#30673"
-msgid "Cached %d cast image(s)"
-msgstr "Uložených obrázkov hercov: %d"
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr "Sťahovanie"
@@ -1656,10 +1300,6 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr "Odstrániť stiahnutý súbor"
 
-msgctxt "#30711"
-msgid "%s download(s) queued"
-msgstr "Do fronty pridané sťahovania: %s"
-
 msgctxt "#30712"
 msgid "Download complete: %s"
 msgstr "Sťahovanie dokončené: %s"
@@ -1675,10 +1315,6 @@ msgstr "Odstrániť stiahnutý súbor %s?"
 msgctxt "#30715"
 msgid "Not enough free space for %s"
 msgstr "Nedostatok voľného miesta pre %s"
-
-msgctxt "#30716"
-msgid "Download %s item(s) (%s)?"
-msgstr "Stiahnuť %s položiek (%s)?"
 
 msgctxt "#30717"
 msgid "The downloads folder is not writable"
@@ -1756,10 +1392,6 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr "Dátový tok, ktorým sa prekódované skladby zakódujú. 128 kbps Opus je pri väčšine počúvania nerozoznateľný."
 
-msgctxt "#30736"
-msgid "Downloaded music"
-msgstr "Stiahnutá hudba"
-
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr "Stiahnuté v Kofine"
@@ -1788,14 +1420,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr "Filmy novo pridané do synchronizovanej knižnice sa stiahnu automaticky."
 
-msgctxt "#30744"
-msgid "Remove watched automatic downloads"
-msgstr "Odstrániť zhliadnuté automatické sťahovania"
-
-msgctxt "#30745"
-msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr "Automaticky stiahnuté položky sa odstránia, keď ich zhliadnete. Sťahovania, ktoré ste zaradili sami, sa nikdy neodstránia automaticky."
-
 msgctxt "#30746"
 msgid "Delete download after watching"
 msgstr "Odstrániť stiahnuté po zhliadnutí"
@@ -1803,18 +1427,6 @@ msgstr "Odstrániť stiahnuté po zhliadnutí"
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
 msgstr "Keď dopozeráte stiahnutú položku, jej miestna kópia sa odstráni. Položka zostáva na serveri a vo vašej knižnici."
-
-msgctxt "#30748"
-msgid "Keep it"
-msgstr "Ponechať"
-
-msgctxt "#30749"
-msgid "Ask to remove it"
-msgstr "Spýtať sa na odstránenie"
-
-msgctxt "#30750"
-msgid "Remove it without asking"
-msgstr "Odstrániť bez opýtania"
 
 msgctxt "#30751"
 msgid "%s new movies were not downloaded automatically"
@@ -1907,10 +1519,6 @@ msgstr "Paralelné sťahovania hudby"
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "Koľko skladieb sa sťahuje naraz. Skladby sú malé a tvorí ich najmä réžia, takže táto hodnota môže byť pokojne vyššia ako pri videu."
-
-msgctxt "#30774"
-msgid "Delete %s download(s) of %s?"
-msgstr "Odstrániť %s stiahnutých súborov k %s?"
 
 msgctxt "#30775"
 msgid "downloaded from the server"
@@ -2072,14 +1680,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "Ako dlho môže stiahnutý súbor ležať neprehraný, kým sa odstráni. Ďalším prehratím sa počítanie začne odznova."
 
-msgctxt "#30815"
-msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr "Odstrániť aj vašich %s stiahnutých súborov? Čistenie odstráni záznam Kofinu o nich, takže tie, ktoré si ponecháte, zostanú na disku a budete si ich spravovať sami."
-
-msgctxt "#30816"
-msgid "Removing downloaded files…"
-msgstr "Odstraňujú sa stiahnuté súbory…"
-
 msgctxt "#30817"
 msgid "All"
 msgstr "Všetci"
@@ -2099,10 +1699,6 @@ msgstr "Načíta obsadenie a štáb pre kratšie zoznamy doplnku — Nedávno pr
 msgctxt "#30821"
 msgid "Server error — %s"
 msgstr "Chyba servera — %s"
-
-msgctxt "#30822"
-msgid "Kept %s — its library entry could not be restored"
-msgstr "%s ponechané — položku knižnice sa nepodarilo obnoviť"
 
 msgctxt "#30823"
 msgid "Download deleted: %s"
@@ -2164,18 +1760,6 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr "Sledujte synchronizovane s ostatnými klientmi Jellyfin."
 
-msgctxt "#30838"
-msgid "Reuse language invoker"
-msgstr "Znova použiť language invoker"
-
-msgctxt "#30839"
-msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
-msgstr "Vypnite, ak vo widgetoch vzhľadu používate viacero ciest plugin://. Vyžaduje reštart Kodi."
-
-msgctxt "#30840"
-msgid "Restart Kodi to apply this"
-msgstr "Reštartujte Kodi, aby sa to prejavilo"
-
 msgctxt "#30841"
 msgid "Save to Jellyfin"
 msgstr "Uložiť do Jellyfin"
@@ -2236,10 +1820,6 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr "Vytvárať uzly knižnice Kodi a inteligentné zoznamy pre synchronizované video knižnice a kopírovať zoznamy Jellyfin do Kodi do Video → Zoznamy skladieb → Kofin a Hudba → Zoznamy skladieb → Kofin. Vypnutie odstráni všetky uzly a zoznamy, ktoré Kofin vytvoril."
 
-msgctxt "#30858"
-msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr "Nastavenie Kodi „Ignorovať video bonusy pri skenovaní“ je teraz vypnuté, aby sa dali importovať bonusy filmov"
-
 msgctxt "#30859"
 msgid "Library status"
 msgstr "Stav knižnice"
@@ -2267,10 +1847,6 @@ msgstr "Zlyhalo"
 msgctxt "#30865"
 msgid "Last full update"
 msgstr "Posledná úplná aktualizácia"
-
-msgctxt "#30866"
-msgid "Companion add-on"
-msgstr "Sprievodný doplnok"
 
 msgctxt "#30867"
 msgid "Repair to add codec details"
@@ -2387,7 +1963,3 @@ msgstr "Už nie je na serveri"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Knižnica %s už nie je na serveri a bola odstránená z Kodi"
-
-msgctxt "#30990"
-msgid "Not available in this preview"
-msgstr "V tejto skúšobnej verzii nie je dostupné"

@@ -168,18 +168,6 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr "À désactiver uniquement pour les serveurs avec un certificat auto-signé."
 
-msgctxt "#30068"
-msgid "Device name"
-msgstr "Nom de l'appareil"
-
-msgctxt "#30069"
-msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr "La façon dont cet appareil apparaît dans le tableau de bord Jellyfin et les menus de diffusion."
-
-msgctxt "#30070"
-msgid "Connection"
-msgstr "Connexion"
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "Avancé"
@@ -380,10 +368,6 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr "Débits proposés par « Lire avec transcodage ». Avec un seul débit sélectionné, la fenêtre est ignorée."
 
-msgctxt "#30128"
-msgid "Music"
-msgstr "Musique"
-
 msgctxt "#30129"
 msgid "Maximum music bitrate"
 msgstr "Débit musical maximal"
@@ -411,10 +395,6 @@ msgstr "Débit des flux musicaux transcodés."
 msgctxt "#30135"
 msgid "Transcode music"
 msgstr "Transcoder la musique"
-
-msgctxt "#30136"
-msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
-msgstr "Fait passer la lecture musicale par l'extension pour que les paramètres ci-dessous s'appliquent. Désactivé, les morceaux sont diffusés directement depuis le serveur, tels quels. Modifier ce réglage nécessite une réparation de vos bibliothèques musicales pour réécrire leurs chemins."
 
 msgctxt "#30150"
 msgid "H.264 (AVC)"
@@ -648,18 +628,6 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr "Qui regarde ?"
 
-msgctxt "#30042"
-msgid "Add a user"
-msgstr "Ajouter un utilisateur"
-
-msgctxt "#30043"
-msgid "Remove a user"
-msgstr "Retirer un utilisateur"
-
-msgctxt "#30044"
-msgid "Select user"
-msgstr "Sélectionner un utilisateur"
-
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr "Aucune session active sur le serveur pour l'instant"
@@ -692,21 +660,9 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr "Choisissez quelles bibliothèques du serveur sont répliquées dans la bibliothèque Kodi. Les modifications s'appliquent à la validation de la sélection."
 
-msgctxt "#30254"
-msgid "Synced libraries"
-msgstr "Bibliothèques synchronisées"
-
-msgctxt "#30255"
-msgid "The libraries currently mirrored into the Kodi database."
-msgstr "Les bibliothèques actuellement répliquées dans la base de données Kodi."
-
 msgctxt "#30256"
 msgid "Update libraries"
 msgstr "Mettre à jour les bibliothèques"
-
-msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
-msgstr "Récupère les changements du serveur et élimine les éléments supprimés des bibliothèques que vous choisissez. S'exécute à la validation de la sélection."
 
 msgctxt "#30258"
 msgid "Repair libraries"
@@ -716,21 +672,9 @@ msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr "Supprime et resynchronise de zéro les bibliothèques que vous choisissez, en restaurant l'état de visionnage depuis le serveur. S'exécute à la validation de la sélection."
 
-msgctxt "#30260"
-msgid "Refresh boxsets"
-msgstr "Actualiser les sagas"
-
-msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr "Reconstruit les liens des sagas de films à partir des collections du serveur. S'exécute immédiatement."
-
 msgctxt "#30262"
 msgid "Sync status"
 msgstr "État de la synchronisation"
-
-msgctxt "#30263"
-msgid "Companion plugin tier and schema-gate state."
-msgstr "Niveau du plugin compagnon et état du contrôle de schéma."
 
 msgctxt "#30264"
 msgid "Remove synced library?"
@@ -756,18 +700,6 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr "Aucune bibliothèque disponible"
 
-msgctxt "#30270"
-msgid "Update which libraries?"
-msgstr "Quelles bibliothèques mettre à jour ?"
-
-msgctxt "#30300"
-msgid "Sync"
-msgstr "Synchronisation"
-
-msgctxt "#30301"
-msgid "How library changes are downloaded and written."
-msgstr "Comment les modifications de bibliothèque sont téléchargées et écrites."
-
 msgctxt "#30302"
 msgid "Hide update status below (items)"
 msgstr "Masquer l'état de mise à jour en dessous de (éléments)"
@@ -775,34 +707,6 @@ msgstr "Masquer l'état de mise à jour en dessous de (éléments)"
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr "Masque la progression de la mise à jour de bibliothèque de Kodi pour les synchronisations plus petites que cette valeur. 0 l'affiche toujours."
-
-msgctxt "#30306"
-msgid "Sync during video playback"
-msgstr "Synchroniser pendant la lecture vidéo"
-
-msgctxt "#30307"
-msgid "Keep applying library updates while a video is playing."
-msgstr "Continue d'appliquer les mises à jour de bibliothèque pendant la lecture d'une vidéo."
-
-msgctxt "#30310"
-msgid "Items per request"
-msgstr "Éléments par requête"
-
-msgctxt "#30311"
-msgid "Page size for library downloads. Recommended: 50."
-msgstr "Taille de page pour les téléchargements de bibliothèque. Recommandé : 50."
-
-msgctxt "#30312"
-msgid "Download threads"
-msgstr "Fils de téléchargement"
-
-msgctxt "#30313"
-msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr "Connexions de téléchargement parallèles pendant la synchronisation. Recommandé : 3 ; à augmenter seulement pour un serveur rapide."
-
-msgctxt "#30314"
-msgid "Artwork"
-msgstr "Illustrations"
 
 msgctxt "#30318"
 msgid "Compress artwork"
@@ -872,10 +776,6 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr "Épisodes en cours"
 
-msgctxt "#30357"
-msgid "Next episodes"
-msgstr "Épisodes suivants"
-
 msgctxt "#30358"
 msgid "Favorite movies"
 msgstr "Films favoris"
@@ -888,69 +788,17 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr "Épisodes favoris"
 
-msgctxt "#30361"
-msgid "Favorites"
-msgstr "Favoris"
-
-msgctxt "#30362"
-msgid "First letter"
-msgstr "Première lettre"
-
-msgctxt "#30400"
-msgid "Gathering:"
-msgstr "Collecte :"
-
 msgctxt "#30401"
 msgid "Updating media"
 msgstr "Mise à jour des médias"
-
-msgctxt "#30402"
-msgid "Large update: %s items pending"
-msgstr "Grosse mise à jour : %s en attente"
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
 msgstr "Sync incomplète ; nouvel essai"
 
-msgctxt "#30404"
-msgid "Resuming interrupted library sync"
-msgstr "Reprise de la sync interrompue"
-
-msgctxt "#30405"
-msgid "New"
-msgstr "Nouveau"
-
-msgctxt "#30406"
-msgid "Library sync failed"
-msgstr "Échec de la synchronisation"
-
-msgctxt "#30407"
-msgid "Boxsets"
-msgstr "Sagas"
-
 msgctxt "#30408"
 msgid "Removing library"
 msgstr "Suppression de la bibliothèque"
-
-msgctxt "#30409"
-msgid "Full sync completed in"
-msgstr "Sync complète terminée en"
-
-msgctxt "#30410"
-msgid "A sync is already running"
-msgstr "Une sync est déjà en cours"
-
-msgctxt "#30411"
-msgid "Official KodiSyncQueue companion"
-msgstr "Compagnon KodiSyncQueue officiel"
-
-msgctxt "#30412"
-msgid "No companion plugin — realtime updates only"
-msgstr "Sans compagnon — temps réel seulement"
-
-msgctxt "#30413"
-msgid "Sync paused: unknown Kodi database v%s"
-msgstr "Sync en pause : base Kodi v%s inconnue"
 
 msgctxt "#30415"
 msgid "Connected to %s"
@@ -972,10 +820,6 @@ msgctxt "#30420"
 msgid "Library sync is off: %s"
 msgstr "Sync bibliothèque désactivée : %s"
 
-msgctxt "#30414"
-msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr "advancedsettings.xml active cleanonupdate — incompatible avec la synchronisation de bibliothèque"
-
 msgctxt "#30450"
 msgid "Skipping & Play next"
 msgstr "Passages et lire la suite"
@@ -983,10 +827,6 @@ msgstr "Passages et lire la suite"
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
 msgstr "Saut des segments média et invite Lire la suite."
-
-msgctxt "#30452"
-msgid "Media segments"
-msgstr "Segments média"
 
 msgctxt "#30453"
 msgid "Skip media segments"
@@ -1047,10 +887,6 @@ msgstr "Auto"
 msgctxt "#30467"
 msgid "Ask"
 msgstr "Demander"
-
-msgctxt "#30468"
-msgid "Play next"
-msgstr "Lire la suite"
 
 msgctxt "#30469"
 msgid "Offer Play Next"
@@ -1176,22 +1012,6 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr "Regarder en synchronisation avec d'autres clients Jellyfin. Laissez « Synchroniser la lecture à l'affichage » désactivé dans Kodi pour une expérience fiable"
 
-msgctxt "#30553"
-msgid "Drift correction"
-msgstr "Correction de dérive"
-
-msgctxt "#30554"
-msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr "Ajuste doucement la vitesse de lecture pour tenir la position avec le groupe (nécessite « Synchroniser la lecture à l'affichage » de Kodi). Désactivé : suit uniquement les commandes planifiées."
-
-msgctxt "#30555"
-msgid "Sync tolerance (ms)"
-msgstr "Tolérance de synchronisation (ms)"
-
-msgctxt "#30556"
-msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr "Une dérive inférieure à cette valeur est laissée telle quelle ; la correction ne s'engage qu'au-delà. Plus la valeur est basse, plus c'est précis, mais plus les corrections sont fréquentes."
-
 msgctxt "#30557"
 msgid "Group notifications"
 msgstr "Notifications de groupe"
@@ -1312,22 +1132,6 @@ msgctxt "#30587"
 msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
 msgstr "Maintient cet appareil sur la position du groupe en lisant brièvement plus vite ou plus lentement. Une correction vidéo décode l'audio passthrough jusqu'à l'élément suivant."
 
-msgctxt "#30588"
-msgid "Fine sync with audio passthrough on"
-msgstr "Synchronisation fine avec le passthrough audio"
-
-msgctxt "#30589"
-msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
-msgstr "Utiliser la synchronisation fine même lorsque le passthrough audio de Kodi est activé. Le récepteur reçoit du PCM multicanal au lieu d'un flux binaire pendant la session : convient à la plupart des installations, mais l'audio objet Atmos et DTS:X est perdu. Désactivé conserve le passthrough et laisse le groupe se caler sur les seules commandes."
-
-msgctxt "#30590"
-msgid "Shorter video queue during sessions (Kodi 22)"
-msgstr "File vidéo plus courte pendant les sessions (Kodi 22)"
-
-msgctxt "#30591"
-msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
-msgstr "Règle le temps de file audio/vidéo de Kodi à 1 seconde dans un groupe et le rétablit ensuite. Un changement de vitesse ne s'entend qu'une fois la file lue, donc une file plus courte fait agir les corrections en 2 secondes environ au lieu de 5. Sur un réseau lent ou peu fiable, désactivez cette option. Kodi 21 a une file fixe de 8 secondes."
-
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "Sync fine arrêtée : vitesses différentes"
@@ -1348,34 +1152,6 @@ msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
 msgstr "Variation maximale de la vitesse de lecture pendant une correction. À 25 %, une erreur de 2,5 secondes se corrige en 10 secondes ; plus bas est moins perceptible mais plus lent. Les grands changements sont appliqués progressivement."
 
-msgctxt "#30597"
-msgid "Fine sync on AV1 video"
-msgstr "Synchronisation fine sur la vidéo AV1"
-
-msgctxt "#30598"
-msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
-msgstr "Désactivé par défaut, avec un avertissement : sur un Pixel 7, un changement de vitesse suivi d'un saut a bloqué le décodeur matériel AV1, puis le téléphone lui-même. Le décodeur AV1 d'un Bravia n'a posé aucun problème. N'activez que si votre appareil le supporte ; sinon les titres AV1 suivent le groupe par les seules commandes."
-
-msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "La sync fine requiert inputstream.tempo 21.4.1 / 22.4.1"
-
-msgctxt "#30600"
-msgid "KofinSyncQueue companion (fast path)"
-msgstr "Compagnon KofinSyncQueue (voie rapide)"
-
-msgctxt "#30601"
-msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr "Rétention de la file de changements dépassée — mise à jour des bibliothèques pour récupérer"
-
-msgctxt "#30602"
-msgid "New: %s | Updates: %s | User data: %s"
-msgstr "Nouveaux : %s | MàJ : %s | Données utilisateur : %s"
-
-msgctxt "#30603"
-msgid "Comparing with the server"
-msgstr "Comparaison avec le serveur"
-
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1383,34 +1159,6 @@ msgstr "480p"
 msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
-
-msgctxt "#30606"
-msgid "Jellyfin song lyrics"
-msgstr "Paroles de chansons Jellyfin"
-
-msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr "Affiche les paroles d'une chanson depuis Jellyfin pendant sa lecture, au lieu de laisser une extension de paroles les chercher en ligne. \"Afficher avec Kofin Lyrics\" les transmet à l'extension Kofin Lyrics, qui les affiche elle-même ou laisse un habillage le faire. \"Transmettre à une extension de paroles\" fonctionne avec n'importe quelle extension de paroles, comme CU LRC Lyrics."
-
-msgctxt "#30608"
-msgid "Off"
-msgstr "Désactivé"
-
-msgctxt "#30609"
-msgid "Show with Kofin Lyrics"
-msgstr "Afficher avec Kofin Lyrics"
-
-msgctxt "#30610"
-msgid "Hand to a lyrics addon"
-msgstr "Transmettre à une extension de paroles"
-
-msgctxt "#30611"
-msgid "Sync playlists"
-msgstr "Synchroniser les listes de lecture"
-
-msgctxt "#30612"
-msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
-msgstr "Copier les listes de lecture Jellyfin dans Kodi comme listes natives. Les listes musicales apparaissent sous Musique → Listes de lecture → Kofin lorsqu'une bibliothèque musicale est synchronisée ; les listes vidéo sous Vidéos → Listes de lecture → Kofin lorsqu'une bibliothèque vidéo est synchronisée. Les modifications locales de ces fichiers sont écrasées à l'actualisation — utilisez \"Enregistrer dans Jellyfin\" pour renvoyer une liste locale."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -1439,14 +1187,6 @@ msgstr "Utiliser les pistes par défaut de Jellyfin"
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "Démarre la lecture sur les pistes audio et de sous-titres demandées par votre compte Jellyfin, au lieu de celles que choisissent les paramètres de langue de Kodi. Le serveur résout les deux depuis votre profil Jellyfin, si bien que le choix vous suit sur chaque client."
-
-msgctxt "#30620"
-msgid "Chapter images from the server"
-msgstr "Images de chapitre depuis le serveur"
-
-msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
-msgstr "Affiche les images de chapitre de Jellyfin dans la liste des chapitres de Kodi. Les images sont récupérées à la demande au démarrage de la lecture."
 
 msgctxt "#30622"
 msgid "Notify about new content"
@@ -1516,102 +1256,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "Affiche l'écran d'accueil du serveur Jellyfin derrière l'extension, à la place de l'illustration fournie. Actualisé à la connexion du service, au plus une fois par jour."
 
-msgctxt "#30650"
-msgid "Clean databases"
-msgstr "Nettoyer les bases de données"
-
-msgctxt "#30651"
-msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr "Supprime de ce profil Kodi toutes les données de bibliothèque, les nœuds et les listes de lecture de Kofin et de Jellyfin for Kodi. Pour migrer depuis Jellyfin for Kodi, ou avant de désinstaller Kofin. Le serveur Jellyfin n'est pas touché."
-
-msgctxt "#30652"
-msgid "Sign out before cleaning the databases."
-msgstr "Déconnectez-vous avant de nettoyer les bases de données."
-
-msgctxt "#30653"
-msgid "A sync is still running — try again when it finishes."
-msgstr "Une synchronisation est encore en cours — réessayez quand elle sera terminée."
-
-msgctxt "#30654"
-msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr "Désactivez ou désinstallez d'abord l'extension Jellyfin for Kodi : son service en arrière-plan resynchroniserait tout immédiatement."
-
-msgctxt "#30655"
-msgid "Unsupported Kodi database: %s"
-msgstr "Base de données Kodi non prise en charge : %s"
-
-msgctxt "#30656"
-msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr "Ceci supprime TOUT de la bibliothèque vidéo de Kodi — y compris les éléments ajoutés par d'autres extensions ou par des sources locales — ainsi que les états de visionnage et les points de reprise. Le serveur Jellyfin n'est pas touché. Continuer ?"
-
-msgctxt "#30657"
-msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr "Nettoyer aussi la bibliothèque musicale ? Chaque morceau, album et artiste de la bibliothèque musicale Kodi de ce profil sera supprimé."
-
-msgctxt "#30658"
-msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr "Supprimer aussi TOUS les nœuds de bibliothèque, y compris ceux faits à la main et les fichiers de l'éditeur de nœuds ? Les menus de Kodi reviennent à leurs valeurs par défaut. Choisissez Non pour ne supprimer que les nœuds propres à Kofin et à Jellyfin for Kodi."
-
-msgctxt "#30659"
-msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr "Supprimer aussi les illustrations du serveur mises en cache ? Kodi retéléchargera les images dont il a encore besoin."
-
-msgctxt "#30660"
-msgid "Cleaning video library…"
-msgstr "Nettoyage de la bibliothèque vidéo…"
-
-msgctxt "#30661"
-msgid "Cleaning music library…"
-msgstr "Nettoyage de la bibliothèque musicale…"
-
-msgctxt "#30662"
-msgid "Removing add-on state…"
-msgstr "Suppression de l'état de l'extension…"
-
-msgctxt "#30663"
-msgid "Removing library nodes and playlists…"
-msgstr "Suppression des nœuds et des listes de lecture…"
-
-msgctxt "#30664"
-msgid "Removing cached artwork…"
-msgstr "Suppression des illustrations en cache…"
-
-msgctxt "#30665"
-msgid "Clean complete. Kodi will now restart."
-msgstr "Nettoyage terminé. Kodi va maintenant redémarrer."
-
-msgctxt "#30666"
-msgid "Movies: prefer critic rating"
-msgstr "Films : préférer la note de la critique"
-
-msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr "Affiche la note de la critique de votre serveur (Rotten Tomatoes) au lieu de la note de la communauté. Les pourcentages sont ramenés à l'échelle, de sorte que 78% devient 7,8."
-
-msgctxt "#30668"
-msgid "Pre-cache cast images when idle"
-msgstr "Précharger les photos du casting en inactivité"
-
-msgctxt "#30669"
-msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr "Met en cache les vignettes du casting pendant que Kodi est inactif, pour que la fenêtre d'informations d'un élément les affiche instantanément. Occupe de l'espace disque dans le cache de vignettes de Kodi — environ 60 Ko par personne, ce qui peut atteindre plusieurs gigaoctets sur une grande bibliothèque."
-
-msgctxt "#30670"
-msgid "Pre-cache cast images now"
-msgstr "Précharger les photos du casting maintenant"
-
-msgctxt "#30671"
-msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr "Récupère toutes les vignettes du casting qui ne sont pas encore en cache, sans attendre une période d'inactivité."
-
-msgctxt "#30672"
-msgid "Caching cast images"
-msgstr "Mise en cache des photos du casting"
-
-msgctxt "#30673"
-msgid "Cached %d cast image(s)"
-msgstr "%d photo(s) du casting en cache"
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr "Téléchargements"
@@ -1656,10 +1300,6 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr "Supprimer le téléchargement"
 
-msgctxt "#30711"
-msgid "%s download(s) queued"
-msgstr "%s téléchargement(s) en file"
-
 msgctxt "#30712"
 msgid "Download complete: %s"
 msgstr "Téléchargement terminé : %s"
@@ -1675,10 +1315,6 @@ msgstr "Supprimer le téléchargement de %s ?"
 msgctxt "#30715"
 msgid "Not enough free space for %s"
 msgstr "Espace libre insuffisant pour %s"
-
-msgctxt "#30716"
-msgid "Download %s item(s) (%s)?"
-msgstr "Télécharger %s élément(s) (%s) ?"
 
 msgctxt "#30717"
 msgid "The downloads folder is not writable"
@@ -1756,10 +1392,6 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr "Le débit auquel les morceaux transcodés sont encodés. 128 kbps en Opus est transparent pour la plupart des écoutes."
 
-msgctxt "#30736"
-msgid "Downloaded music"
-msgstr "Musique téléchargée"
-
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr "Téléchargements Kofin"
@@ -1788,14 +1420,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr "Les films nouvellement ajoutés à une bibliothèque synchronisée sont téléchargés automatiquement."
 
-msgctxt "#30744"
-msgid "Remove watched automatic downloads"
-msgstr "Supprimer les téléchargements automatiques vus"
-
-msgctxt "#30745"
-msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr "Les éléments téléchargés automatiquement sont supprimés une fois que vous les avez vus. Les téléchargements que vous avez demandés vous-même ne sont jamais supprimés automatiquement."
-
 msgctxt "#30746"
 msgid "Delete download after watching"
 msgstr "Supprimer le téléchargement après lecture"
@@ -1803,18 +1427,6 @@ msgstr "Supprimer le téléchargement après lecture"
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
 msgstr "Lorsque vous finissez de regarder un élément téléchargé, sa copie locale est supprimée. L'élément reste sur le serveur et dans votre bibliothèque."
-
-msgctxt "#30748"
-msgid "Keep it"
-msgstr "Le conserver"
-
-msgctxt "#30749"
-msgid "Ask to remove it"
-msgstr "Demander avant de le supprimer"
-
-msgctxt "#30750"
-msgid "Remove it without asking"
-msgstr "Le supprimer sans demander"
 
 msgctxt "#30751"
 msgid "%s new movies were not downloaded automatically"
@@ -1907,10 +1519,6 @@ msgstr "Téléchargements musicaux parallèles"
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "Combien de morceaux se téléchargent en même temps. Les morceaux sont petits et se résument surtout à de la surcharge réseau, cette valeur peut donc être bien supérieure à celle des vidéos."
-
-msgctxt "#30774"
-msgid "Delete %s download(s) of %s?"
-msgstr "Supprimer %s téléchargement(s) de %s ?"
 
 msgctxt "#30775"
 msgid "downloaded from the server"
@@ -2072,14 +1680,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "Combien de temps un téléchargement peut rester sans être lu avant d'être supprimé. Le relire remet le compteur à zéro."
 
-msgctxt "#30815"
-msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr "Supprimer aussi vos %s fichier(s) téléchargé(s) ? Le nettoyage efface la trace que Kofin en garde, donc ceux que vous conservez resteront sur le disque, à vous de les gérer."
-
-msgctxt "#30816"
-msgid "Removing downloaded files…"
-msgstr "Suppression des téléchargements…"
-
 msgctxt "#30817"
 msgid "All"
 msgstr "Tous"
@@ -2099,10 +1699,6 @@ msgstr "Récupère la distribution et l'équipe pour les listes courtes de l'ext
 msgctxt "#30821"
 msgid "Server error — %s"
 msgstr "Erreur du serveur — %s"
-
-msgctxt "#30822"
-msgid "Kept %s — its library entry could not be restored"
-msgstr "%s conservé — l'entrée de la médiathèque n'a pas pu être restaurée"
 
 msgctxt "#30823"
 msgid "Download deleted: %s"
@@ -2164,18 +1760,6 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr "Regarder en synchronisation avec d'autres clients Jellyfin."
 
-msgctxt "#30838"
-msgid "Reuse language invoker"
-msgstr "Réutiliser l'invoker de langage"
-
-msgctxt "#30839"
-msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
-msgstr "Désactivez si vous utilisez plusieurs chemins plugin:// dans les widgets de l'habillage. Nécessite un redémarrage de Kodi."
-
-msgctxt "#30840"
-msgid "Restart Kodi to apply this"
-msgstr "Redémarrez Kodi pour appliquer ceci"
-
 msgctxt "#30841"
 msgid "Save to Jellyfin"
 msgstr "Enregistrer dans Jellyfin"
@@ -2236,10 +1820,6 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr "Créer des nœuds de bibliothèque Kodi et des listes de lecture intelligentes pour les bibliothèques vidéo synchronisées, et copier les listes de lecture Jellyfin dans Kodi sous Vidéos → Listes de lecture → Kofin et Musique → Listes de lecture → Kofin. Désactivé, tous les nœuds et listes créés par Kofin sont supprimés."
 
-msgctxt "#30858"
-msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr "Le réglage Kodi « Ignorer les bonus vidéo lors de l'analyse » est maintenant désactivé pour que les bonus des films puissent être importés"
-
 msgctxt "#30859"
 msgid "Library status"
 msgstr "État de la bibliothèque"
@@ -2267,10 +1847,6 @@ msgstr "En échec"
 msgctxt "#30865"
 msgid "Last full update"
 msgstr "Dernière mise à jour complète"
-
-msgctxt "#30866"
-msgid "Companion add-on"
-msgstr "Extension compagnon"
 
 msgctxt "#30867"
 msgid "Repair to add codec details"
@@ -2387,7 +1963,3 @@ msgstr "N'est plus sur le serveur"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "La bibliothèque %s n'est plus sur le serveur et a été retirée de Kodi"
-
-msgctxt "#30990"
-msgid "Not available in this preview"
-msgstr "Indisponible dans cette préversion"

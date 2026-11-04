@@ -174,20 +174,6 @@ msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
 msgstr ""
 
-# 30068-30070 — retired: the device name and the Connection category. Kept,
-# never reused, for the reason given at #30744.
-msgctxt "#30068"
-msgid "Device name"
-msgstr ""
-
-msgctxt "#30069"
-msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr ""
-
-msgctxt "#30070"
-msgid "Connection"
-msgstr ""
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr ""
@@ -392,12 +378,6 @@ msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With one selected the popup is skipped."
 msgstr ""
 
-# 30128 — retired: the Music category. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30128"
-msgid "Music"
-msgstr ""
-
 msgctxt "#30129"
 msgid "Maximum music bitrate"
 msgstr ""
@@ -424,12 +404,6 @@ msgstr ""
 
 msgctxt "#30135"
 msgid "Transcode music"
-msgstr ""
-
-# 30136 — retired: a help for #30135, whose help is #30861. Kept, never
-# reused, for the reason given at #30744.
-msgctxt "#30136"
-msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
 msgstr ""
 
 msgctxt "#30150"
@@ -664,20 +638,6 @@ msgctxt "#30041"
 msgid "Who's watching?"
 msgstr ""
 
-# 30042-30044 — retired: the who's-watching picker's own labels. Kept, never
-# reused, for the reason given at #30744.
-msgctxt "#30042"
-msgid "Add a user"
-msgstr ""
-
-msgctxt "#30043"
-msgid "Remove a user"
-msgstr ""
-
-msgctxt "#30044"
-msgid "Select user"
-msgstr ""
-
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr ""
@@ -712,24 +672,8 @@ msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
 msgstr ""
 
-# 30254-30255, 30257, 30260-30261, 30263, 30270 — retired: the Synced
-# libraries list, the Update libraries help, Refresh boxsets, the Sync status
-# help and the per-library update prompt. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30254"
-msgid "Synced libraries"
-msgstr ""
-
-msgctxt "#30255"
-msgid "The libraries currently mirrored into the Kodi database."
-msgstr ""
-
 msgctxt "#30256"
 msgid "Update libraries"
-msgstr ""
-
-msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
 msgstr ""
 
 msgctxt "#30258"
@@ -740,20 +684,8 @@ msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr ""
 
-msgctxt "#30260"
-msgid "Refresh boxsets"
-msgstr ""
-
-msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr ""
-
 msgctxt "#30262"
 msgid "Sync status"
-msgstr ""
-
-msgctxt "#30263"
-msgid "Companion plugin tier and schema-gate state."
 msgstr ""
 
 msgctxt "#30264"
@@ -780,20 +712,7 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr ""
 
-msgctxt "#30270"
-msgid "Update which libraries?"
-msgstr ""
-
-# 30300-30349 — Library tab, sync settings. 30300-30301 retired: the Sync
-# tab's label and help. Kept, never reused, for the reason given at #30744.
-
-msgctxt "#30300"
-msgid "Sync"
-msgstr ""
-
-msgctxt "#30301"
-msgid "How library changes are downloaded and written."
-msgstr ""
+# 30300-30349 — Library tab, sync settings
 
 msgctxt "#30302"
 msgid "Hide update status below (items)"
@@ -801,37 +720,6 @@ msgstr ""
 
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
-msgstr ""
-
-# 30306-30307, 30310-30314 — retired: sync during playback, the page size,
-# the download threads and the Artwork category. Kept, never reused, for the
-# reason given at #30744.
-msgctxt "#30306"
-msgid "Sync during video playback"
-msgstr ""
-
-msgctxt "#30307"
-msgid "Keep applying library updates while a video is playing."
-msgstr ""
-
-msgctxt "#30310"
-msgid "Items per request"
-msgstr ""
-
-msgctxt "#30311"
-msgid "Page size for library downloads. Recommended: 50."
-msgstr ""
-
-msgctxt "#30312"
-msgid "Download threads"
-msgstr ""
-
-msgctxt "#30313"
-msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr ""
-
-msgctxt "#30314"
-msgid "Artwork"
 msgstr ""
 
 msgctxt "#30318"
@@ -907,12 +795,6 @@ msgctxt "#30356"
 msgid "In progress episodes"
 msgstr ""
 
-# 30357 — retired: a library node label. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30357"
-msgid "Next episodes"
-msgstr ""
-
 msgctxt "#30358"
 msgid "Favorite movies"
 msgstr ""
@@ -925,74 +807,18 @@ msgctxt "#30360"
 msgid "Favorite episodes"
 msgstr ""
 
-# 30361-30362 — retired: two library node labels. Kept, never reused, for
-# the reason given at #30744.
-msgctxt "#30361"
-msgid "Favorites"
-msgstr ""
-
-msgctxt "#30362"
-msgid "First letter"
-msgstr ""
-
-# 30400-30429 — sync runtime messages. 30400, 30402, 30404-30407 and
-# 30409-30414 retired: sync toasts and status labels. Kept, never reused, for
-# the reason given at #30744.
-
-msgctxt "#30400"
-msgid "Gathering:"
-msgstr ""
+# 30400-30429 — sync runtime messages
 
 msgctxt "#30401"
 msgid "Updating media"
-msgstr ""
-
-msgctxt "#30402"
-msgid "Large update: %s items pending"
 msgstr ""
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
 msgstr ""
 
-msgctxt "#30404"
-msgid "Resuming interrupted library sync"
-msgstr ""
-
-msgctxt "#30405"
-msgid "New"
-msgstr ""
-
-msgctxt "#30406"
-msgid "Library sync failed"
-msgstr ""
-
-msgctxt "#30407"
-msgid "Boxsets"
-msgstr ""
-
 msgctxt "#30408"
 msgid "Removing library"
-msgstr ""
-
-msgctxt "#30409"
-msgid "Full sync completed in"
-msgstr ""
-
-msgctxt "#30410"
-msgid "A sync is already running"
-msgstr ""
-
-msgctxt "#30411"
-msgid "Official KodiSyncQueue companion"
-msgstr ""
-
-msgctxt "#30412"
-msgid "No companion plugin — realtime updates only"
-msgstr ""
-
-msgctxt "#30413"
-msgid "Sync paused: unknown Kodi database v%s"
 msgstr ""
 
 msgctxt "#30415"
@@ -1015,10 +841,6 @@ msgctxt "#30420"
 msgid "Library sync is off: %s"
 msgstr ""
 
-msgctxt "#30414"
-msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr ""
-
 # 30450-30499 — Skipping & Play next tab: media segments + Play Next
 
 msgctxt "#30450"
@@ -1027,12 +849,6 @@ msgstr ""
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
-msgstr ""
-
-# 30452 — retired: the Media segments category. Kept, never reused, for the
-# reason given at #30744.
-msgctxt "#30452"
-msgid "Media segments"
 msgstr ""
 
 msgctxt "#30453"
@@ -1093,12 +909,6 @@ msgstr ""
 
 msgctxt "#30467"
 msgid "Ask"
-msgstr ""
-
-# 30468 — retired: the Play next label. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30468"
-msgid "Play next"
 msgstr ""
 
 msgctxt "#30469"
@@ -1233,25 +1043,6 @@ msgctxt "#30552"
 msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr ""
 
-# 30553-30556 — retired: the SyncPlay drift controller (the Player.SetTempo
-# ladder and its tolerance slider). Kept, never reused, for the reason given at
-# #30744.
-msgctxt "#30553"
-msgid "Drift correction"
-msgstr ""
-
-msgctxt "#30554"
-msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr ""
-
-msgctxt "#30555"
-msgid "Sync tolerance (ms)"
-msgstr ""
-
-msgctxt "#30556"
-msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr ""
-
 msgctxt "#30557"
 msgid "Group notifications"
 msgstr ""
@@ -1365,31 +1156,13 @@ msgid "Waiting for the group..."
 msgstr ""
 
 # 30586-30599 — SyncPlay fine sync (lib/kofin/syncplay/tempo.py). #30592 is a
-# toast. 30588-30591 and 30597-30599 retired: the passthrough, video-queue and
-# AV1 toggles and the inputstream.tempo toast. Kept, never reused, for the
-# reason given at #30744.
+# toast.
 msgctxt "#30586"
 msgid "Fine sync using tempo"
 msgstr ""
 
 msgctxt "#30587"
 msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
-msgstr ""
-
-msgctxt "#30588"
-msgid "Fine sync with audio passthrough on"
-msgstr ""
-
-msgctxt "#30589"
-msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
-msgstr ""
-
-msgctxt "#30590"
-msgid "Shorter video queue during sessions (Kodi 22)"
-msgstr ""
-
-msgctxt "#30591"
-msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
 msgstr ""
 
 msgctxt "#30592"
@@ -1412,37 +1185,6 @@ msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
 msgstr ""
 
-msgctxt "#30597"
-msgid "Fine sync on AV1 video"
-msgstr ""
-
-msgctxt "#30598"
-msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
-msgstr ""
-
-msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr ""
-
-# 30600-30603 — retired: the Library tab's read-only status labels and the
-# comparison toast. Kept, never reused, for the reason given at #30744.
-
-msgctxt "#30600"
-msgid "KofinSyncQueue companion (fast path)"
-msgstr ""
-
-msgctxt "#30601"
-msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr ""
-
-msgctxt "#30602"
-msgid "New: %s | Updates: %s | User data: %s"
-msgstr ""
-
-msgctxt "#30603"
-msgid "Comparing with the server"
-msgstr ""
-
 # 30604-30605 — maximum-resolution steps
 msgctxt "#30604"
 msgid "480p"
@@ -1450,38 +1192,6 @@ msgstr ""
 
 msgctxt "#30605"
 msgid "1440p"
-msgstr ""
-
-# 30606-30610 — retired: the Jellyfin song lyrics setting. Kept, never
-# reused, for the reason given at #30744.
-msgctxt "#30606"
-msgid "Jellyfin song lyrics"
-msgstr ""
-
-msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr ""
-
-msgctxt "#30608"
-msgid "Off"
-msgstr ""
-
-msgctxt "#30609"
-msgid "Show with Kofin Lyrics"
-msgstr ""
-
-msgctxt "#30610"
-msgid "Hand to a lyrics addon"
-msgstr ""
-
-# 30611-30612 — retired: the playlist sync switch. Kept, never reused, for
-# the reason given at #30744.
-msgctxt "#30611"
-msgid "Sync playlists"
-msgstr ""
-
-msgctxt "#30612"
-msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
 msgstr ""
 
 # 30613-30617 — transcoding stream selection
@@ -1512,16 +1222,6 @@ msgstr ""
 
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
-msgstr ""
-
-# 30620-30621 — retired: the chapter images setting. Kept, never reused, for
-# the reason given at #30744.
-msgctxt "#30620"
-msgid "Chapter images from the server"
-msgstr ""
-
-msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
 msgstr ""
 
 # 30622-30636 — new-content notifications
@@ -1594,107 +1294,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr ""
 
-# 30650-30665 — retired: Clean databases. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30650"
-msgid "Clean databases"
-msgstr ""
-
-msgctxt "#30651"
-msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr ""
-
-msgctxt "#30652"
-msgid "Sign out before cleaning the databases."
-msgstr ""
-
-msgctxt "#30653"
-msgid "A sync is still running — try again when it finishes."
-msgstr ""
-
-msgctxt "#30654"
-msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr ""
-
-msgctxt "#30655"
-msgid "Unsupported Kodi database: %s"
-msgstr ""
-
-msgctxt "#30656"
-msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr ""
-
-msgctxt "#30657"
-msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr ""
-
-msgctxt "#30658"
-msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr ""
-
-msgctxt "#30659"
-msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr ""
-
-msgctxt "#30660"
-msgid "Cleaning video library…"
-msgstr ""
-
-msgctxt "#30661"
-msgid "Cleaning music library…"
-msgstr ""
-
-msgctxt "#30662"
-msgid "Removing add-on state…"
-msgstr ""
-
-msgctxt "#30663"
-msgid "Removing library nodes and playlists…"
-msgstr ""
-
-msgctxt "#30664"
-msgid "Removing cached artwork…"
-msgstr ""
-
-msgctxt "#30665"
-msgid "Clean complete. Kodi will now restart."
-msgstr ""
-
-# 30666-30667 — critic ratings
-msgctxt "#30666"
-msgid "Movies: prefer critic rating"
-msgstr ""
-
-msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr ""
-
-# 30668-30673 — retired: the actor art pre-cache. Kept, never reused, for the
-# reason given at #30744.
-msgctxt "#30668"
-msgid "Pre-cache cast images when idle"
-msgstr ""
-
-msgctxt "#30669"
-msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr ""
-
-msgctxt "#30670"
-msgid "Pre-cache cast images now"
-msgstr ""
-
-msgctxt "#30671"
-msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr ""
-
-msgctxt "#30672"
-msgid "Caching cast images"
-msgstr ""
-
-msgctxt "#30673"
-msgid "Cached %d cast image(s)"
-msgstr ""
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr ""
@@ -1739,12 +1338,6 @@ msgctxt "#30710"
 msgid "Delete download"
 msgstr ""
 
-# 30711 — retired: the queued-downloads toast. Kept, never reused, for the
-# reason given at #30744.
-msgctxt "#30711"
-msgid "%s download(s) queued"
-msgstr ""
-
 msgctxt "#30712"
 msgid "Download complete: %s"
 msgstr ""
@@ -1759,12 +1352,6 @@ msgstr ""
 
 msgctxt "#30715"
 msgid "Not enough free space for %s"
-msgstr ""
-
-# 30716 — retired: a download confirmation (the container confirmation is
-# #30771). Kept, never reused, for the reason given at #30744.
-msgctxt "#30716"
-msgid "Download %s item(s) (%s)?"
 msgstr ""
 
 msgctxt "#30717"
@@ -1844,12 +1431,6 @@ msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr ""
 
-# 30736 — retired: the Downloaded music smart playlist. Kept, never reused,
-# for the reason given at #30744.
-msgctxt "#30736"
-msgid "Downloaded music"
-msgstr ""
-
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr ""
@@ -1878,36 +1459,12 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically."
 msgstr ""
 
-# 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
-# three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
-# changes meaning silently mistranslates every language that already shipped
-# it.
-msgctxt "#30744"
-msgid "Remove watched automatic downloads"
-msgstr ""
-
-msgctxt "#30745"
-msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr ""
-
 msgctxt "#30746"
 msgid "Delete download after watching"
 msgstr ""
 
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
-msgstr ""
-
-msgctxt "#30748"
-msgid "Keep it"
-msgstr ""
-
-msgctxt "#30749"
-msgid "Ask to remove it"
-msgstr ""
-
-msgctxt "#30750"
-msgid "Remove it without asking"
 msgstr ""
 
 msgctxt "#30751"
@@ -2000,13 +1557,6 @@ msgstr ""
 
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
-msgstr ""
-
-# 30774 — retired with the Delete download confirmation. Kept, never reused,
-# for the reason given at #30744. #30714 stays live: the finished-watching
-# offer in service/player.py still asks.
-msgctxt "#30774"
-msgid "Delete %s download(s) of %s?"
 msgstr ""
 
 # 30775-30776 — the other half of #30617: a text subtitle a transcode did not
@@ -2190,16 +1740,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr ""
 
-# 30815-30816 — retired: the Clean databases downloads prompt. Kept, never
-# reused, for the reason given at #30744.
-msgctxt "#30815"
-msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr ""
-
-msgctxt "#30816"
-msgid "Removing downloaded files…"
-msgstr ""
-
 # 30817 — the shortlist's first row. Not #30030's "All": that one labels a
 # browse node ("all movies"), and the languages that decline the word render
 # the two differently — French wants "Tout" there and "Tous" for a list of
@@ -2228,12 +1768,6 @@ msgstr ""
 # rejected" (#30022) is true of it. %s is the transport's status text.
 msgctxt "#30821"
 msgid "Server error — %s"
-msgstr ""
-
-# 30822 — retired: the toast for a download kept because its library entry
-# could not be restored. Kept, never reused, for the reason given at #30744.
-msgctxt "#30822"
-msgid "Kept %s — its library entry could not be restored"
 msgstr ""
 
 # 30823-30824 — a removal answers once, whether it was one item or a
@@ -2318,20 +1852,6 @@ msgctxt "#30837"
 msgid "Watch in sync with other Jellyfin clients."
 msgstr ""
 
-# 30838-30840 — retired: the reuselanguageinvoker toggle. Kept, never reused,
-# for the reason given at #30744.
-msgctxt "#30838"
-msgid "Reuse language invoker"
-msgstr ""
-
-msgctxt "#30839"
-msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
-msgstr ""
-
-msgctxt "#30840"
-msgid "Restart Kodi to apply this"
-msgstr ""
-
 msgctxt "#30841"
 msgid "Save to Jellyfin"
 msgstr ""
@@ -2395,12 +1915,6 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created."
 msgstr ""
 
-# 30858 — retired: the toast for turning Kodi's "Ignore video extras on
-# scan" off. Kept, never reused, for the reason given at #30744.
-msgctxt "#30858"
-msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr ""
-
 # 30859-30868 — the library status dialog (settings.xml libraryStatus,
 # plugin/actions.py library_status) and the help for "Transcode music" (30861).
 # 30862 follows 30859 in the dialog's heading; 30863-30868 each lead a row
@@ -2432,12 +1946,6 @@ msgstr ""
 
 msgctxt "#30865"
 msgid "Last full update"
-msgstr ""
-
-# 30866 — retired: the companion add-on row. Kept, never reused, for the
-# reason given at #30744.
-msgctxt "#30866"
-msgid "Companion add-on"
 msgstr ""
 
 msgctxt "#30867"
@@ -2568,10 +2076,4 @@ msgstr ""
 
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
-msgstr ""
-
-# 30990 — retired: the preview notice. Kept, never reused, for the reason
-# given at #30744.
-msgctxt "#30990"
-msgid "Not available in this preview"
 msgstr ""

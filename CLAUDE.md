@@ -1003,7 +1003,7 @@ the lot together. `tr/_source.json` records the English each translation was mad
 catches a locale left out of step.
 
 Help strings that quote another string's wording verbatim (`#30794` quotes `#30618`; `#30080`
-quotes `#30817`; `#30826` quotes `#30052`; `#30612` quotes `#30841`) and `pocheck.py` enforces all of them —
+quotes `#30817`; `#30826` quotes `#30052`) and `pocheck.py` enforces all of them —
 translate such a pair together or the help names a control that is not on screen under that name.
 The quoted label goes in ASCII double quotes even where the locale uses its own quotation marks
 elsewhere in the same string, because that is what the check looks for. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`
