@@ -16,7 +16,8 @@ import json
 import time
 from collections import abc
 from contextlib import contextmanager
-from typing import NamedTuple, Optional
+from collections.abc import Callable, Collection, Iterable, Iterator
+from typing import Any, NamedTuple, Optional, TypeVar
 
 import xbmc
 
@@ -29,9 +30,11 @@ from .musicpass import MusicPass
 from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
-from .store import Entry, Store
+from .store import Entry, PendingWork, Placements, Store
 
 LOG = Logger(__name__)
+
+T = TypeVar("T")
 
 # A pass scans a movies root once instead of the missing movies' folders by
 # name when at least this share of the library is missing.
@@ -92,7 +95,7 @@ REMOVED_KINDS = {
 
 
 class Monitor(xbmc.Monitor):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.finished = 0
         self.music_finished = 0
@@ -105,7 +108,7 @@ class Monitor(xbmc.Monitor):
         # run on the thread that made the monitor, which is that thread.
         self.lost: set[tuple[str, int]] = set()
 
-    def onNotification(self, sender, method, data):
+    def onNotification(self, sender: str, method: str, data: str) -> None:
         if method != "VideoLibrary.OnRemove":
             return
         try:
@@ -120,13 +123,13 @@ class Monitor(xbmc.Monitor):
         if kind is not None and isinstance(kodi_id, int):
             self.lost.add((kind, kodi_id))
 
-    def onScanFinished(self, library):
+    def onScanFinished(self, library: str) -> None:
         if library.lower() == "video":
             self.finished += 1
         elif library.lower() == "music":
             self.music_finished += 1
 
-    def onCleanFinished(self, library):
+    def onCleanFinished(self, library: str) -> None:
         if library.lower() == "video":
             self.cleaned += 1
         elif library.lower() == "music":
@@ -149,7 +152,12 @@ class VideoScan(NamedTuple):
 class Native:
     SCAN_POLL = SCAN_POLL
 
-    def __init__(self, store: Store, abort=lambda: False, bar=None):
+    def __init__(
+        self,
+        store: Store,
+        abort: Callable[[], bool] = lambda: False,
+        bar: Optional[progress.Progress] = None,
+    ) -> None:
         self.store = store
         self.key = store.namespace
         self.abort = abort
@@ -197,7 +205,7 @@ class Native:
 
     # -- gates ---------------------------------------------------------------
 
-    def setup(self):
+    def setup(self) -> None:
         """The first-run gate: no sync into a profile that still holds what
         an earlier Kofin filed.
 
@@ -233,17 +241,23 @@ class Native:
 
     # -- waits ---------------------------------------------------------------
 
-    def _idle(self, scanner="video"):
+    def _idle(self, scanner: str = "video") -> bool:
         if scanner == "music":
             return not xbmc.getCondVisibility("Library.IsScanningMusic")
         if scanner == "any":
             return self._idle("video") and self._idle("music")
         return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
-    def _scanning(self, scanner="video"):
+    def _scanning(self, scanner: str = "video") -> bool:
         return not self._idle(scanner)
 
-    def wait(self, predicate, timeout=60, busy=lambda: False, on_poll=None):
+    def wait(
+        self,
+        predicate: Callable[[], T],
+        timeout: float = 60,
+        busy: Callable[[], bool] = lambda: False,
+        on_poll: Optional[Callable[[], None]] = None,
+    ) -> T:
         """``timeout`` is idle time: the deadline moves while ``busy`` holds.
 
         ``on_poll`` runs once a loop, for a bar that reads progress off Kodi.
@@ -262,7 +276,7 @@ class Native:
             elif time.monotonic() >= deadline:
                 raise TimeoutError("native operation did not converge")
 
-    def pump(self):
+    def pump(self) -> None:
         """Run the callbacks Kodi has queued for this thread.
 
         Kodi queues one for every announcement on every Monitor object, and
@@ -274,14 +288,14 @@ class Native:
         if self.abort() or self.monitor.waitForAbort(0.001):
             raise InterruptedError("native operation interrupted")
 
-    def server_url(self):
+    def server_url(self) -> str:
         if not self._server:
             self._server = self.store.server()
         return self._server
 
     # -- bindings and scans --------------------------------------------------
 
-    def bind(self, library, content):
+    def bind(self, library: str, content: str) -> None:
         path = paths.library_dir(self.key, library, content)
         if self.store.bindings().get(path) == content:
             return
@@ -297,7 +311,13 @@ class Native:
         )
         self.store.bind(path, content)
 
-    def bind_folders(self, content, folders, force=False, noupdate=False):
+    def bind_folders(
+        self,
+        content: str,
+        folders: Iterable[str],
+        force: bool = False,
+        noupdate: bool = False,
+    ) -> None:
         """A folder under a root needs its own binding: Kodi derives a plugin
         path's parent as the plugin root, so the library binding is never
         found from beneath it (URIUtils::GetParentPath), and a folder without
@@ -351,7 +371,7 @@ class Native:
             if failed:
                 raise failed[0]
 
-    def bind_movie_folders(self):
+    def bind_movie_folders(self) -> None:
         """Bind every movie folder of the catalogue with ``noupdate``, the
         folders of an older profile's rows included, since a pass plans
         pending rows only. Kodi's info dialog loads a library movie's full
@@ -395,7 +415,7 @@ class Native:
                 self.bind_folders("movies", dirs, noupdate=True)
             settings.set_str(MOVIE_BINDINGS_SETTING, EXTRAS_BINDINGS_STATE)
 
-    def library_event(self):
+    def library_event(self) -> None:
         """Have Kodi announce that the video library changed, and scan
         nothing for it: a scan with no directory walks every bound folder.
         Not issued while a scan runs (see ``scan``).
@@ -404,7 +424,7 @@ class Native:
             return
         rpc("VideoLibrary.Scan", {"directory": NOWHERE, "showdialogs": False})
 
-    def announce_writes(self):
+    def announce_writes(self) -> None:
         """``library_event`` for what a pass wrote, at its end.
 
         A setter that changes only art or tags announces nothing, and a home
@@ -415,13 +435,13 @@ class Native:
         """
         self.scan([NOWHERE], dialogs=False)
 
-    def unbind_show(self, library, series_id):
+    def unbind_show(self, library: str, series_id: str) -> None:
         self.unbind_folder(paths.show_dir(self.key, library, series_id))
 
-    def unbind_movie(self, library, item_id):
+    def unbind_movie(self, library: str, item_id: str) -> None:
         self.unbind_folder(paths.movie_dir(self.key, library, item_id))
 
-    def unbind_folder(self, path):
+    def unbind_folder(self, path: str) -> None:
         try:
             rpc(
                 "VideoLibrary.SetSourceContent",
@@ -436,7 +456,7 @@ class Native:
             LOG.warning("folder binding not cleared: %s", error)
         self.store.unbind(path)
 
-    def _count(self, location) -> Optional[int]:
+    def _count(self, location: Optional[paths.Location]) -> Optional[int]:
         """Kodi's row count under a scanner directory's library, or None.
 
         One row is asked for with it, and never a zero-width page: the video
@@ -466,7 +486,9 @@ class Native:
         total = (reply or {}).get("limits", {}).get("total")
         return total if isinstance(total, int) else None
 
-    def scan_heading(self, location, scanner="video") -> str:
+    def scan_heading(
+        self, location: Optional[paths.Location], scanner: str = "video"
+    ) -> str:
         return "%s: %s" % (
             xbmc.getLocalizedString(progress.SCANNING),
             progress.label(
@@ -474,7 +496,9 @@ class Native:
             ),
         )
 
-    def scan_watch(self, location, heading, goal):
+    def scan_watch(
+        self, location: Optional[paths.Location], heading: str, goal: int
+    ) -> Optional[Callable[[], None]]:
         """A poll callback that reads Kodi's row count under the scan's
         library every few seconds and moves the bar towards ``goal``."""
         if not self.progress.open:
@@ -487,7 +511,7 @@ class Native:
             return None
         polled = [time.monotonic()]
 
-        def on_poll():
+        def on_poll() -> None:
             if time.monotonic() - polled[0] < self.SCAN_POLL:
                 return
             polled[0] = time.monotonic()
@@ -504,12 +528,12 @@ class Native:
     def scan(
         self,
         directories: list[str],
-        scanner="video",
-        expected=None,
-        prepare=None,
-        on_poll=None,
-        dialogs=None,
-    ):
+        scanner: str = "video",
+        expected: Optional[dict[str, int]] = None,
+        prepare: Optional[Callable[[str], None]] = None,
+        on_poll: Optional[Callable[[], None]] = None,
+        dialogs: Optional[bool] = None,
+    ) -> None:
         """Scan each directory in turn and wait for the scanner to go idle.
 
         ``expected`` maps a directory to the rows its scan should add; while
@@ -526,7 +550,7 @@ class Native:
         if not directories:
             return
 
-        def finished():
+        def finished() -> int:
             return (
                 self.monitor.music_finished
                 if scanner == "music"
@@ -549,6 +573,10 @@ class Native:
             self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
             serial = finished()
             began = time.monotonic()
+
+            def scanned(serial: int = serial) -> bool:
+                return finished() > serial and self._idle(scanner)
+
             location = paths.parse(directory)
             heading = self.scan_heading(location, scanner)
             goal = int(expected.get(directory) or 0)
@@ -561,7 +589,7 @@ class Native:
             self._async_pending = True
             try:
                 self.wait(
-                    lambda serial=serial: finished() > serial and self._idle(scanner),
+                    scanned,
                     busy=lambda: self._scanning(scanner),
                     on_poll=watch,
                 )
@@ -594,7 +622,7 @@ class Native:
 
     # -- movie versions and extras -------------------------------------------
 
-    def _asset_folders(self, upserts, library) -> list[str]:
+    def _asset_folders(self, upserts: dict[str, Record], library: str) -> list[str]:
         """Movie folders whose listing Kodi has not seen: the assets token
         acknowledged for the movie (the listing a scan presented) differs
         from its payload's (metadata.assets_token). The root walk lists the
@@ -621,7 +649,7 @@ class Native:
                 self._extras_folders.add(folder)
         return folders
 
-    def retire_assets(self, folders):
+    def retire_assets(self, folders: Collection[str]) -> None:
         """Clean the folder of every movie whose listing dropped a version
         file or an extra this pass. With the asset_clean feature the clean
         of one folder removes what ``provider.exists`` says is gone and
@@ -651,7 +679,7 @@ class Native:
             except Exception:
                 LOG.exception("movie folder %s not cleaned", folder)
 
-    def clean(self, directory):
+    def clean(self, directory: str) -> None:
         """Run Kodi's clean of ``directory`` and wait for it to end, as a
         scan is waited for: never beside a scan."""
         self.wait(lambda: self._idle("video"), busy=lambda: self._scanning("video"))
@@ -668,7 +696,7 @@ class Native:
         self.readback.clear()
 
     @contextmanager
-    def without_actor_thumbs(self, rows):
+    def without_actor_thumbs(self, rows: int) -> Iterator[None]:
         """Run a large video scan with Kodi's "Download actor thumbnails" off,
         and put the setting back.
 
@@ -716,7 +744,7 @@ class Native:
             if held:
                 self.restore_settings()
 
-    def restore_settings(self):
+    def restore_settings(self) -> None:
         """Give back every Kodi setting a scan was holding: the scan that
         just ended, or one a stopped Kodi never finished. The record goes
         only after Kodi took the value.
@@ -740,7 +768,7 @@ class Native:
             LOG.debug("Kodi setting %s back to %r", setting, value)
         self.settings_owed = owed
 
-    def _prepare_scan(self, directory):
+    def _prepare_scan(self, directory: str) -> None:
         """List a movie's extras folder through Kodi just before the folder
         is scanned, with the disc folders the scanner probes for below it.
 
@@ -757,7 +785,7 @@ class Native:
         for probe in (extras, extras + "VIDEO_TS/", extras + "BDMV/"):
             rpc("Files.GetDirectory", {"directory": probe, "media": "video"})
 
-    def _forget_listing(self, directory):
+    def _forget_listing(self, directory: str) -> None:
         """Have Kodi drop its cached listing of ``directory``: the provider
         refuses the request (paths.FORGET), so Kodi answers with an error,
         which is the result."""
@@ -768,7 +796,7 @@ class Native:
 
     # -- the scanner hold ----------------------------------------------------
 
-    def hold(self, scanner="music"):
+    def hold(self, scanner: str = "music") -> None:
         """Keep Kodi's scanner busy while the pass writes, so the writes are
         announced as a transaction and the home widgets stay quiet.
 
@@ -797,18 +825,18 @@ class Native:
             LOG.warning("%s scanner did not take the hold; writing without it", scanner)
         self._held[scanner] = time.monotonic()
 
-    def release(self, scanner="music"):
+    def release(self, scanner: str = "music") -> None:
         if scanner not in self._held:
             return
         state.clear_native_hold(scanner)
         self._held.pop(scanner, None)
         self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
 
-    def release_all(self):
+    def release_all(self) -> None:
         for scanner in list(self._held):
             self.release(scanner)
 
-    def note_music_changes(self):
+    def note_music_changes(self) -> None:
         """Forget which music libraries have been compared whole once Kodi
         has scanned or cleaned music for anyone but the pass.
 
@@ -830,14 +858,14 @@ class Native:
         if new > own:
             self.music_checked.clear()
 
-    def credit_music_scans(self, library):
+    def credit_music_scans(self, library: str) -> None:
         """The library's directory scans this pass ran have had their
         directories checked for lost songs: they are the pass's own."""
         self._own_music_scans += self._unchecked_scans.pop(library, 0)
 
     # -- the pass ------------------------------------------------------------
 
-    def reconcile(self, repair=False):
+    def reconcile(self, repair: bool = False) -> None:
         """Replay durable operations; an accepted RPC is never a commit.
 
         In order: the pass waits for Kodi's scanners and decides whether it
@@ -882,7 +910,9 @@ class Native:
             del applier
             self._release(completed, large)
 
-    def _begin(self, repair):
+    def _begin(
+        self, repair: bool
+    ) -> tuple[bool, Optional[frozenset[str]], Optional[int]]:
         """The pass waits for Kodi's scanners, pins the catalogue and decides
         whether every row is compared; returns the repair flag with the
         feature set and the serializer the last pass stamped."""
@@ -929,7 +959,7 @@ class Native:
             self.music_checked.clear()
         return repair, stamped, serializer
 
-    def _pending(self, repair):
+    def _pending(self, repair: bool) -> tuple[PendingWork, Placements]:
         """What the pass holds: the pending items as (generation, operation,
         payload), every record on a repair, and their placements. The
         pending items' are read up front and the rest as asked for; a
@@ -947,7 +977,9 @@ class Native:
             entries.whole()
         return pending, entries
 
-    def _remove(self, pending, entries, errors):
+    def _remove(
+        self, pending: PendingWork, entries: Placements, errors: list[Exception]
+    ) -> None:
         """The tombstones applied, and what they put back to pending joined
         to this pass rather than the next: a removed collection's movies let
         go of its set before the set can and rejoin as upserts, and a
@@ -959,7 +991,7 @@ class Native:
                 pending[item_id] = (generation, operation, {})
         entries.preload(pending)
 
-    def _upserts(self, pending, entries) -> dict[str, Record]:
+    def _upserts(self, pending: PendingWork, entries: Placements) -> dict[str, Record]:
         """The records to apply: every pending upsert with a placement, its
         payload read through the window."""
         upserts: dict[str, Record] = {}
@@ -978,7 +1010,15 @@ class Native:
             )
         return upserts
 
-    def _apply(self, applier, upserts, entries, collections, repair, errors):
+    def _apply(
+        self,
+        applier: Applier,
+        upserts: dict[str, Record],
+        entries: Placements,
+        collections: dict[str, str],
+        repair: bool,
+        errors: list[Exception],
+    ) -> None:
         """The scans and the setters: music scanned, the kinds that do not
         wait for the video scans applied, then the video scans and every
         other kind in order."""
@@ -1015,7 +1055,14 @@ class Native:
         )
         self.reclaim_shows(upserts)
 
-    def _settle(self, applier, pending, upserts, boxsets, errors):
+    def _settle(
+        self,
+        applier: Applier,
+        pending: PendingWork,
+        upserts: dict[str, Record],
+        boxsets: list[dict[str, Any]],
+        errors: list[Exception],
+    ) -> None:
         """After the setters, nothing counted: the sets, the asset folders,
         the movie folders' bindings, the acknowledgements and the widgets."""
         self.progress.working(progress.WAITING)
@@ -1041,7 +1088,7 @@ class Native:
             except Exception:
                 LOG.exception("home widgets not told of a download's badge")
 
-    def _release(self, completed, large):
+    def _release(self, completed: bool, large: bool) -> None:
         """What the pass held, given back: the heap after a large pass or a
         whole music read (a small pass frees too little to pay a collection
         for), the scanner holds, and the catalogue's pin once Kodi is idle."""
@@ -1056,7 +1103,13 @@ class Native:
         if (completed or not self._async_pending) and self._idle("any"):
             self.store.unpin()
 
-    def join_sets(self, pending, entries, sets: dict[str, Record], collections):
+    def join_sets(
+        self,
+        pending: PendingWork,
+        entries: Placements,
+        sets: dict[str, Record],
+        collections: dict[str, str],
+    ) -> None:
         """Put every collection a movie of this pass is filed under into the
         pass, pending before that movie is acknowledged.
 
@@ -1088,9 +1141,9 @@ class Native:
     def scan_music(
         self,
         upserts: dict[str, Record],
-        errors,
+        errors: list[Exception],
         entries: Optional[abc.Mapping[str, Entry]] = None,
-    ):
+    ) -> None:
         """Have Kodi list the music directories that need it, a library at a
         time. The pass scans music before video (reconcile)."""
         for library in sorted({r.library for r in upserts.values() if r.library}):
@@ -1131,7 +1184,9 @@ class Native:
             )
         return len(items)
 
-    def plan_video(self, upserts: dict[str, Record], errors) -> VideoScan:
+    def plan_video(
+        self, upserts: dict[str, Record], errors: list[Exception]
+    ) -> VideoScan:
         """Bind whatever the readback shows the video scanner has not filed,
         and name the directories to scan for it and for the movie folders
         whose versions or extras the scanner has not seen."""
@@ -1179,7 +1234,7 @@ class Native:
         return scan
 
     def _unfiled(
-        self, content, library, upserts: dict[str, Record]
+        self, content: str, library: str, upserts: dict[str, Record]
     ) -> tuple[list[Record], int]:
         """The records of one library and content the readback shows the
         scanner has not filed, with the count of rows it has. A show's
@@ -1217,7 +1272,13 @@ class Native:
         return missing, len(present)
 
     def _movie_directories(
-        self, scan: VideoScan, library, root, present, missing, asset_folders
+        self,
+        scan: VideoScan,
+        library: str,
+        root: str,
+        present: int,
+        missing: list[Record],
+        asset_folders: list[str],
     ) -> None:
         """The directories a movie library's scan lists. A movie's URL sits
         in a folder of its own. A few new movies are scanned by folder, each
@@ -1248,7 +1309,7 @@ class Native:
                 f for f in asset_folders if f not in scan.directories
             )
 
-    def scan_video(self, video: VideoScan):
+    def scan_video(self, video: VideoScan) -> None:
         """Have Kodi's video scanner list what plan_video named.
 
         A movies root Kodi may hold in its directory cache is forgotten
@@ -1264,7 +1325,7 @@ class Native:
             if location is not None and location.library is not None
         }
 
-        def prepare(directory):
+        def prepare(directory: str) -> None:
             location = paths.parse(directory)
             if (
                 location is not None
@@ -1312,7 +1373,7 @@ class Native:
                 if extras:
                     self.bind_folders("movies", extras, noupdate=True)
 
-    def reclaim_shows(self, upserts):
+    def reclaim_shows(self, upserts: dict[str, Record]) -> None:
         """A show another source's scan took our ids off, found by this pass
         through its episodes, goes back to pending unless this pass planned
         it: the next pass compares it and puts the ids back (Readback.show).
@@ -1330,7 +1391,7 @@ class Native:
             )
             self.store.invalidate(stripped)
 
-    def _missing_tv(self, upserts, library) -> list[Record]:
+    def _missing_tv(self, upserts: dict[str, Record], library: str) -> list[Record]:
         shows = self.readback.scope("Series", library)
         # Only a show Kodi has filed for us can sit on a row another source's
         # folder lists (Readback.show), and a first import files none: their
@@ -1342,7 +1403,7 @@ class Native:
         } - set(shows)
         filed = self.store.mappings_of(sorted(unlisted)) if unlisted else {}
 
-        def known(series_id):
+        def known(series_id: str) -> bool:
             if series_id in shows:
                 return True
             return (

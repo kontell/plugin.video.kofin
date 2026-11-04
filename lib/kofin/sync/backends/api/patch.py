@@ -12,7 +12,8 @@ in batches and then read back in one listing per library.
 """
 
 import time
-from typing import Any, Optional
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
@@ -34,6 +35,9 @@ from .records import Record
 from . import downloaded
 from .store import Mapping, hash_matches, payload_hash
 
+if TYPE_CHECKING:
+    from .native import Native
+
 LOG = Logger(__name__)
 
 # A refresh takes seconds; re-reading every poll would ask Kodi dozens of
@@ -47,7 +51,12 @@ REFRESH_POLL = 1.0
 PRELOAD_ALL_MAPPINGS = 2000
 
 
-def _with_asset_files(applied, assets, files, previous=None):
+def _with_asset_files(
+    applied: dict[str, Any],
+    assets: Optional[str],
+    files: Optional[dict[str, Any]],
+    previous: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """The acknowledged file list beside the token: the movie's current
     assets, or the empty entry once a movie that had assets has none
     (metadata.asset_files). ``previous`` is the last acknowledgement as it
@@ -66,7 +75,7 @@ def _with_asset_files(applied, assets, files, previous=None):
     return applied
 
 
-def _listed(asset_files) -> set[str]:
+def _listed(asset_files: Optional[dict[str, Any]]) -> set[str]:
     """Every URL an acknowledged file list names."""
     if not isinstance(asset_files, dict):
         return set()
@@ -75,7 +84,7 @@ def _listed(asset_files) -> set[str]:
     }
 
 
-def assets_dropped(previous, applied) -> bool:
+def assets_dropped(previous: dict[str, Any], applied: dict[str, Any]) -> bool:
     """Whether a version file or an extra the movie's folder listed has
     left its listing. An acknowledgement older than the file list names no
     files: a token that moved off a non-empty one may have lost some."""
@@ -87,7 +96,14 @@ def assets_dropped(previous, applied) -> bool:
 
 
 class Patch:
-    def __init__(self, record, kodi_id, desired, compare, applied):
+    def __init__(
+        self,
+        record: Record,
+        kodi_id: int,
+        desired: dict[str, Any],
+        compare: dict[str, Any],
+        applied: dict[str, Any],
+    ) -> None:
         self.record = record
         self.kodi_id = kodi_id
         self.desired = desired
@@ -96,7 +112,7 @@ class Patch:
 
 
 class Applier:
-    def __init__(self, native):
+    def __init__(self, native: "Native") -> None:
         self.native = native
         self.store = native.store
         self.key = native.key
@@ -134,18 +150,27 @@ class Applier:
 
     # -- batches -------------------------------------------------------------
 
-    def _note_dropped_assets(self, record, previous, applied):
+    def _note_dropped_assets(
+        self, record: Record, previous: dict[str, Any], applied: dict[str, Any]
+    ) -> None:
         if record.kind == "Movie" and assets_dropped(previous, applied):
             self.asset_folders.add(
                 paths.movie_dir(self.key, record.library, record.item_id)
             )
 
-    def ack(self, item_id, generation, kodi_id, applied, kind):
+    def ack(
+        self,
+        item_id: str,
+        generation: int,
+        kodi_id: Optional[int],
+        applied: dict[str, Any],
+        kind: str,
+    ) -> None:
         self._acks.append((item_id, generation, kodi_id, applied, kind))
         if len(self._acks) >= 200:
             self.commit()
 
-    def fail(self, record, error, errors):
+    def fail(self, record: Record, error: Exception, errors: list[Exception]) -> None:
         """Record a failure for the batch and keep the error for the pass."""
         self._failures.append(
             (
@@ -158,7 +183,7 @@ class Applier:
         if len(self._failures) >= 200:
             self.commit()
 
-    def commit(self):
+    def commit(self) -> None:
         if self._failures:
             failures, self._failures = self._failures, []
             self.store.failed_many(failures)
@@ -174,7 +199,7 @@ class Applier:
                 for item_id, _, kodi_id, applied, kind in acks:
                     self._mappings[item_id] = Mapping(kodi_id, applied or {}, kind)
 
-    def mapping(self, item_id):
+    def mapping(self, item_id: str) -> Optional[Mapping]:
         if self._mappings_loaded and (
             self._preloaded is None or item_id in self._preloaded
         ):
@@ -186,12 +211,12 @@ class Applier:
     def run(
         self,
         upserts: dict[str, Record],
-        collections,
-        movies,
-        repair,
-        errors,
-        kinds=ORDER,
-    ):
+        collections: dict[str, str],
+        movies: set[str],
+        repair: bool,
+        errors: list[Exception],
+        kinds: Sequence[str] = ORDER,
+    ) -> None:
         """Plan and patch the pass's records of ``kinds``, in that order."""
         # One music row is one setter at most, whose announcement refreshes
         # the home widgets once, as the end of a hold would.
@@ -275,7 +300,7 @@ class Applier:
                 self._rpc_seconds,
             )
 
-    def row_for(self, record: Record):
+    def row_for(self, record: Record) -> Optional[dict[str, Any]]:
         kind = record.kind
         if kind == "Audio":
             return self.readback.scope("Audio", record.library, record.parent_id).get(
@@ -341,7 +366,7 @@ class Applier:
             )
         return False
 
-    def plan(self, record: Record, repair) -> Optional[Patch]:
+    def plan(self, record: Record, repair: bool) -> Optional[Patch]:
         """The patch a record needs, or None once it is acknowledged, left to
         a viewer's edit or to the item of ours that owns its row; raises when
         the scanner has not filed it yet. In order: the kinds applied without
@@ -455,7 +480,9 @@ class Applier:
             )
         raise RuntimeError("scanner did not import %s" % kind)
 
-    def _viewer_edited(self, record: Record, row, previous) -> bool:
+    def _viewer_edited(
+        self, record: Record, row: dict[str, Any], previous: dict[str, Any]
+    ) -> bool:
         """Whether a viewer's edit of the row goes first: a real edit is
         delivered before any server snapshot and never overwritten by an
         older one during a retry or a refresh. The scope row carries the
@@ -472,7 +499,9 @@ class Applier:
                 return True
         return False
 
-    def _owned_by_another(self, record: Record, row, kodi_id) -> bool:
+    def _owned_by_another(
+        self, record: Record, row: dict[str, Any], kodi_id: int
+    ) -> bool:
         """Two items of ours that Kodi filed on one row (one show in two of
         our libraries, one movie Kodi grouped with another): the one whose
         id the row carries owns its details, and this one is mapped to it
@@ -491,7 +520,7 @@ class Applier:
         self.ack(record.item_id, record.generation, kodi_id, {}, kind)
         return True
 
-    def _assets(self, record: Record):
+    def _assets(self, record: Record) -> tuple[Optional[str], Optional[dict[str, Any]]]:
         """The versions and extras a movie's folder listed, as the token and
         the file list, acknowledged so the pass stops scanning the folder
         for them (native._asset_folders); None for every other kind."""
@@ -505,7 +534,15 @@ class Applier:
         )
 
     def _acknowledged(
-        self, record: Record, kodi_id, mapping, previous, inputs, assets, files, repair
+        self,
+        record: Record,
+        kodi_id: int,
+        mapping: Optional[Mapping],
+        previous: dict[str, Any],
+        inputs: str,
+        assets: Optional[str],
+        files: Optional[dict[str, Any]],
+        repair: bool,
     ) -> bool:
         """The desired state this payload and these inputs produce was
         acknowledged against this very row: nothing to build, read or
@@ -538,7 +575,15 @@ class Applier:
             return True
         return False
 
-    def _refreshed(self, record: Record, row, kodi_id, desired, parts, previous):
+    def _refreshed(
+        self,
+        record: Record,
+        row: dict[str, Any],
+        kodi_id: int,
+        desired: dict[str, Any],
+        parts: dict[str, str],
+        previous: dict[str, Any],
+    ) -> dict[str, Any]:
         """The row after the refresh a moved token calls for, or the row as
         it is: listed under another source's folder or file, a show or a
         movie would be refreshed from that source, and the setter writes our
@@ -571,14 +616,14 @@ class Applier:
     def _compared(
         self,
         record: Record,
-        row,
-        kodi_id,
-        desired,
-        applied,
-        previous,
-        mapping,
-        repair,
-        mark,
+        row: dict[str, Any],
+        kodi_id: int,
+        desired: dict[str, Any],
+        applied: dict[str, Any],
+        previous: dict[str, Any],
+        mapping: Optional[Mapping],
+        repair: bool,
+        mark: str,
     ) -> Optional[Patch]:
         """The patch for a row that differs from the desired state, or None
         for one acknowledged as it stands. Repair re-sends a row whose
@@ -611,7 +656,9 @@ class Applier:
             self.badges_moved = True
         return Patch(record, kodi_id, desired, compare, applied)
 
-    def plan_music(self, record: Record, row, repair) -> Optional[Patch]:
+    def plan_music(
+        self, record: Record, row: dict[str, Any], repair: bool
+    ) -> Optional[Patch]:
         kind = record.kind
         table = KINDS[kind]
         kodi_id = row[table.id_param]
@@ -711,7 +758,7 @@ class Applier:
 
     # -- refresh -------------------------------------------------------------
 
-    def refresh(self, record: Record, kodi_id, token):
+    def refresh(self, record: Record, kodi_id: int, token: str) -> dict[str, Any]:
         """Re-import a row whose cast or streams changed; confirmed by token.
 
         A show is refreshed alone (``refreshepisodes`` false): Kodi rewrites
@@ -740,7 +787,7 @@ class Applier:
         own_folder = kind in OWN_FOLDER
         versions: list[dict[str, Any]] = []
 
-        def refreshed():
+        def refreshed() -> Optional[dict[str, Any]]:
             nonlocal versions
             now = time.monotonic()
             if now - last[0] < REFRESH_POLL:
@@ -760,6 +807,7 @@ class Applier:
             return None
 
         row = self.native.wait(refreshed, busy=self.native._scanning)
+        assert row is not None  # wait returns only a value that holds
         self.native._async_pending = False
         if own_folder:
             self.readback.refreshed(
@@ -775,7 +823,7 @@ class Applier:
 
     # -- patches -------------------------------------------------------------
 
-    def confirm_by_scope(self, kind, errors):
+    def confirm_by_scope(self, kind: str, errors: list[Exception]) -> None:
         """Read the kind's rows back in one listing per library and settle
         every deferred patch against it."""
         if not self._deferred:
@@ -819,7 +867,7 @@ class Applier:
             except Exception as error:
                 self.fail(record, error, errors)
 
-    def flush(self, queue: list[Patch], errors):
+    def flush(self, queue: list[Patch], errors: list[Exception]) -> None:
         if not queue:
             return
         patches, queue[:] = list(queue), []
@@ -913,7 +961,7 @@ class Applier:
                 self.fail(record, error, errors)
 
 
-def moved_parts(before, now) -> str:
+def moved_parts(before: Optional[dict[str, str]], now: dict[str, str]) -> str:
     """Which parts of a refresh token moved, for the log. A row acknowledged
     by an earlier build has no parts on record, and one the scanner filed
     and nothing acknowledged has none either."""
@@ -925,7 +973,9 @@ def moved_parts(before, now) -> str:
     return "its %s moved" % ", ".join(moved) if moved else "nothing on record moved"
 
 
-def local_edits(row, previous, desired):
+def local_edits(
+    row: dict[str, Any], previous: dict[str, Any], desired: dict[str, Any]
+) -> dict[str, Any]:
     """Userdata the viewer changed in Kodi since the last write, if any.
 
     A viewer's edit of a play count is the watched mark going on or off. A
@@ -958,7 +1008,12 @@ def local_edits(row, previous, desired):
     return edits
 
 
-def merge(kind, desired, row, owned_before):
+def merge(
+    kind: str,
+    desired: dict[str, Any],
+    row: dict[str, Any],
+    owned_before: dict[str, list[str]],
+) -> dict[str, Any]:
     """Setters merge maps and replace tags. Clear only keys previously owned
     by Kofin, retaining Kodi defaults and local additions. Returns the state
     the readback must match; ``desired`` is updated in place to send."""
@@ -1017,7 +1072,7 @@ def merge(kind, desired, row, owned_before):
     return compare
 
 
-def matches(row, desired):
+def matches(row: dict[str, Any], desired: dict[str, Any]) -> bool:
     for key, value in desired.items():
         actual = row.get(key)
         if key == "resume":

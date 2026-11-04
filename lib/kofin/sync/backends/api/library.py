@@ -10,11 +10,13 @@ published are replayed even if Jellyfin is offline.
 """
 
 import collections
+import functools
 import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional
+from collections.abc import Callable, Collection, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
@@ -29,6 +31,10 @@ from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
 from .store import REBUILDING, Store, namespace
+
+if TYPE_CHECKING:
+    from kofin.core.api import Api
+    from kofin.service.player import Player
 
 LOG = Logger(__name__)
 
@@ -54,7 +60,9 @@ VIDEO_FIELDS = (
 FIELDS = VIDEO_FIELDS + ",MediaStreams,SpecialFeatureCount"
 
 
-def library_filter(api, parent_id, item_types=None):
+def library_filter(
+    api: "Api", parent_id: str, item_types: Optional[str] = None
+) -> dict[str, Any]:
     """The filter every library listing shares: this parent, recursive,
     real files only (present, not virtual-unaired), sets uncollapsed."""
     return {
@@ -130,26 +138,26 @@ HAS_CONTENT = {
 }
 
 
-def status(value, listing=(), namespace=""):
+def status(value: str, listing: Iterable[str] = (), namespace: str = "") -> None:
     """What the sync is doing, for the status dialog (status.py), under the
     account whose thread says so."""
     apistatus.write(value, listing, namespace)
 
 
-def collection_kinds(view):
+def collection_kinds(view: dict[str, Any]) -> tuple[str, ...]:
     collection = view.get("CollectionType") or "mixed"
     return KINDS_BY_COLLECTION.get(collection, ())
 
 
 def fetch_kind(
-    api,
-    library,
-    kind,
-    abort=lambda: False,
-    extra=None,
-    on_page=None,
-    api_factory=None,
-):
+    api: "Api",
+    library: str,
+    kind: str,
+    abort: Callable[[], bool] = lambda: False,
+    extra: Optional[dict[str, Any]] = None,
+    on_page: Optional[Callable[[int, int], None]] = None,
+    api_factory: Optional[Callable[[], "Api"]] = None,
+) -> list[dict[str, Any]]:
     """Only a complete, stable, duplicate-free pagination can imply deletion.
 
     ``on_page(fetched, total)`` is told after every page, for the bar.
@@ -164,7 +172,7 @@ def fetch_kind(
     seen = set()
     limit = MUSIC_PAGE if kind in MUSIC_KINDS else PAGE
 
-    def ask(client, start):
+    def ask(client: "Api", start: int) -> tuple[int, list[dict[str, Any]]]:
         if abort():
             raise InterruptedError("enumeration stopped")
         params = {
@@ -184,7 +192,7 @@ def fetch_kind(
             raise ValueError("incomplete %s page" % kind)
         return count, rows
 
-    def take(rows, total):
+    def take(rows: list[dict[str, Any]], total: int) -> None:
         for item in rows:
             if (
                 not isinstance(item, dict)
@@ -217,11 +225,20 @@ def fetch_kind(
     return result
 
 
-def _account(client):
+def _account(client: "Api") -> tuple[Any, Any]:
     return getattr(client, "server", None), getattr(client, "user_id", None)
 
 
-def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
+def _fetch_pages(
+    ask: Callable[["Api", int], tuple[int, list[dict[str, Any]]]],
+    take: Callable[[list[dict[str, Any]], int], None],
+    starts: Sequence[int],
+    total: int,
+    limit: int,
+    kind: str,
+    api_factory: Callable[[], "Api"],
+    api: "Api",
+) -> None:
     """The pages at ``starts``, PAGERS in flight, taken in listing order.
 
     At most PAGERS pages wait to be taken, so a slow first page never lets
@@ -235,7 +252,7 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
     clients: list[Any] = []
     account = _account(api)
 
-    def page(start):
+    def page(start: int) -> tuple[int, list[dict[str, Any]]]:
         client = getattr(local, "client", None)
         if client is None:
             client = api_factory()
@@ -251,7 +268,7 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
         max_workers=min(PAGERS, len(starts)), thread_name_prefix="kofin-page"
     )
 
-    def top_up():
+    def top_up() -> None:
         while len(window) < PAGERS:
             start = next(pending, None)
             if start is None:
@@ -280,7 +297,9 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
                 LOG.debug("page client not closed: %s", error)
 
 
-def attach_extras(api, items, abort=lambda: False):
+def attach_extras(
+    api: "Api", items: list[dict[str, Any]], abort: Callable[[], bool] = lambda: False
+) -> None:
     """A movie's special features travel in its payload: the scanner's
     listings never contact the server, and the movie folder's extras folder
     is built from them. Only a movie whose count says it has any is asked.
@@ -303,7 +322,11 @@ def attach_extras(api, items, abort=lambda: False):
         ]
 
 
-def fetch_boxsets(api, abort=lambda: False, ids=None):
+def fetch_boxsets(
+    api: "Api",
+    abort: Callable[[], bool] = lambda: False,
+    ids: Optional[Iterable[str]] = None,
+) -> list[dict[str, Any]]:
     """Collections with their movie members; sets live outside any library."""
     params: dict[str, Any] = {
         "userId": api.user_id,
@@ -360,7 +383,9 @@ RETRY_MAX = float(CATCHUP_INTERVAL)
 
 
 class Library(threading.Thread):
-    def __init__(self, api, player, api_factory):
+    def __init__(
+        self, api: "Api", player: Optional["Player"], api_factory: Callable[[], "Api"]
+    ) -> None:
         super().__init__(name="kofin-api", daemon=True)
         creds = Credentials.load()
         self.store = Store(namespace(creds.server_id, creds.user_id))
@@ -418,14 +443,14 @@ class Library(threading.Thread):
         # The failure the last pass raised when it repeated the one before.
         self._repeated: Optional[BaseException] = None
 
-    def stop_client(self):
+    def stop_client(self) -> None:
         self.stop_thread = True
         self._stop_event.set()
 
-    def workers_alive(self):
+    def workers_alive(self) -> bool:
         return False
 
-    def enqueue_command(self, command, data=None):
+    def enqueue_command(self, command: str, data: Any = None) -> None:
         if command in (
             "FastSync",
             "Reconnected",
@@ -439,24 +464,24 @@ class Library(threading.Thread):
         ):
             self._queue.put((command, data or {}))
 
-    def added(self, ids):
+    def added(self, ids: Iterable[str]) -> None:
         self._queue.put(("changed", list(ids)))
 
     updated = added
     artwork = added
 
-    def removed(self, ids):
+    def removed(self, ids: Iterable[str]) -> None:
         self._queue.put(("removed", list(ids)))
 
-    def userdata(self, data):
+    def userdata(self, data: list[Any]) -> None:
         self._queue.put(("userdata", list(data)))
 
-    def refresh_libraries(self):
+    def refresh_libraries(self) -> None:
         self.enqueue_command("FastSync")
 
     # -- the loop ----------------------------------------------------------------
 
-    def run(self):
+    def run(self) -> None:
         monitor = xbmc.Monitor()
         try:
             # One connection to kofin.db for as long as this thread runs: it
@@ -481,7 +506,7 @@ class Library(threading.Thread):
             except Exception:
                 LOG.debug("progress bar not taken down at the stop")
 
-    def _run(self, monitor):
+    def _run(self, monitor: xbmc.Monitor) -> None:
         self.store.initialize(self.api.server)
         # A rebuild a stopped service left half done is still one.
         self._rebuilding.update(self.store.rebuilding())
@@ -551,7 +576,7 @@ class Library(threading.Thread):
             if monitor.waitForAbort(0.5):
                 break
 
-    def commands(self):
+    def commands(self) -> None:
         failed = False
         # Only visit each queued command once per tick, including failures.
         for _ in range(min(100, self._queue.qsize())):
@@ -571,7 +596,7 @@ class Library(threading.Thread):
         if failed:
             raise RuntimeError("API video commands remain pending")
 
-    def settle_progress(self, failed=False):
+    def settle_progress(self, failed: bool = False) -> None:
         """Take the bar down when what the viewer asked for is done: nothing
         queued, nothing to list, nothing pending. A tick that failed takes
         it down too; the retries that follow are not what was asked for
@@ -587,7 +612,7 @@ class Library(threading.Thread):
         ):
             bar.finish()
 
-    def refresh(self):
+    def refresh(self) -> None:
         if self._rebuilding:
             if self.store.removing(self._rebuilding):
                 # Listed again while its rows are still in Kodi, a library
@@ -657,13 +682,13 @@ class Library(threading.Thread):
         )
 
     @staticmethod
-    def _schedule_due(enumerated) -> bool:
+    def _schedule_due(enumerated: float) -> bool:
         interval = full_interval()
         return interval is not None and time.time() - enumerated >= interval
 
     # -- enumeration -----------------------------------------------------------------
 
-    def _supported_views(self):
+    def _supported_views(self) -> dict[str, dict[str, Any]]:
         # Hidden from My Media is the user's home screen setting, never a
         # reason to stop syncing a library.
         views = self.api.views(include_hidden=True).get("Items")
@@ -676,10 +701,10 @@ class Library(threading.Thread):
             if v.get("Id") and (v.get("CollectionType") or "mixed") in SUPPORTED
         }
 
-    def _status(self, value, listing=()):
+    def _status(self, value: str, listing: Iterable[str] = ()) -> None:
         status(value, listing, self.store.namespace)
 
-    def settle_missing(self):
+    def settle_missing(self) -> None:
         """Remove a selected library the server says is gone.
 
         A library the server's last listing left out is asked for by its
@@ -743,7 +768,7 @@ class Library(threading.Thread):
         with private.Database() as db:
             return kofindb.JellyfinDatabase(db.cursor).view_names()
 
-    def _changefeed(self):
+    def _changefeed(self) -> Any:
         if self.changefeed is None:
             try:
                 self.changefeed = changefeed.detect(self.api)
@@ -760,11 +785,12 @@ class Library(threading.Thread):
             )
         return self.changefeed
 
-    def _server_now(self):
+    def _server_now(self) -> int:
         feed = self._changefeed()
         if feed is not None:
             try:
-                return feed.server_now()
+                now: int = feed.server_now()
+                return now
             except Exception as error:
                 LOG.warning("server clock unavailable: %s", error)
         # Without a companion the catch-up is MinDateLastSaved against the
@@ -778,7 +804,7 @@ class Library(threading.Thread):
             bar = self.progress = progress.Progress()
         return bar
 
-    def full_sync(self, libraries=None):
+    def full_sync(self, libraries: Optional[Iterable[str]] = None) -> None:
         """Enumerate the selected libraries (or the named ones) completely."""
         bar = self._bar()
         try:
@@ -793,7 +819,9 @@ class Library(threading.Thread):
         else:
             self._status(settings.localized(30401))
 
-    def _full_sync(self, libraries, bar):
+    def _full_sync(
+        self, libraries: Optional[Iterable[str]], bar: progress.Progress
+    ) -> None:
         # Until the first page of the first kind arrives nothing is counted:
         # the libraries are asked for, the server's clock is read.
         bar.working(progress.PREPARING)
@@ -833,7 +861,7 @@ class Library(threading.Thread):
                     library,
                     kind,
                     self._stop_event.is_set,
-                    on_page=lambda done, total, kind=kind: bar.track(kind, done, total),
+                    on_page=functools.partial(bar.track, kind),
                     api_factory=getattr(self, "api_factory", None),
                 )
                 LOG.debug(
@@ -924,7 +952,9 @@ class Library(threading.Thread):
         # The playlists follow the catalogue they point into.
         self._playlists_due = True
 
-    def _collection_changes(self, boxsets, complete):
+    def _collection_changes(
+        self, boxsets: list[dict[str, Any]], complete: bool
+    ) -> set[str]:
         """Movies whose one native set changes with these collections."""
         before = {
             r.item_id: set(r.item.get("KofinMembers") or [])
@@ -940,7 +970,7 @@ class Library(threading.Thread):
                     affected |= members
         return affected
 
-    def _removed_collection_members(self, ids):
+    def _removed_collection_members(self, ids: Iterable[str]) -> set[str]:
         """Movies filed under a collection that is going: their one set changes."""
         boxsets = self.store.records(kind="BoxSet", item_ids=list(ids), pinned=False)
         members: set[str] = set()
@@ -948,7 +978,7 @@ class Library(threading.Thread):
             members.update(record.item.get("KofinMembers") or [])
         return members
 
-    def catch_up(self):
+    def catch_up(self) -> None:
         """Changes since the watermark, on the shared change-feed contract."""
         watermark, _ = self.store.watermark()
         if not watermark:
@@ -991,7 +1021,12 @@ class Library(threading.Thread):
                 watermark=changefeed.unix_to_watermark(change_set.envelope.server_time)
             )
 
-    def _catch_up_by_date(self, watermark, selected, supported):
+    def _catch_up_by_date(
+        self,
+        watermark: str,
+        selected: Iterable[str],
+        supported: dict[str, dict[str, Any]],
+    ) -> None:
         started = int(time.time()) - 300
         items: list[dict] = []
         membership: dict[str, str] = {}
@@ -1032,7 +1067,7 @@ class Library(threading.Thread):
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
-    def fetch_items(self, ids):
+    def fetch_items(self, ids: Iterable[str]) -> list[dict[str, Any]]:
         """Full DTOs by id; the server lists only what this user may see."""
         result: list[dict] = []
         ids = list(ids)
@@ -1052,7 +1087,12 @@ class Library(threading.Thread):
         attach_extras(self.api, result)
         return result
 
-    def _library_of(self, item, selected, hints=None):
+    def _library_of(
+        self,
+        item: dict[str, Any],
+        selected: Collection[str],
+        hints: Optional[Iterable[str]] = None,
+    ) -> Optional[str]:
         """The selected library an item belongs to, or None."""
         entry = self.store.entry(item["Id"])
         if entry is not None and entry.library in selected:
@@ -1070,10 +1110,17 @@ class Library(threading.Thread):
                 return parent.library
         for ancestor in self.api.ancestors(item["Id"]):
             if isinstance(ancestor, dict) and ancestor.get("Id") in selected:
-                return ancestor["Id"]
+                found: str = ancestor["Id"]
+                return found
         return None
 
-    def _resolve(self, ids, selected, supported, hints=None):
+    def _resolve(
+        self,
+        ids: Iterable[str],
+        selected: Collection[str],
+        supported: dict[str, dict[str, Any]],
+        hints: Optional[dict[str, changefeed.ChangeRecord]] = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, str]]:
         """Fetch changed items and place each in its selected library."""
         items = []
         membership: dict[str, str] = {}
@@ -1113,7 +1160,7 @@ class Library(threading.Thread):
         item = self.player.current_item() if self.player is not None else None
         return str((item or {}).get("Id") or "")
 
-    def apply_userdata(self, data):
+    def apply_userdata(self, data: list[Any]) -> None:
         """Merge the server's user data into the catalogue, except for the
         item this Kodi is playing.
 
@@ -1146,7 +1193,7 @@ class Library(threading.Thread):
         for item_id in settled:
             self._held_userdata.pop(item_id, None)
 
-    def publish(self, items, **placement):
+    def publish(self, items: list[dict[str, Any]], **placement: Any) -> None:
         """Publish full items as the server sent them, all but the user data
         of the item this Kodi is playing, which is held like an entry sent
         for it (apply_userdata) while the item keeps what the catalogue has.
@@ -1167,11 +1214,11 @@ class Library(threading.Thread):
         self.store.publish(items, **placement)
         self._published_at = time.monotonic()
 
-    def announce_new_content(self):
+    def announce_new_content(self) -> None:
         """Announce what the pass filed of the new content catch-ups brought."""
         self.arrivals.flush(self.store, self.api, self.player)
 
-    def release_userdata(self):
+    def release_userdata(self) -> None:
         """Once an item has stopped and the server has had time to settle
         the play, ask it what the play made of the item.
 
@@ -1216,7 +1263,7 @@ class Library(threading.Thread):
         # apply_userdata drops each from the held set once it is published.
         self.apply_userdata([fresh[item_id] for item_id in due if item_id in fresh])
 
-    def publish_selection(self):
+    def publish_selection(self) -> None:
         """The selection moved: the node tree and the skin entries follow it."""
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
@@ -1236,7 +1283,7 @@ class Library(threading.Thread):
 
     # -- commands ----------------------------------------------------------------------
 
-    def drop_libraries(self, libraries):
+    def drop_libraries(self, libraries: Iterable[str]) -> None:
         """Tombstone every item of these libraries and take them off the
         whitelist; the next pass removes their rows.
 
@@ -1256,7 +1303,7 @@ class Library(threading.Thread):
         # by the next pass (backends/api/playlists.reconcile).
         self._playlists_due = True
 
-    def rebuild_stale(self, picked):
+    def rebuild_stale(self, picked: Iterable[str]) -> list[str]:
         """Remove the rows of every picked video library filed under an
         older scanner format, so the enumeration that follows imports them
         again; returns those libraries.
@@ -1312,7 +1359,7 @@ class Library(threading.Thread):
             self._rebuilding.update(rebuild)
         return rebuild
 
-    def command(self, command, data, retry=False):
+    def command(self, command: str, data: Any, retry: bool = False) -> None:
         if command in ATTENDED and not retry:
             self._bar().attend()
             # The viewer asked: the next pass runs now, failing or not.
@@ -1395,7 +1442,7 @@ class Library(threading.Thread):
         recent = now - self._published_at < PASS_SETTLE or not self._queue.empty()
         return recent and now - self._pending_since < PASS_SETTLE_MAX
 
-    def _log_failure(self, message, error):
+    def _log_failure(self, message: str, error: BaseException) -> None:
         """The whole failure the first time, with a catch-up soon, since a
         server change the work needed may be behind it; a line once it
         repeats, when a catch-up does nothing for it."""
@@ -1410,7 +1457,7 @@ class Library(threading.Thread):
             error,
         )
 
-    def _note_failure(self, error):
+    def _note_failure(self, error: BaseException) -> None:
         signature = "%s: %s" % (type(error).__name__, error)
         repeated = signature == self._failure
         self._failure_delay = (
@@ -1429,7 +1476,7 @@ class Library(threading.Thread):
             return False
         return self.store.pending_signature() == self._failed_with
 
-    def apply(self, native):
+    def apply(self, native: Native) -> None:
         pending = self.store.has_pending()
         if not pending:
             self._pending_since = None
@@ -1489,7 +1536,7 @@ class Library(threading.Thread):
             self._settings_due = time.monotonic() + SETTINGS_RETRY
             native.restore_settings()
 
-    def playlists_pass(self):
+    def playlists_pass(self) -> None:
         """Rewrite the managed playlist files after an enumeration or a
         request, once the pass has filed the rows they point at."""
         if not self._playlists_due:
@@ -1508,7 +1555,7 @@ class Library(threading.Thread):
                 LOG.debug("playlists reconciled: %s", stats)
         self.reconcile_subscriptions()
 
-    def reconcile_subscriptions(self, playlist_id=""):
+    def reconcile_subscriptions(self, playlist_id: str = "") -> None:
         """Bring the music-library and playlist download subscriptions to the
         server's listing: one playlist's when a request names it, every
         subscription's after a complete enumeration and when the viewer
@@ -1524,7 +1571,7 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("download subscriptions not reconciled")
 
-    def flush_pending_reload(self):
+    def flush_pending_reload(self) -> None:
         """Fire the owed first-content skin reload once nothing is playing."""
         if not self._reload_owed:
             return
@@ -1547,7 +1594,7 @@ class Library(threading.Thread):
         LOG.debug("first content synced; reloading skin for home widgets")
         xbmc.executebuiltin("ReloadSkin()")
 
-    def flush_local(self):
+    def flush_local(self) -> None:
         """Tell the server what was marked or played in Kodi.
 
         Each edit on its own: an edit of an item the server does not have
@@ -1574,7 +1621,7 @@ class Library(threading.Thread):
         if failure is not None:
             raise failure
 
-    def _deliver_local(self, item_id, values):
+    def _deliver_local(self, item_id: str, values: dict[str, Any]) -> None:
         payload: dict[str, Any] = {}
         if "playcount" in values:
             # The watched mark and never the count: the server and Kodi each
