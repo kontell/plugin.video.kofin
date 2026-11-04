@@ -1,4 +1,4 @@
-"""SyncPlay client for Kodi, ported from the Kontell fork of jellyfin-kodi.
+"""SyncPlay client for Kodi.
 
 Follows the SyncPlay protocol specification (docs/SYNCPLAY.md in the
 kontell/syncplay-conformance repository), speaking v1 to stock servers and v2
