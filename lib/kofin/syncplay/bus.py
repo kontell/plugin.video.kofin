@@ -57,7 +57,7 @@ class ProviderBus:
             # A fresh start (phase idle) keeps the event-driven path, and
             # the adoption echo is inert here: its claim names the current
             # item.
-            manager._post(manager._forward_local_play)
+            manager._post(manager.holds._forward_local_play)
 
     def drop_stale_claim(self) -> None:
         """A new local play is starting: a foreign claim older than
@@ -134,7 +134,7 @@ class ProviderBus:
                 "RunTimeTicks": max(0, runtime),
             }
 
-        self.manager._propose_queue(
+        self.manager.holds._propose_queue(
             payload["key"], position=position, provider=provider, content=content
         )
 

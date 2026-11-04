@@ -5,6 +5,7 @@ lifecycle), plus the kicked probe, the group flag and the Hello transport."""
 
 import pytest
 
+import kofin.syncplay.holds as holds_module
 import kofin.syncplay.manager as manager_module
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import utils
@@ -857,7 +858,7 @@ class TestForeignPlayAdopts:
 
     def test_a_held_foreign_start_is_adopted(self, manager):
         started, prepared = self._arm(manager)
-        manager._hold = {"item_id": "rec-1", "proposed": True}
+        manager.holds._hold = {"item_id": "rec-1", "proposed": True}
         manager.bus.foreign_claim = {
             "Id": "rec-1",
             "Provider": "jellyfin",
@@ -873,7 +874,7 @@ class TestForeignPlayAdopts:
         # A held kofin start (not yet claimed) while a stale foreign claim
         # for a *different* item lingers: the hold's own id is what adopts.
         started, prepared = self._arm(manager)
-        manager._hold = {"item_id": "item-2", "proposed": True}
+        manager.holds._hold = {"item_id": "item-2", "proposed": True}
         manager.bus.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
 
         manager._handle_group_update(make_queue(items=(("item-2", "pl-2"),)))
@@ -888,7 +889,7 @@ class TestForwardLocalPlay:
         join(manager)
         manager.player.playing = False
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         assert manager._api.named("syncplay_set_new_queue") == []
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -900,7 +901,7 @@ class TestForwardLocalPlay:
         manager.player.position = 42.0
         manager._local_item_id = lambda: "item-1"
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -915,7 +916,7 @@ class TestForwardLocalPlay:
         manager.player.item = None
         manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -932,7 +933,7 @@ class TestForwardLocalPlay:
         manager.playback.live._live_origin_server_ms = 42_000_000.0 - 120_000.0
         manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -946,10 +947,10 @@ class TestForwardLocalPlay:
         # the fast path must not demote first.
         join(manager)
         manager.player.playing = True
-        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
         manager.providers.resolved = None
 
-        manager._identify_held_play({"item": {"id": 33, "type": "channel"}})
+        manager.holds._identify_held_play({"item": {"id": 33, "type": "channel"}})
 
         assert manager.ignore_wait is False
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -960,10 +961,10 @@ class TestForwardLocalPlay:
         )
         join(manager)
         manager.player.playing = True
-        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
         manager.providers.resolved = None
 
-        manager._identify_held_play({"item": {"id": 33, "type": "movie"}})
+        manager.holds._identify_held_play({"item": {"id": 33, "type": "movie"}})
 
         assert manager.ignore_wait is True
 
@@ -978,7 +979,7 @@ class TestForwardLocalPlay:
         manager.bus.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
         manager.bus._foreign_claim_at = time_module.time() - 10.0
 
-        manager._identify_held_play({"item": {}})
+        manager.holds._identify_held_play({"item": {}})
 
         assert manager.bus.foreign_claim is None
 
@@ -991,7 +992,7 @@ class TestForwardLocalPlay:
         manager.bus.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
         manager.bus._foreign_claim_at = time_module.time()
 
-        manager._identify_held_play({"item": {}})
+        manager.holds._identify_held_play({"item": {}})
 
         assert manager.bus.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
 
@@ -1041,7 +1042,7 @@ class TestForwardLocalPlay:
         manager.player.position = 10.0
         manager.player.item = {"Id": "item-7", "PlayMethod": "DirectStream"}
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -1076,9 +1077,9 @@ class TestLocalStartHold:
         manager.on_playback_started()
 
         assert manager.player.paused is True
-        assert manager._hold is not None
-        assert manager._hold["transition"] is True
-        assert manager._hold["proposed"] is False
+        assert manager.holds._hold is not None
+        assert manager.holds._hold["transition"] is True
+        assert manager.holds._hold["proposed"] is False
 
     def test_cold_start_holds(self, manager, paused_cond):
         join(manager)
@@ -1088,8 +1089,8 @@ class TestLocalStartHold:
         manager.on_playback_started()
 
         assert manager.player.paused is True
-        assert manager._hold is not None
-        assert manager._hold["transition"] is False
+        assert manager.holds._hold is not None
+        assert manager.holds._hold["transition"] is False
 
     def test_loading_start_pauses_without_hold(self, manager, paused_cond):
         join(manager)
@@ -1099,7 +1100,7 @@ class TestLocalStartHold:
         manager.on_playback_started()
 
         assert manager.player.paused is True
-        assert manager._hold is None
+        assert manager.holds._hold is None
 
     def test_programmatic_start_not_held(self, manager, paused_cond):
         join(manager)
@@ -1109,7 +1110,7 @@ class TestLocalStartHold:
         with manager.programmatic():
             manager.on_playback_started()
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False
 
     def test_not_in_group_ignored(self, manager, paused_cond):
@@ -1117,7 +1118,7 @@ class TestLocalStartHold:
 
         manager.on_playback_started()
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False
 
     def test_identify_transition_proposes_at_zero(
@@ -1138,8 +1139,8 @@ class TestLocalStartHold:
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert calls == [("syncplay_set_new_queue", ["jf-1"], 0, 0)]
-        assert manager._hold["proposed"] is True
-        assert manager._hold["item_id"] == "jf-1"
+        assert manager.holds._hold["proposed"] is True
+        assert manager.holds._hold["item_id"] == "jf-1"
         assert manager.player.paused is True  # still held
 
     def test_identify_defers_cold_start(self, manager, paused_cond, monkeypatch):
@@ -1156,7 +1157,7 @@ class TestLocalStartHold:
         # A fresh start settles on its position (resume point) first; the
         # proposal happens from onAVStarted with the live clock.
         assert manager._api.named("syncplay_set_new_queue") == []
-        assert manager._hold["proposed"] is False
+        assert manager.holds._hold["proposed"] is False
 
     def test_identify_without_hold_is_noop(self, manager, paused_cond, monkeypatch):
         join(manager)
@@ -1184,7 +1185,7 @@ class TestLocalStartHold:
         assert calls == [
             ("syncplay_set_new_queue", ["item-1"], 0, utils.seconds_to_ticks(42.0))
         ]
-        assert manager._hold["proposed"] is True
+        assert manager.holds._hold["proposed"] is True
         assert manager.player.paused is True
 
     def test_avstarted_does_not_propose_twice(self, manager, paused_cond):
@@ -1192,8 +1193,8 @@ class TestLocalStartHold:
         manager.player.playing = True
         manager.phase = "synced"
         manager.on_playback_started()
-        manager._hold["proposed"] = True
-        manager._hold["item_id"] = "item-1"
+        manager.holds._hold["proposed"] = True
+        manager.holds._hold["item_id"] = "item-1"
 
         manager.on_avstarted()
 
@@ -1209,10 +1210,10 @@ class TestLocalStartHold:
         manager._local_file_info = lambda: None
         manager._local_item_id = lambda: "stale-previous-track"
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         assert manager._api.named("syncplay_set_new_queue") == []
-        assert manager._hold["proposed"] is False
+        assert manager.holds._hold["proposed"] is False
         manager.player.playing = False  # quiesce the pending retry
 
     def test_forward_giveup_releases_hold_and_demotes(self, manager, paused_cond):
@@ -1222,11 +1223,11 @@ class TestLocalStartHold:
         manager.on_playback_started()
         manager._local_file_info = lambda: None
 
-        manager._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
+        manager.holds._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
 
         assert manager.ignore_wait is True
         assert manager._api.named("syncplay_set_ignore_wait")
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False  # playback given back
 
     def test_adopt_matches_held_proposal(self, manager, paused_cond):
@@ -1239,8 +1240,8 @@ class TestLocalStartHold:
         manager.player.playing = True
         manager.phase = "synced"
         manager.on_playback_started()
-        manager._hold["proposed"] = True
-        manager._hold["item_id"] = "item-1"
+        manager.holds._hold["proposed"] = True
+        manager.holds._hold["item_id"] = "item-1"
         # The play pipeline is still resolving the new track.
         manager._local_item_id = lambda: None
 
@@ -1249,7 +1250,7 @@ class TestLocalStartHold:
         assert started == []  # adopted, never reloaded
         assert manager.phase == "waiting_ready"
         assert manager.current_playlist_item_id == "pl-new"
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert prepared == [True]
 
     def test_forward_skips_already_adopted_item(self, manager, paused_cond):
@@ -1273,7 +1274,7 @@ class TestLocalStartHold:
 
         manager.on_stopped()
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
 
     def test_release_hold_resumes(self, manager, paused_cond):
         join(manager)
@@ -1282,9 +1283,9 @@ class TestLocalStartHold:
         manager.on_playback_started()
         assert manager.player.paused is True
 
-        manager._release_hold()
+        manager.holds._release_hold()
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False
 
     def test_release_without_hold_leaves_player_alone(self, manager, paused_cond):
@@ -1292,7 +1293,7 @@ class TestLocalStartHold:
         manager.player.playing = True
         manager.player.paused = True  # paused by the user, not by a hold
 
-        manager._release_hold()
+        manager.holds._release_hold()
 
         assert manager.player.paused is True
 
@@ -1329,7 +1330,7 @@ class TestLocalPlayIdentityOnEitherBuild:
 
         manager.on_kodi_play({"item": {"id": 42, "type": "movie"}})
 
-        assert manager._hold is not None
+        assert manager.holds._hold is not None
         assert manager.player.paused is True
         assert manager.ignore_wait is False
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -1356,7 +1357,7 @@ class TestLocalPlayIdentityOnEitherBuild:
         assert manager._api.named("syncplay_set_new_queue") == [
             ("syncplay_set_new_queue", ["track-n1"], 0, 0)
         ]
-        assert manager._hold["proposed"] is True
+        assert manager.holds._hold["proposed"] is True
         assert manager.player.paused is True
 
     def test_a_row_that_is_not_kofin_s_is_released_at_once(
@@ -1369,7 +1370,7 @@ class TestLocalPlayIdentityOnEitherBuild:
 
         manager.on_kodi_play({"item": {"id": 99, "type": "movie"}})
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False
         assert manager.ignore_wait is True
 
@@ -1393,7 +1394,7 @@ class TestLocalPlayLookupFailure:
 
         manager.on_kodi_play({"item": {"id": 42, "type": "movie"}})
 
-        assert manager._hold is not None
+        assert manager.holds._hold is not None
         assert manager.ignore_wait is False
 
 
@@ -1438,7 +1439,7 @@ class TestTransitionSequence:
         # 4. The queue echo adopts the held item without reloading.
         manager._handle_group_update(make_queue(items=(("track-n1", "pl-n1"),)))
         assert manager.phase == "waiting_ready"
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is True  # still held for the group
         assert prepared == [True]
 
@@ -1471,7 +1472,7 @@ class TestSpectatorLocalPlayback:
 
         manager.on_playback_started()
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False
 
     def test_spectator_avstarted_not_forwarded(self, manager, paused_cond):
@@ -1503,7 +1504,7 @@ class TestSpectatorLocalPlayback:
         )
         manager.on_kodi_play({"item": {"id": 99, "type": "movie"}})
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager.player.paused is False  # playback given back
         assert manager.ignore_wait is True
         assert manager._api.named("syncplay_set_ignore_wait")
@@ -1518,12 +1519,12 @@ class TestSpectatorLocalPlayback:
         manager.ignore_wait = True
         manager.player.playing = True
         # A hold that slipped through (e.g. spectator toggled mid-hold).
-        manager._hold = {"transition": True, "proposed": False, "item_id": None}
+        manager.holds._hold = {"transition": True, "proposed": False, "item_id": None}
         manager._local_file_info = lambda: None
 
-        manager._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
+        manager.holds._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
 
-        assert manager._hold is None
+        assert manager.holds._hold is None
         assert manager._api.named("syncplay_set_ignore_wait") == []
         assert toasts == []
 
@@ -1603,8 +1604,8 @@ class TestStoppedPrompt:
         FakeDialog.selection = selection
         FakeDialog.asked = []
         FakeDialog.on_select = on_select
-        monkeypatch.setattr(manager_module.xbmcgui, "Dialog", FakeDialog)
-        manager._user_stopped_prompt()
+        monkeypatch.setattr(holds_module.xbmcgui, "Dialog", FakeDialog)
+        manager.holds._user_stopped_prompt()
         return FakeDialog.asked
 
     def test_stop_for_everyone_keeps_membership(self, manager, monkeypatch):
@@ -1646,7 +1647,7 @@ class TestStoppedPrompt:
     def test_replace_play_suppresses_prompt(self, manager, monkeypatch):
         # The user picked a new item: its start is already held/proposed.
         join(manager)
-        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
 
         asked = self._prompt(manager, monkeypatch, 0)
 
@@ -1668,7 +1669,11 @@ class TestStoppedPrompt:
         join(manager)
 
         def answer():
-            manager._hold = {"transition": False, "proposed": True, "item_id": "i"}
+            manager.holds._hold = {
+                "transition": False,
+                "proposed": True,
+                "item_id": "i",
+            }
             return 0
 
         self._prompt(manager, monkeypatch, 0, on_select=answer)
@@ -1680,7 +1685,11 @@ class TestStoppedPrompt:
         join(manager)
 
         def answer():
-            manager._hold = {"transition": False, "proposed": True, "item_id": "i"}
+            manager.holds._hold = {
+                "transition": False,
+                "proposed": True,
+                "item_id": "i",
+            }
             return 2
 
         self._prompt(manager, monkeypatch, 2, on_select=answer)
@@ -1733,7 +1742,7 @@ class TestStopPending:
         FakeDialog.selection = selection
         FakeDialog.asked = []
         FakeDialog.on_select = on_select
-        monkeypatch.setattr(manager_module.xbmcgui, "Dialog", FakeDialog)
+        monkeypatch.setattr(holds_module.xbmcgui, "Dialog", FakeDialog)
 
     @staticmethod
     def _command(name="Pause", item="pl-1"):
@@ -1843,7 +1852,7 @@ class TestStopPending:
         prompt()
 
         assert len(FakeDialog.asked) == 1
-        assert manager._stop_pending is None
+        assert manager.holds._stop_pending is None
         assert manager.in_group() is in_group
 
     def test_after_the_answer_the_item_is_followed_as_before(
@@ -1866,19 +1875,23 @@ class TestStopPending:
         join(manager)
         prompt = self._stop(manager, monkeypatch)
         self._answer(monkeypatch, 0)
-        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
 
         prompt()
 
         assert FakeDialog.asked == []
-        assert manager._stop_pending is None
+        assert manager.holds._stop_pending is None
 
     def test_a_stale_answer_resolves_the_stop(self, manager, monkeypatch):
         join(manager)
         prompt = self._stop(manager, monkeypatch)
 
         def answer():
-            manager._hold = {"transition": False, "proposed": True, "item_id": "i"}
+            manager.holds._hold = {
+                "transition": False,
+                "proposed": True,
+                "item_id": "i",
+            }
             return 0
 
         self._answer(monkeypatch, 0, on_select=answer)
@@ -1886,7 +1899,7 @@ class TestStopPending:
         prompt()
 
         assert manager._api.named("syncplay_stop") == []
-        assert manager._stop_pending is None
+        assert manager.holds._stop_pending is None
 
     def test_being_removed_from_the_group_resolves_the_stop(self, manager, monkeypatch):
         join(manager)
@@ -1894,7 +1907,7 @@ class TestStopPending:
 
         manager._handle_group_update({"GroupId": "g1", "Type": "GroupLeft"})
 
-        assert manager._stop_pending is None
+        assert manager.holds._stop_pending is None
 
     def test_an_earlier_prompt_does_not_resolve_a_later_stop(
         self, manager, monkeypatch, timers
@@ -1910,7 +1923,7 @@ class TestStopPending:
 
         first()
 
-        assert manager._stopped_here("pl-2")
+        assert manager.holds._stopped_here("pl-2")
 
     def test_a_stop_the_group_made_marks_nothing(self, manager, monkeypatch):
         join(manager)
@@ -1920,7 +1933,7 @@ class TestStopPending:
         with manager.programmatic():
             manager.on_stopped()
 
-        assert manager._stop_pending is None
+        assert manager.holds._stop_pending is None
 
 
 class TestCommandGroupGate:
@@ -2652,7 +2665,7 @@ class TestForeignPropose:
             }
         )
 
-        manager._forward_local_play()
+        manager.holds._forward_local_play()
 
         calls = manager._api.named("syncplay_set_new_queue_ex")
         assert len(calls) == 1
