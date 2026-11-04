@@ -82,7 +82,7 @@ for mode, size in [("individual", 1), ("batch25", 25), ("batch100", 100)]:
                 "method": "VideoLibrary.SetMovieDetails",
                 "params": {
                     "movieid": mid,
-                    "plot": "Synthetic benchmark {} {}".format(mode, repeat),
+                    "plot": f"Synthetic benchmark {mode} {repeat}",
                 },
             }
             for index, mid in enumerate(ids)
