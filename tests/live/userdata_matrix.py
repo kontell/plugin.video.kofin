@@ -23,7 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scratch  # noqa: E402
+import scratch
 
 ALBUM = "Scratch Album One"
 ALBUM_TWO = "Scratch Album Two"
@@ -181,7 +181,7 @@ def brief(kodi, server):
 
 def run(rig, name, kind, action, album=ALBUM):
     read_kodi = rig.episodes if kind == "Episode" else lambda: rig.songs(album)
-    read_server = lambda: rig.server(kind, album)  # noqa: E731
+    read_server = lambda: rig.server(kind, album)
     before = (read_kodi(), read_server())
     start = probe("log-lines")
     began = time.monotonic()

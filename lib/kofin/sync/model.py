@@ -1,14 +1,15 @@
 """Pure metadata helpers: no Kodi modules, settings reads, networking or storage."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Optional
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)
 class MediaItem:
     item_id: str
     kind: str
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
 
     @classmethod
     def from_dto(cls, item: Mapping[str, Any], kind: str = "") -> "MediaItem":
@@ -30,12 +31,12 @@ class Metadata:
     def __init__(self, item: Mapping[str, Any]) -> None:
         self.item = item
 
-    def media_streams(self, video: Any, audio: Any, subtitles: Any) -> Dict[str, Any]:
+    def media_streams(self, video: Any, audio: Any, subtitles: Any) -> dict[str, Any]:
         return {"video": video or [], "audio": audio or [], "subtitle": subtitles or []}
 
     def video_streams(
-        self, tracks: List[Dict[str, Any]], container: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, tracks: list[dict[str, Any]], container: Optional[str] = None
+    ) -> list[dict[str, Any]]:
 
         if container:
             container = container.split(",")[0]
@@ -86,7 +87,7 @@ class Metadata:
 
         return tracks
 
-    def audio_streams(self, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def audio_streams(self, tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         for track in tracks:
 
@@ -118,7 +119,7 @@ class Metadata:
         return runtime
 
 
-def streams_and_runtime(item: Mapping[str, Any]) -> Tuple[Dict[str, Any], float]:
+def streams_and_runtime(item: Mapping[str, Any]) -> tuple[dict[str, Any], float]:
     """``(streams, runtime_seconds)`` from a Jellyfin DTO.
 
     Prefers ``MediaSources[0]`` streams and falls back to top-level
@@ -171,7 +172,7 @@ def streams_and_runtime(item: Mapping[str, Any]) -> Tuple[Dict[str, Any], float]
     return helper.media_streams(video, audio, subs), runtime
 
 
-def ratings(obj: Mapping[str, Any]) -> Dict[str, Tuple[Any, Any]]:
+def ratings(obj: Mapping[str, Any]) -> dict[str, tuple[Any, Any]]:
     """Ordered ``{rating_type: (rating, votes)}`` for Kodi's ratings.
 
     The community rating is always present as ``default``, even as ``None``.

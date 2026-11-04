@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Small Kodi helpers the sync code shares.
 
 A localized-string lookup, the home-window property access the node publisher
@@ -48,14 +47,7 @@ def convert_to_local(date):
         # Bad metadata defaults to date 1-1-1. astimezone() on it can
         # underflow, and it only means "no date" anyway.
         if parsed.year < 1900:
-            return "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}".format(
-                parsed.year,
-                parsed.month,
-                parsed.day,
-                parsed.hour,
-                parsed.minute,
-                parsed.second,
-            )
+            return f"{parsed.year:04d}-{parsed.month:02d}-{parsed.day:02d}T{parsed.hour:02d}:{parsed.minute:02d}:{parsed.second:02d}"
 
         return parsed.astimezone().strftime("%Y-%m-%dT%H:%M:%S")
     except Exception as error:

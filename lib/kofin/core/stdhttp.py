@@ -17,11 +17,13 @@ bodies, content decoding — is either unused on kofin's API paths or
 deliberately out of scope (see the note on ``Accept-Encoding`` below).
 """
 
+from __future__ import annotations
+
 import http.client
 import json
 import ssl
 import threading
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode, urlsplit
 
 from kofin.core.http import (
@@ -57,14 +59,14 @@ class Response:
         status_code: int,
         content: bytes,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.status_code = status_code
         self.content = content
         self.url = url
         # Only ``Location`` is read (run_ladder's redirect refusal); kept as
         # a plain dict so the requests transport and this one look alike there.
-        self.headers: Dict[str, str] = dict(headers or {})
+        self.headers: dict[str, str] = dict(headers or {})
 
     def json(self) -> Any:
         return json.loads(self.content)
@@ -94,7 +96,7 @@ class StdlibHttp(Http):
         self._local = threading.local()
         # Every connection this transport has opened, so close() can release
         # the ones belonging to threads that have since finished.
-        self._all: List[http.client.HTTPConnection] = []
+        self._all: list[http.client.HTTPConnection] = []
         self._all_lock = threading.Lock()
 
     # -- lifecycle -------------------------------------------------------------
@@ -115,15 +117,15 @@ class StdlibHttp(Http):
                 LOG.debug("connection close failed: %s", error)
         self._local = threading.local()
 
-    def session(self) -> "requests.Session":
+    def session(self) -> requests.Session:
         raise RuntimeError("StdlibHttp has no requests session")
 
     def stream(
         self,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         start: int = 0,
-        timeout: Optional[Tuple[float, float]] = None,
+        timeout: tuple[float, float] | None = None,
     ) -> StreamedResponse:
         raise RuntimeError("StdlibHttp does not stream; downloads run on the service")
 
@@ -152,8 +154,8 @@ class StdlibHttp(Http):
         return context
 
     def _connection(
-        self, origin: Tuple[str, str, int], connect_timeout: float, read_timeout: float
-    ) -> Tuple[http.client.HTTPConnection, bool]:
+        self, origin: tuple[str, str, int], connect_timeout: float, read_timeout: float
+    ) -> tuple[http.client.HTTPConnection, bool]:
         """The pooled connection for ``origin``, and whether it is brand new.
 
         Freshness is what makes the stale-socket retry in :meth:`request` safe:
@@ -191,11 +193,11 @@ class StdlibHttp(Http):
         self,
         method: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
-        params: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
-        timeout: Optional[Tuple[float, float]] = None,
-        retries: Optional[int] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        timeout: tuple[float, float] | None = None,
+        retries: int | None = None,
     ) -> Any:
         if retries is None:
             retries = METHOD_RETRIES.get(method.upper(), 0)
@@ -223,11 +225,11 @@ class StdlibHttp(Http):
 
     def _exchange(
         self,
-        origin: Tuple[str, str, int],
+        origin: tuple[str, str, int],
         method: str,
         target: str,
-        body: Optional[bytes],
-        headers: Dict[str, str],
+        body: bytes | None,
+        headers: dict[str, str],
         connect_timeout: float,
         read_timeout: float,
         url: str,
@@ -266,9 +268,7 @@ class StdlibHttp(Http):
         return Response(raw.status, payload, url, dict(raw.getheaders()))
 
 
-def _split(
-    url: str, params: Optional[Dict[str, Any]]
-) -> Tuple[Tuple[str, str, int], str]:
+def _split(url: str, params: dict[str, Any] | None) -> tuple[tuple[str, str, int], str]:
     """((scheme, host, port), request target) with ``params`` folded in."""
     parts = urlsplit(url)
     scheme = parts.scheme or "http"
@@ -289,10 +289,10 @@ def _split(
 
 
 def _body(
-    json_body: Optional[Dict[str, Any]], headers: Optional[Dict[str, str]]
-) -> Tuple[Optional[bytes], Dict[str, str]]:
+    json_body: dict[str, Any] | None, headers: dict[str, str] | None
+) -> tuple[bytes | None, dict[str, str]]:
     send_headers = dict(headers or {})
-    body: Optional[bytes] = None
+    body: bytes | None = None
     if json_body is not None:
         body = json.dumps(json_body).encode("utf-8")
         send_headers["Content-Type"] = "application/json"

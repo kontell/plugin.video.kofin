@@ -46,7 +46,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from syncplay_fine_sync import Member, inject, log  # noqa: E402
+from syncplay_fine_sync import Member, inject, log
 
 # A hole is a sample where a member was expected to be playing and returned no
 # usable position. Counted, never fatal.

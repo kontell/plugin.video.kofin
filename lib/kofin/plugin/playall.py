@@ -12,7 +12,7 @@ Music only, by decision: seasons and series keep Kodi's own behaviour.
 """
 
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import xbmc
 
@@ -27,7 +27,7 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # What a queue may hold. Past this a "play all" is a library dump, and the
 # plugin process builds a ListItem per row before anything plays.
@@ -60,7 +60,7 @@ def _api() -> Optional[Api]:
     return Api.for_plugin(creds)
 
 
-def expand(api: Api, item: JsonDict, shuffle: bool) -> List[JsonDict]:
+def expand(api: Api, item: JsonDict, shuffle: bool) -> list[JsonDict]:
     """The tracks under a container, in playing order; [] for anything else."""
     item_type = item.get("Type", "")
     item_id = item.get("Id", "")
@@ -100,10 +100,10 @@ def expand(api: Api, item: JsonDict, shuffle: bool) -> List[JsonDict]:
     return rows
 
 
-def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> List[JsonDict]:
+def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> list[JsonDict]:
     """A playlist's audio entries in the server's order, shuffled here if
     asked: the playlist route has no SortBy, and the order is the playlist."""
-    tracks: List[JsonDict] = []
+    tracks: list[JsonDict] = []
     start = 0
     while len(tracks) < QUEUE_LIMIT:
         body = api.playlist_items(
@@ -124,7 +124,7 @@ def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> List[JsonDict
     return tracks
 
 
-def queue_and_play(tracks: List[JsonDict], server: str) -> None:
+def queue_and_play(tracks: list[JsonDict], server: str) -> None:
     """Hand Kodi a music playlist of the tracks and start it.
 
     An explicit *music* playlist: the queue Kodi builds for a kofin listing

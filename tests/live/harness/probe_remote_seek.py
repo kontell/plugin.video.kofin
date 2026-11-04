@@ -11,7 +11,7 @@ import xbmcvfs
 sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
-from kofin.service.remote import RemoteHandler  # noqa: E402
+from kofin.service.remote import RemoteHandler
 
 item_id = sys.argv[1]
 seconds = float(sys.argv[2])

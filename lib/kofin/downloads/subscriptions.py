@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mirror playlist and music-library download subscriptions.
 
 The claim table records every standing order for a track. A download row has
@@ -8,7 +7,8 @@ subscription drops it. Every removal still goes through the manager.
 
 import os
 import uuid
-from typing import Any, Dict, Iterable, List, Set, Tuple
+from typing import Any
+from collections.abc import Iterable
 
 from kofin.core import ipc, settings
 from kofin.core.log import Logger
@@ -23,7 +23,7 @@ MAX_SUBSCRIPTION_ITEMS = 50000
 NOTIFY_BATCH_SIZE = 200
 
 
-def subscribed(setting_id: str) -> List[str]:
+def subscribed(setting_id: str) -> list[str]:
     return [part for part in settings.get_str(setting_id).split(",") if part]
 
 
@@ -119,8 +119,8 @@ def _notify_queue(owner_id: str, item_ids: Iterable[str], name: str = "") -> Non
 
 
 def _reconcile_on(
-    cursor: Any, owner_id: str, wanted: Set[str]
-) -> Tuple[List[str], List[str]]:
+    cursor: Any, owner_id: str, wanted: set[str]
+) -> tuple[list[str], list[str]]:
     cursor.execute(
         "SELECT jellyfin_id FROM download_subscription WHERE owner = ?", (owner_id,)
     )
@@ -135,8 +135,8 @@ def _reconcile_on(
         "DELETE FROM download_subscription WHERE owner = ? AND jellyfin_id = ?",
         ((owner_id, item_id) for item_id in removed),
     )
-    queue: List[str] = []
-    delete: List[str] = []
+    queue: list[str] = []
+    delete: list[str] = []
     for batch in _batches(wanted):
         marks = ",".join("?" for _ in batch)
         cursor.execute(
@@ -171,7 +171,7 @@ def _reconcile_on(
     return queue, delete
 
 
-def _batches(item_ids: Iterable[str]) -> Iterable[List[str]]:
+def _batches(item_ids: Iterable[str]) -> Iterable[list[str]]:
     ordered = sorted(item_ids)
     for start in range(0, len(ordered), 500):
         yield ordered[start : start + 500]
@@ -209,7 +209,7 @@ def reconcile_playlists_direct(api: Any) -> None:
         reconcile_playlist_direct(api, playlist_id)
 
 
-def claim_library_songs(placed: Dict[str, str]) -> None:
+def claim_library_songs(placed: dict[str, str]) -> None:
     """Claim new songs, each named with its library, for the music libraries
     subscribed."""
     if not settings.get_bool("downloadsEnabled"):
@@ -217,7 +217,7 @@ def claim_library_songs(placed: Dict[str, str]) -> None:
     libraries = set(subscribed(LIBRARY_SETTING))
     if not libraries or not placed:
         return
-    queued: Dict[str, List[str]] = {}
+    queued: dict[str, list[str]] = {}
     with Database("kofin") as opened:
         for item_id, library in sorted(placed.items()):
             if library not in libraries:
@@ -238,8 +238,8 @@ def claim_library_songs(placed: Dict[str, str]) -> None:
         _notify_queue(owner_id, item_ids)
 
 
-def _library_items(api: Any, library_id: str) -> List[str]:
-    items: List[str] = []
+def _library_items(api: Any, library_id: str) -> list[str]:
+    items: list[str] = []
     start = 0
     seen = set()
     while True:

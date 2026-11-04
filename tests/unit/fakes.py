@@ -1,12 +1,10 @@
 """Test doubles for the Kodi API surfaces kofin touches."""
 
-from typing import Dict
-
 
 class FakeAddon:
     """Stands in for xbmcaddon.Addon with a dict-backed settings store."""
 
-    store: Dict[str, str] = {}
+    store: dict[str, str] = {}
 
     def __init__(self, addon_id: str = "") -> None:
         self.addon_id = addon_id
@@ -36,7 +34,7 @@ class FakeAddon:
 class FakeWindow:
     """Stands in for xbmcgui.Window property storage."""
 
-    store: Dict[str, str] = {}
+    store: dict[str, str] = {}
 
     def __init__(self, window_id: int = 0) -> None:
         self.window_id = window_id

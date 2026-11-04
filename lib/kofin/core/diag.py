@@ -13,7 +13,7 @@ import sys
 import threading
 import traceback
 from types import FrameType
-from typing import Dict, Optional
+from typing import Optional
 
 from kofin.core.log import Logger
 
@@ -31,12 +31,12 @@ def _position(frame: FrameType) -> str:
     return "%s:%d %s" % (filename, frame.f_lineno, frame.f_code.co_name)
 
 
-def positions() -> Dict[int, str]:
+def positions() -> dict[int, str]:
     """Innermost frame per thread id. Cheap enough to call on a poll tick."""
     return {ident: _position(frame) for ident, frame in sys._current_frames().items()}
 
 
-def thread_dump(reason: str) -> Dict[int, str]:
+def thread_dump(reason: str) -> dict[int, str]:
     """Log every live thread's stack; return the innermost frame of each.
 
     The return value is the input to :func:`describe_movement` — hold onto it
@@ -68,7 +68,7 @@ def thread_dump(reason: str) -> Dict[int, str]:
 
 
 def describe_movement(
-    ident: Optional[int], before: Dict[int, str], after: Dict[int, str]
+    ident: Optional[int], before: dict[int, str], after: dict[int, str]
 ) -> str:
     """Whether the thread got anywhere between two dumps, in words.
 

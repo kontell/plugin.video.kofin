@@ -1,6 +1,6 @@
 """The Jellyfin API surface kofin uses."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import quote
 
 from kofin.core import auth, settings
@@ -16,7 +16,7 @@ from kofin.core.settings import Credentials
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # Connect/read budget for the lyrics fetch. Deliberately far below the
 # transport default: see Api.lyrics.
@@ -62,7 +62,7 @@ class Api:
         # connect budget. The read timeout stays at the default, because a big
         # listing is legitimately slow. None means the transport's defaults.
         self._retries: Optional[int] = 1 if interactive else None
-        self._timeout: Optional[Tuple[float, float]] = (
+        self._timeout: Optional[tuple[float, float]] = (
             (3.05, DEFAULT_TIMEOUT[1]) if interactive else None
         )
 
@@ -131,7 +131,7 @@ class Api:
         path: str,
         body: Optional[JsonDict] = None,
         params: Optional[JsonDict] = None,
-        timeout: Optional[Tuple[float, float]] = None,
+        timeout: Optional[tuple[float, float]] = None,
     ) -> JsonDict:
         # Interactive shortens the connect budget only; retries stay the
         # transport's per-method default (POST: none — replay double-applies).
@@ -175,12 +175,12 @@ class Api:
 
         return merged
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         return {"Authorization": self._header, "Accept": "application/json"}
 
     # -- system / session ---------------------------------------------------
 
-    def _get_list(self, path: str, params: Optional[JsonDict] = None) -> List[JsonDict]:
+    def _get_list(self, path: str, params: Optional[JsonDict] = None) -> list[JsonDict]:
         """GET whose body is a bare JSON array rather than an Items envelope."""
         response = self._http.request(
             "GET",
@@ -190,7 +190,7 @@ class Api:
             timeout=self._timeout,
             retries=self._retries,
         )
-        listing: List[JsonDict] = self._json(response, [])
+        listing: list[JsonDict] = self._json(response, [])
         return listing
 
     def public_info(self) -> JsonDict:
@@ -241,7 +241,7 @@ class Api:
     def session_stopped(self, data: JsonDict) -> None:
         self.post("/Sessions/Playing/Stopped", data)
 
-    def device_sessions(self, device_id: str) -> List[JsonDict]:
+    def device_sessions(self, device_id: str) -> list[JsonDict]:
         return self._get_list("/Sessions", {"deviceId": device_id})
 
     def close_transcode(self, device_id: str, play_session_id: str) -> None:
@@ -250,10 +250,10 @@ class Api:
             params={"deviceId": device_id, "playSessionId": play_session_id},
         )
 
-    def users(self) -> List[JsonDict]:
+    def users(self) -> list[JsonDict]:
         return self._get_list("/Users")
 
-    def public_users(self) -> List[JsonDict]:
+    def public_users(self) -> list[JsonDict]:
         return self._get_list("/Users/Public")
 
     def me(self) -> JsonDict:
@@ -276,7 +276,7 @@ class Api:
         """
         self.post("/Users/Configuration", dict(configuration), self._as_user())
 
-    def cultures(self) -> List[JsonDict]:
+    def cultures(self) -> list[JsonDict]:
         """The server's language list, for the audio/subtitle preferences.
 
         ``ThreeLetterISOLanguageName`` is the value a preference stores — it is
@@ -353,7 +353,7 @@ class Api:
 
     def latest(
         self, parent_id: str, include_types: str, fields: str = "", limit: int = 25
-    ) -> List[JsonDict]:
+    ) -> list[JsonDict]:
         """The server's own "recently added" — ``/Items/Latest``.
 
         For music it is the only query that answers the question: an album's
@@ -407,7 +407,7 @@ class Api:
             self._as_user({"searchTerm": term, "limit": limit}),
         )
 
-    def ancestors(self, item_id: str) -> List[JsonDict]:
+    def ancestors(self, item_id: str) -> list[JsonDict]:
         return self._get_list("/Items/%s/Ancestors" % item_id, self._as_user())
 
     def media_folders(self) -> JsonDict:
@@ -507,7 +507,7 @@ class Api:
         """
         return self.get("/MediaSegments/%s" % item_id)
 
-    def special_features(self, item_id: str) -> List[JsonDict]:
+    def special_features(self, item_id: str) -> list[JsonDict]:
         """User-scoped special features (extras) of a movie/series/season."""
         return self._get_list("/Items/%s/SpecialFeatures" % item_id, self._as_user())
 
@@ -524,7 +524,7 @@ class Api:
         """NTP-style timestamps: {RequestReceptionTime, ResponseTransmissionTime}."""
         return self.get("/GetUtcTime")
 
-    def syncplay_list(self) -> List[JsonDict]:
+    def syncplay_list(self) -> list[JsonDict]:
         return self._get_list("/SyncPlay/List")
 
     def syncplay_new(
@@ -551,7 +551,7 @@ class Api:
         self.post("/SyncPlay/Leave", timeout=LEAVE_TIMEOUT)
 
     def syncplay_hello(
-        self, protocol_version: int, capabilities: Optional[List[str]] = None
+        self, protocol_version: int, capabilities: Optional[list[str]] = None
     ) -> JsonDict:
         """Capability probe + negotiation in one round trip (SYNCPLAY.md §2.1,
         §14.1): a 200 carries the server's protocol version, the time-sync
@@ -628,7 +628,7 @@ class Api:
 
     def syncplay_set_new_queue(
         self,
-        item_ids: List[str],
+        item_ids: list[str],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None:
@@ -643,7 +643,7 @@ class Api:
 
     def syncplay_set_new_queue_ex(
         self,
-        entries: List[JsonDict],
+        entries: list[JsonDict],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None:
@@ -713,14 +713,14 @@ class Api:
         """Permanently delete an item from the server (content deletion)."""
         self.delete("/Items/%s" % item_id)
 
-    def playlists(self) -> List[JsonDict]:
+    def playlists(self) -> list[JsonDict]:
         """User-visible playlists of every MediaType, with Etag.
 
         Paged, and deduped by id: some Jellyfin builds report a
         ``TotalRecordCount`` higher than the unique set and re-emit earlier
         rows on later pages. The caller decides Audio vs Video vs skip.
         """
-        results: List[JsonDict] = []
+        results: list[JsonDict] = []
         seen: set[str] = set()
         start = 0
         page_size = 100
@@ -770,13 +770,13 @@ class Api:
                 break
         return results
 
-    def create_playlist(self, name: str, ids: List[str], media_type: str) -> JsonDict:
+    def create_playlist(self, name: str, ids: list[str], media_type: str) -> JsonDict:
         return self.post(
             "/Playlists",
             {"Name": name, "Ids": ids, "MediaType": media_type, "UserId": self.user_id},
         )
 
-    def replace_playlist_items(self, playlist_id: str, ids: List[str]) -> JsonDict:
+    def replace_playlist_items(self, playlist_id: str, ids: list[str]) -> JsonDict:
         """Replace membership with this ordered id list (not per-entry delete)."""
         return self.post(
             "/Playlists/%s" % playlist_id,

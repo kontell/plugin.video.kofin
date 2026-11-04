@@ -15,7 +15,7 @@ without a Kodi filesystem fake.
 """
 
 import os
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 
@@ -29,10 +29,10 @@ def is_managed(name: str) -> bool:
     return name.startswith(PREFIX)
 
 
-def listdir(root: str) -> Tuple[List[str], List[str]]:
+def listdir(root: str) -> tuple[list[str], list[str]]:
     """``(dirs, files)`` of a directory that may not exist, sorted."""
-    dirs: List[str] = []
-    files: List[str] = []
+    dirs: list[str] = []
+    files: list[str] = []
     if not os.path.isdir(root):
         return dirs, files
     for entry in sorted(os.listdir(root)):
@@ -79,12 +79,12 @@ def remove_managed_entries(
     keep: Iterable[str] = (),
     also: Iterable[str] = (),
     label: str = "node",
-) -> List[str]:
+) -> list[str]:
     """Every managed entry under ``root`` not named in ``keep``, plus the
     prefix-less files named in ``also``. Returns what was removed."""
     kept = set(keep)
     extra = set(also)
-    removed: List[str] = []
+    removed: list[str] = []
     dirs, files = listdir(root)
     for name in dirs:
         if is_managed(name) and name not in kept:

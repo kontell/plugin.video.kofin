@@ -1,7 +1,7 @@
 """The playback tick behind segment skipping and Play Next."""
 
 import threading
-from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
+from typing import Any, Optional, Protocol
 
 import xbmc
 
@@ -12,7 +12,7 @@ from kofin.core.segments import parse_segments
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 TICK_SECONDS = 0.25
 
@@ -147,7 +147,7 @@ def near_end_prompt_at(runtime: float, lead: float) -> float:
 
 def plan_for_crossing(
     segment_type: str, mode: int, offer_next: bool
-) -> Tuple[bool, Tuple[str, ...]]:
+) -> tuple[bool, tuple[str, ...]]:
     """``(auto_seek, buttons)`` for a segment crossing.
 
     ``mode`` is 0 Off / 1 Auto / 2 Ask; ``offer_next`` means a Play Next is on
@@ -170,8 +170,8 @@ def plan_for_crossing(
 
 
 def segments_entered_at(
-    segments: List[JsonDict], position: float
-) -> Set[Tuple[float, float]]:
+    segments: list[JsonDict], position: float
+) -> set[tuple[float, float]]:
     """The ``(start, end)`` keys of every segment ``position`` lands inside.
 
     Used to mark the segments a playback *started* part-way through: resuming
@@ -273,13 +273,13 @@ class SegmentEngine:
         self.player = player
         self.api = api
         self._checker: Optional[SegmentChecker] = None
-        self._segments: List[JsonDict] = []
+        self._segments: list[JsonDict] = []
         self._segments_loaded = False
         self._armed_index = 0
-        self._prompted: Set[Tuple[float, float]] = set()
+        self._prompted: set[tuple[float, float]] = set()
         # Segments this playback started inside (resume point mid-segment):
         # no skip prompt for them until the position leaves them.
-        self._start_inside: Set[Tuple[float, float]] = set()
+        self._start_inside: set[tuple[float, float]] = set()
         self._prev_pos: Optional[float] = None
         self._settle_target: Optional[float] = None
         self._settle_ticks = 0
@@ -295,7 +295,7 @@ class SegmentEngine:
         self._overlay: Optional[Any] = None
         self._overlay_end = 0.0
         self._overlay_hide_at = 0.0
-        self._overlay_window: Optional[Tuple[float, float]] = None
+        self._overlay_window: Optional[tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
 
@@ -351,7 +351,7 @@ class SegmentEngine:
                 self._segments = []
                 self._segments_loaded = True
                 return
-            segments: List[JsonDict] = []
+            segments: list[JsonDict] = []
             for attempt in (1, 2):  # short bounded retry
                 if halt.is_set():
                     return
@@ -681,7 +681,7 @@ class SegmentEngine:
     # -- segment engine: the overlay -----------------------------------------
 
     def _open_overlay(
-        self, segment: Optional[JsonDict], buttons: Tuple[str, ...], now: float
+        self, segment: Optional[JsonDict], buttons: tuple[str, ...], now: float
     ) -> None:
         from kofin.service import skip as skip_dialog
 

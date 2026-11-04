@@ -19,7 +19,7 @@ endpoint in the exchange known to work.
 """
 
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Any, Dict, List, NamedTuple, Optional, Union
+from typing import Any, NamedTuple, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -46,7 +46,7 @@ POLL_SECONDS = 0.1
 class Candidate(NamedTuple):
     found: discovery.Found
     address: str
-    info: Optional[Dict[str, Any]]
+    info: Optional[dict[str, Any]]
     reachable: bool
 
 
@@ -54,7 +54,7 @@ def _text(string_id: int) -> str:
     return settings.localized(string_id)
 
 
-def _addresses(found: discovery.Found) -> List[str]:
+def _addresses(found: discovery.Found) -> list[str]:
     """The addresses to try for one hit, best first."""
     addresses = [found.address]
     fallback = discovery.fallback_address(found)
@@ -79,7 +79,7 @@ def _verify(transport: Http, found: discovery.Found) -> Candidate:
     return Candidate(found=found, address=found.address, info=None, reachable=False)
 
 
-def _scan_with_progress(transport: Http) -> Optional[List[Candidate]]:
+def _scan_with_progress(transport: Http) -> Optional[list[Candidate]]:
     """Run the broadcast window, verifying hits as they land.
 
     None means the user cancelled. The scan runs on a worker so the main
@@ -89,8 +89,8 @@ def _scan_with_progress(transport: Http) -> Optional[List[Candidate]]:
     progress = xbmcgui.DialogProgress()
     progress.create(settings.addon_name(), _text(30827))
     monitor = xbmc.Monitor()
-    arrivals: List[discovery.Found] = []
-    probes: List["Future[Candidate]"] = []
+    arrivals: list[discovery.Found] = []
+    probes: list[Future[Candidate]] = []
     cancelled = False
 
     try:
@@ -167,7 +167,7 @@ def find_servers(request: Request) -> None:
     # does, but it should not be the obvious pick.
     candidates.sort(key=lambda entry: (not entry.reachable, entry.found.name.lower()))
 
-    items: List[Union[str, "xbmcgui.ListItem"]] = []
+    items: list[Union[str, xbmcgui.ListItem]] = []
     for candidate in candidates:
         label, detail = discovery.label_for(
             candidate.found.name, candidate.address, candidate.info

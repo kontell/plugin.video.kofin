@@ -12,7 +12,7 @@ place the engine's start path may reach kofin's plugin URL builder and sync
 database.
 """
 
-from typing import Dict, Optional, Protocol, TypedDict
+from typing import Optional, Protocol, TypedDict
 from urllib.parse import quote
 
 from kofin.core.urls import plugin_url
@@ -174,7 +174,7 @@ class ProviderRegistry:
     """The engine's one dispatch from a content key to its provider."""
 
     def __init__(self) -> None:
-        self._providers: Dict[str, Provider] = {}
+        self._providers: dict[str, Provider] = {}
 
     def register(self, name: str, provider: Provider) -> None:
         self._providers[name] = provider

@@ -3,7 +3,7 @@
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import xbmc
 import xbmcgui
@@ -97,7 +97,7 @@ def _bitrate_label(value: str) -> str:
     return "%s Mbit/s" % value
 
 
-def choose_bitrate(configured: List[str]) -> Optional[str]:
+def choose_bitrate(configured: list[str]) -> Optional[str]:
     """The bitrate token to transcode at; None means nothing to offer.
 
     A token of '0' overrides nothing: ``deviceprofile.build`` falls back to the
@@ -113,14 +113,14 @@ def choose_bitrate(configured: List[str]) -> Optional[str]:
         return None
     if len(valid) == 1:
         return valid[0]
-    labels: List[Union[str, xbmcgui.ListItem]] = [
+    labels: list[Union[str, xbmcgui.ListItem]] = [
         _bitrate_label(value) for value in valid
     ]
     index = xbmcgui.Dialog().select(settings.localized(30010), labels)
     return valid[index] if index >= 0 else None
 
 
-def _focused_resume() -> Tuple[str, float]:
+def _focused_resume() -> tuple[str, float]:
     """(the ``dbid`` play param, the position that item would resume at).
 
     The two travel together so the prompt and the start agree: the dbid is
@@ -187,7 +187,7 @@ def play_with_transcode() -> None:
     bitrate = choose_bitrate(settings.get_list("contextBitrates"))
     if bitrate is None:
         return
-    params: Dict[str, str] = {
+    params: dict[str, str] = {
         "mode": "play",
         "id": item_id,
         PARAM_TRANSCODE: "1",
@@ -299,7 +299,7 @@ DOWNLOAD_CONTAINER_TYPES = frozenset(
 
 def _container_download_options(
     item_id: str, music_scope: str = ""
-) -> List[Tuple[str, dict]]:
+) -> list[tuple[str, dict]]:
     """What a Season/Series/album/artist/playlist offers, from local state.
 
     Download stays unless everything under the container is already
@@ -326,7 +326,7 @@ def _container_download_options(
     params = {"id": item_id}
     if music_scope:
         params["playlist" if music_scope == "playlist" else "library"] = "1"
-    entries: List[Tuple[str, dict]] = []
+    entries: list[tuple[str, dict]] = []
     if unfinished or not counts["done"]:
         entries.append((settings.localized(30708), {"mode": "download", "id": item_id}))
     if counts["done"]:
@@ -352,7 +352,7 @@ def downloads_enabled() -> bool:
         return False
 
 
-def _download_options(item: dict) -> List[Tuple[str, dict]]:
+def _download_options(item: dict) -> list[tuple[str, dict]]:
     """Download / Cancel download / Remove download, from local state.
 
     Leaves gate on the server's ``CanDownload`` exactly as delete gates on
@@ -423,7 +423,7 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
     return [(settings.localized(30709), {"mode": "canceldownload", "id": item_id})]
 
 
-def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
+def _manage_options(item: dict, dynamic: bool) -> list[tuple[str, dict]]:
     """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
 
     Every server-side action for an item lives here: a listing's own context
@@ -442,7 +442,7 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     item_id = item.get("Id", "")
     userdata = item.get("UserData") or {}
     is_favorite = bool(userdata.get("IsFavorite"))
-    options: List[Tuple[str, dict]] = []
+    options: list[tuple[str, dict]] = []
 
     # Play all and Shuffle (plugin/playall.py) come first, because playing is
     # what the row is for. Core strings: 22083 "Play all", 191 "Shuffle".
@@ -520,7 +520,7 @@ def _offline_menu(item_id: str) -> None:
     rather than queued — a menu action that silently waits for a
     reconnection is worse than one that is simply not offered.
     """
-    options: List[Tuple[str, dict]] = []
+    options: list[tuple[str, dict]] = []
     if downloads_enabled():
         from kofin.downloads import store
 
@@ -585,7 +585,7 @@ def manage_download_playlist() -> None:
         playlist_id = row[0]
     enabled = playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING)
     states = list(store.playlist_unclaimed_states(playlist_id).values())
-    entries: List[Tuple[str, dict]] = []
+    entries: list[tuple[str, dict]] = []
     if not enabled and (not states or any(state != store.DONE for state in states)):
         entries.append(
             (settings.localized(30708), {"mode": "download", "id": playlist_id})

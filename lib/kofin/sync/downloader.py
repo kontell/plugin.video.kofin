@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """The /Items query shapes the API catalogue's enumeration shares.
 
 ``info`` is the field list every video listing asks the server for.

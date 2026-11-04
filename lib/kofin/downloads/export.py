@@ -10,7 +10,7 @@ understands. Documents are hand-built strings with escaped values.
 """
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from xml.sax.saxutils import escape
 
 from kofin.core.log import Logger
@@ -18,7 +18,7 @@ from kofin.sync.model import PROVIDER_PRIORITY
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
 
@@ -37,9 +37,9 @@ def export_item(api: Any, item: JsonDict, media_path: str) -> None:
         LOG.exception("metadata export failed for %s", item.get("Id"))
 
 
-def uniqueid_lines(provider_ids: Optional[JsonDict]) -> List[str]:
+def uniqueid_lines(provider_ids: Optional[JsonDict]) -> list[str]:
     """``<uniqueid>`` elements, defaulting by provider priority."""
-    pairs: List[Tuple[str, str]] = []
+    pairs: list[tuple[str, str]] = []
     for key, value in (provider_ids or {}).items():
         if value:
             pairs.append((str(key).lower(), str(value)))
@@ -60,7 +60,7 @@ def uniqueid_lines(provider_ids: Optional[JsonDict]) -> List[str]:
     ]
 
 
-def _document(root: str, lines: List[str]) -> str:
+def _document(root: str, lines: list[str]) -> str:
     body = "".join("    %s\n" % line for line in lines if line)
     return "%s<%s>\n%s</%s>\n" % (XML_DECLARATION, root, body, root)
 
@@ -71,7 +71,7 @@ def _field(tag: str, value: Any) -> str:
     return "<%s>%s</%s>" % (tag, escape(str(value)), tag)
 
 
-def _repeated(tag: str, values: Any) -> List[str]:
+def _repeated(tag: str, values: Any) -> list[str]:
     """One element per value — Kodi reads ``genre`` and album ``artist`` with
     ``XMLUtils::GetStringArray``, which collects repeats."""
     return [_field(tag, value) for value in (values or []) if value]
@@ -173,7 +173,7 @@ def artist_nfo(artist: JsonDict) -> str:
     )
 
 
-def _artist_names(item: JsonDict) -> List[str]:
+def _artist_names(item: JsonDict) -> list[str]:
     """Album-artist names, from the entity list or the flat string."""
     names = [
         str(entry.get("Name") or "")

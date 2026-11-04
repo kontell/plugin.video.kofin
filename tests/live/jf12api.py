@@ -16,7 +16,7 @@ import os
 import urllib.error
 import urllib.request
 import uuid
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 ENV_FILES = (
     os.path.join(
@@ -26,8 +26,8 @@ ENV_FILES = (
 )
 
 
-def load_env() -> Dict[str, str]:
-    env: Dict[str, str] = {}
+def load_env() -> dict[str, str]:
+    env: dict[str, str] = {}
     for path in ENV_FILES:
         try:
             with open(os.path.expanduser(path)) as handle:
@@ -62,7 +62,7 @@ class Jf12:
         path: str,
         body: Any = None,
         token: Optional[str] = None,
-    ) -> Tuple[int, str, Any]:
+    ) -> tuple[int, str, Any]:
         """(status, content-type, parsed JSON or raw bytes)."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.base + path, method=method, data=data)
@@ -96,7 +96,7 @@ class Jf12:
         self.admin_token = body["AccessToken"]
         return self.admin_token
 
-    def create_user(self, name: str, password: str) -> Dict[str, Any]:
+    def create_user(self, name: str, password: str) -> dict[str, Any]:
         status, _, user = self.call(
             "POST", "/Users/New", {"Name": name, "Password": password}, self.admin_token
         )
@@ -104,7 +104,7 @@ class Jf12:
             raise SystemExit("user create failed: %s %s" % (status, user))
         return user
 
-    def set_policy(self, user_id: str, policy: Dict[str, Any]) -> int:
+    def set_policy(self, user_id: str, policy: dict[str, Any]) -> int:
         status, _, _ = self.call(
             "POST", "/Users/%s/Policy" % user_id, policy, self.admin_token
         )

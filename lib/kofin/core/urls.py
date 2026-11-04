@@ -5,7 +5,6 @@ play count — on the exact URL string, so every ``plugin://`` URL is built
 here.
 """
 
-from typing import Dict
 from urllib.parse import urlencode
 
 BASE_URL = "plugin://plugin.video.kofin/"
@@ -30,5 +29,5 @@ STREAM_REQUEST_PARAMS = (
 )
 
 
-def plugin_url(params: Dict[str, str]) -> str:
+def plugin_url(params: dict[str, str]) -> str:
     return BASE_URL + "?" + urlencode(params)

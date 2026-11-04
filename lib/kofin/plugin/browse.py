@@ -1,7 +1,8 @@
 """Directory listings: addon root, library nodes, and drill-down browsing."""
 
 import os
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Optional
+from collections.abc import Iterable
 
 import xbmcgui
 import xbmcplugin
@@ -17,7 +18,7 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # The addon fanart asset, the backdrop behind structural listings: the same
 # file addon.xml declares, named here rather than read from the manifest.
@@ -71,7 +72,7 @@ def bounded_fields() -> str:
 # Tags, Album artists, Last played and Top 100 songs are lifted from Kodi's own
 # library nodes (system/library/{video,music}), which is also where their icons
 # come from.
-NODES: Dict[str, List[Tuple[str, int]]] = {
+NODES: dict[str, list[tuple[str, int]]] = {
     "movies": [
         ("all", 30030),
         ("recent", 30031),
@@ -122,7 +123,7 @@ NODES: Dict[str, List[Tuple[str, int]]] = {
 
 # Folder key -> label id, flattened from NODES. First listing wins if a
 # key is reused (they currently share wording: All, Recently added, …).
-FOLDER_LABELS: Dict[str, int] = {}
+FOLDER_LABELS: dict[str, int] = {}
 for _nodes in NODES.values():
     for _key, _label_id in _nodes:
         FOLDER_LABELS.setdefault(_key, _label_id)
@@ -132,7 +133,7 @@ FOLDER_LABELS["favoriteepisodes"] = 30360
 
 # The two listings under a show library's Favourites row, in menu order.
 # Empty legs are omitted; the parent row is omitted when both are.
-TV_FAVORITE_LEGS: Tuple[Tuple[str, int, str], ...] = (
+TV_FAVORITE_LEGS: tuple[tuple[str, int, str], ...] = (
     ("favoriteshows", 30359, "Series"),
     ("favoriteepisodes", 30360, "Episode"),
 )
@@ -159,7 +160,7 @@ TAG_MENU_MAX = 200
 # What search offers, as {type key: (Kodi core string id, IncludeItemTypes,
 # Kodi content type)}. Order is the menu order. Actors (string 344) sit
 # directly under episodes; artists sit directly under songs.
-SEARCH_KINDS: Dict[str, Tuple[int, str, str]] = {
+SEARCH_KINDS: dict[str, tuple[int, str, str]] = {
     "movies": (20342, "Movie", "movies"),
     "tvshows": (20343, "Series", "tvshows"),
     "episodes": (20360, "Episode", "episodes"),
@@ -215,7 +216,7 @@ MEDIA_ICONS = {
     "recordings": "DefaultPVRRecordings.png",
 }
 
-NODE_ICONS: Dict[str, Any] = {
+NODE_ICONS: dict[str, Any] = {
     "recent": {
         "movies": "DefaultRecentlyAddedMovies.png",
         "musicvideos": "DefaultRecentlyAddedMusicVideos.png",
@@ -312,7 +313,7 @@ def node_label(label_id: int) -> str:
     return xbmc.getLocalizedString(label_id)
 
 
-def structural_art(icon: str) -> Dict[str, str]:
+def structural_art(icon: str) -> dict[str, str]:
     """Art for a structural row: a node-menu entry, a genre, an Extras link.
 
     Both keys, always. Contuary binds the list glyph to ListItem.Icon, which
@@ -328,7 +329,7 @@ def structural_art(icon: str) -> Dict[str, str]:
     return with_backdrop({"icon": icon, "thumb": icon})
 
 
-def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
+def with_backdrop(art: dict[str, str]) -> dict[str, str]:
     """Fill in the addon backdrop for an item that has no fanart of its own.
 
     A fallback, not a decoration — it only ever fills an empty slot, so an
@@ -510,7 +511,7 @@ def _api() -> Optional[Api]:
 Builder = Callable[[Request, Api], None]
 
 
-def plugin_category(params: Dict[str, str]) -> str:
+def plugin_category(params: dict[str, str]) -> str:
     """The listing title skins show as Container.PluginCategory.
 
     Estuary (and skins that follow it, Contuary included) hide
@@ -559,7 +560,7 @@ def set_category(handle: int, category: str) -> None:
         xbmcplugin.setPluginCategory(handle, category)
 
 
-def _item_category(media: str, items: List[JsonDict]) -> str:
+def _item_category(media: str, items: list[JsonDict]) -> str:
     """A drill-down's title, from the rows it holds (series/season names
     never travel in the URL)."""
     if not items:
@@ -599,12 +600,12 @@ def listing(request: Request, build: Builder, what: str) -> None:
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
 
 
-StructuralRow = Tuple[str, str, Dict[str, str]]
+StructuralRow = tuple[str, str, dict[str, str]]
 
 
 def structural_row(
-    label: str, icon: str, params: Dict[str, str], folder: bool = True
-) -> Tuple[str, xbmcgui.ListItem, bool]:
+    label: str, icon: str, params: dict[str, str], folder: bool = True
+) -> tuple[str, xbmcgui.ListItem, bool]:
     """One row that stands for a place to go rather than a piece of media:
     a label, stock art on both keys (:func:`structural_art`), a plugin URL."""
     li = xbmcgui.ListItem(label)
@@ -644,7 +645,7 @@ def root(request: Request) -> None:
     if request.handle < 0:
         return
     api = _api()
-    entries: List[Tuple[str, xbmcgui.ListItem, bool]] = []
+    entries: list[tuple[str, xbmcgui.ListItem, bool]] = []
 
     import xbmc
 
@@ -967,7 +968,7 @@ def _search_person_items(request: Request, api: Api, person_id: str) -> None:
     xbmcplugin.endOfDirectory(request.handle)
 
 
-def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None:
+def _add_person_items(request: Request, api: Api, items: list[JsonDict]) -> None:
     """People as folders leading to their own filmography.
 
     Built here rather than through :func:`_add_items`, which would give a
@@ -1008,7 +1009,7 @@ def _alpha_menu(request: Request, media: str, view_id: str) -> None:
     )
 
 
-def _tag_letters(request: Request, media: str, view_id: str, values: List[Any]) -> None:
+def _tag_letters(request: Request, media: str, view_id: str, values: list[Any]) -> None:
     """The initials a library's tags actually use, for a tag list too long to
     show flat. Only letters with tags behind them, so no empty rows."""
     letters = sorted({str(v)[:1].upper() or "#" for v in values})
@@ -1082,7 +1083,7 @@ def _search_item_type(media: str) -> str:
     return ITEM_TYPES.get(media, "")
 
 
-def _folder_params(view_id: str, media: str, folder: str) -> Dict[str, str]:
+def _folder_params(view_id: str, media: str, folder: str) -> dict[str, str]:
     """The browse URL for one node of one library — the shape every
     structural menu row links to."""
     return {"mode": "browse", "view": view_id, "type": media, "folder": folder}
@@ -1134,7 +1135,7 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
     xbmcplugin.endOfDirectory(request.handle)
 
 
-def specials_only(items: List[JsonDict]) -> List[JsonDict]:
+def specials_only(items: list[JsonDict]) -> list[JsonDict]:
     """The items that actually carry special features.
 
     Filtered here rather than by the server: ``HasSpecialFeature=true``
@@ -1225,7 +1226,7 @@ def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:
 
 def _list_items(
     api: Api, media: str, folder: str, view_id: str, request: Request
-) -> Tuple[List[JsonDict], str]:
+) -> tuple[list[JsonDict], str]:
     """Fetch the item list for a folder; returns (items, kodi content type)."""
     # Special routes first.
     if folder == "nextup":
@@ -1294,7 +1295,7 @@ def _list_items(
 
 
 def _add_items(
-    request: Request, api: Api, items: List[JsonDict], view_id: str, media: str
+    request: Request, api: Api, items: list[JsonDict], view_id: str, media: str
 ) -> None:
     entries = []
     # One settings read for the whole listing (resume_of).
@@ -1381,7 +1382,7 @@ def _genre_types(media: str) -> str:
     return ITEM_TYPES.get(media, "")
 
 
-def _guess_content(items: List[JsonDict]) -> str:
+def _guess_content(items: list[JsonDict]) -> str:
     for item in items:
         content = {
             "Movie": "movies",

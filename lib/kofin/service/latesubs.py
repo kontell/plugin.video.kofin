@@ -19,7 +19,7 @@ and the stream menu still offers the track.
 """
 
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from kofin.core import streams
 from kofin.core.http import Http
@@ -28,7 +28,7 @@ from kofin.core import subtitles
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # How long to keep asking: twice the slowest extraction seen. Past this the
 # server is not going to produce the track.
@@ -38,7 +38,7 @@ DEADLINE_SECONDS = 300.0
 POLL_SECONDS = 8.0
 
 
-def fetchable_of(item: JsonDict) -> Dict[int, streams.Attachment]:
+def fetchable_of(item: JsonDict) -> dict[int, streams.Attachment]:
     """Every text track this playback can be handed as a file, by index.
 
     Only on a transcode, and not by omission. On a direct play the container
@@ -52,7 +52,7 @@ def fetchable_of(item: JsonDict) -> Dict[int, streams.Attachment]:
     if streams.is_direct(str(item.get("PlayMethod") or "")):
         return {}
     payload = item.get("Streams") or {}
-    rebuilt: Dict[int, streams.Attachment] = {}
+    rebuilt: dict[int, streams.Attachment] = {}
     for raw in payload.get("Fetchable") or []:
         try:
             attachment = streams.Attachment(**raw)
@@ -63,7 +63,7 @@ def fetchable_of(item: JsonDict) -> Dict[int, streams.Attachment]:
     return rebuilt
 
 
-def deferred_of(item: JsonDict) -> List[streams.Attachment]:
+def deferred_of(item: JsonDict) -> list[streams.Attachment]:
     """The tracks to chase without being asked: the one this play resolved
     with and did not get inside the play route's budget."""
     fetchable = fetchable_of(item)
@@ -93,7 +93,7 @@ class LateSubtitles:
         http: Http,
         player: Any,
         item: JsonDict,
-        deferred: List[streams.Attachment],
+        deferred: list[streams.Attachment],
         requested: bool = False,
     ) -> None:
         self._http = http

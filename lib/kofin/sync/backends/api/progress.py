@@ -14,7 +14,7 @@ is doing.
 """
 
 import time
-from typing import Optional, Tuple
+from typing import Optional
 
 import xbmc
 import xbmcgui
@@ -88,13 +88,13 @@ class Progress:
     INTERVAL = 1.0
 
     def __init__(self):
-        self._dialog: Optional["xbmcgui.DialogProgressBG"] = None
+        self._dialog: Optional[xbmcgui.DialogProgressBG] = None
         self._last = 0.0
         self.total = 0
         self.done = 0
         self.attended = False
         # The kind the pass is applying: (kind, its items, those done).
-        self._kind: Optional[Tuple[str, int, int]] = None
+        self._kind: Optional[tuple[str, int, int]] = None
 
     @property
     def open(self) -> bool:

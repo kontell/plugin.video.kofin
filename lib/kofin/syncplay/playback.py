@@ -31,7 +31,7 @@ PRESENTATION_RETRY_MS = 250.0
 #################################################################################################
 
 
-class PlaybackController(object):
+class PlaybackController:
     """Executes group commands against the Kodi player and converges local
     playback on the group timeline at each command (SYNCPLAY.md §5.1).
 

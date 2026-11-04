@@ -81,7 +81,7 @@ def time_to_ms(value):
     )
 
 
-class Device(object):
+class Device:
     """One Kodi, addressed over HTTP JSON-RPC."""
 
     def __init__(self, name, host, port, auth):

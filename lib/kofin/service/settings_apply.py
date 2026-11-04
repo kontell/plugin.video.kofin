@@ -18,7 +18,7 @@ corroborated before it is believed (``_is_spurious_clear``).
 """
 
 import threading
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional
 
 import xbmcgui
 
@@ -47,7 +47,7 @@ class SettingsApplier:
     def __init__(self, service: ServiceHooks) -> None:
         self.service = service
         self.ready = False
-        self.handlers: Dict[str, Handler] = {
+        self.handlers: dict[str, Handler] = {
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
@@ -59,13 +59,13 @@ class SettingsApplier:
             "downloadsEnabled": self._downloads_enabled_changed,
             "downloadsPath": self._downloads_path_changed,
         }
-        self.snapshot: Dict[str, str] = self._read_all()
+        self.snapshot: dict[str, str] = self._read_all()
         # The one-shot worker a library removal's confirmation runs on; its
         # slot, so a second save while the dialog is up is refused rather
         # than doubled (see _library_selection_changed).
         self._removal_worker: Optional[threading.Thread] = None
 
-    def _read_all(self) -> Dict[str, str]:
+    def _read_all(self) -> dict[str, str]:
         return {
             setting_id: settings.get_str(setting_id) for setting_id in self.handlers
         }
@@ -361,7 +361,7 @@ class SettingsApplier:
             worker.join(timeout)
 
     def _dispatch_selection(
-        self, removal_entries: List[str], additions: List[str]
+        self, removal_entries: list[str], additions: list[str]
     ) -> None:
         library = self._library_manager()
         if library is None:
@@ -382,8 +382,8 @@ class SettingsApplier:
         return service.library
 
     def _confirm_removals(
-        self, removal_entries: List[str], selection: set
-    ) -> List[str]:
+        self, removal_entries: list[str], selection: set
+    ) -> list[str]:
         """Yes/no gate before rows are deleted; declined removals go back
         into librarySelection so the stored intent matches reality."""
         from kofin.sync import private as sync_db

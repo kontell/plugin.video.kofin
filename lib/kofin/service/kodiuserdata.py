@@ -17,7 +17,7 @@ user's edits are queued durably in kofin.db for the server.
 
 import queue
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 from kofin.core import kodirpc
 from kofin.core.api import Api
@@ -26,7 +26,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 UPDATE_PLAYCOUNT = "playcount"
 UPDATE_RESUME = "resume"
@@ -37,7 +37,7 @@ UPDATE_RESUME = "resume"
 WATCHED_MEDIA = ("movie", "episode", "musicvideo")
 
 
-def parse_update(data: JsonDict) -> Optional[Tuple[str, int, str, int]]:
+def parse_update(data: JsonDict) -> Optional[tuple[str, int, str, int]]:
     """``(kind, kodi id, media type, play count)`` for an OnUpdate payload.
 
     ``kind`` is :data:`UPDATE_PLAYCOUNT` (the nested shape, carrying a new
@@ -70,7 +70,7 @@ class KodiUserData:
 
     def __init__(self, api: Api) -> None:
         self.api = api
-        self._queue: "queue.Queue[Optional[Tuple[str, int, str, int]]]" = queue.Queue()
+        self._queue: queue.Queue[Optional[tuple[str, int, str, int]]] = queue.Queue()
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 

@@ -14,7 +14,8 @@ to queued (:func:`recover_interrupted`).
 import json
 import time
 from dataclasses import dataclass, fields as dataclass_fields
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Optional
+from collections.abc import Sequence
 
 from kofin.core.log import Logger
 from kofin.sync.private import Database
@@ -78,7 +79,7 @@ class Download:
     request_name: str = ""
 
     @property
-    def userdata(self) -> Dict[str, Any]:
+    def userdata(self) -> dict[str, Any]:
         """The server UserData snapshot taken at queue time, {} when none."""
         if not self.userdata_json:
             return {}
@@ -164,7 +165,7 @@ def get_on(cursor: Any, jellyfin_id: str) -> Optional[Download]:
     return _row_to_download(row) if row is not None else None
 
 
-def container_states(container_id: str) -> Dict[str, str]:
+def container_states(container_id: str) -> dict[str, str]:
     """``{jellyfin_id: state}`` for every download under a container.
 
     ``series_id`` is written as ``SeriesId or AlbumId`` (manager._transfer),
@@ -175,7 +176,7 @@ def container_states(container_id: str) -> Dict[str, str]:
     """
     if not container_id:
         return {}
-    states: Dict[str, str] = {}
+    states: dict[str, str] = {}
     with Database("kofin") as opened:
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE series_id = ?",
@@ -236,7 +237,7 @@ def container_states(container_id: str) -> Dict[str, str]:
     return states
 
 
-def request_counts(request_id: str) -> Dict[str, int]:
+def request_counts(request_id: str) -> dict[str, int]:
     """Counts for one queue request, including failures."""
     if not request_id:
         return {"total": 0, "pending": 0, "failed": 0}
@@ -252,7 +253,7 @@ def request_counts(request_id: str) -> Dict[str, int]:
     }
 
 
-def container_counts(container_id: str) -> Dict[str, int]:
+def container_counts(container_id: str) -> dict[str, int]:
     """How many downloads under a container are finished, and how many are
     still coming. What a container's context menu offers is decided from
     these two numbers — a failed row counts as neither, because the menu's
@@ -264,7 +265,7 @@ def container_counts(container_id: str) -> Dict[str, int]:
     }
 
 
-def container_done_ids(container_id: str) -> List[str]:
+def container_done_ids(container_id: str) -> list[str]:
     """The finished downloads under a container — what "Remove download" on
     a show or an album actually removes."""
     return sorted(
@@ -274,7 +275,7 @@ def container_done_ids(container_id: str) -> List[str]:
     )
 
 
-def container_pending_ids(container_id: str) -> List[str]:
+def container_pending_ids(container_id: str) -> list[str]:
     """The unfinished downloads under a container — what "Cancel download"
     on a show or an album actually cancels."""
     return sorted(
@@ -294,12 +295,12 @@ def has_subscription_claim(item_id: str) -> bool:
         return opened.cursor.fetchone() is not None
 
 
-def playlist_unclaimed_states(playlist_id: str) -> Dict[str, str]:
+def playlist_unclaimed_states(playlist_id: str) -> dict[str, str]:
     """Downloads requested from this playlist that no subscription still claims."""
     return music_container_unclaimed_states(playlist_id, "playlist")
 
 
-def music_container_unclaimed_states(container_id: str, kind: str) -> Dict[str, str]:
+def music_container_unclaimed_states(container_id: str, kind: str) -> dict[str, str]:
     """Music request's downloads that remain safe to remove or cancel."""
     with Database("kofin") as opened:
         opened.cursor.execute(
@@ -326,7 +327,7 @@ def claim(media_types: Optional[Sequence[str]] = None) -> Optional[Download]:
     if kinds is not None and not kinds:
         return None
     where = " WHERE state = ?"
-    params: List[Any] = [QUEUED]
+    params: list[Any] = [QUEUED]
     if kinds is not None:
         clause = "media_type IN (%s)" % ", ".join("?" for _ in kinds)
         params.extend(kinds)
@@ -456,7 +457,7 @@ def remove(jellyfin_id: str) -> None:
         )
 
 
-def rows(state: Optional[str] = None) -> List[Download]:
+def rows(state: Optional[str] = None) -> list[Download]:
     with Database("kofin") as opened:
         if state is None:
             opened.cursor.execute(_SELECT + " ORDER BY queued_at, jellyfin_id")

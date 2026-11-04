@@ -4,7 +4,7 @@ import threading
 import time
 from contextlib import contextmanager
 from queue import Queue
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import xbmc
 import xbmcgui
@@ -33,7 +33,7 @@ LOG = Logger(__name__)
 #################################################################################################
 
 
-class SyncPlayManager(object):
+class SyncPlayManager:
     """SyncPlay group membership and state mirror (SYNCPLAY.md §5, §6, §9).
 
     Runs in the service process. WebSocket traffic arrives through
@@ -67,9 +67,9 @@ class SyncPlayManager(object):
         self._rate_mismatch_told = False
         self._live_route_told = False
 
-        self.group: Optional[Dict[str, Any]] = None  # {"GroupId", "GroupName"}
+        self.group: Optional[dict[str, Any]] = None  # {"GroupId", "GroupName"}
         self.group_state = None
-        self.members: List[Any] = []
+        self.members: list[Any] = []
         self.protocol_version = 1
         self.state_version = 0
         # Dedicated time-sync socket path from the server's Hello (plugin
@@ -78,7 +78,7 @@ class SyncPlayManager(object):
         self.ignore_wait = False
 
         # [(key, PlaylistItemId, provider)] mirror of the group queue
-        self.queue: List[Tuple[str, str, str]] = []
+        self.queue: list[tuple[str, str, str]] = []
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
@@ -110,12 +110,12 @@ class SyncPlayManager(object):
         # group echo: {"transition", "proposed", "item_id"}. "transition"
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
-        self._hold: Optional[Dict[str, Any]] = None
+        self._hold: Optional[dict[str, Any]] = None
         # The item the user stopped here, from the stop until the stop prompt
         # resolves: {"playlist_item_id"}. Until the user has said what the
         # stop means for the group, nothing the group sends about that item
         # may load it again.
-        self._stop_pending: Optional[Dict[str, Any]] = None
+        self._stop_pending: Optional[dict[str, Any]] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0

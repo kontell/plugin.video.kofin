@@ -5,7 +5,7 @@ A pure parser, shared by the plugin play route's prefetch
 (``service/segments.py``), which acts on segments.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from kofin.core.log import Logger
 
@@ -27,10 +27,10 @@ SEGMENT_TYPES = {
 }
 
 
-def parse_segments(response: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def parse_segments(response: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sorted, de-conflicted ``[{Type, Start, End}]`` (seconds) from a
     /MediaSegments body."""
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     for item in (response or {}).get("Items") or []:
         segment_type = SEGMENT_TYPES.get(item.get("Type", ""))
         if not segment_type:
@@ -44,7 +44,7 @@ def parse_segments(response: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deconflict(segments)
 
 
-def deconflict(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def deconflict(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One segment per overlapping run within a type.
 
     Two segment providers analysing the same library each write their own
@@ -59,8 +59,8 @@ def deconflict(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     ``segments`` must already be sorted by start.
     """
-    kept: List[Dict[str, Any]] = []
-    run_end: Dict[str, float] = {}
+    kept: list[dict[str, Any]] = []
+    run_end: dict[str, float] = {}
     dropped = 0
     for segment in segments:
         segment_type = str(segment["Type"])

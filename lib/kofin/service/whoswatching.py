@@ -19,7 +19,8 @@ The picker runs in the **service**, like SyncPlay's menu; the route handlers
 stay in ``plugin/adduser.py`` and call into this module.
 """
 
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Optional
+from collections.abc import Sequence
 
 import xbmc
 import xbmcgui
@@ -32,7 +33,7 @@ from kofin.core.settings import Credentials
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # Hidden setting holding the additional-user ids to re-apply on session start.
 # Empty means nobody extra (unlike the shortlist, where empty means everyone).
@@ -51,7 +52,7 @@ SHORTLIST_ALL = "all"  # the dialog's first row, and the shipped default
 SHORTLIST_NOBODY = "none"  # nothing selected — the feature is off
 
 
-def shortlist_setting() -> List[str]:
+def shortlist_setting() -> list[str]:
     """The shortlist as stored, one settings read for both readers below."""
     return settings.get_list(SHORTLIST)
 
@@ -69,7 +70,7 @@ def is_enabled(tokens: Optional[Sequence[str]] = None) -> bool:
     return list(tokens) != [SHORTLIST_NOBODY]
 
 
-def offered_ids(tokens: Sequence[str]) -> List[str]:
+def offered_ids(tokens: Sequence[str]) -> list[str]:
     """The ids the toggle dialog narrows to; empty means everyone.
 
     Only meaningful once :func:`is_enabled` has said yes — the disabled value
@@ -84,8 +85,8 @@ def offerable(
     users: Sequence[JsonDict],
     primary_id: str,
     shortlist: Sequence[str],
-    on_session: Set[Optional[str]],
-) -> List[JsonDict]:
+    on_session: set[Optional[str]],
+) -> list[JsonDict]:
     """The users the toggle dialog lists.
 
     The primary user is never offered (it owns the session and cannot be
@@ -105,7 +106,7 @@ def offerable(
     ]
 
 
-def users_to_restore(desired: Sequence[str], on_session: Set[str]) -> List[str]:
+def users_to_restore(desired: Sequence[str], on_session: set[str]) -> list[str]:
     """Ids in ``desired`` that are not already on the session.
 
     Order follows ``desired`` so the setting's left-to-right order is the
@@ -114,7 +115,7 @@ def users_to_restore(desired: Sequence[str], on_session: Set[str]) -> List[str]:
     no-ops adding the session owner).
     """
     already = set(on_session)
-    restored: List[str] = []
+    restored: list[str] = []
     for user_id in desired:
         if not user_id or user_id in already:
             continue
@@ -129,7 +130,7 @@ def persist_who_is_watching(user_ids: Sequence[Optional[str]]) -> None:
     settings.set_str(WHO_IS_WATCHING, ",".join(cleaned))
 
 
-def session_watching_names(session: JsonDict) -> List[str]:
+def session_watching_names(session: JsonDict) -> list[str]:
     """The additional-user display names a session dict reports."""
     return [
         str(user.get("UserName"))

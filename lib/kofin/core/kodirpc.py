@@ -1,7 +1,8 @@
 """JSON-RPC calls into Kodi, shared by both processes."""
 
 import json
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Optional
+from collections.abc import Sequence
 
 import xbmc
 
@@ -38,8 +39,8 @@ RESUME_QUERY = {
 
 
 def player_properties(
-    properties: List[str], playerid: Optional[int] = None
-) -> Optional[Dict[str, Any]]:
+    properties: list[str], playerid: Optional[int] = None
+) -> Optional[dict[str, Any]]:
     """Properties of player ``playerid``, or of whichever player is active;
     None when Kodi did not answer them."""
     if playerid is None:
@@ -197,7 +198,7 @@ def resume_player() -> bool:
     return True
 
 
-def resume_point(kodi_id: int, media: str) -> Optional[Tuple[float, float]]:
+def resume_point(kodi_id: int, media: str) -> Optional[tuple[float, float]]:
     """Kodi's stored ``(position, total)`` for a library row, or None.
 
     Position 0.0 is an answer, not a failure — the row has no bookmark.
@@ -245,12 +246,12 @@ def preferred_subtitle_language() -> str:
     return str(xbmc.convertLanguage(value, xbmc.ISO_639_2) or "")
 
 
-def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+def call(method: str, params: Optional[dict[str, Any]] = None) -> Any:
     """One JSON-RPC call's ``result`` — whatever shape the method answers
     with (``Settings.SetSettingValue`` answers a bare ``true``); None for a
     method-level error reply (Kodi answered, refusing); ``FAILED`` when Kodi
     could not be asked at all or answered unparseably."""
-    request: Dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
+    request: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
     if params is not None:
         request["params"] = params
     try:
@@ -264,7 +265,7 @@ def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     return response.get("result")
 
 
-def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
+def batch(requests: Sequence[tuple[str, Optional[dict[str, Any]]]]) -> list[Any]:
     """Several calls in one ``executeJSONRPC``, answered in request order.
 
     Each entry is that call's ``result``, None for a method-level error reply
@@ -275,9 +276,9 @@ def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]
     """
     if not requests:
         return []
-    body: List[Dict[str, Any]] = []
+    body: list[dict[str, Any]] = []
     for index, (method, params) in enumerate(requests):
-        request: Dict[str, Any] = {"jsonrpc": "2.0", "id": index + 1, "method": method}
+        request: dict[str, Any] = {"jsonrpc": "2.0", "id": index + 1, "method": method}
         if params is not None:
             request["params"] = params
         body.append(request)
@@ -288,7 +289,7 @@ def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]
     if not isinstance(response, list):
         return [FAILED] * len(requests)
     by_id = {reply.get("id"): reply for reply in response if isinstance(reply, dict)}
-    results: List[Any] = []
+    results: list[Any] = []
     for index in range(len(requests)):
         reply = by_id.get(index + 1)
         if reply is None:

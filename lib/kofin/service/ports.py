@@ -8,7 +8,8 @@ sites in ``main.py``, and ``Service`` itself where it hands ``self`` to
 """
 
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
+from collections.abc import Iterable
 
 from kofin.core.log import Logger
 
@@ -35,10 +36,10 @@ class LibraryPort(Protocol):
     def stop_client(self) -> None: ...
 
     def enqueue_command(
-        self, command: str, data: Optional[Dict[str, Any]] = None
+        self, command: str, data: Optional[dict[str, Any]] = None
     ) -> None: ...
 
-    def userdata(self, data: List[Dict[str, Any]]) -> None: ...
+    def userdata(self, data: list[dict[str, Any]]) -> None: ...
 
     def added(self, ids: Iterable[str]) -> None: ...
 
@@ -60,16 +61,16 @@ class DownloadsPort(Protocol):
 
     def submit(
         self,
-        item_ids: List[str],
+        item_ids: list[str],
         origin: str = ...,
-        media_types: Optional[List[str]] = None,
+        media_types: Optional[list[str]] = None,
         request_id: str = ...,
         request_name: str = ...,
     ) -> None: ...
 
     def cancel(self, item_id: str) -> None: ...
 
-    def remove(self, item_ids: List[str], subscription: bool = False) -> None: ...
+    def remove(self, item_ids: list[str], subscription: bool = False) -> None: ...
 
     def remove_all(self) -> None: ...
 

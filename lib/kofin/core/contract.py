@@ -27,7 +27,7 @@ The sender snippet consumers copy (never import):
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import xbmc
 
@@ -69,7 +69,7 @@ _REQUIRED = {
 }
 
 
-def decode(name: str, data: str) -> Optional[Dict[str, Any]]:
+def decode(name: str, data: str) -> Optional[dict[str, Any]]:
     """The validated payload of an inbound contract message, or None.
 
     Never raises — this runs on Kodi's notification thread, where the
@@ -121,7 +121,7 @@ def decode(name: str, data: str) -> Optional[Dict[str, Any]]:
     return payload
 
 
-def register_template(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def register_template(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     """The validated play registration out of a REGISTER payload, or None.
 
     ``{"url_template": <plugin URL with {key} and optional {position_s}>,
@@ -151,14 +151,14 @@ def register_template(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {"url_template": template, "audio": bool(play.get("audio"))}
 
 
-def engine_claim(payload: Dict[str, Any]) -> Dict[str, Any]:
+def engine_claim(payload: dict[str, Any]) -> dict[str, Any]:
     """A CLAIM payload as the engine's claim shape (ports.Claim).
 
     The wire uses contract spellings; the engine keeps the claim keys the
     kofin play pipeline established. Only recognized fields cross over —
     a provider cannot smuggle arbitrary keys into the engine's view.
     """
-    claim: Dict[str, Any] = {
+    claim: dict[str, Any] = {
         "Id": payload["key"],
         "Provider": payload["provider"],
         "PlayMethod": (

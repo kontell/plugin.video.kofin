@@ -7,8 +7,10 @@ thread, so ordering is preserved and this thread never blocks. Unknown
 commands log and return — never raise.
 """
 
+from __future__ import annotations
+
 import threading
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import xbmc
 
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # GeneralCommand names that map straight to a Kodi input action.
 INPUT_ACTIONS = {
@@ -73,11 +75,11 @@ class RemoteHandler:
     def __init__(self) -> None:
         # The SyncPlay manager (attached by the service while one is built);
         # all control-plane websocket traffic routes through this handler.
-        self.syncplay: Optional["SyncPlayManager"] = None
+        self.syncplay: SyncPlayManager | None = None
         # The one thing a remote command may leave running: a PlayNow's
         # start-position seek waiting for the player to come up. Replaced
         # by the next PlayNow; the old one exits on its own bound.
-        self._seek_thread: Optional[threading.Thread] = None
+        self._seek_thread: threading.Thread | None = None
 
     def handle(self, message_type: str, data: JsonDict) -> bool:
         """Dispatch a websocket message; returns True when handled."""
@@ -104,7 +106,7 @@ class RemoteHandler:
         if isinstance(item_ids, str):
             item_ids = item_ids.split(",")
         start_index = max(_as_int(data.get("StartIndex")), 0)
-        ordered: List[str] = list(item_ids[start_index:])
+        ordered: list[str] = list(item_ids[start_index:])
         if not ordered:
             return
         command = data.get("PlayCommand", "PlayNow")

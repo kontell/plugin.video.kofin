@@ -7,7 +7,7 @@ import sys, xbmc, xbmcvfs
 sys.path.insert(
     0, xbmcvfs.translatePath("special://home/addons/plugin.video.kofin/lib")
 )
-from kofin.plugin import actions  # noqa: E402
+from kofin.plugin import actions
 
 ids = sys.argv[1:] + ["notarealshowid"]  # the trailing one exercises the id fallback
 names = actions._show_names(ids)

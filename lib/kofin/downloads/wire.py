@@ -4,19 +4,19 @@ The ``DownloadAdd``/``DownloadRemove`` payload contract between their
 senders and the manager.
 """
 
-from typing import Any, Dict, List, NamedTuple
+from typing import Any, NamedTuple
 
 from kofin.downloads import store as downloads_store
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 
 class Add(NamedTuple):
     """One ``DownloadAdd`` request, parsed."""
 
-    ids: List[str]
+    ids: list[str]
     origin: str
-    media_types: List[str]
+    media_types: list[str]
     # The item selected by the user and what to call it. Empty for automatic
     # paths and older plugin clients.
     request_id: str = ""
@@ -64,7 +64,7 @@ def item_id(payload: JsonDict) -> str:
     return str(payload.get("Id") or "")
 
 
-def item_ids(payload: JsonDict) -> List[str]:
+def item_ids(payload: JsonDict) -> list[str]:
     """The ids a ``DownloadRemove`` names.
 
     A list, because the sender expands a season or an album before it sends.

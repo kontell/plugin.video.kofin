@@ -6,7 +6,8 @@ the ones it names and no others, a part at a time (``paths.MUSIC_PART``),
 in the same order under the same labels.
 """
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Optional
+from collections.abc import Iterable
 
 from . import metadata, paths
 
@@ -29,8 +30,8 @@ def rows(
     store,
     library,
     folders: Optional[Iterable[str]] = None,
-    albums: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> List[Tuple[str, str]]:
+    albums: Optional[dict[str, dict[str, Any]]] = None,
+) -> list[tuple[str, str]]:
     """(folder, label) in label order, for ``folders`` or for the whole root.
 
     Kodi walks a listing's folders in label order and numbers albums as it

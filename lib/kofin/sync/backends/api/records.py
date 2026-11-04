@@ -1,7 +1,8 @@
 """The pass's view of a catalogue member and the window its payloads come through."""
 
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+from collections.abc import Iterable, Iterator
 
 if TYPE_CHECKING:
     from .store import Store
@@ -30,9 +31,9 @@ class Record:
         kind: str,
         library: str,
         parent_id: str,
-        item: Optional[Dict[str, Any]],
+        item: Optional[dict[str, Any]],
         generation: int,
-        loader: Optional[Callable[[str], Dict[str, Any]]] = None,
+        loader: Optional[Callable[[str], dict[str, Any]]] = None,
     ):
         self.item_id = item_id
         self.kind = kind
@@ -43,7 +44,7 @@ class Record:
         self._loader = loader
 
     @property
-    def item(self) -> Dict[str, Any]:
+    def item(self) -> dict[str, Any]:
         if self._item is not None:
             return self._item
         if self._loader is None:
@@ -86,10 +87,10 @@ class PayloadWindow:
     def __init__(self, store: "Store", size: int = 512):
         self.store = store
         self.size = size
-        self._held: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._held: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.reads = 0
 
-    def __call__(self, item_id: str) -> Dict[str, Any]:
+    def __call__(self, item_id: str) -> dict[str, Any]:
         payload = self._held.get(item_id)
         if payload is None:
             self.reads += 1
@@ -99,7 +100,7 @@ class PayloadWindow:
             self._held.move_to_end(item_id)
         return payload
 
-    def _keep(self, item_id: str, payload: Dict[str, Any]):
+    def _keep(self, item_id: str, payload: dict[str, Any]):
         self._held[item_id] = payload
         while len(self._held) > self.size:
             self._held.popitem(last=False)

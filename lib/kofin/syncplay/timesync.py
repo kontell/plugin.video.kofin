@@ -8,7 +8,7 @@ unknown message type kills the shared socket."""
 import json
 import threading
 from collections import deque
-from typing import Any, Dict
+from typing import Any
 
 import websocket
 
@@ -143,7 +143,7 @@ class TimeSync(threading.Thread):
         url, authorization = target
 
         try:
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "timeout": 3,
                 "header": {"Authorization": authorization},
             }

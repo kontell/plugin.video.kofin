@@ -21,7 +21,7 @@ route's own PlaybackInfo and published when the service claimed the playback,
 so the menu is complete before the first frame and opening it costs nothing.
 """
 
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, NamedTuple, Optional, Union
 from urllib.parse import parse_qsl, urlparse
 
 import xbmc
@@ -42,7 +42,7 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # Kodi's own wording for the headings and for "no subtitle", so the menu reads
 # like the player's rather than like an addon's.
@@ -68,7 +68,7 @@ class Playing(NamedTuple):
 
 
 def _playing(
-    payload: JsonDict, media_streams: List[JsonDict], attached: List[int], method: str
+    payload: JsonDict, media_streams: list[JsonDict], attached: list[int], method: str
 ) -> Playing:
     audio = payload.get("AudioStreamIndex")
     if streams.is_direct(method):
@@ -87,7 +87,7 @@ def _playing(
     )
 
 
-def _row_of(index: Optional[int], rows: List[Optional[int]]) -> int:
+def _row_of(index: Optional[int], rows: list[Optional[int]]) -> int:
     """Which row to put the cursor on, or -1 for none.
 
     Kodi's own stream dialogs open on the running track; marking it in the text
@@ -108,8 +108,8 @@ def context_menu() -> None:
         LOG.warning("stream menu invoked with no published playback")
         return
 
-    media_streams: List[JsonDict] = payload.get("MediaStreams") or []
-    attached: List[int] = payload.get("Attached") or []
+    media_streams: list[JsonDict] = payload.get("MediaStreams") or []
+    attached: list[int] = payload.get("Attached") or []
     method = str(payload.get("PlayMethod") or "")
 
     audio = streams.of_type(media_streams, "Audio")
@@ -146,12 +146,12 @@ def context_menu() -> None:
 
 def _choose_audio(
     payload: JsonDict,
-    audio: List[JsonDict],
-    media_streams: List[JsonDict],
+    audio: list[JsonDict],
+    media_streams: list[JsonDict],
     method: str,
     playing: Playing,
 ) -> None:
-    labels: List[Union[str, xbmcgui.ListItem]] = [
+    labels: list[Union[str, xbmcgui.ListItem]] = [
         streams.label_for(stream, stream.get("Index") == playing.audio)
         for stream in audio
     ]
@@ -184,15 +184,15 @@ def _choose_audio(
 
 def _choose_subtitle(
     payload: JsonDict,
-    subtitles: List[JsonDict],
-    media_streams: List[JsonDict],
-    attached: List[int],
+    subtitles: list[JsonDict],
+    media_streams: list[JsonDict],
+    attached: list[int],
     method: str,
     playing: Playing,
 ) -> None:
     if not subtitles:
         return
-    rows: List[Tuple[Optional[JsonDict], str]] = [
+    rows: list[tuple[Optional[JsonDict], str]] = [
         (
             None,
             streams.label_for(
@@ -218,7 +218,7 @@ def _choose_subtitle(
                 label = "%s (%s)" % (label, settings.localized(30775))
         rows.append((stream, label))
 
-    labels: List[Union[str, xbmcgui.ListItem]] = [label for _, label in rows]
+    labels: list[Union[str, xbmcgui.ListItem]] = [label for _, label in rows]
     index = xbmcgui.Dialog().select(
         xbmc.getLocalizedString(STR_SUBTITLES),
         labels,
@@ -263,7 +263,7 @@ def _choose_subtitle(
 
 
 def _current_subtitle_index(
-    media_streams: List[JsonDict], attached: List[int], method: str
+    media_streams: list[JsonDict], attached: list[int], method: str
 ) -> Optional[int]:
     """The Jellyfin index of the subtitle Kodi is showing, or None.
 
@@ -320,7 +320,7 @@ def _restart(payload: JsonDict, playing: Playing) -> None:
     position = _current_position()
     request = payload.get("Request") or {}
 
-    params: Dict[str, str] = {"mode": "play", "id": item_id}
+    params: dict[str, str] = {"mode": "play", "id": item_id}
     for key in (PARAM_TRANSCODE, PARAM_BITRATE, "dbid", PARAM_MEDIA_SOURCE):
         value = request.get(key)
         if value:

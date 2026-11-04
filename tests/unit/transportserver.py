@@ -17,16 +17,16 @@ loudly rather than hanging.
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
-Answer = Tuple[int, Dict[str, str], bytes, bool]
+Answer = tuple[int, dict[str, str], bytes, bool]
 
 
 class ScriptedServer:
     def __init__(self) -> None:
-        self._script: Dict[str, List[Answer]] = {}
+        self._script: dict[str, list[Answer]] = {}
         self._lock = threading.Lock()
-        self.requests: List[Tuple[str, str, Dict[str, str], bytes]] = []
+        self.requests: list[tuple[str, str, dict[str, str], bytes]] = []
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -37,7 +37,7 @@ class ScriptedServer:
         path: str,
         status: int,
         body: bytes = b"",
-        headers: Optional[Dict[str, str]] = None,
+        headers: Optional[dict[str, str]] = None,
         json_body: Any = None,
         repeat: bool = False,
     ) -> None:
@@ -92,7 +92,7 @@ class ScriptedServer:
 
             do_GET = do_POST = do_DELETE = do_HEAD = do_PUT = _serve
 
-            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            def log_message(self, format: str, *args: Any) -> None:
                 pass  # keep pytest output clean
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

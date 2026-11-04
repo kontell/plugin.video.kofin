@@ -14,7 +14,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 import xbmc
 
@@ -134,7 +134,7 @@ def fetch_kind(
     and is exactly as long as its place in the listing says, or the
     enumeration fails as a whole.
     """
-    result: List[dict] = []
+    result: list[dict] = []
     seen = set()
     limit = MUSIC_PAGE if kind in MUSIC_KINDS else PAGE
 
@@ -206,7 +206,7 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
     sign-in changed while the enumeration runs fails it as a whole.
     """
     local = threading.local()
-    clients: List[Any] = []
+    clients: list[Any] = []
     account = _account(api)
 
     def page(start):
@@ -220,7 +220,7 @@ def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
         return ask(client, start)
 
     pending = iter(starts)
-    window: "collections.deque" = collections.deque()
+    window: collections.deque = collections.deque()
     pool = ThreadPoolExecutor(
         max_workers=min(PAGERS, len(starts)), thread_name_prefix="kofin-page"
     )
@@ -279,7 +279,7 @@ def attach_extras(api, items, abort=lambda: False):
 
 def fetch_boxsets(api, abort=lambda: False, ids=None):
     """Collections with their movie members; sets live outside any library."""
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "userId": api.user_id,
         "IncludeItemTypes": "BoxSet",
         "Recursive": True,
@@ -343,11 +343,11 @@ class Library(threading.Thread):
         self.player = player
         self.api_factory = api_factory
         self.startup_done = False
-        self._reload_owed: Set[str] = set()
+        self._reload_owed: set[str] = set()
         self.stop_thread = False
         self._stop_event = threading.Event()
         # (command, data), and a third member on an entry that is a retry.
-        self._queue: queue.Queue[Tuple[Any, ...]] = queue.Queue()
+        self._queue: queue.Queue[tuple[Any, ...]] = queue.Queue()
         self._catchup_due = 0.0
         self._full_due = False
         self._repair = False
@@ -355,20 +355,20 @@ class Library(threading.Thread):
         # Libraries selected while no worker ran, enumerated once each: a
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
-        self._unsynced_tried: Set[str] = set()
+        self._unsynced_tried: set[str] = set()
         # The library ids the server's last listing named, hidden ones
         # included, and the selected libraries it left out that answered
         # 404 by id, with when they first did (settle_missing).
-        self._listed: Optional[Set[str]] = None
-        self._missing: Dict[str, float] = {}
+        self._listed: Optional[set[str]] = None
+        self._missing: dict[str, float] = {}
         # Libraries a repair is rebuilding: their rows are leaving Kodi, and
         # nothing is enumerated until they have left (rebuild_stale, refresh).
-        self._rebuilding: Set[str] = set()
+        self._rebuilding: set[str] = set()
         self._first_attended = False
         # The server's user data for the item this Kodi is playing, kept
         # back until it has stopped (apply_userdata): item id -> the newest
         # entry and when the item was first seen no longer playing.
-        self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
+        self._held_userdata: dict[str, tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
         # When kofin last published to the catalogue, and when the work now
         # pending was first seen (PASS_SETTLE).
@@ -388,7 +388,7 @@ class Library(threading.Thread):
         self._failure: Optional[str] = None
         self._failure_delay = 0.0
         self._retry_at = 0.0
-        self._failed_with: Optional[Tuple[int, int]] = None
+        self._failed_with: Optional[tuple[int, int]] = None
         # The failure the last pass raised when it repeated the one before.
         self._repeated: Optional[BaseException] = None
 
@@ -619,7 +619,7 @@ class Library(threading.Thread):
             self.catch_up()
             self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
 
-    def stale_listings(self) -> List[str]:
+    def stale_listings(self) -> list[str]:
         """The synced, selected libraries whose last published listing asked
         the server for less than LISTING, or was never recorded."""
         selected = set(settings.get_list("librarySelection"))
@@ -713,7 +713,7 @@ class Library(threading.Thread):
         )
 
     @staticmethod
-    def _view_names() -> Dict[str, str]:
+    def _view_names() -> dict[str, str]:
         with private.Database() as db:
             return dict(
                 db.cursor.execute("SELECT view_id, view_name FROM view").fetchall()
@@ -798,9 +798,9 @@ class Library(threading.Thread):
             ],
         )
         started = self._server_now()
-        fetched: Dict[str, List[dict]] = {}
+        fetched: dict[str, list[dict]] = {}
         for library in targets:
-            rows: List[dict] = []
+            rows: list[dict] = []
             for kind in collection_kinds(supported[library]):
                 began = time.monotonic()
                 bar.asking(kind)
@@ -847,8 +847,8 @@ class Library(threading.Thread):
         committed = [library for library in fetched if library in selected]
         if not committed and not (complete and boxsets):
             return
-        items: List[dict] = []
-        membership: Dict[str, str] = {}
+        items: list[dict] = []
+        membership: dict[str, str] = {}
         for library in committed:
             for item in fetched[library]:
                 if item["Id"] in membership:
@@ -910,7 +910,7 @@ class Library(threading.Thread):
             for r in self.store.records(kind="BoxSet", pinned=False).values()
         }
         after = {b["Id"]: set(b.get("KofinMembers") or []) for b in boxsets}
-        affected: Set[str] = set()
+        affected: set[str] = set()
         for boxset_id, members in after.items():
             affected |= members ^ before.get(boxset_id, set())
         if complete:
@@ -922,7 +922,7 @@ class Library(threading.Thread):
     def _removed_collection_members(self, ids):
         """Movies filed under a collection that is going: their one set changes."""
         boxsets = self.store.records(kind="BoxSet", item_ids=list(ids), pinned=False)
-        members: Set[str] = set()
+        members: set[str] = set()
         for record in boxsets.values():
             members.update(record.item.get("KofinMembers") or [])
         return members
@@ -972,8 +972,8 @@ class Library(threading.Thread):
 
     def _catch_up_by_date(self, watermark, selected, supported):
         started = int(time.time()) - 300
-        items: List[dict] = []
-        membership: Dict[str, str] = {}
+        items: list[dict] = []
+        membership: dict[str, str] = {}
         for library in sorted(selected):
             for kind in collection_kinds(supported[library]):
                 for item in fetch_kind(
@@ -986,7 +986,7 @@ class Library(threading.Thread):
                     if item["Id"] not in membership:
                         membership[item["Id"]] = library
                         items.append(item)
-        boxsets: List[dict] = []
+        boxsets: list[dict] = []
         if any("Movie" in collection_kinds(supported[library]) for library in selected):
             changed = self.api.items(
                 {
@@ -1013,7 +1013,7 @@ class Library(threading.Thread):
 
     def fetch_items(self, ids):
         """Full DTOs by id; the server lists only what this user may see."""
-        result: List[dict] = []
+        result: list[dict] = []
         ids = list(ids)
         for start in range(0, len(ids), 50):
             chunk = ids[start : start + 50]
@@ -1055,7 +1055,7 @@ class Library(threading.Thread):
     def _resolve(self, ids, selected, supported, hints=None):
         """Fetch changed items and place each in its selected library."""
         items = []
-        membership: Dict[str, str] = {}
+        membership: dict[str, str] = {}
         boxsets = []
         for item in self.fetch_items([i for i in ids]):
             kind = item.get("Type")
@@ -1554,7 +1554,7 @@ class Library(threading.Thread):
             raise failure
 
     def _deliver_local(self, item_id, values):
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         if "playcount" in values:
             # The watched mark and never the count: the server and Kodi each
             # count their own plays.

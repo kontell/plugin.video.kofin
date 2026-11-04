@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Kodi's shipped node trees, seeded into the profile before kofin writes
 its own folder there (``sync/dynamic.py``).
 """

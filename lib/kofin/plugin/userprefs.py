@@ -16,7 +16,8 @@ change what ``/UserViews`` and ``/Items`` return and so would silently desync
 the Kodi database, and the view lists overlap kofin's own library selection.
 """
 
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, NamedTuple, Optional, Union
+from collections.abc import Sequence
 
 import xbmcgui
 
@@ -29,7 +30,7 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 STR_NO_SESSION = 30045
 STR_HEADING = 30779
@@ -54,13 +55,13 @@ class Field(NamedTuple):
     kind: str
     # ENUM only: (server value, label string id), in the order the web client
     # offers them.
-    options: Tuple[Tuple[str, int], ...] = ()
+    options: tuple[tuple[str, int], ...] = ()
 
 
 # The rows, in order. Audio, then subtitles, then the two "remember" flags —
 # the grouping the web client uses, so someone who set these up there finds
 # them where they expect.
-FIELDS: Tuple[Field, ...] = (
+FIELDS: tuple[Field, ...] = (
     Field("AudioLanguagePreference", 30780, LANGUAGE),
     Field("PlayDefaultAudioTrack", 30781, BOOL),
     Field("SubtitleLanguagePreference", 30782, LANGUAGE),
@@ -84,7 +85,7 @@ FIELDS: Tuple[Field, ...] = (
 # -- pure helpers -------------------------------------------------------------
 
 
-def language_options(cultures: Sequence[JsonDict]) -> List[Tuple[str, str]]:
+def language_options(cultures: Sequence[JsonDict]) -> list[tuple[str, str]]:
     """``(code, display name)`` pairs for a language row, "Any" first.
 
     Server order, which is alphabetical by display name. A culture with no
@@ -130,7 +131,7 @@ def value_label(field: Field, config: JsonDict, cultures: Sequence[JsonDict]) ->
 
 def row_labels(
     config: JsonDict, cultures: Sequence[JsonDict], honoured: bool
-) -> List[str]:
+) -> list[str]:
     """The menu's rows: one per field, and the caveat when kofin ignores them.
 
     With ``honourJellyfinDefaultTracks`` off nothing here reaches playback on
@@ -203,7 +204,7 @@ def _run_menu(
         # Read the toggle each pass: it lives in the settings dialog this menu
         # is sitting on top of, so it can change underneath.
         honoured = settings.get_bool("honourJellyfinDefaultTracks")
-        labels: List[Union[str, xbmcgui.ListItem]] = list(
+        labels: list[Union[str, xbmcgui.ListItem]] = list(
             row_labels(config, cultures, honoured)
         )
         row = xbmcgui.Dialog().select(heading, labels, preselect=row)
@@ -240,7 +241,7 @@ def _ask(field: Field, config: JsonDict, cultures: Sequence[JsonDict]) -> Option
     preselect = next(
         (index for index, option in enumerate(options) if option[0] == current), -1
     )
-    labels: List[Union[str, xbmcgui.ListItem]] = [label for _, label in options]
+    labels: list[Union[str, xbmcgui.ListItem]] = [label for _, label in options]
     chosen = xbmcgui.Dialog().select(
         settings.localized(field.label), labels, preselect=preselect
     )

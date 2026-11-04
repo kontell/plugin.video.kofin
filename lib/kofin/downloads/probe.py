@@ -19,7 +19,8 @@ understands answers None and the caller treats the length as unverifiable.
 
 import os
 import struct
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Optional
+from collections.abc import Iterator
 
 from kofin.core.log import Logger
 
@@ -50,7 +51,7 @@ def duration_seconds(path: str, container: str) -> Optional[float]:
     return None
 
 
-def _boxes(data: bytes, start: int, end: int) -> Iterator[Tuple[bytes, int, int]]:
+def _boxes(data: bytes, start: int, end: int) -> Iterator[tuple[bytes, int, int]]:
     """(type, payload_start, payload_end) for each whole child box; a
     truncated or nonsense size ends the walk rather than raising."""
     offset = start
@@ -72,9 +73,9 @@ def _boxes(data: bytes, start: int, end: int) -> Iterator[Tuple[bytes, int, int]
 
 def _parse_moov(
     payload: bytes,
-    timescales: Dict[int, int],
-    totals: Dict[int, int],
-    trex_defaults: Dict[int, int],
+    timescales: dict[int, int],
+    totals: dict[int, int],
+    trex_defaults: dict[int, int],
 ) -> None:
     for box_type, start, end in _boxes(payload, 0, len(payload)):
         if box_type == b"trak":
@@ -114,7 +115,7 @@ def _parse_moov(
 
 
 def _parse_moof(
-    payload: bytes, totals: Dict[int, int], trex_defaults: Dict[int, int]
+    payload: bytes, totals: dict[int, int], trex_defaults: dict[int, int]
 ) -> None:
     for box_type, start, end in _boxes(payload, 0, len(payload)):
         if box_type != b"traf":
@@ -162,9 +163,9 @@ def _parse_moof(
 
 
 def fmp4_duration_seconds(path: str) -> Optional[float]:
-    timescales: Dict[int, int] = {}
-    totals: Dict[int, int] = {}
-    trex_defaults: Dict[int, int] = {}
+    timescales: dict[int, int] = {}
+    totals: dict[int, int] = {}
+    trex_defaults: dict[int, int] = {}
     try:
         with open(path, "rb") as handle:
             handle.seek(0, os.SEEK_END)

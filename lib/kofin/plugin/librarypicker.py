@@ -6,7 +6,7 @@ sets against the synced whitelist and dispatches the work. Selection state
 therefore survives failed syncs: the picker only ever records intent.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 import xbmcgui
 
@@ -23,7 +23,7 @@ LOG = Logger(__name__)
 SYNCABLE_TYPES = ("movies", "tvshows", "music", "musicvideos", "mixed")
 
 
-def syncable_views(views: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+def syncable_views(views: list[dict[str, Any]]) -> list[dict[str, str]]:
     """(Id, Name, Media) of the views the sync can file."""
     result = []
 

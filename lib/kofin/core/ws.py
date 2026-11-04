@@ -8,7 +8,7 @@ import json
 import ssl
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 import xbmc
 import websocket
@@ -27,7 +27,7 @@ STALE_SECONDS = 75
 LIVENESS_TICK = 15
 IGNORED_MESSAGES = frozenset({"RefreshProgress", "KeepAlive", "ForceKeepAlive"})
 
-EventCallback = Callable[[str, Dict[str, Any]], None]
+EventCallback = Callable[[str, dict[str, Any]], None]
 ConnectedCallback = Callable[[], None]
 
 
@@ -37,7 +37,7 @@ def socket_url(server_address: str) -> str:
     return server_address.replace("http://", "ws://", 1) + "/socket"
 
 
-def sslopt(verify: bool) -> Dict[str, Any]:
+def sslopt(verify: bool) -> dict[str, Any]:
     """websocket-client options for a ``wss://`` connect.
 
     websocket-client 1.6.4 injects CERT_REQUIRED when sslopt is omitted.
@@ -104,7 +104,7 @@ class WSClient(threading.Thread):
             # app-level: half_open() recycles the socket when the server's
             # KeepAlive echoes stop arriving.
             try:
-                kwargs: Dict[str, Any] = {"ping_interval": 10}
+                kwargs: dict[str, Any] = {"ping_interval": 10}
                 if self._url.startswith("wss://"):
                     kwargs["sslopt"] = sslopt(self._verify_ssl)
                 self._app.run_forever(**kwargs)

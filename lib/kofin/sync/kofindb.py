@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
 """Accessors for the kofin.db mapping tables."""
 
 import functools
 from collections import namedtuple
-from typing import Tuple
 
 from kofin.core.log import Logger
 from kofin.sync import queries_map as QU
@@ -12,7 +10,7 @@ LOG = Logger(__name__)
 
 
 @functools.lru_cache(maxsize=64)
-def _row_class(fields: Tuple[str, ...]):
+def _row_class(fields: tuple[str, ...]):
     """One namedtuple class per distinct column list.
 
     sqlite3 calls the row factory once per row, and ``namedtuple()`` builds a

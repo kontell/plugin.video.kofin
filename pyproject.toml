@@ -1,6 +1,6 @@
 [tool.black]
 target-version = ["py39"]
-extend-exclude = "/(\\.venv|\\.tox)/"
+extend-exclude = "/(\\.venv|\\.tox|\\.claude)/"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
@@ -16,10 +16,13 @@ testpaths = ["tests/unit"]
 [tool.ruff]
 target-version = "py39"
 line-length = 88
-extend-exclude = ["tests/live/results", ".venv", ".tox"]
+extend-exclude = ["tests/live/results", ".venv", ".tox", ".claude"]
 
 [tool.ruff.lint]
-select = ["F", "B", "PLW0120"]
+select = ["F", "B", "PLW0120", "RUF100", "UP"]
+# printf formatting stays: the strings.po placeholders are %-style and the code
+# formats them the same way, so UP031 would rewrite the convention, not fix it.
+ignore = ["UP031"]
 
 [tool.ruff.lint.per-file-ignores]
 # pytest fixtures imported by name are "redefined" by the parameter that

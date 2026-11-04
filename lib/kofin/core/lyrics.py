@@ -11,13 +11,13 @@ Jellyfin core — every response for a locally stored lyric carries an empty
 on the first line, which is what jellyfin-web does too.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # One rendered line: its start time in seconds, or None when the payload
 # carries no timings at all (or this particular line was left unstamped).
-LyricLine = Tuple[Optional[float], str]
+LyricLine = tuple[Optional[float], str]
 
 TICKS_PER_SECOND = 10_000_000
 
@@ -34,18 +34,18 @@ def is_synced(payload: Optional[JsonDict]) -> bool:
     return bool(lines) and lines[0].get("Start") is not None
 
 
-def to_lines(payload: Optional[JsonDict]) -> List[LyricLine]:
+def to_lines(payload: Optional[JsonDict]) -> list[LyricLine]:
     """The payload as ``(start_seconds, text)`` pairs for the skin overlay.
 
     A line without a stamp inside an otherwise timed payload keeps ``None``
     rather than a guessed time.
     """
-    lines: List[JsonDict] = (payload or {}).get("Lyrics") or []
+    lines: list[JsonDict] = (payload or {}).get("Lyrics") or []
     if not lines:
         return []
 
     timed = is_synced(payload)
-    out: List[LyricLine] = []
+    out: list[LyricLine] = []
     for line in lines:
         text = line.get("Text") or ""
         start = line.get("Start")

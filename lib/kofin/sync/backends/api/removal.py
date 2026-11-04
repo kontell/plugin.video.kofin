@@ -17,7 +17,6 @@ forgotten on the strength of an accepted call.
 
 import threading
 import time
-from typing import Dict, List, Set, Tuple
 
 from kofin.core import kodirpc
 from kofin.core.log import Logger
@@ -34,7 +33,7 @@ def _fail(store, pending, item_id, error, errors):
     errors.append(error)
 
 
-def other_sources(native, library, members, placement) -> List[str]:
+def other_sources(native, library, members, placement) -> list[str]:
     """The video sources whose shows Kodi filed on one row with a show of the
     library about to be cleared.
 
@@ -60,7 +59,7 @@ def other_sources(native, library, members, placement) -> List[str]:
     return found
 
 
-def sources_of(native, shows) -> List[str]:
+def sources_of(native, shows) -> list[str]:
     """The video sources holding episodes another source filed on the rows
     ``shows`` (Kodi's tvshowids)."""
     files = [
@@ -72,7 +71,7 @@ def sources_of(native, shows) -> List[str]:
     return sources_holding(files)
 
 
-def sources_holding(files) -> List[str]:
+def sources_holding(files) -> list[str]:
     """The video sources the files are in, the deepest one for each."""
     if not files:
         return []
@@ -82,7 +81,7 @@ def sources_holding(files) -> List[str]:
         or []
         if source.get("file")
     ]
-    found: Set[str] = set()
+    found: set[str] = set()
     unmatched = 0
     for path in files:
         within = [source for source in sources if path.startswith(source)]
@@ -99,11 +98,11 @@ def sources_holding(files) -> List[str]:
     return sorted(found)
 
 
-def grouped_movies(native, library, members, placement) -> Tuple[List[int], List[str]]:
+def grouped_movies(native, library, members, placement) -> tuple[list[int], list[str]]:
     """The movies of the library Kodi grouped with another source's copy and
     lists under its file (Readback.movie), and those files."""
-    ids: List[int] = []
-    files: List[str] = []
+    ids: list[int] = []
+    files: list[str] = []
     for item_id in sorted(members):
         if placement[item_id].kind != "Movie":
             continue
@@ -115,7 +114,7 @@ def grouped_movies(native, library, members, placement) -> Tuple[List[int], List
     return ids, files
 
 
-def _merged_shows(store, pending, placement, members) -> List[str]:
+def _merged_shows(store, pending, placement, members) -> list[str]:
     """The shows of other libraries that Kodi may have filed on one row
     with a show of the library just cleared, and their seasons and episodes.
 
@@ -125,8 +124,8 @@ def _merged_shows(store, pending, placement, members) -> List[str]:
     with this one and has to be read again. A show sharing a name or any
     provider id with one that left is every show Kodi could have merged.
     """
-    names: Set[str] = set()
-    provider_ids: Set[Tuple[str, str]] = set()
+    names: set[str] = set()
+    provider_ids: set[tuple[str, str]] = set()
     for item_id in members:
         if placement[item_id].kind != "Series":
             continue
@@ -153,7 +152,7 @@ def _merged_shows(store, pending, placement, members) -> List[str]:
     return merged
 
 
-def _provider_ids(item) -> Set[Tuple[str, str]]:
+def _provider_ids(item) -> set[tuple[str, str]]:
     return {
         (str(name).lower(), str(value))
         for name, value in (item.get("ProviderIds") or {}).items()
@@ -208,7 +207,7 @@ def clear_library(native, library, kinds, rows=0):
     root = paths.library_root(native.key, library)
     heading = removing(library)
     saved = native.progress.phase(rows, heading)
-    failure: List[BaseException] = []
+    failure: list[BaseException] = []
 
     def clear():
         try:
@@ -221,7 +220,7 @@ def clear_library(native, library, kinds, rows=0):
                     "refresh": False,
                 },
             )
-        except BaseException as error:  # noqa: BLE001 - handed to the caller
+        except BaseException as error:  # handed to the caller, below
             failure.append(error)
 
     try:
@@ -297,29 +296,29 @@ def _owed(library, what, call):
         LOG.warning("library %s: left without %s: %s", library, what, error)
 
 
-def remove(native, pending, entries, tombstones, errors) -> Set[str]:
+def remove(native, pending, entries, tombstones, errors) -> set[str]:
     """Apply every tombstone but the sets'; returns the libraries cleared whole."""
     store = native.store
     removals = {i for i, (_, op, _) in pending.items() if op == "remove"}
     if not removals:
         return set()
-    placement: Dict[str, Entry] = dict(entries)
+    placement: dict[str, Entry] = dict(entries)
     placement.update(tombstones)
-    by_library: Dict[str, Set[str]] = {}
+    by_library: dict[str, set[str]] = {}
     for item_id, entry in placement.items():
         by_library.setdefault(entry.library, set()).add(item_id)
 
     # 1. Whole video libraries. A library none of whose members survive goes
     #    in one call; Kodi's RemoveContentForPath deletes every row filed
     #    beneath its root. Music has no such call and is handled below.
-    cleared: Set[str] = set()
+    cleared: set[str] = set()
     for library, members in sorted(by_library.items()):
         members = {i for i in members if KINDS[placement[i].kind].removal != "rescan"}
         if not library or not members or not members <= removals:
             continue
         kinds = {placement[i].kind for i in members}
-        others: List[str] = []
-        grouped: List[int] = []
+        others: list[str] = []
+        grouped: list[int] = []
         try:
             if kinds & {"Series", "Episode"}:
                 others = other_sources(native, library, members, placement)
@@ -383,9 +382,9 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     # 3. Rows. Children of a show that is going leave with it and are
     #    acknowledged only when the show's removal is confirmed, so they are
     #    gathered first, whatever order the ids sort in.
-    children: Dict[str, List[str]] = {}
-    rows: List[Tuple[str, Entry]] = []
-    settled: List[Tuple[str, int]] = []
+    children: dict[str, list[str]] = {}
+    rows: list[tuple[str, Entry]] = []
+    settled: list[tuple[str, int]] = []
     for item_id in sorted(removals):
         placed = placement.get(item_id)
         if placed is None or placed.library in cleared:
@@ -417,9 +416,9 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         for child in children.pop(item_id, []):
             _fail(store, pending, child, error, errors)
 
-    attempted: List[Tuple[str, Entry]] = []
+    attempted: list[tuple[str, Entry]] = []
     # The other sources of the shows about to go, scanned once they have.
-    rescan: Set[str] = set()
+    rescan: set[str] = set()
     for item_id, placed in rows:
         table = KINDS[placed.kind]
         if table.remove is None:
@@ -512,7 +511,7 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
 
 def remove_music(native, pending, placement, removals, errors):
     store = native.store
-    by_library: Dict[str, List[Tuple[str, Entry]]] = {}
+    by_library: dict[str, list[tuple[str, Entry]]] = {}
     for item_id in sorted(removals):
         placed = placement.get(item_id)
         if placed is None or KINDS[placed.kind].removal != "rescan":
@@ -558,9 +557,9 @@ def remove_music(native, pending, placement, removals, errors):
         store.forget_many(confirmed)
 
 
-def set_members(pending) -> Set[str]:
+def set_members(pending) -> set[str]:
     """Movies that filed a set now being removed; they need re-patching."""
-    members: Set[str] = set()
+    members: set[str] = set()
     for _, operation, payload in pending.values():
         if operation == "remove" and payload.get("Type") == "BoxSet":
             members.update(payload.get("KofinMembers") or [])

@@ -5,7 +5,7 @@ fixedlist needs a directory to fill it. The lines come from the window
 property the service published, so this never asks the server.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 import xbmcgui
 import xbmcplugin
@@ -15,7 +15,7 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-JsonDict = Dict[str, Any]
+JsonDict = dict[str, Any]
 
 # Blank rows after the last line. A list scrolls no further than its last
 # item; twelve let the deepest page any known overlay is authored with bring

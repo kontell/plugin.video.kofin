@@ -120,7 +120,7 @@ GIVEUP_SPREAD = 3.0
 #################################################################################################
 
 
-class Profile(object):
+class Profile:
     """What a pulse may do on one player: the limits the planner and the
     scheduler read, so nothing else in them depends on the player."""
 
@@ -333,7 +333,7 @@ def takes_correction():
     )
 
 
-class KodiTempo(object):
+class KodiTempo:
     """Kodi's own tempo on one player.
 
     Python's ``xbmc.Player`` has no tempo call, so the actuator is JSON-RPC:
@@ -449,7 +449,7 @@ def settle_left_rate(reason="", correction=None):
 #################################################################################################
 
 
-class PulseScheduler(object):
+class PulseScheduler:
     """Closes the residual between commands with confirmed tempo pulses.
 
     Driven by the controller's 250 ms loop through :meth:`tick`; told about
@@ -1240,7 +1240,7 @@ class PulseScheduler(object):
 #################################################################################################
 
 
-class TempoSession(object):
+class TempoSession:
     """Whether this group membership has fine sync: the setting, read at join
     and again when it changes.
 

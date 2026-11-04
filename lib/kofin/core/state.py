@@ -10,7 +10,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import xbmcgui
 import xbmcvfs
@@ -199,7 +199,7 @@ def _queue_dir() -> str:
     return xbmcvfs.translatePath(PLAY_QUEUE_DIR)
 
 
-def _queue_files() -> List[str]:
+def _queue_files() -> list[str]:
     """Queued entry paths, oldest first (names carry a nanosecond stamp)."""
     directory = _queue_dir()
     try:
@@ -212,7 +212,7 @@ def _queue_files() -> List[str]:
         return []
 
 
-def _read_entry(path: str) -> Optional[Dict[str, Any]]:
+def _read_entry(path: str) -> Optional[dict[str, Any]]:
     try:
         with open(path) as handle:
             item = json.load(handle)
@@ -221,7 +221,7 @@ def _read_entry(path: str) -> Optional[Dict[str, Any]]:
     return item if isinstance(item, dict) else None
 
 
-def push_play_item(item: Dict[str, Any]) -> None:
+def push_play_item(item: dict[str, Any]) -> None:
     """Queue a resolved play's state for the service-side player to claim."""
     directory = _queue_dir()
     try:
@@ -246,7 +246,7 @@ def push_play_item(item: Dict[str, Any]) -> None:
         pass
 
 
-def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
+def claim_play_item(path: str) -> Optional[dict[str, Any]]:
     """Take only a queued entry for the file Kodi actually started.
 
     The removal is the claim: whoever unlinks the file owns that entry, and
@@ -274,7 +274,7 @@ def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def claim_play_item_of(item_id: str) -> Optional[Dict[str, Any]]:
+def claim_play_item_of(item_id: str) -> Optional[dict[str, Any]]:
     """Take the newest queued entry for an item, whatever it resolved to,
     and drop any older one for it.
 
@@ -356,7 +356,7 @@ def set_context_bitrates(bitrates: str) -> None:
         _window().clearProperty(PROP_CONTEXT_BITRATES)
 
 
-def publish_playing_streams(payload: Dict[str, Any], offer: str) -> None:
+def publish_playing_streams(payload: dict[str, Any], offer: str) -> None:
     """Publish the playing item's streams and what the menu should offer.
 
     Written when the service claims a playback, cleared when it ends, so the
@@ -371,7 +371,7 @@ def publish_playing_streams(payload: Dict[str, Any], offer: str) -> None:
         window.clearProperty(PROP_PLAYING_MENU)
 
 
-def playing_streams() -> Dict[str, Any]:
+def playing_streams() -> dict[str, Any]:
     """The published streams payload, or {} when nothing kofin owns is on."""
     raw = _window().getProperty(PROP_PLAYING_STREAMS)
     if not raw:
@@ -389,7 +389,7 @@ def clear_playing_streams() -> None:
     window.clearProperty(PROP_PLAYING_MENU)
 
 
-def set_watching_names(names: List[str]) -> None:
+def set_watching_names(names: list[str]) -> None:
     """Publish the additional-user names on this device's session.
 
     An empty list clears the property, which reads back as "nobody extra" —
@@ -403,7 +403,7 @@ def set_watching_names(names: List[str]) -> None:
         window.clearProperty(PROP_WHO_NAMES)
 
 
-def watching_names() -> List[str]:
+def watching_names() -> list[str]:
     """The published additional-user names, or [] when there are none."""
     raw = _window().getProperty(PROP_WHO_NAMES)
     if not raw:
@@ -425,11 +425,11 @@ def set_menu_who(offered: bool) -> None:
         _window().clearProperty(PROP_MENU_WHO)
 
 
-def publish_syncplay_pulse(payload: Dict[str, Any]) -> None:
+def publish_syncplay_pulse(payload: dict[str, Any]) -> None:
     _window().setProperty(PROP_SYNCPLAY_PULSE, json.dumps(payload))
 
 
-def syncplay_pulse() -> Dict[str, Any]:
+def syncplay_pulse() -> dict[str, Any]:
     """The rate a pulse left in force (``{"player": id}``), or {}."""
     raw = _window().getProperty(PROP_SYNCPLAY_PULSE)
     if not raw:
@@ -453,12 +453,12 @@ def set_feature_tempo(on: bool) -> None:
         _window().clearProperty(PROP_FEATURE_TEMPO)
 
 
-def publish_syncsession(payload: Dict[str, Any]) -> None:
+def publish_syncsession(payload: dict[str, Any]) -> None:
     """The public sync-session state, JSON on PROP_SYNCSESSION."""
     _window().setProperty(PROP_SYNCSESSION, json.dumps(payload))
 
 
-def syncsession() -> Dict[str, Any]:
+def syncsession() -> dict[str, Any]:
     raw = _window().getProperty(PROP_SYNCSESSION)
     if not raw:
         return {}
@@ -481,7 +481,7 @@ def set_menu_syncplay(offered: bool) -> None:
         _window().clearProperty(PROP_MENU_SYNCPLAY)
 
 
-def publish_lyrics(lines: List[Any], item_id: str) -> None:
+def publish_lyrics(lines: list[Any], item_id: str) -> None:
     """Publish the song's lyrics for whatever is going to render them.
 
     ``lines`` is ``[[start_seconds_or_null, text], ...]``. The timings ride
@@ -494,7 +494,7 @@ def publish_lyrics(lines: List[Any], item_id: str) -> None:
     window.setProperty(PROP_LYRIC_HAS, "true")
 
 
-def lyric_lines() -> List[Any]:
+def lyric_lines() -> list[Any]:
     """The published ``[start, text]`` pairs, or [] when there are none."""
     raw = _window().getProperty(PROP_LYRIC_JSON)
     if not raw:
@@ -506,7 +506,7 @@ def lyric_lines() -> List[Any]:
     return lines if isinstance(lines, list) else []
 
 
-def lyric_texts() -> List[str]:
+def lyric_texts() -> list[str]:
     """Just the text of each line, for serving the list's directory."""
     return [str(line[1]) for line in lyric_lines() if isinstance(line, list) and line]
 

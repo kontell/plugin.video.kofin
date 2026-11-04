@@ -11,7 +11,7 @@ route-facing surface and re-exports these names.
 """
 
 import os
-from typing import Optional, Tuple
+from typing import Optional
 
 import xbmc
 import xbmcvfs
@@ -145,7 +145,7 @@ def fetch_to(
     http: Http,
     attachment: streams.Attachment,
     directory: Optional[str] = None,
-    timeout: Optional[Tuple[float, float]] = None,
+    timeout: Optional[tuple[float, float]] = None,
 ) -> str:
     """One subtitle to a named local file, or '' — the service's way in."""
     return _fetch(http, attachment, directory or _cache_dir(), timeout)
@@ -155,7 +155,7 @@ def _fetch(
     http: Http,
     attachment: streams.Attachment,
     directory: str,
-    timeout: Optional[Tuple[float, float]] = None,
+    timeout: Optional[tuple[float, float]] = None,
 ) -> str:
     """One subtitle to a named local file, or '' if anything at all went wrong."""
     try:

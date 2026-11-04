@@ -22,11 +22,11 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "lib"))
 
-import websocket  # noqa: E402
+import websocket
 
-from kofin.core.api import Api  # noqa: E402
-from kofin.core.http import plugin_transport  # noqa: E402
-from kofin.syncplay.manager import SyncPlayManager  # noqa: E402
+from kofin.core.api import Api
+from kofin.core.http import plugin_transport
+from kofin.syncplay.manager import SyncPlayManager
 
 RESULTS = []
 

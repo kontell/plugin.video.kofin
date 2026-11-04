@@ -21,7 +21,7 @@ whole.
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from kofin.core.urls import PARAM_MEDIA_SOURCE
@@ -217,7 +217,7 @@ def extra_name(item) -> str:
     return name or "Extra"
 
 
-def extra_stems(features) -> List[Tuple[str, Dict[str, Any]]]:
+def extra_stems(features) -> list[tuple[str, dict[str, Any]]]:
     """``(stem, feature)`` for each of a movie's extras, the stem unique
     within the movie: Kodi names the extra by its path below the extras
     folder, so the stem is the extra's whole identity and two features
@@ -226,7 +226,7 @@ def extra_stems(features) -> List[Tuple[str, Dict[str, Any]]]:
     moves between listings. The listing, the assets token, ``exists`` and
     ``resolve_extra`` all read this list and nothing else."""
     used: set = set()
-    stems: List[Tuple[str, Dict[str, Any]]] = []
+    stems: list[tuple[str, dict[str, Any]]] = []
     for feature in sorted(features, key=lambda f: str(f.get("Id") or "")):
         base = extra_name(feature)
         stem, n = base, 1
@@ -422,7 +422,7 @@ def parse(url) -> Optional[Location]:
     return None
 
 
-def parse_item(url) -> Tuple[Optional[Location], str]:
+def parse_item(url) -> tuple[Optional[Location], str]:
     """The directory an item URL is filed under and the item id it carries:
     the file name for a song, the query for everything else."""
     location = parse(url)

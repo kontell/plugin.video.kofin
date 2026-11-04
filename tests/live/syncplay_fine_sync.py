@@ -45,7 +45,7 @@ LOG_PATTERN = re.compile(
 )
 
 
-class Member(object):
+class Member:
     def __init__(self, spec):
         name, _, rest = spec.partition("=")
         fields = dict(part.split("=", 1) for part in rest.split(",")[1:])

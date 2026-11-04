@@ -7,12 +7,12 @@ if _LIB not in sys.path:
 
 # The gate first, and nothing of kofin's before it: a request it turns away
 # must not have paid for the router's imports (plugin/gate.py).
-from kofin.plugin import gate  # noqa: E402
+from kofin.plugin import gate
 
 _flight = gate.enter(sys.argv)
 if _flight is not None:
     try:
-        from kofin.plugin.router import dispatch  # noqa: E402
+        from kofin.plugin.router import dispatch
 
         dispatch(sys.argv)
     finally:

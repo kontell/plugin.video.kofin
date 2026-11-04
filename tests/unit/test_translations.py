@@ -21,11 +21,11 @@ def _repo_root():
 
 sys.path.insert(0, str(_repo_root() / "tools/i18n"))
 
-import classify  # noqa: E402
-import gen  # noqa: E402
-import po_lib  # noqa: E402
-import pocheck  # noqa: E402
-import validate  # noqa: E402
+import classify
+import gen
+import po_lib
+import pocheck
+import validate
 
 
 def _generated_locales():

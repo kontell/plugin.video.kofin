@@ -27,7 +27,7 @@ one process per machine can bind it.
 import json
 import socket
 import time
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Any, Callable, NamedTuple, Optional
 from urllib.parse import urlsplit
 
 from kofin.core import auth
@@ -114,7 +114,7 @@ def scan(
     *,
     sock_factory: SocketFactory = _open_socket,
     clock: Clock = time.monotonic,
-) -> List[Found]:
+) -> list[Found]:
     """Broadcast for ``SCAN_SECONDS`` and return every server that answered.
 
     ``on_found`` fires once per *new* server, as the datagram arrives, so a
@@ -125,8 +125,8 @@ def scan(
     ``Api.from_credentials(http, ...)`` — so the unit suite never touches the
     network.
     """
-    found: List[Found] = []
-    seen: Set[Tuple[str, str]] = set()
+    found: list[Found] = []
+    seen: set[tuple[str, str]] = set()
     sock = sock_factory()
     try:
         started = clock()
@@ -184,8 +184,8 @@ def fallback_address(found: Found) -> str:
 
 
 def label_for(
-    name: str, address: str, info: Optional[Dict[str, Any]] = None
-) -> Tuple[str, str]:
+    name: str, address: str, info: Optional[dict[str, Any]] = None
+) -> tuple[str, str]:
     """``(label, label2)`` for one row of the select dialog.
 
     Pure, and here rather than in the picker, because Kodistubs'

@@ -13,7 +13,7 @@ played flag, and vice versa.
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from kofin.core.log import Logger
 from kofin.sync.private import Database
@@ -38,7 +38,7 @@ class Pending:
     server_snapshot: str = ""
 
     @property
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         if not self.server_snapshot:
             return {}
         try:
@@ -53,7 +53,7 @@ def enqueue(
     media_type: str = "",
     played: Optional[bool] = None,
     position_ticks: Optional[int] = None,
-    snapshot: Optional[Dict[str, Any]] = None,
+    snapshot: Optional[dict[str, Any]] = None,
 ) -> None:
     """Park a userdata change for the next connect.
 
@@ -89,7 +89,7 @@ def enqueue(
             LOG.debug("userdata parked for %s (played=%s)", jellyfin_id, played)
             return
         sets = ["event_at = ?", "attempts = 0"]
-        args: List[Any] = [now]
+        args: list[Any] = [now]
         if media_type:
             sets.append("media_type = ?")
             args.append(media_type)
@@ -107,7 +107,7 @@ def enqueue(
         LOG.debug("userdata coalesced for %s (played=%s)", jellyfin_id, played)
 
 
-def rows() -> List[Pending]:
+def rows() -> list[Pending]:
     with Database("kofin") as opened:
         opened.cursor.execute(
             "SELECT jellyfin_id, media_type, played, position_ticks, event_at, "
@@ -160,7 +160,7 @@ def record_attempt(jellyfin_id: str) -> int:
     return attempts
 
 
-def resolve(row: Pending, server: Dict[str, Any]) -> Dict[str, Any]:
+def resolve(row: Pending, server: dict[str, Any]) -> dict[str, Any]:
     """What to send, given the server's *current* userdata for the item.
 
     - The server has not moved since the snapshot: replay verbatim.
@@ -176,7 +176,7 @@ def resolve(row: Pending, server: Dict[str, Any]) -> Dict[str, Any]:
     moved = str(server.get("LastPlayedDate") or "") != str(
         snapshot.get("LastPlayedDate") or ""
     )
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     if row.played is not None:
         if not moved or row.played:
             payload["Played"] = bool(row.played)

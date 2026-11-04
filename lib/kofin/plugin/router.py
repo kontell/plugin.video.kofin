@@ -1,7 +1,7 @@
 """Route plugin invocations (pluginsource and RunPlugin) to handlers."""
 
 from importlib import import_module
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Optional
 from urllib.parse import parse_qsl
 
 from kofin.core.log import Logger
@@ -13,7 +13,7 @@ LOG = Logger(__name__)
 # imports nothing of kofin's, and a test holds the two together.
 NATIVE_MARK = "/native/"
 
-Params = Dict[str, str]
+Params = dict[str, str]
 
 
 class Request:
@@ -32,7 +32,7 @@ class Request:
 
 # The handler registry, as (module under kofin.plugin, attribute) pairs
 # resolved per dispatch, so an invocation imports only the module it routes to.
-ROUTES: Dict[str, Tuple[str, str]] = {
+ROUTES: dict[str, tuple[str, str]] = {
     "": ("browse", "root"),
     "streams": ("streams", "menu"),
     "browse": ("browse", "browse"),
@@ -121,7 +121,7 @@ def _root(request: Request) -> None:
     browse.root(request)
 
 
-def dispatch(argv: List[str]) -> None:
+def dispatch(argv: list[str]) -> None:
     base_url = argv[0] if argv else ""
     handle = -1
     if len(argv) > 1:

@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -146,7 +146,7 @@ def save_playlist(request: Request) -> None:
 
     translated = xbmcvfs.translatePath(path)
     try:
-        with open(translated, "r", encoding="utf-8") as handle:
+        with open(translated, encoding="utf-8") as handle:
             text = handle.read()
     except OSError:
         LOG.exception("could not read playlist %s", path)
@@ -193,7 +193,7 @@ def save_playlist(request: Request) -> None:
     ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": playlist_id} if playlist_id else {})
 
 
-def _playlist_items(lines: List[str]) -> List[Tuple[str, str]]:
+def _playlist_items(lines: list[str]) -> list[tuple[str, str]]:
     """The Jellyfin id and side ("Audio" or "Video") of each playlist line,
     ("", "") for a line kofin did not file, through the catalogue."""
     from kofin.sync.backends.api import playlists as api_playlists
@@ -213,7 +213,7 @@ def repair_libraries(request: Request) -> None:
         return
 
     names = _selection_names(whitelist)
-    choices: List[Union[str, xbmcgui.ListItem]] = [settings.localized(30267)]
+    choices: list[Union[str, xbmcgui.ListItem]] = [settings.localized(30267)]
     choices.extend(names)  # "All" first
     picked = xbmcgui.Dialog().multiselect(settings.localized(30266), choices)
 
@@ -228,7 +228,7 @@ def repair_libraries(request: Request) -> None:
     ipc.notify(ipc.REPAIR_LIBRARY, {"Id": ",".join(selected)})
 
 
-def _selection_names(library_ids: List[str]) -> List[str]:
+def _selection_names(library_ids: list[str]) -> list[str]:
     """View names for the picker; falls back to the raw ids offline."""
     from kofin.sync import private as sync_db
     from kofin.sync import kofindb
@@ -295,12 +295,12 @@ def _paged_items(
     params: dict,
     *,
     free: int = -1,
-    live_ids: Optional[Set[str]] = None,
+    live_ids: Optional[set[str]] = None,
     options: Optional[tuple] = None,
-) -> List[dict]:
-    children: List[dict] = []
+) -> list[dict]:
+    children: list[dict] = []
     start = 0
-    seen: Set[str] = set()
+    seen: set[str] = set()
     progress = None
     estimated = 0
     try:
@@ -361,9 +361,9 @@ def _expand_downloadable(
     item: dict,
     *,
     free: int = -1,
-    live_ids: Optional[Set[str]] = None,
+    live_ids: Optional[set[str]] = None,
     options: Optional[tuple] = None,
-) -> List[dict]:
+) -> list[dict]:
     """The downloadable leaves under an item: itself, or a container's
     episodes/tracks. Client-side expansion, because the server has no folder
     download — CanDownload is false for every folder type by construction."""
@@ -491,7 +491,7 @@ def _free_space_note() -> str:
     return _human_size(free) if free >= 0 else "?"
 
 
-def _confirm_download(item: dict, wanted: List[dict]) -> bool:
+def _confirm_download(item: dict, wanted: list[dict]) -> bool:
     """Whether to go ahead with a queue request — asking, or refusing.
 
     The request is sized against what is free:
@@ -586,7 +586,7 @@ def download(request: Request) -> None:
     # So does the request — the container this expanded, and what to call it.
     # Its children can span albums and media types, but the manager announces
     # the whole request only once, when every child has settled.
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "Ids": [child["Id"] for child in wanted],
         "Types": [str(child.get("Type") or "") for child in wanted],
     }
@@ -694,7 +694,7 @@ def manage_download_shows(request: Request) -> None:
     if not shows:
         toast.show(settings.localized(30766), time_ms=3000)
         return
-    choices: List[Union[str, xbmcgui.ListItem]] = list(_show_names(shows))
+    choices: list[Union[str, xbmcgui.ListItem]] = list(_show_names(shows))
     picked = xbmcgui.Dialog().multiselect(
         settings.localized(30758), choices, preselect=list(range(len(shows)))
     )
@@ -703,7 +703,7 @@ def manage_download_shows(request: Request) -> None:
     downloads_auto.save_subscribed_shows(shows[index] for index in picked)
 
 
-def _show_names(series_ids: List[str]) -> List[str]:
+def _show_names(series_ids: list[str]) -> list[str]:
     """Titles for the picker, from the shows' catalogue payloads, so the
     picker answers offline. A show the catalogue does not hold is listed by
     its id."""
@@ -789,7 +789,7 @@ def download_size(request: Request) -> None:
         toast.show(settings.localized(30835), time_ms=4000)
         return
 
-    rows: List[Union[str, xbmcgui.ListItem]] = [
+    rows: list[Union[str, xbmcgui.ListItem]] = [
         # The capped notice is a sentence, not a measurement, and carries no
         # value to append.
         "%s:  %s" % (label, value) if value else label
@@ -800,7 +800,7 @@ def download_size(request: Request) -> None:
     xbmcgui.Dialog().select("%s — %s" % (settings.localized(30832), root), rows)
 
 
-def size_rows(report: Any) -> List[tuple]:
+def size_rows(report: Any) -> list[tuple]:
     """``[(label, value)]`` for the size report — the whole decision, kept
     out of the widget so it can be tested without one."""
     rows = [
