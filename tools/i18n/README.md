@@ -46,7 +46,7 @@ Output is deterministic — `REVISION_DATE` in `gen.py` is fixed — so regenera
 
 `po_lib.render()` walks the English file and substitutes `msgstr` values in place, rather than rebuilding each entry from parsed data.
 
-That is deliberate. kofin's `strings.po` carries multi-line comment blocks that record *why* ids are the way they are (retired ids that must never be reused, the sync-block ids that kept their numbers after moving tab), and its `msgctxt` order is not ascending — there are four inversions. A block re-assembler flattens the comments and invites someone to "fix" the ordering. Copying the body verbatim makes every locale structurally identical to the source for free.
+That is deliberate. kofin's `strings.po` carries multi-line comment blocks that record *why* ids are the way they are (`#30326`/`#30327` keep their sync-block numbers after the setting moved to the Advanced tab, because renumbering a shipped string breaks its translations), and its `msgctxt` order is not ascending — three inversions: `30080` before `30030`, `30206` before `30041`, `30810` before `30804`. A block re-assembler flattens the comments and invites someone to "fix" the ordering. Copying the body verbatim makes every locale structurally identical to the source for free.
 
 ## The `_source.json` snapshot
 
