@@ -3,9 +3,9 @@
 Importing ``requests`` costs about a second inside Kodi's Python, and the
 plugin process pays it on every cold click that talks to the server — a
 browse listing, the play resolve, a context action. Invoker reuse cannot be
-relied on to keep a click warm: Kodi keeps a single reusable invoker thread
-for the whole system, so any other addon's script between two clicks
-discards ours.
+relied on to keep a click warm: Kodi keeps one reusable invoker, the last
+add-on's, so another add-on's reusable script between two clicks discards
+ours.
 
 So the plugin process asks over the standard library, and the service keeps
 ``requests``: a long-lived process pays the import once.

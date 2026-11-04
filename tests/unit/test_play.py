@@ -8,6 +8,70 @@ from tests.unit.fakes import FakeApi
 SERVER = "http://s:8096"
 
 
+def test_the_play_route_imports_no_pipeline_module():
+    """A cold click pays every import the route makes, so the route's own
+    source is read: its backend imports are the three the resolve needs and
+    the capability report inside the live-item check, and nothing at module
+    level. A fresh interpreter then imports those three, and the backend
+    modules it loads are exactly the ones the resolve stands on; the
+    serializer, the provider, the readback and the capability report are the
+    pass's and stay out."""
+    import ast
+    import json
+    import os
+    import subprocess
+    import sys
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    source = open(os.path.join(root, "lib", "kofin", "plugin", "play.py")).read()
+    tree = ast.parse(source)
+    inside = {}
+    for function in ast.walk(tree):
+        if isinstance(function, ast.FunctionDef):
+            for node in ast.walk(function):
+                if isinstance(node, ast.ImportFrom):
+                    inside[id(node)] = function.name
+    backend = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+            "kofin.sync.backends.api"
+        ):
+            for alias in node.names:
+                backend.add((node.module, alias.name, inside.get(id(node), "<module>")))
+    assert backend == {
+        ("kofin.sync.backends.api.paths", "key_from_url", "play"),
+        ("kofin.sync.backends.api.store", "namespace", "play"),
+        ("kofin.sync.backends.api.identity", "native_id_for", "play"),
+        ("kofin.sync.backends.api", "capabilities", "wants_live_timeshift"),
+    }
+
+    script = (
+        "import json, sys\n"
+        "import kofin.plugin.play\n"
+        "from kofin.sync.backends.api.paths import key_from_url\n"
+        "from kofin.sync.backends.api.store import namespace\n"
+        "from kofin.sync.backends.api.identity import native_id_for\n"
+        "print(json.dumps(sorted("
+        "m for m in sys.modules if m.startswith('kofin.sync.backends.api'))))\n"
+    )
+    env = dict(os.environ, PYTHONPATH=os.path.join(root, "lib"))
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    assert set(json.loads(out.stdout)) == {
+        "kofin.sync.backends.api",
+        "kofin.sync.backends.api.identity",
+        "kofin.sync.backends.api.kinds",
+        "kofin.sync.backends.api.paths",
+        "kofin.sync.backends.api.records",
+        "kofin.sync.backends.api.store",
+    }
+
+
 def test_stream_url_direct_video():
     url, method = play.stream_url(
         SERVER,
@@ -1388,7 +1452,7 @@ def live_env(resume_env, monkeypatch):
     state.publish_syncsession({"in_group": True})
     resume_env["addon"].store["syncPlayTempo"] = "true"
     resume_env["enabled"] = enabled
-    monkeypatch.setattr(play.capabilities, "has", lambda name: True)
+    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: True)
     return resume_env
 
 
@@ -1427,7 +1491,7 @@ def test_without_kodis_tempo_a_live_item_plays_as_before(live_env, monkeypatch):
     """A Kodi without the tempo set (Piers, stock Kodi 23) takes no pulse, so
     the timeshift buffer would buy nothing: the live item plays as it would
     outside a group, and nothing says anything was missing."""
-    monkeypatch.setattr(play.capabilities, "has", lambda name: False)
+    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: False)
     run_play({"id": "c1"}, resume=False)
     assert "inputstream" not in live_env["li"].props
     assert "TimeshiftMissing" not in _claim()

@@ -26,6 +26,8 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from kofin.core.urls import PARAM_MEDIA_SOURCE
 
+ASCII_SPACE = " \t\n\r\v\f"
+
 BASE = "plugin://plugin.video.kofin/native/"
 
 # Scanner content type per catalogue kind. Seasons have no scanner directory
