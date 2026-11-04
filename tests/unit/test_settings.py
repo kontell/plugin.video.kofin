@@ -230,6 +230,17 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
     assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
 
 
+def test_the_retired_library_settings_are_gone_from_the_schema():
+    """The critic-rating toggle had no reader, and the two hidden strings were
+    the SQL build's; a leftover control would be read by nothing."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    ids = {element.get("id") for element in root.iter("setting")}
+    assert not {"preferCriticRating", "lastIncrementalSync", "viewsHash"} & ids
+    assert {"librarySelection", "apiMovieBindings"} <= ids
+
+
 def test_the_library_tab_holds_the_sync_settings_in_reading_order():
     """No Sync tab; the Library tab reads: what to sync, then the progress
     toggle with its item threshold (visible only while the toggle is on),
