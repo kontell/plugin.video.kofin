@@ -8,7 +8,7 @@ unknown message type kills the shared socket."""
 import json
 import threading
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import websocket
 
@@ -16,11 +16,11 @@ from kofin.core.log import Logger
 from kofin.core.ws import sslopt
 from kofin.syncplay import utils
 
-#################################################################################################
+if TYPE_CHECKING:
+    from kofin.syncplay.manager import SyncPlayManager
+
 
 LOG = Logger(__name__)
-
-#################################################################################################
 
 
 class TimeSync(threading.Thread):
@@ -35,7 +35,7 @@ class TimeSync(threading.Thread):
     the local clock to the server's.
     """
 
-    def __init__(self, manager, verify_ssl=True):
+    def __init__(self, manager: "SyncPlayManager", verify_ssl: bool = True) -> None:
         threading.Thread.__init__(self, name="kofin-syncplay-timesync")
         self.daemon = True
         self.manager = manager
@@ -48,9 +48,10 @@ class TimeSync(threading.Thread):
         self._stop_event = threading.Event()
         self._kick_event = threading.Event()
         self._lock = threading.Lock()
-        self._ws = None  # the dedicated time-sync socket, when advertised
+        # The dedicated time-sync socket, when advertised.
+        self._ws: Optional[websocket.WebSocket] = None
 
-    def run(self):
+    def run(self) -> None:
         LOG.debug("--->[ syncplay timesync ]")
 
         while not self._stop_event.is_set():
@@ -70,12 +71,12 @@ class TimeSync(threading.Thread):
 
         LOG.debug("---<[ syncplay timesync ]")
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
         self._kick_event.set()
         self._close_ws()
 
-    def force_update(self, reset=False):
+    def force_update(self, reset: bool = False) -> None:
         """Re-measure greedily, e.g. on group join or wake from sleep."""
         if reset:
             with self._lock:
@@ -86,13 +87,13 @@ class TimeSync(threading.Thread):
 
     # --- measurement ---------------------------------------------------
 
-    def _measure(self):
+    def _measure(self) -> None:
         if self.manager.can_ws_timesync() and self._measure_ws():
             return
 
         self._measure_http()
 
-    def _measure_ws(self):
+    def _measure_ws(self) -> bool:
         """One exchange over the dedicated socket; returns False to fall back."""
         sock = self._ws_socket()
 
@@ -131,7 +132,7 @@ class TimeSync(threading.Thread):
         self._add_sample(offset, rtt)
         return True
 
-    def _ws_socket(self):
+    def _ws_socket(self) -> Optional[websocket.WebSocket]:
         if self._ws is not None:
             return self._ws
 
@@ -157,7 +158,7 @@ class TimeSync(threading.Thread):
         LOG.debug("Time sync on dedicated socket %s", url)
         return self._ws
 
-    def _close_ws(self):
+    def _close_ws(self) -> None:
         sock, self._ws = self._ws, None
 
         if sock is not None:
@@ -166,7 +167,7 @@ class TimeSync(threading.Thread):
             except Exception:
                 pass
 
-    def _measure_http(self):
+    def _measure_http(self) -> None:
         t0 = utils.local_ms()
         response = self.manager.get_utc_time()
         t3 = utils.local_ms()
@@ -184,7 +185,7 @@ class TimeSync(threading.Thread):
         offset, rtt = utils.ntp_sample(t0, t1, t2, t3)
         self._add_sample(offset, rtt)
 
-    def _add_sample(self, offset, rtt):
+    def _add_sample(self, offset: float, rtt: float) -> None:
         if rtt < 0:  # nonsense measurement (clock stepped mid-exchange)
             return
 

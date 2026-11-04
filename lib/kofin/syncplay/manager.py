@@ -79,7 +79,7 @@ class SyncPlayManager:
 
         # [(key, PlaylistItemId, provider)] mirror of the group queue
         self.queue: list[tuple[str, str, str]] = []
-        self.queue_last_update = None
+        self.queue_last_update: Optional[float] = None
         self.current_item_id = None
         self.current_playlist_item_id = None
         # Which provider owns the current queue item (SYNCPLAY.md §14.3):
@@ -97,8 +97,8 @@ class SyncPlayManager:
         self._last_rejoin = 0.0
         self._last_snapshot_request = 0.0
         # How long this device's loads take, smoothed; None until one is timed.
-        self._load_ms = None
-        self._load_started_ms = None
+        self._load_ms: Optional[float] = None
+        self._load_started_ms: Optional[float] = None
         # Bumped by every load so an earlier load's watchdog can tell that it
         # has been superseded; see _start_item.
         self._load_generation = 0
