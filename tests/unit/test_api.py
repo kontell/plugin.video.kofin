@@ -664,6 +664,22 @@ def test_paged_keeps_a_repeated_entry_without_dedupe():
     assert [row["Id"] for row in paged(_server(rows), 2)] == ["a", "b"]
 
 
+def test_paged_without_dedupe_ends_at_a_short_page_whatever_the_count():
+    """Playlist entries are not deduplicated, so a server re-emitting a short
+    page against a larger count must not be read as more entries each time."""
+    from kofin.core.api import paged
+
+    log = []
+
+    def same_rows(start, limit):
+        log.append(start)
+        return {"Items": _ids(3), "TotalRecordCount": 500}
+
+    rows = list(paged(same_rows, 100, dedupe=False))
+    assert [row["Id"] for row in rows] == ["i0", "i1", "i2"]
+    assert log == [0]
+
+
 def test_paged_reports_progress_after_each_page():
     from kofin.core.api import paged
 

@@ -39,8 +39,12 @@ def paged(
 
     ``fetch(start, limit)`` answers one page. The walk ends at an empty
     page, at the count the first page reported, at a page shorter than the
-    page size, and, with ``dedupe``, at a page that adds no row; a server
-    that caps a page shorter than asked sets the size from its first page.
+    page size, and, with ``dedupe``, at a page that adds no row. A server
+    that caps a page shorter than asked sets the size from its first page,
+    but only where rows are deduplicated: a page re-emitted past the count
+    adds nothing there, where without ``dedupe`` it would be read as new
+    rows for ever, so a short page ends an undeduplicated walk whatever the
+    count says.
     ``strict`` raises instead of ending on a page that repeats rows or stops
     short of the count, for a listing something is deleted by. A first page
     empty against a positive count, a body with no item list, a row that is
@@ -92,7 +96,7 @@ def paged(
                 raise IncompleteListing("%s: %d of %d" % (what, start, total))
             return
         if len(rows) < size:
-            if first and total:
+            if first and total and dedupe:
                 size = len(rows)
             elif strict and total:
                 raise IncompleteListing("%s: %d of %d" % (what, start, total))

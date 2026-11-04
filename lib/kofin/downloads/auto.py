@@ -93,26 +93,24 @@ def next_episode_ids(api: Any, series_id: str, current_id: str, keep: int) -> li
     """
     if keep <= 0:
         return []
-    episodes: list[JsonDict] = []
-    start = 0
-    while True:
-        page = api.items(
-            {
-                "ParentId": series_id,
-                "IncludeItemTypes": "Episode",
-                "Recursive": True,
-                "SortBy": "ParentIndexNumber,IndexNumber",
-                "SortOrder": "Ascending,Ascending",
-                "StartIndex": start,
-                "Limit": 200,
-                "EnableTotalRecordCount": True,
-            }
+    episodes = list(
+        paged(
+            lambda start, limit: api.items(
+                {
+                    "ParentId": series_id,
+                    "IncludeItemTypes": "Episode",
+                    "Recursive": True,
+                    "SortBy": "ParentIndexNumber,IndexNumber",
+                    "SortOrder": "Ascending,Ascending",
+                    "StartIndex": start,
+                    "Limit": limit,
+                    "EnableTotalRecordCount": True,
+                }
+            ),
+            200,
+            what="episodes of %s" % series_id,
         )
-        rows = page.get("Items") or []
-        episodes.extend(rows)
-        start += len(rows)
-        if not rows or start >= int(page.get("TotalRecordCount") or 0):
-            break
+    )
 
     following = False
     live = _live_ids()
