@@ -17,7 +17,7 @@ from typing import Any, Optional
 import xbmc
 
 from kofin.core import ipc, settings, state, toast
-from kofin.core.api import Api
+from kofin.core.api import Api, paged
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -104,20 +104,17 @@ def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> list[JsonDict
     """A playlist's audio entries in the server's order, shuffled here if
     asked: the playlist route has no SortBy, and the order is the playlist."""
     tracks: list[JsonDict] = []
-    start = 0
-    while len(tracks) < QUEUE_LIMIT:
-        body = api.playlist_items(
-            playlist_id,
-            start_index=start,
-            limit=min(PAGE_SIZE, QUEUE_LIMIT - len(tracks)),
-            fields=TRACK_FIELDS,
-        )
-        rows = body.get("Items") or []
-        if not rows:
-            break
-        tracks.extend(row for row in rows if row.get("Type") == "Audio")
-        start += len(rows)
-        if start >= int(body.get("TotalRecordCount") or 0):
+    for row in paged(
+        lambda start, limit: api.playlist_items(
+            playlist_id, start_index=start, limit=limit, fields=TRACK_FIELDS
+        ),
+        PAGE_SIZE,
+        dedupe=False,
+        what="playlist %s" % playlist_id,
+    ):
+        if row.get("Type") == "Audio":
+            tracks.append(row)
+        if len(tracks) >= QUEUE_LIMIT:
             break
     if shuffle:
         random.shuffle(tracks)

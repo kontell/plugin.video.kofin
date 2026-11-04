@@ -12,6 +12,7 @@ from collections.abc import Iterable
 
 from kofin.core import ipc, settings
 from kofin.core.log import Logger
+from kofin.core.api import paged
 from kofin.downloads import store
 from kofin.sync.private import Database
 
@@ -239,50 +240,28 @@ def claim_library_songs(placed: dict[str, str]) -> None:
 
 
 def _library_items(api: Any, library_id: str) -> list[str]:
-    items: list[str] = []
-    start = 0
-    seen = set()
-    while True:
-        page = api.items(
-            {
-                "ParentId": library_id,
-                "IncludeItemTypes": "Audio",
-                "Recursive": True,
-                "StartIndex": start,
-                "Limit": 200,
-                "EnableTotalRecordCount": True,
-            }
+    """Every downloadable song of the library, from a listing that has to be
+    whole: a claim snapshot built from part of one would release the rest."""
+    return [
+        row["Id"]
+        for row in paged(
+            lambda start, limit: api.items(
+                {
+                    "ParentId": library_id,
+                    "IncludeItemTypes": "Audio",
+                    "Recursive": True,
+                    "StartIndex": start,
+                    "Limit": limit,
+                    "EnableTotalRecordCount": True,
+                }
+            ),
+            200,
+            strict=True,
+            cap=MAX_SUBSCRIPTION_ITEMS,
+            what="music library %s" % library_id,
         )
-        if "Items" not in page or not isinstance(page["Items"], list):
-            raise ValueError("music library %s returned no items list" % library_id)
-        if any(not isinstance(item, dict) for item in page["Items"]):
-            raise ValueError("music library %s returned malformed items" % library_id)
-        total = int(page.get("TotalRecordCount") or 0)
-        if total > MAX_SUBSCRIPTION_ITEMS:
-            raise ValueError("music library %s exceeds item limit" % library_id)
-        rows = page["Items"]
-        if start == 0 and not rows and total > 0:
-            raise ValueError(
-                "music library %s returned an incomplete first page" % library_id
-            )
-        fresh = [row for row in rows if row.get("Id") and row["Id"] not in seen]
-        if rows and not fresh:
-            raise ValueError("repeated music-library page for %s" % library_id)
-        for row in fresh:
-            seen.add(row["Id"])
-            if row.get("CanDownload") is not False:
-                items.append(row["Id"])
-        if len(seen) > MAX_SUBSCRIPTION_ITEMS:
-            raise ValueError("music library %s exceeds item limit" % library_id)
-        start += len(rows)
-        if not rows:
-            if total and start < total:
-                raise ValueError(
-                    "music library %s returned an incomplete page" % library_id
-                )
-            return items
-        if total and start >= total:
-            return items
+        if row.get("CanDownload") is not False
+    ]
 
 
 def reconcile_music_libraries(api: Any) -> None:

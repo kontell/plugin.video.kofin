@@ -558,3 +558,119 @@ def test_views_ask_for_hidden_libraries_only_when_told(api):
     assert "includeHidden" not in transport.calls[0]["params"]
     assert transport.calls[1]["params"]["includeHidden"] == "true"
     assert transport.calls[1]["params"]["userId"] == "uid"
+
+
+# -- paged ---------------------------------------------------------------------
+
+
+def _server(rows, total=None, page_log=None):
+    """A fetch over ``rows`` that reports ``total`` (the true count unless given)."""
+
+    def fetch(start, limit):
+        if page_log is not None:
+            page_log.append((start, limit))
+        return {
+            "Items": rows[start : start + limit],
+            "TotalRecordCount": len(rows) if total is None else total,
+        }
+
+    return fetch
+
+
+def _ids(n, prefix="i"):
+    return [{"Id": "%s%d" % (prefix, index)} for index in range(n)]
+
+
+def test_paged_walks_to_the_count_and_no_further():
+    from kofin.core.api import paged
+
+    log = []
+    rows = list(paged(_server(_ids(5), page_log=log), 2))
+    assert [row["Id"] for row in rows] == ["i0", "i1", "i2", "i3", "i4"]
+    assert log == [(0, 2), (2, 2), (4, 2)]
+
+
+def test_paged_reads_a_capped_server_at_its_own_page_size():
+    """A server that answers fewer rows than asked sets the page size from its
+    first page, so the walk reaches the count instead of ending at a short page."""
+    from kofin.core.api import paged
+
+    log = []
+    items = _ids(25)
+
+    def fetch(start, limit):
+        log.append((start, limit))
+        return {"Items": items[start : start + min(limit, 10)], "TotalRecordCount": 25}
+
+    rows = list(paged(fetch, 100, what="capped"))
+    assert len(rows) == 25
+    assert log == [(0, 100), (10, 10), (20, 10)]
+
+
+def test_paged_ends_at_a_page_that_adds_nothing_unless_strict():
+    from kofin.core.api import IncompleteListing, paged
+
+    repeating = lambda start, limit: {"Items": _ids(2), "TotalRecordCount": 1000}
+    assert [row["Id"] for row in paged(repeating, 2)] == ["i0", "i1"]
+    with pytest.raises(IncompleteListing, match="repeated a page"):
+        list(paged(repeating, 2, strict=True))
+
+
+def test_paged_ends_at_an_over_reported_count_unless_strict():
+    from kofin.core.api import IncompleteListing, paged
+
+    assert len(list(paged(_server(_ids(4), total=9), 2))) == 4
+    with pytest.raises(IncompleteListing, match="4 of 9"):
+        list(paged(_server(_ids(4), total=9), 2, strict=True))
+
+
+def test_paged_refuses_an_empty_first_page_against_a_count():
+    from kofin.core.api import IncompleteListing, paged
+
+    with pytest.raises(IncompleteListing, match="first page was empty"):
+        list(paged(_server([], total=3), 2))
+    assert list(paged(_server([]), 2)) == []
+
+
+def test_paged_refuses_a_shapeless_body_and_a_malformed_row():
+    from kofin.core.api import IncompleteListing, paged
+
+    with pytest.raises(IncompleteListing, match="no items list"):
+        list(paged(lambda start, limit: {}, 2))
+    with pytest.raises(IncompleteListing, match="malformed"):
+        list(paged(lambda start, limit: {"Items": [None], "TotalRecordCount": 1}, 2))
+
+
+def test_paged_caps_by_the_count_and_by_the_rows():
+    from kofin.core.api import IncompleteListing, paged
+
+    with pytest.raises(IncompleteListing, match="exceeds 3 items"):
+        list(paged(_server(_ids(2), total=4), 2, cap=3))
+    with pytest.raises(IncompleteListing, match="exceeds 3 items"):
+        list(paged(_server(_ids(4), total=0), 2, cap=3))
+    assert len(list(paged(_server(_ids(3)), 2, cap=3))) == 3
+
+
+def test_paged_keeps_a_repeated_entry_without_dedupe():
+    """A playlist may hold the same item twice; its entries are not rows."""
+    from kofin.core.api import paged
+
+    rows = [{"Id": "a"}, {"Id": "b"}, {"Id": "a"}]
+    assert [row["Id"] for row in paged(_server(rows), 2, dedupe=False)] == [
+        "a",
+        "b",
+        "a",
+    ]
+    assert [row["Id"] for row in paged(_server(rows), 2)] == ["a", "b"]
+
+
+def test_paged_reports_progress_after_each_page():
+    from kofin.core.api import paged
+
+    seen = []
+    list(
+        paged(
+            _server(_ids(5)), 2, progress=lambda done, total: seen.append((done, total))
+        )
+    )
+    assert seen == [(2, 5), (4, 5), (5, 5)]

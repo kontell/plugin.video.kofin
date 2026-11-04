@@ -5,6 +5,7 @@ import pytest
 from kofin.core import ipc
 from kofin.downloads import store, subscriptions
 from kofin.sync import private as sync_db
+from kofin.core.api import IncompleteListing
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ def test_repeated_library_page_never_becomes_a_deletion_snapshot():
         def items(self, params):
             return {"Items": [{"Id": "same"}], "TotalRecordCount": 1000}
 
-    with pytest.raises(ValueError, match="repeated"):
+    with pytest.raises(IncompleteListing, match="repeated"):
         subscriptions._library_items(Api(), "library")
 
 

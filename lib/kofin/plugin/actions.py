@@ -7,7 +7,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import ipc, kodirpc, settings, toast
-from kofin.core.api import Api
+from kofin.core.api import Api, paged
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -290,6 +290,24 @@ class _DownloadTooLarge(Exception):
         self.free = free
 
 
+class _ExpansionBar:
+    """Kodi's background bar, shown once an expansion runs past a thousand rows."""
+
+    def __init__(self) -> None:
+        self._dialog: Optional[xbmcgui.DialogProgressBG] = None
+
+    def update(self, seen: int, total: int) -> None:
+        if total > 1000 and self._dialog is None:
+            self._dialog = xbmcgui.DialogProgressBG()
+            self._dialog.create("Kofin", settings.localized(30708))
+        if self._dialog is not None and total and (seen % 1000 == 0 or seen >= total):
+            self._dialog.update(min(100, int(seen * 100 / total)))
+
+    def close(self) -> None:
+        if self._dialog is not None:
+            self._dialog.close()
+
+
 def _paged_items(
     api: Api,
     params: dict,
@@ -299,60 +317,40 @@ def _paged_items(
     options: Optional[tuple] = None,
 ) -> list[dict]:
     children: list[dict] = []
-    start = 0
-    seen: set[str] = set()
-    progress = None
     estimated = 0
+    bar = _ExpansionBar()
     try:
-        while True:
-            page = api.items(
+        for row in paged(
+            lambda start, limit: api.items(
                 dict(
                     params,
                     Fields="MediaSources",
                     StartIndex=start,
-                    Limit=200,
+                    Limit=limit,
                     EnableTotalRecordCount=True,
                 )
-            )
-            rows = page.get("Items") or []
-            fresh = [row for row in rows if row.get("Id") not in seen]
-            seen.update(row.get("Id") for row in fresh)
-            children.extend(fresh)
-            if free >= 0:
+            ),
+            200,
+            strict=True,
+            cap=MAX_DOWNLOAD_EXPANSION,
+            what="download expansion",
+            progress=bar.update,
+        ):
+            children.append(row)
+            if (
+                free >= 0
+                and row.get("Id")
+                and row.get("Id") not in (live_ids or ())
+                and row.get("CanDownload") is not False
+                and row.get("Type") in DOWNLOAD_LEAF_TYPES
+            ):
                 from kofin.downloads.files import FREE_SPACE_RESERVE
 
-                estimated += sum(
-                    _estimated_size(row, options)
-                    for row in fresh
-                    if row.get("Id")
-                    and row.get("Id") not in (live_ids or ())
-                    and row.get("CanDownload") is not False
-                    and row.get("Type") in DOWNLOAD_LEAF_TYPES
-                )
+                estimated += _estimated_size(row, options)
                 if estimated + FREE_SPACE_RESERVE > free:
                     raise _DownloadTooLarge(estimated, free)
-            start += len(rows)
-            total = int(page.get("TotalRecordCount") or 0)
-            if total > MAX_DOWNLOAD_EXPANSION:
-                raise JellyfinError(
-                    "download expansion exceeds %d items" % MAX_DOWNLOAD_EXPANSION
-                )
-            if total > 1000 and progress is None:
-                progress = xbmcgui.DialogProgressBG()
-                progress.create("Kofin", settings.localized(30708))
-            if progress is not None and (start % 1000 == 0 or start >= total):
-                progress.update(min(100, int(start * 100 / total)))
-            if len(children) > MAX_DOWNLOAD_EXPANSION:
-                raise JellyfinError(
-                    "download expansion exceeds %d items" % MAX_DOWNLOAD_EXPANSION
-                )
-            if rows and not fresh:
-                raise JellyfinError("download expansion repeated a page")
-            if not rows or (total and start >= total):
-                break
     finally:
-        if progress is not None:
-            progress.close()
+        bar.close()
     return children
 
 

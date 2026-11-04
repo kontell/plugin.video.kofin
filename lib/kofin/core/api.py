@@ -1,5 +1,6 @@
 """The Jellyfin API surface kofin uses."""
 
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -8,6 +9,7 @@ from kofin.core.http import (
     DEFAULT_TIMEOUT,
     Http,
     HttpError,
+    JellyfinError,
     StreamedResponse,
     plugin_transport,
 )
@@ -17,6 +19,87 @@ from kofin.core.settings import Credentials
 LOG = Logger(__name__)
 
 JsonDict = dict[str, Any]
+
+
+class IncompleteListing(JellyfinError):
+    """A paged listing the server did not deliver whole."""
+
+
+def paged(
+    fetch: Callable[[int, int], JsonDict],
+    page_size: int,
+    *,
+    dedupe: bool = True,
+    strict: bool = False,
+    cap: Optional[int] = None,
+    what: str = "listing",
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> Iterator[JsonDict]:
+    """Walk a paged listing as its rows arrive.
+
+    ``fetch(start, limit)`` answers one page. The walk ends at an empty
+    page, at the count the first page reported, at a page shorter than the
+    page size, and, with ``dedupe``, at a page that adds no row; a server
+    that caps a page shorter than asked sets the size from its first page.
+    ``strict`` raises instead of ending on a page that repeats rows or stops
+    short of the count, for a listing something is deleted by. A first page
+    empty against a positive count, a body with no item list, a row that is
+    not an object, and a count or a walk past ``cap`` raise
+    IncompleteListing. ``progress(seen, total)`` is called after each page.
+    """
+    seen: set[str] = set()
+    start = 0
+    taken = 0
+    size = page_size
+    first = True
+    while True:
+        body = fetch(start, size)
+        rows = body.get("Items") if isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            raise IncompleteListing("%s: response had no items list" % what)
+        if any(not isinstance(row, dict) for row in rows):
+            raise IncompleteListing("%s: malformed items" % what)
+        total = int(body.get("TotalRecordCount") or 0)
+        if cap is not None and total > cap:
+            raise IncompleteListing("%s exceeds %d items" % (what, cap))
+        if first and not rows and total > 0:
+            raise IncompleteListing(
+                "%s: TotalRecordCount %d but the first page was empty" % (what, total)
+            )
+        fresh: list[JsonDict] = []
+        for row in rows:
+            if dedupe:
+                row_id = str(row.get("Id") or "")
+                if not row_id or row_id in seen:
+                    continue
+                seen.add(row_id)
+            fresh.append(row)
+        if rows and not fresh:
+            if strict:
+                raise IncompleteListing("%s repeated a page" % what)
+            return
+        taken += len(fresh)
+        if cap is not None and taken > cap:
+            raise IncompleteListing("%s exceeds %d items" % (what, cap))
+        yield from fresh
+        start += len(rows)
+        if progress is not None:
+            progress(start, total)
+        if total and start >= total:
+            return
+        if not rows:
+            if strict and total:
+                raise IncompleteListing("%s: %d of %d" % (what, start, total))
+            return
+        if len(rows) < size:
+            if first and total:
+                size = len(rows)
+            elif strict and total:
+                raise IncompleteListing("%s: %d of %d" % (what, start, total))
+            else:
+                return
+        first = False
+
 
 # Connect/read budget for the lyrics fetch. Deliberately far below the
 # transport default: see Api.lyrics.
@@ -714,61 +797,25 @@ class Api:
         self.delete("/Items/%s" % item_id)
 
     def playlists(self) -> list[JsonDict]:
-        """User-visible playlists of every MediaType, with Etag.
-
-        Paged, and deduped by id: some Jellyfin builds report a
-        ``TotalRecordCount`` higher than the unique set and re-emit earlier
-        rows on later pages. The caller decides Audio vs Video vs skip.
-        """
-        results: list[JsonDict] = []
-        seen: set[str] = set()
-        start = 0
-        page_size = 100
-        while True:
-            body = self.get(
-                "/Items",
-                self._as_user(
-                    {
-                        "IncludeItemTypes": "Playlist",
-                        "Recursive": True,
-                        "StartIndex": start,
-                        "Limit": page_size,
-                        "EnableTotalRecordCount": True,
-                        "Fields": "MediaType,Overview,Etag",
-                        "SortBy": "SortName",
-                        "SortOrder": "Ascending",
-                    }
+        """User-visible playlists of every MediaType, with Etag. The caller
+        decides Audio vs Video vs skip."""
+        params = {
+            "IncludeItemTypes": "Playlist",
+            "Recursive": True,
+            "EnableTotalRecordCount": True,
+            "Fields": "MediaType,Overview,Etag",
+            "SortBy": "SortName",
+            "SortOrder": "Ascending",
+        }
+        return list(
+            paged(
+                lambda start, limit: self.items(
+                    dict(params, StartIndex=start, Limit=limit)
                 ),
+                100,
+                what="playlists",
             )
-            if "Items" not in body or not isinstance(body["Items"], list):
-                raise HttpError(200, "playlists: response had no items list")
-            items = body["Items"]
-            new_on_page = 0
-            for item in items:
-                item_id = item.get("Id") or ""
-                if not item_id or item_id in seen:
-                    continue
-                seen.add(item_id)
-                new_on_page += 1
-                results.append(item)
-            total = int(body.get("TotalRecordCount") or 0)
-            # A first page with no items while the count says otherwise is the
-            # server contradicting itself, and [] reads downstream as "this
-            # account has no playlists", a deletion order for the managed
-            # folder. A genuinely empty account answers count 0.
-            if start == 0 and not items and total > 0:
-                raise HttpError(
-                    200,
-                    "playlists: TotalRecordCount %d but the first page "
-                    "was empty" % total,
-                )
-            start += len(items)
-            # Stop on an empty page, an exhausted count, or a page that added
-            # no new ids (the server repeating itself past the real set); a
-            # later empty page is the documented over-count.
-            if not items or start >= total or new_on_page == 0:
-                break
-        return results
+        )
 
     def create_playlist(self, name: str, ids: list[str], media_type: str) -> JsonDict:
         return self.post(

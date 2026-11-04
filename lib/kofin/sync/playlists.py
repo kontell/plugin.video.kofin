@@ -24,6 +24,7 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.core.api import paged
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.policy import reference_checksum
 from kofin.sync.nodes import fs, video
@@ -292,38 +293,19 @@ def playlist_side(media_type: str, items: Iterable[dict[str, Any]]) -> str | Non
 
 
 def _iter_playlist_items(api: Any, playlist_id: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    start = 0
-    while True:
-        body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
-        if "Items" not in body or not isinstance(body["Items"], list):
-            raise ValueError("playlist %s returned no items list" % playlist_id)
-        page = body["Items"]
-        if any(not isinstance(item, dict) for item in page):
-            raise ValueError("playlist %s returned malformed items" % playlist_id)
-        total = int(body.get("TotalRecordCount") or 0)
-        if start == 0 and not page and total > 0:
-            raise ValueError(
-                "playlist %s returned an incomplete first page" % playlist_id
-            )
-        if total > MAX_PLAYLIST_ITEMS:
-            raise ValueError(
-                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
-            )
-        if not page:
-            break
-        items.extend(page)
-        if len(page) < PAGE_SIZE:
-            # A short page is the end of the playlist, whatever the count says.
-            break
-        start += len(page)
-        if total and start >= total:
-            break
-        if start >= MAX_PLAYLIST_ITEMS:
-            raise ValueError(
-                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
-            )
-    return items
+    """Every entry of the playlist, in its order: an entry may repeat an item,
+    so nothing is deduplicated."""
+    return list(
+        paged(
+            lambda start, limit: api.playlist_items(
+                playlist_id, start_index=start, limit=limit
+            ),
+            PAGE_SIZE,
+            dedupe=False,
+            cap=MAX_PLAYLIST_ITEMS,
+            what="playlist %s" % playlist_id,
+        )
+    )
 
 
 def _read_text(path: str) -> str | None:
