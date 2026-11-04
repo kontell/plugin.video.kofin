@@ -192,7 +192,7 @@ class GoldenListItem(xbmcgui.ListItem):
     def setProperties(self, dictionary):
         self.golden["properties"].update(dictionary)
 
-    def setInfo(self, type, infoLabels):
+    def setInfo(self, type, infoLabels):  # Kodi's own spelling
         self.golden["info"][type] = dict(infoLabels)
 
     def addContextMenuItems(self, items, replaceItems=False):

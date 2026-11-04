@@ -4,9 +4,11 @@ The player owns its progress ticker (10s cadence), so the service loop does no
 playback polling. Foreign playback (anything not in the play queue) is ignored.
 """
 
+from __future__ import annotations
+
 import queue
 import threading
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 import xbmc
 import xbmcgui
@@ -88,7 +90,7 @@ class _Reporter(threading.Thread):
 
     def __init__(self) -> None:
         super().__init__(name="kofin-reporter", daemon=True)
-        self._jobs: queue.Queue[Optional[Callable[[], None]]] = queue.Queue()
+        self._jobs: queue.Queue[Callable[[], None] | None] = queue.Queue()
 
     def submit(self, job: Callable[[], None]) -> None:
         self._jobs.put(job)
@@ -121,20 +123,20 @@ class Player(xbmc.Player):
     def __init__(self, api: Api) -> None:
         super().__init__()
         self.api = api
-        self._item: Optional[JsonDict] = None
-        self._ticker: Optional[_Ticker] = None
+        self._item: JsonDict | None = None
+        self._ticker: _Ticker | None = None
         self._lock = threading.Lock()
         # Driven by SyncPlay; while True, Play Next is withheld — the group
         # queue is authoritative.
         self._syncplay_group_active = False
         # The SyncPlay manager, attached by the service when built.
-        self.syncplay: Optional[SyncPlayManager] = None
+        self.syncplay: SyncPlayManager | None = None
         # One per player, reset per playback (service/segments.py).
         self.segments = SegmentEngine(self, api)
         # The auto-next one-shot: the item id whose trigger crossing already
         # fired, latched before the lookup so a failed resolve never retries.
         self._auto_next_latch = ""
-        self._late_subs: Optional[latesubs.LateSubtitles] = None
+        self._late_subs: latesubs.LateSubtitles | None = None
         self._reporter = _Reporter()
         self._reporter.start()
         # Raised by stop_threads, and every Kodi callback is ignored from then
@@ -165,7 +167,7 @@ class Player(xbmc.Player):
         break regular playback reporting."""
         forward(self.syncplay, name, *args)
 
-    def current_item(self) -> Optional[JsonDict]:
+    def current_item(self) -> JsonDict | None:
         """The claimed play state of the current kofin playback (SyncPlay's
         identity source), or None for idle/foreign playback."""
         with self._lock:
@@ -631,7 +633,7 @@ class Player(xbmc.Player):
     def _notify(self, message: str, level: str = toast.INFO) -> None:
         toast.show(message, level, time_ms=3000)
 
-    def _claim(self) -> Optional[JsonDict]:
+    def _claim(self) -> JsonDict | None:
         """The claim for the playback that just started, or None.
 
         Runs inside onPlayBackStarted, i.e. on the service's own thread
@@ -644,7 +646,7 @@ class Player(xbmc.Player):
         waited = 0.0
         outcome = "timed out"
         kind = "none"
-        claimed: Optional[JsonDict] = None
+        claimed: JsonDict | None = None
         while waited < CLAIM_TIMEOUT_SECONDS:
             try:
                 current_file = self.getPlayingFile()
@@ -694,7 +696,7 @@ class Player(xbmc.Player):
         if self._item is not None and seconds >= 0:
             self._item["CurrentPosition"] = seconds
 
-    def _report(self, poster: Any, event: Optional[str]) -> None:
+    def _report(self, poster: Any, event: str | None) -> None:
         item = self._item
         if item is None:
             return
@@ -796,7 +798,7 @@ class _Ticker(threading.Thread):
                 LOG.warning("progress tick failed: %s", error)
 
 
-def _volume_state() -> "tuple[int, bool]":
+def _volume_state() -> tuple[int, bool]:
     result = kodirpc.call(
         "Application.GetProperties", {"properties": ["volume", "muted"]}
     )

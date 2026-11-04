@@ -17,11 +17,13 @@ bodies, content decoding — is either unused on kofin's API paths or
 deliberately out of scope (see the note on ``Accept-Encoding`` below).
 """
 
+from __future__ import annotations
+
 import http.client
 import json
 import ssl
 import threading
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode, urlsplit
 
 from kofin.core.http import (
@@ -57,7 +59,7 @@ class Response:
         status_code: int,
         content: bytes,
         url: str,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.status_code = status_code
         self.content = content
@@ -115,15 +117,15 @@ class StdlibHttp(Http):
                 LOG.debug("connection close failed: %s", error)
         self._local = threading.local()
 
-    def session(self) -> "requests.Session":
+    def session(self) -> requests.Session:
         raise RuntimeError("StdlibHttp has no requests session")
 
     def stream(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         start: int = 0,
-        timeout: Optional[tuple[float, float]] = None,
+        timeout: tuple[float, float] | None = None,
     ) -> StreamedResponse:
         raise RuntimeError("StdlibHttp does not stream; downloads run on the service")
 
@@ -191,11 +193,11 @@ class StdlibHttp(Http):
         self,
         method: str,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
-        json_body: Optional[dict[str, Any]] = None,
-        timeout: Optional[tuple[float, float]] = None,
-        retries: Optional[int] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        timeout: tuple[float, float] | None = None,
+        retries: int | None = None,
     ) -> Any:
         if retries is None:
             retries = METHOD_RETRIES.get(method.upper(), 0)
@@ -226,7 +228,7 @@ class StdlibHttp(Http):
         origin: tuple[str, str, int],
         method: str,
         target: str,
-        body: Optional[bytes],
+        body: bytes | None,
         headers: dict[str, str],
         connect_timeout: float,
         read_timeout: float,
@@ -266,9 +268,7 @@ class StdlibHttp(Http):
         return Response(raw.status, payload, url, dict(raw.getheaders()))
 
 
-def _split(
-    url: str, params: Optional[dict[str, Any]]
-) -> tuple[tuple[str, str, int], str]:
+def _split(url: str, params: dict[str, Any] | None) -> tuple[tuple[str, str, int], str]:
     """((scheme, host, port), request target) with ``params`` folded in."""
     parts = urlsplit(url)
     scheme = parts.scheme or "http"
@@ -289,10 +289,10 @@ def _split(
 
 
 def _body(
-    json_body: Optional[dict[str, Any]], headers: Optional[dict[str, str]]
-) -> tuple[Optional[bytes], dict[str, str]]:
+    json_body: dict[str, Any] | None, headers: dict[str, str] | None
+) -> tuple[bytes | None, dict[str, str]]:
     send_headers = dict(headers or {})
-    body: Optional[bytes] = None
+    body: bytes | None = None
     if json_body is not None:
         body = json.dumps(json_body).encode("utf-8")
         send_headers["Content-Type"] = "application/json"

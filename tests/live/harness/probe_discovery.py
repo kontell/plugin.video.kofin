@@ -41,7 +41,7 @@ arrivals = []
 started = time.time()
 try:
     found = discovery.scan(lambda entry: arrivals.append(time.time() - started))
-except Exception as error:
+except Exception as error:  # the whole point is to see it
     say("scan RAISED %r" % (error,))
     found = []
 elapsed = time.time() - started

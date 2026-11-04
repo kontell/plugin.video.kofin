@@ -220,7 +220,7 @@ def clear_library(native, library, kinds, rows=0):
                     "refresh": False,
                 },
             )
-        except BaseException as error:
+        except BaseException as error:  # handed to the caller, below
             failure.append(error)
 
     try:

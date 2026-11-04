@@ -8,9 +8,11 @@ a node menu, a settings button — import it through the Api plumbing all the
 same.
 """
 
+from __future__ import annotations
+
 import random
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 from collections.abc import Iterator
 
 from kofin.core.log import Logger
@@ -70,7 +72,7 @@ def run_ladder(
     retries: int,
     attempt: Callable[[], Any],
     transport_errors: tuple[type[BaseException], ...],
-    abort: Optional[Callable[[], bool]] = None,
+    abort: Callable[[], bool] | None = None,
 ) -> Any:
     """The one retry ladder both transports ride: backoff, the abort check
     between attempts, the per-request log line, and the status taxonomy.
@@ -78,7 +80,7 @@ def run_ladder(
     Abort is checked between attempts because Kodi will not finalise a
     script while a thread it started is alive.
     """
-    last_error: Optional[BaseException] = None
+    last_error: BaseException | None = None
     for attempt_index in range(retries + 1):
         if attempt_index:
             if abort is not None and abort():
@@ -150,7 +152,7 @@ def run_ladder(
     raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
-def plugin_transport(verify_ssl: bool = True) -> "Http":
+def plugin_transport(verify_ssl: bool = True) -> Http:
     """The transport for the *plugin* process.
 
     Standard library rather than ``requests``, because the requests import is
@@ -178,8 +180,8 @@ class StreamedResponse:
 
     def __init__(
         self,
-        response: "requests.Response",
-        abort: Optional[Callable[[], bool]],
+        response: requests.Response,
+        abort: Callable[[], bool] | None,
         already_complete: bool = False,
     ) -> None:
         self._response = response
@@ -227,16 +229,16 @@ class Http:
     """A lazily created, kept-alive requests session."""
 
     def __init__(
-        self, verify_ssl: bool = True, abort: Optional[Callable[[], bool]] = None
+        self, verify_ssl: bool = True, abort: Callable[[], bool] | None = None
     ) -> None:
         self._verify_ssl = verify_ssl
         # Asked between retries: True means give up rather than replay. Passed
         # in rather than read here so this module keeps its no-Kodi-imports
         # property; the service wires its stop flag in (service/main.py).
         self._abort = abort
-        self._session: Optional[requests.Session] = None
+        self._session: requests.Session | None = None
 
-    def session(self) -> "requests.Session":
+    def session(self) -> requests.Session:
         import requests
 
         if self._session is None:
@@ -268,18 +270,18 @@ class Http:
         self,
         method: str,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
-        json_body: Optional[dict[str, Any]] = None,
-        timeout: Optional[tuple[float, float]] = None,
-        retries: Optional[int] = None,
-    ) -> "requests.Response":
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        timeout: tuple[float, float] | None = None,
+        retries: int | None = None,
+    ) -> requests.Response:
         import requests
 
         if retries is None:
             retries = METHOD_RETRIES.get(method.upper(), 0)
 
-        def attempt() -> "requests.Response":
+        def attempt() -> requests.Response:
             # Redirects reach run_ladder's 3xx refusal like they do on the
             # stdlib transport, instead of being followed here alone.
             return self.session().request(
@@ -305,9 +307,9 @@ class Http:
     def stream(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         start: int = 0,
-        timeout: Optional[tuple[float, float]] = None,
+        timeout: tuple[float, float] | None = None,
     ) -> StreamedResponse:
         """One streaming GET — deliberately no retry ladder.
 
