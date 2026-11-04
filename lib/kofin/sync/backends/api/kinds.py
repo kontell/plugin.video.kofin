@@ -188,6 +188,9 @@ KINDS: dict[str, Kind] = {
     ),
 }
 
+# The kinds the pipeline files, in the table's order.
+NAMES = tuple(KINDS)
+
 # What a scope readback carries: enough to find a row, own it and see the
 # userdata a viewer may have changed, never the whole row. The full row is
 # read by id (or as one listing when most of a scope needs it) only for the
