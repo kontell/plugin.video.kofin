@@ -756,88 +756,101 @@ def play(request: Request) -> None:
                 url = deny_audio_stream_copy(url)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
-        if opened_live_stream:
-            # No play will report it, and the server keeps it, and the tuner
-            # behind it, until it is closed.
-            try:
-                api.close_live_stream(opened_live_stream)
-            except JellyfinError as close_error:
-                LOG.warning("live stream close failed: %s", close_error)
+        _close_live_stream(api, opened_live_stream)
         _fail(request)
         return
 
-    LOG.debug("play %s via %s%s", item_id, method, " (live)" if is_live else "")
-    # A resume point on the *resolved* item overrides the choice the user made
-    # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
-    # a resume regardless of the resume:true|false it just passed us, and then
-    # seeks — to the item's own point, or, when that point has no time on it,
-    # to the bookmark in Kodi's database. Nor can the point be cleared once
-    # stamped, so the play route states its start position up front and 0
-    # means the item is built without one.
-    li = listitems.build(item, api.server, resume_seconds=start_ticks / 10_000_000)
-    # Library-item paths carry the Kodi database id;
-    # stamping it on the tag links the playback to the library row for
-    # widgets invoked outside a library window.
-    if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
-        li.getVideoInfoTag().setDbId(int(dbid))
-    elif dbid.isdigit() and is_audio:
-        # setResolvedUrl replaces the library item's music tag wholesale, so
-        # the song's database id has to be restated or the link back to the
-        # Kodi row is lost for anything reading the tag.
-        li.getMusicInfoTag().setDbId(int(dbid), "song")
-    chapters = chapter_art(api, item, source, method)
-    if chapters:
-        li.setArt(chapters)
-    if not is_audio:
-        previews = scrub_previews(api, item, source, method)
-        if previews:
-            hand_over_scrub_previews(li, previews)
-    li.setPath(url)
-    mime = mime_for(source, method)
-    if mime:
-        li.setMimeType(mime)
-    li.setContentLookup(False)
-    if is_live:
-        li.setProperty(REALTIME_PROPERTY, "true")
-    # On a transcode this is the *only* way any subtitle reaches the screen —
-    # the transcoded stream carries none. The attached order is what the
-    # stream menu's ordinals map through (subtitles.localize).
-    attached = streams.attached_subtitles(
-        api.server, source, method, kodirpc.preferred_subtitle_language()
-    )
-    localized = (
-        subtitles.localize(http, attached) if attached else subtitles.Localized([], [])
-    )
-    if localized.files:
-        li.setSubtitles([path for _attachment, path in localized.files])
+    try:
+        LOG.debug("play %s via %s%s", item_id, method, " (live)" if is_live else "")
+        # A resume point on the *resolved* item overrides the choice the user made
+        # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
+        # a resume regardless of the resume:true|false it just passed us, and then
+        # seeks — to the item's own point, or, when that point has no time on it,
+        # to the bookmark in Kodi's database. Nor can the point be cleared once
+        # stamped, so the play route states its start position up front and 0
+        # means the item is built without one.
+        li = listitems.build(item, api.server, resume_seconds=start_ticks / 10_000_000)
+        # Library-item paths carry the Kodi database id;
+        # stamping it on the tag links the playback to the library row for
+        # widgets invoked outside a library window.
+        if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
+            li.getVideoInfoTag().setDbId(int(dbid))
+        elif dbid.isdigit() and is_audio:
+            # setResolvedUrl replaces the library item's music tag wholesale, so
+            # the song's database id has to be restated or the link back to the
+            # Kodi row is lost for anything reading the tag.
+            li.getMusicInfoTag().setDbId(int(dbid), "song")
+        chapters = chapter_art(api, item, source, method)
+        if chapters:
+            li.setArt(chapters)
+        if not is_audio:
+            previews = scrub_previews(api, item, source, method)
+            if previews:
+                hand_over_scrub_previews(li, previews)
+        li.setPath(url)
+        mime = mime_for(source, method)
+        if mime:
+            li.setMimeType(mime)
+        li.setContentLookup(False)
+        if is_live:
+            li.setProperty(REALTIME_PROPERTY, "true")
+        # On a transcode this is the *only* way any subtitle reaches the screen —
+        # the transcoded stream carries none. The attached order is what the
+        # stream menu's ordinals map through (subtitles.localize).
+        attached = streams.attached_subtitles(
+            api.server, source, method, kodirpc.preferred_subtitle_language()
+        )
+        localized = (
+            subtitles.localize(http, attached)
+            if attached
+            else subtitles.Localized([], [])
+        )
+        if localized.files:
+            li.setSubtitles([path for _attachment, path in localized.files])
 
-    play_item = play_state(
-        item,
-        source,
-        url,
-        method,
-        play_session_id,
-        creds.device_id,
-        start_ticks / 10_000_000,
-        attached=[attachment.stream_index for attachment, _path in localized.files],
-        deferred=localized.deferred,
-        fetchable=streams.fetchable_subtitles(api.server, source),
-        request_params=request.params,
-    )
-    if channel:
-        # The engine's spelling of live for kofin's own claim
-        # (syncplay/utils.py::claim_is_live): what makes the group position
-        # a source-clock anchor rather than a stream offset. A recording
-        # still being written is not live: its playlist starts where the
-        # recording does, so the player's time is a position in it, as
-        # pvr.kofin claims it.
-        play_item["Live"] = True
-    segments = _joined_segments(segments_thread, segments_box)
-    if segments is not None:
-        play_item["Segments"] = segments
-    state.push_play_item(play_item)
+        play_item = play_state(
+            item,
+            source,
+            url,
+            method,
+            play_session_id,
+            creds.device_id,
+            start_ticks / 10_000_000,
+            attached=[attachment.stream_index for attachment, _path in localized.files],
+            deferred=localized.deferred,
+            fetchable=streams.fetchable_subtitles(api.server, source),
+            request_params=request.params,
+        )
+        if channel:
+            # The engine's spelling of live for kofin's own claim
+            # (syncplay/utils.py::claim_is_live): what makes the group position
+            # a source-clock anchor rather than a stream offset. A recording
+            # still being written is not live: its playlist starts where the
+            # recording does, so the player's time is a position in it, as
+            # pvr.kofin claims it.
+            play_item["Live"] = True
+        segments = _joined_segments(segments_thread, segments_box)
+        if segments is not None:
+            play_item["Segments"] = segments
+        state.push_play_item(play_item)
+    except Exception:
+        # Nothing will play or report what PlaybackInfo opened.
+        _close_live_stream(api, opened_live_stream)
+        raise
 
     _resolve_to(request, li, url)
+
+
+def _close_live_stream(api: Api, live_stream_id: str) -> None:
+    """Close a live stream PlaybackInfo opened for a play that will not
+    happen: the server keeps it, and the tuner behind it, until a session
+    report names it or it is closed."""
+    if not live_stream_id:
+        return
+    try:
+        api.close_live_stream(live_stream_id)
+    except Exception as error:
+        LOG.warning("live stream close failed: %s", error)
 
 
 def _fail(request: Request, message_id: int = 30018) -> None:

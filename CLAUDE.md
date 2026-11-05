@@ -956,8 +956,11 @@ What remains is kofin's own:
   `service/player.py::name_live_stream`). Jellyfin closes a live stream, and frees the tuner
   behind it, at stop or when the session ends only when a report names it, and a transcoding
   URL that carries `LiveStreamId` leaves the stream open when its job ends
-  (`StreamState.Dispose`). A resolve that fails after `PlaybackInfo` opened one closes it
-  (`Api.close_live_stream`).
+  (`StreamState.Dispose`). A resolve that fails at any step after `PlaybackInfo` opened one
+  closes it (`Api.close_live_stream`), and so does a stop whose report fails, since the parked
+  stop keeps the position alone. A queued play that names one leaves the play queue only by
+  its claim or by the service's sweep, which closes it first (`state.close_stale_live_streams`,
+  after a minute unclaimed): expiry, a claim's older duplicates and a clear leave it in place.
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

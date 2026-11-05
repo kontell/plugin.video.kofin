@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import TYPE_CHECKING, Any, Callable
 
 import xbmc
@@ -38,6 +39,9 @@ JsonDict = dict[str, Any]
 PROGRESS_INTERVAL_SECONDS = 10.0
 PLUGIN_URL = "plugin://plugin.video.kofin/"
 CLAIM_TIMEOUT_SECONDS = 10.0
+# How often the service closes the live streams of plays Kodi never started
+# (state.close_stale_live_streams).
+LIVE_SWEEP_SECONDS = 15.0
 # How long _claim waits for an audio or downloaded-video claim to be queued
 # before calling the playback foreign.
 BACKFILL_GRACE_SECONDS = 3.0
@@ -147,6 +151,7 @@ class Player(xbmc.Player):
         self._late_subs: latesubs.LateSubtitles | None = None
         self._reporter = _Reporter()
         self._reporter.start()
+        self._last_live_sweep = 0.0
         # Raised by stop_threads, and every Kodi callback is ignored from then
         # on. Kodi calls a Player until the object is freed, and a stopped
         # generation outlives its run (Service.onNotification says why).
@@ -390,6 +395,7 @@ class Player(xbmc.Player):
             "PositionTicks": int(item["CurrentPosition"] * 10_000_000),
         }
         name_live_stream(stop_data, item)
+        live_stream_id = item.get("LiveStreamId")
         close_encoding = item.get("PlayMethod") == "Transcode"
         device_id = item.get("DeviceId", "")
         play_session_id = item["PlaySessionId"]
@@ -414,6 +420,14 @@ class Player(xbmc.Player):
                     )
                 except Exception:  # pragma: no cover - defensive
                     LOG.exception("could not park the stop position")
+                if live_stream_id:
+                    # The parked stop carries the position alone, and the
+                    # report that named the stream was what would have closed
+                    # it on the server.
+                    try:
+                        self.api.close_live_stream(live_stream_id)
+                    except Exception as close_error:
+                        LOG.warning("live stream close failed: %s", close_error)
             if close_encoding:
                 try:
                     self.api.close_transcode(device_id, play_session_id)
@@ -423,6 +437,21 @@ class Player(xbmc.Player):
         self._reporter.submit(post_stop)
         state.clear_playing_id()
         state.clear_playing_streams()
+
+    def sweep_live_streams(self) -> None:
+        """Close the live streams of plays Kodi never started, at most every
+        LIVE_SWEEP_SECONDS and on the reporter's thread: no claim will report
+        them (state.close_stale_live_streams)."""
+        now = time.monotonic()
+        if now - self._last_live_sweep < LIVE_SWEEP_SECONDS:
+            return
+        self._last_live_sweep = now
+        self._reporter.submit(self._close_stale_live_streams)
+
+    def _close_stale_live_streams(self) -> None:
+        closed = state.close_stale_live_streams(self.api.close_live_stream)
+        if closed:
+            LOG.debug("closed the live streams of unclaimed plays: %s", closed)
 
     def stop_threads(self) -> None:
         """Service shutdown: stop the ticker and checker without reporting."""

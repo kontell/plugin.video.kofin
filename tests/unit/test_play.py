@@ -1484,6 +1484,28 @@ def test_a_failed_resolve_closes_the_live_stream_it_opened(live_env):
     assert live_env["li"].path == ""  # nothing was resolved
 
 
+def test_a_failure_after_playback_info_closes_the_live_stream(live_env, monkeypatch):
+    """Nothing will play or report what PlaybackInfo opened."""
+    api = live_env["api"]
+    closed = []
+    api.close_live_stream = closed.append
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        return info
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the ListItem could not be built")
+
+    api.playback_info = playback_info
+    monkeypatch.setattr(play.listitems, "build", broken)
+    with pytest.raises(RuntimeError):
+        run_play({"id": "c1"}, resume=False)
+    assert closed == ["ls1"]
+
+
 def test_an_item_on_demand_names_no_live_stream(resume_env):
     from kofin.core import state
 

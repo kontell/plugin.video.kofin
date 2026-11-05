@@ -28,6 +28,9 @@ class RecordingApi:
     def close_transcode(self, device_id, play_session_id):
         self.calls.append(("close_transcode", device_id))
 
+    def close_live_stream(self, live_stream_id):
+        self.calls.append(("close_live_stream", live_stream_id))
+
 
 class FakeMonitor:
     def waitForAbort(self, seconds=0):
@@ -145,6 +148,54 @@ def test_a_live_play_names_its_live_stream_in_every_report(monkeypatch):
 
     assert [kind for kind, _data in api.calls] == ["playing", "progress", "stopped"]
     assert all(data["LiveStreamId"] == "ls1" for _kind, data in api.calls)
+
+
+def test_a_failed_stop_report_closes_the_live_stream(monkeypatch):
+    """The parked stop carries the position alone, and the report that named
+    the stream was what would have closed it on the server."""
+    player, api = make_player(monkeypatch)
+    queue_item(LiveStreamId="ls1")
+    player.onPlayBackStarted()
+    drain(player)
+
+    def refuse(data):
+        raise RuntimeError("server unreachable")
+
+    api.session_stopped = refuse
+    monkeypatch.setattr("kofin.downloads.pending.enqueue", lambda *a, **k: None)
+    player.onPlayBackStopped()
+    drain(player)
+
+    assert ("close_live_stream", "ls1") in api.calls
+
+
+def test_the_sweep_closes_the_live_streams_of_plays_kodi_never_started(
+    monkeypatch, tmp_path
+):
+    import json
+    import time
+
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    monkeypatch.setattr(state, "_queue_dir", lambda: str(queue))
+
+    def stale(name, live_stream_id):
+        stamp = time.time_ns() - (state.PLAY_QUEUE_LIVE_TTL_SECONDS + 5) * 1_000_000_000
+        (queue / ("%019d-%s.json" % (stamp, name))).write_text(
+            json.dumps({"Path": "http://" + name, "LiveStreamId": live_stream_id})
+        )
+
+    player, api = make_player(monkeypatch)
+    stale("a", "ls1")
+    player.sweep_live_streams()
+    drain(player)
+    assert ("close_live_stream", "ls1") in api.calls
+
+    # At most every LIVE_SWEEP_SECONDS.
+    stale("b", "ls2")
+    player.sweep_live_streams()
+    drain(player)
+    assert ("close_live_stream", "ls2") not in api.calls
 
 
 def test_callbacks_return_while_the_post_is_still_in_flight(monkeypatch):
