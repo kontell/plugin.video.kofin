@@ -51,6 +51,9 @@ JsonDict = dict[str, Any]
 
 MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode", "Audio": "song"}
 
+# In addon_data: the folder the done rows were downloaded to (_root_in_hand).
+ROOT_MEMORY = "downloads-root"
+
 # What each worker pool claims. "" is the unknown kind — a row queued by a
 # release that did not carry the type, or by a sender that had no DTO — and
 # it belongs to the video pool, whose pacing already assumes an item might
@@ -171,6 +174,10 @@ class DownloadManager:
         self._playlist_dirty: set[str] = set()
         self._dirty_since = 0.0
         self._dirty_lock = threading.Lock()
+        # The remembered folder (_remembered_root) and the claim of a new one
+        # are read and moved under this lock, by the workers and the sweep.
+        self._root_lock = threading.Lock()
+        self._root_memory: Optional[str] = None  # None: not read yet
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
@@ -641,6 +648,27 @@ class DownloadManager:
             include_embedded=not original,
         )
         os.replace(part, absolute)
+        if settings.available() and not _same_folder(downloads_root(), root):
+            # The location moved while this downloaded. The file stays where
+            # it landed, and the row leaves as a previous location's rows do:
+            # unwatched, and without a toast.
+            LOG.debug(
+                "download of %s landed in %s, no longer the downloads folder; "
+                "not tracked",
+                item_id,
+                root,
+            )
+            store.remove(item_id)
+            return
+        if not self._claim_root(root):
+            LOG.warning(
+                "download of %s landed in %s, which holds no download and no "
+                "marker (a drive that is not mounted); not tracked",
+                item_id,
+                root,
+            )
+            store.remove(item_id)
+            return
         store.finish(item_id, rel_path, container, actual)
         # Spent: a cancel that arrived after the check above completed
         # anyway, and left in the set it would cancel the *next* download
@@ -1111,6 +1139,7 @@ class DownloadManager:
         got."""
         try:
             root = downloads_root()
+            in_hand = self._root_in_hand(root)
             touched = False
             songs = False
             repointed_songs: set[str] = set()
@@ -1122,8 +1151,11 @@ class DownloadManager:
                 if absolute is None:
                     continue  # outside the folder: not kofin's file to look at
                 if not absolute or not os.path.exists(absolute):
-                    self._handle_vanished(row, root)
-                    touched = True
+                    # Asked again for every missing file: a drive that goes
+                    # during the walk takes its marker with it.
+                    if in_hand and self._root_in_hand(root):
+                        self._handle_vanished(row, root)
+                        touched = True
                     continue
                 if self.native.attached(row, root):
                     touched = True
@@ -1156,6 +1188,103 @@ class DownloadManager:
         self._mark_dirty(row.media_type)
         if row.media_type == "song":
             self._mark_playlist_dirty(row.jellyfin_id)
+
+    def _root_in_hand(self, root: str) -> bool:
+        """Whether a done row's file missing under ``root`` was deleted.
+
+        Only in the remembered folder (``_remembered_root``) while its marker
+        (``files.MARKER``) says the volume is mounted. With no folder
+        remembered yet, ``root`` is adopted when it already holds a done
+        row's file: the folder of a build from before the marker. Anything
+        else (a drive not mounted, a new folder that is not claimed yet, a
+        settings store that cannot be read and so names the default folder)
+        is not a deletion.
+        """
+        if not settings.available() or not os.path.isdir(root):
+            return False
+        with self._root_lock:
+            remembered = self._remembered_root()
+            if remembered is not None:
+                return _same_folder(remembered, root) and files.has_marker(root)
+            if self._holds_a_download(root) and files.write_marker(root):
+                self._remember_root(root)
+                return True
+        LOG.debug(
+            "downloads folder %s holds no download yet; missing files left alone", root
+        )
+        return False
+
+    def _claim_root(self, root: str) -> bool:
+        """Remember ``root``, which a download has just landed in, before its
+        row is done; False when the download must not be finished there.
+
+        A done row whose file is not there was downloaded to the folder the
+        location named before. It leaves without being marked watched, since
+        once the folder is remembered the sweep would read it as deleted.
+        With no folder remembered yet, a ``root`` that already holds a done
+        row's file is the folder of a build from before the marker, and keeps
+        its rows.
+        """
+        if not settings.available():
+            return True
+        with self._root_lock:
+            remembered = self._remembered_root()
+            if remembered is not None and _same_folder(remembered, root):
+                if files.has_marker(root):
+                    return True
+                # The marker lives on the volume. With none of the done rows'
+                # files here either, this is the mount point of a drive that
+                # is not mounted: a marker would make every row a deletion, and
+                # a row finished here would be one once the drive is back.
+                if self._holds_a_download(root) or not store.rows(store.DONE):
+                    files.write_marker(root)
+                    return True
+                return False
+            if remembered is not None or not self._holds_a_download(root):
+                for row in store.rows(store.DONE):
+                    if _present(root, row):
+                        continue
+                    LOG.debug(
+                        "download of %s is not in %s; no longer tracked",
+                        row.jellyfin_id,
+                        root,
+                    )
+                    store.remove(row.jellyfin_id)
+                    self.native.detached(row)
+                    self._mark_dirty(row.media_type)
+                    if row.media_type == "song":
+                        self._mark_playlist_dirty(row.jellyfin_id)
+            if files.write_marker(root):
+                self._remember_root(root)
+            return True
+
+    @staticmethod
+    def _holds_a_download(root: str) -> bool:
+        return any(_present(root, row) for row in store.rows(store.DONE))
+
+    def _remembered_root(self) -> Optional[str]:
+        """The folder the done rows were downloaded to. It is kept in
+        addon_data, where a drive that is not mounted cannot take it away.
+        Called under ``_root_lock``."""
+        if self._root_memory is None:
+            try:
+                with open(_root_memory_path(), encoding="utf-8") as stored:
+                    self._root_memory = stored.read().strip()
+            except OSError:
+                self._root_memory = ""
+        return self._root_memory or None
+
+    def _remember_root(self, root: str) -> None:
+        """Called under ``_root_lock``."""
+        folder = os.path.normpath(root)
+        path = _root_memory_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as stored:
+                stored.write(folder)
+        except OSError as error:
+            LOG.warning("could not record the downloads folder: %s", error)
+        self._root_memory = folder
 
     def _mark_watched(self, row: "store.Download") -> None:
         """Mark a vanished download watched, here and on the server.
@@ -1205,6 +1334,8 @@ class DownloadManager:
         runs only at start."""
         try:
             root = downloads_root()
+            if not self._root_in_hand(root):
+                return
             touched = False
             songs = False
             for row in store.rows(store.DONE):
@@ -1219,6 +1350,8 @@ class DownloadManager:
                     # blinking); tearing the row down under the player would
                     # turn a stutter into a lost download.
                     continue
+                if not self._root_in_hand(root):
+                    continue  # the folder went during the walk
                 songs = songs or row.media_type == "song"
                 self._handle_vanished(row, root)
                 touched = True
@@ -1664,3 +1797,20 @@ def _prune_empty_dirs(directory: str, floor: str) -> None:
         except OSError:
             return
         current = os.path.dirname(current)
+
+
+def _present(root: str, row: "store.Download") -> bool:
+    """Whether the row's file is in ``root``. A stored path outside the
+    folder is not, and is never looked at."""
+    absolute = files.path_in(root, row.rel_path) if row.rel_path else None
+    return absolute is not None and os.path.exists(absolute)
+
+
+def _same_folder(first: str, second: str) -> bool:
+    return os.path.normpath(first) == os.path.normpath(second)
+
+
+def _root_memory_path() -> str:
+    from kofin.sync import private
+
+    return os.path.join(private.addon_data_path(), ROOT_MEMORY)

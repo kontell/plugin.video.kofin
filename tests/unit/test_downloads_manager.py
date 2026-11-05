@@ -5,10 +5,12 @@ Api and duck-typed streams; the library side is recorded, not executed
 (test_downloads_native_api covers it)."""
 
 import os
+import shutil
 
 import pytest
 
 from kofin.core.http import JellyfinError, Unauthorized
+from kofin.downloads import files
 from kofin.downloads import manager as manager_module
 from kofin.downloads import store
 from kofin.downloads.manager import DownloadManager
@@ -631,6 +633,25 @@ def test_a_stored_target_outside_the_folder_is_decided_again(tmp_path, repoints)
     assert manager_module.files.contained(finished.rel_path)
     assert stray.read_bytes() == b"from an earlier build"
     assert api.stream_calls == [0]  # not resumed from the stray part
+
+
+def test_a_done_row_outside_the_folder_leaves_the_folder_checks_working(
+    tmp_path, repoints, vanished
+):
+    """A stored path outside the folder is neither a download the folder
+    holds nor an error: a claim and the sweep go on past it."""
+    manager, _ = make_manager(repoints)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)
+    (tmp_path / "outside.mkv").write_bytes(b"not kofin's")
+    queue_row("x1", media_type="movie")
+    store.finish("x1", OUTSIDE, "mkv", 1)
+
+    _new_download(manager)
+    manager._sweep_vanished()
+
+    assert store.get("m1").state == store.DONE
+    assert (tmp_path / "outside.mkv").read_bytes() == b"not kofin's"
+    assert vanished["pushed"] == [] and vanished["local"] == []
 
 
 def test_a_done_row_outside_the_folder_is_left_alone(tmp_path, repoints, vanished):
@@ -2160,6 +2181,230 @@ def test_the_sweep_notices_a_file_deleted_after_the_service_started(
     assert store.get("m1") is None
     assert vanished["pushed"] == ["m1"]
     assert refreshes == [["video"]]
+
+
+def _done(root, rel, item_id, media_type="movie"):
+    (root / rel).parent.mkdir(parents=True, exist_ok=True)
+    (root / rel).write_bytes(b"x")
+    queue_row(item_id, media_type=media_type)
+    store.finish(item_id, rel, "mkv", 1)
+
+
+def test_a_new_download_location_leaves_the_old_downloads_unwatched(
+    tmp_path, repoints, vanished
+):
+    """The old files stay where they are. Neither the sweep nor the first
+    download into the new folder may read them as deleted by hand."""
+    manager, _refreshes = make_manager(repoints)
+    old = tmp_path / "dl"
+    _done(old, "Movies/Old (2019)/Old (2019).mkv", "old1")
+    _done(old, "Shows/S/Season 01/S01E01.mkv", "old2", "episode")
+    manager._sweep_vanished()
+    assert (old / files.MARKER).exists()
+
+    FakeAddon.store["downloadsPath"] = str(tmp_path / "elsewhere")
+    manager._reconcile_once()
+    manager._sweep_vanished()
+
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"old1", "old2"}
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcd", b"efgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    manager._process(api, queue_row())
+    manager._sweep_vanished()
+
+    assert [row.jellyfin_id for row in store.rows(store.DONE)] == ["m1"]
+    assert sorted(repoints["unbadge"]) == ["old1", "old2"]
+    assert vanished["pushed"] == [] and vanished["local"] == []
+    assert (old / "Movies/Old (2019)/Old (2019).mkv").exists()
+    assert (tmp_path / "elsewhere" / files.MARKER).exists()
+
+
+def test_a_downloads_drive_that_is_not_mounted_is_not_a_deletion(
+    tmp_path, repoints, vanished
+):
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
+    _done(root, "Shows/S/Season 01/S01E02.mkv", "e2", "episode")
+    manager._sweep_vanished()
+
+    shutil.move(str(root), str(tmp_path / "unplugged"))
+    manager._reconcile_once()
+    manager._sweep_vanished()
+    root.mkdir()  # the empty mount point
+    manager._sweep_vanished()
+
+    assert len(store.rows(store.DONE)) == 2
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
+def _new_download(manager, on_chunk=None, item_id="m1", name="The Movie"):
+    stream = FakeStream(
+        200,
+        [b"abcd", b"efgh"],
+        {
+            "Content-Length": "8",
+            "Content-Disposition": 'attachment; filename="%s (2019).mkv"' % name,
+        },
+    )
+    stream.on_chunk = on_chunk
+    item = dict(MOVIE_DTO, Id=item_id, Name=name)
+    manager._process(FakeManagerApi(item, [stream]), queue_row(item_id))
+
+
+def test_a_download_that_lands_after_the_location_moved_is_not_tracked(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """The location changed while it downloaded: the file stays where it
+    landed, and the row leaves as a previous location's rows do. Finished,
+    the row would sit under no file of the new folder, and its first sweep
+    would read that as a deletion."""
+    manager, _refreshes = make_manager(repoints)
+    old = tmp_path / "dl"
+    _done(old, "Movies/Old (2019)/Old (2019).mkv", "old1")
+    manager._sweep_vanished()
+    announced = []
+    monkeypatch.setattr(
+        DownloadManager, "_announce_complete", lambda self, *a: announced.append(a)
+    )
+
+    def move(index):
+        FakeAddon.store["downloadsPath"] = str(tmp_path / "elsewhere")
+
+    _new_download(manager, on_chunk=move)
+
+    assert store.get("m1") is None
+    assert announced == []
+    assert any(
+        name.endswith(".mkv")
+        for _, _, names in os.walk(old / "Movies" / "The Movie (2019)")
+        for name in names
+    )
+    (tmp_path / "elsewhere").mkdir()
+    manager._sweep_vanished()
+    assert store.get("old1").state == store.DONE
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
+def test_a_new_folder_that_holds_some_downloads_is_not_adopted(
+    tmp_path, repoints, vanished
+):
+    """A copy onto another disk, part way through: the files not there yet
+    are not deletions."""
+    manager, _refreshes = make_manager(repoints)
+    old = tmp_path / "dl"
+    _done(old, "Movies/One (2019)/One (2019).mkv", "one")
+    _done(old, "Movies/Two (2019)/Two (2019).mkv", "two")
+    manager._sweep_vanished()
+    copy = tmp_path / "copy"
+    (copy / "Movies/One (2019)").mkdir(parents=True)
+    shutil.copy(old / "Movies/One (2019)/One (2019).mkv", copy / "Movies/One (2019)")
+
+    FakeAddon.store["downloadsPath"] = str(copy)
+    manager._reconcile_once()
+    manager._sweep_vanished()
+
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"one", "two"}
+    assert vanished["pushed"] == [] and vanished["local"] == []
+    assert not (copy / files.MARKER).exists()
+
+
+def test_the_first_download_of_an_upgrade_keeps_the_folder_it_found(
+    tmp_path, repoints, vanished
+):
+    """No folder remembered yet, and the folder holds a download from before
+    the marker: it is that folder, so its rows stay and a file missing from
+    it is a deletion, whichever of a download and the sweep comes first."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Movies/Kept (2019)/Kept (2019).mkv", "kept")
+    queue_row("gone", media_type="movie")
+    store.finish("gone", "Movies/Gone (2019)/Gone (2019).mkv", "mkv", 1)
+
+    _new_download(manager)
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "gone", "m1"}
+
+    manager._sweep_vanished()
+    assert vanished["local"] == ["gone"]
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "m1"}
+
+
+def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
+    tmp_path, repoints, vanished
+):
+    """The drive is out, its mount point is an empty folder at the
+    remembered path, and downloads land there. None is finished, or the
+    next one would find its file and mark the empty mount; each file stays
+    where it landed, and the sweep still reads the drive as not mounted."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
+    _done(root, "Shows/S/Season 01/S01E02.mkv", "e2", "episode")
+    manager._sweep_vanished()
+    shutil.move(str(root), str(tmp_path / "unplugged"))
+    root.mkdir()
+
+    _new_download(manager, item_id="m1", name="First")
+    _new_download(manager, item_id="m2", name="Second")
+    manager._sweep_vanished()
+
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2"}
+    assert store.get("m1") is None and store.get("m2") is None
+    assert vanished["pushed"] == [] and vanished["local"] == []
+    assert not (root / files.MARKER).exists()
+    landed = [name for _, _, names in os.walk(root) for name in names]
+    assert sorted(landed) == ["First (2019).mkv", "Second (2019).mkv"]
+
+
+def test_a_folder_that_goes_during_the_walk_stops_counting_deletions(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """The drive is mounted for the first check and gone by the files after
+    it: what is missing then is the drive, not the files."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
+    _done(root, "Shows/S/Season 01/S01E02.mkv", "e2", "episode")
+    manager._sweep_vanished()
+    for rel in ("Shows/S/Season 01/S01E01.mkv", "Shows/S/Season 01/S01E02.mkv"):
+        (root / rel).unlink()
+
+    def unmount(self, row):
+        (root / files.MARKER).unlink(missing_ok=True)
+        return False
+
+    monkeypatch.setattr(DownloadManager, "_playing_now", unmount)
+    manager._sweep_vanished()
+    manager._reconcile_once()
+
+    assert len(store.rows(store.DONE)) == 2
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
+def test_a_settings_store_that_cannot_be_read_is_not_a_deletion(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """Unreadable, the location reads empty and names the default folder."""
+    manager, _refreshes = make_manager(repoints)
+    _done(tmp_path / "dl", "Movies/M (2019)/M (2019).mkv", "m1")
+    manager._sweep_vanished()
+
+    monkeypatch.setattr(manager_module.settings, "available", lambda: False)
+    FakeAddon.store["downloadsPath"] = ""
+    manager._sweep_vanished()
+
+    assert store.get("m1").state == store.DONE
+    assert vanished["pushed"] == []
 
 
 def test_the_sweep_leaves_the_file_being_played_alone(

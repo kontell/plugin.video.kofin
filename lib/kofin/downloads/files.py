@@ -250,3 +250,25 @@ def path_in(root: str, rel_path: str) -> Optional[str]:
 def part_path(root: str, rel_path: str) -> str:
     """The in-flight sibling ``absolute_path`` lands as."""
     return absolute_path(root, rel_path) + ".part"
+
+
+# Names a folder as the downloads root kofin wrote to. A done row whose file
+# is missing counts as deleted by hand only inside a folder that carries it:
+# without it the folder is a drive that is not mounted, or a location changed
+# to another folder.
+MARKER = ".kofin-downloads"
+
+
+def has_marker(root: str) -> bool:
+    return os.path.isfile(os.path.join(root, MARKER))
+
+
+def write_marker(root: str) -> bool:
+    """Mark ``root``; False when the folder cannot be written."""
+    try:
+        with open(os.path.join(root, MARKER), "a", encoding="utf-8"):
+            pass
+    except OSError as error:
+        LOG.debug("could not mark %s as the downloads folder: %s", root, error)
+        return False
+    return True
