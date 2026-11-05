@@ -217,6 +217,7 @@ class Store(Catalogue):
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS api_held(
                 setting TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_rescan(source TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS api_library(
                 namespace TEXT NOT NULL, library TEXT NOT NULL,
                 scanner INTEGER NOT NULL,
@@ -445,6 +446,33 @@ class Store(Catalogue):
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("DELETE FROM api_held WHERE setting=?", (setting,))
+
+    # -- video sources a removal owes a scan ---------------------------------
+
+    def owe_scans(self, sources: Iterable[str]) -> None:
+        """Record the video sources whose rows a removal is about to delete
+        with ours: Kodi forgets their folders' hashes as it deletes, and only
+        a scan of the source files them again. Recorded before the delete,
+        the scan is owed whatever stops the pass after it."""
+        rows = [(source,) for source in sources]
+        if not rows:
+            return
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.executemany("INSERT OR IGNORE INTO api_rescan VALUES (?)", rows)
+
+    def owed_scans(self) -> list[str]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT source FROM api_rescan ORDER BY source"
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def settle_scan(self, source: str) -> None:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("DELETE FROM api_rescan WHERE source=?", (source,))
 
     # -- lifecycle -----------------------------------------------------------
 

@@ -215,9 +215,10 @@ class Kodi:
 
     def scan(self, directory):
         self.scanned.append(directory)
-        if directory == native.NOWHERE:
-            # A directory that is not there: nothing is walked, and the scan
-            # ends with the announcement all the same.
+        if directory == native.NOWHERE or paths.parse(directory) is None:
+            # A directory that is not there, or another source's, whose rows
+            # are not modelled: nothing is walked, and the scan ends with the
+            # announcement all the same.
             self.monitor.finished += 1
             return
         self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
