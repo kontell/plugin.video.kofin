@@ -45,6 +45,28 @@ class FakeMonitor:
         return False
 
 
+class FakeKeyboard:
+    """Each keyboard opened takes the next (confirmed, text) answer."""
+
+    answers = []
+    opened = []
+
+    def __init__(self, line="", heading="", hidden=False):
+        FakeKeyboard.opened.append((heading, hidden))
+        self._answer = (
+            FakeKeyboard.answers.pop(0) if FakeKeyboard.answers else (False, "")
+        )
+
+    def doModal(self, autoclose=0):
+        pass
+
+    def isConfirmed(self):
+        return self._answer[0]
+
+    def getText(self):
+        return self._answer[1]
+
+
 # Strings used with %-formatting need placeholder-correct fakes.
 TEXTS = {
     30015: "code %s",
@@ -63,10 +85,13 @@ def kodi_fakes(monkeypatch):
     FakeDialog.selects = []
     FakeDialog.yesno_answer = True
     FakeDialog.notifications = []
+    FakeKeyboard.answers = []
+    FakeKeyboard.opened = []
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Dialog", FakeDialog)
     monkeypatch.setattr("xbmcgui.DialogProgress", FakeProgress)
     monkeypatch.setattr("xbmc.Monitor", FakeMonitor)
+    monkeypatch.setattr("xbmc.Keyboard", FakeKeyboard)
     monkeypatch.setattr(account, "_text", lambda sid: TEXTS.get(sid, "msg"))
     sent = []
     monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: sent.append(cmd))
@@ -91,7 +116,8 @@ REQ = Request("plugin://plugin.video.kofin/", -1, {})
 def test_login_password_happy_path(kodi_fakes, server, monkeypatch):
     monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
     settings.set_str("serverAddress", "minipie")
-    FakeDialog.inputs = ["conor", "secretpw"]
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "secretpw")]
 
     account.login(REQ)
 
@@ -102,6 +128,54 @@ def test_login_password_happy_path(kodi_fakes, server, monkeypatch):
     assert creds.server_name == "minipie"
     assert creds.display_user == "conor"
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)
+    # The password is typed on a hidden keyboard.
+    assert [hidden for _heading, hidden in FakeKeyboard.opened] == [True]
+
+
+def test_cancelling_the_password_sends_no_attempt(kodi_fakes, monkeypatch):
+    """Back out of the password keyboard is not an empty password: nothing
+    reaches the server, where a failed attempt counts toward a lockout and an
+    account without a password would be signed in."""
+    monkeypatch.setattr(
+        account.auth, "public_info", lambda h, a: {"ServerName": "minipie"}
+    )
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    attempts = []
+    monkeypatch.setattr(
+        account.auth,
+        "authenticate_password",
+        lambda h, a, hdr, u, p: attempts.append((u, p)),
+    )
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(False, "")]
+
+    account.login(REQ)
+
+    assert attempts == []
+    assert settings.Credentials.load().is_logged_in is False
+    assert not any("AuthChanged" in cmd for cmd in kodi_fakes)
+
+
+def test_an_empty_password_confirmed_is_sent(kodi_fakes, server, monkeypatch):
+    """A Jellyfin account may have no password, and OK on an empty keyboard
+    is that password."""
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    sent = []
+
+    def authenticate(h, a, hdr, u, p):
+        sent.append(p)
+        return auth.AuthResult("tok9", "uid9", u, "srv9")
+
+    monkeypatch.setattr(account.auth, "authenticate_password", authenticate)
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "")]
+
+    account.login(REQ)
+
+    assert sent == [""]
+    assert settings.Credentials.load().is_logged_in is True
 
 
 def test_login_quick_connect_path(kodi_fakes, server, monkeypatch):
@@ -138,7 +212,8 @@ def test_login_wrong_password_leaves_logged_out(kodi_fakes, monkeypatch):
 
     monkeypatch.setattr(account.auth, "authenticate_password", raise_unauthorized)
     settings.set_str("serverAddress", "minipie")
-    FakeDialog.inputs = ["conor", "wrong"]
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "wrong")]
 
     account.login(REQ)
 

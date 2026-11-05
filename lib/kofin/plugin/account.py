@@ -132,8 +132,15 @@ def _login_password(
     username = xbmcgui.Dialog().input(_text(30013))
     if not username:
         return None
-    password = xbmcgui.Dialog().input(_text(30014), option=xbmcgui.ALPHANUM_HIDE_INPUT)
-    return auth.authenticate_password(transport, address, header, username, password)
+    # Dialog.input answers "" both for a cancel and for an empty password,
+    # which a Jellyfin account may have; the keyboard says which it was.
+    keyboard = xbmc.Keyboard(heading=_text(30014), hidden=True)
+    keyboard.doModal()
+    if not keyboard.isConfirmed():
+        return None
+    return auth.authenticate_password(
+        transport, address, header, username, keyboard.getText()
+    )
 
 
 def _login_quick_connect(
