@@ -7,9 +7,11 @@ resume position" — write straight into MyVideos and announce
     play count   {"item": {"id": 5910, "type": "episode"}, "playcount": 1}
     resume reset {"id": 5910, "type": "episode"}
 
-The flat one carries identity and nothing else — Kodi only ever emits it from
-its resume-bookmark delete — so the position is read back out of Kodi rather
-than inferred from the shape.
+The flat one carries identity and nothing else, and Kodi emits it for a change
+of art or title as well as for its resume-bookmark delete
+(``UpdateArtForItem``, ``UpdateFanart``, ``UpdateMovieTitle``,
+``UpdateVideoSortTitle``). So the position is read back out of Kodi, and the
+announcement is a reset only when the row now has none where kofin filed one.
 
 Kofin's own writes announce too: ``Store.is_echo`` filters them out, and the
 user's edits are queued durably in kofin.db for the server.
@@ -17,12 +19,15 @@ user's edits are queued durably in kofin.db for the server.
 
 import queue
 import threading
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from kofin.core import kodirpc
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+
+if TYPE_CHECKING:
+    from kofin.sync.backends.api.store import Store
 
 LOG = Logger(__name__)
 
@@ -143,6 +148,16 @@ class KodiUserData:
             position = kodirpc.resume_seconds(kodi_id, media)
             if position is None:
                 return
+            if position or not _filed_position(store, item_id):
+                return
             if store.is_echo(item_id, "resume", {"position": position}):
                 return
             store.local(item_id, {"position": position})
+
+
+def _filed_position(store: "Store", item_id: str) -> float:
+    """The resume position kofin last filed on the item's row; 0.0 for none."""
+    mapping = store.mapping(item_id)
+    applied = mapping.applied if mapping is not None else {}
+    resume = (applied.get("userdata") or {}).get("resume") or {}
+    return float(resume.get("position") or 0)
