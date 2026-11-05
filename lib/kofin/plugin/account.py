@@ -48,10 +48,10 @@ def login(request: Request) -> None:
         address_raw = xbmcgui.Dialog().input(_text(30052))
         if not address_raw:
             return
-    address = auth.normalize_address(address_raw)
 
     transport = plugin_transport(settings.get_bool("sslVerify"))
     try:
+        address = auth.normalize_address(address_raw)
         info = auth.public_info(transport, address)
     except HttpError as error:
         # A server that answered, badly. The description matters: a redirect
@@ -62,6 +62,13 @@ def login(request: Request) -> None:
         return
     except JellyfinError as error:
         LOG.warning("server ping failed for %s: %s", address, error)
+        _notification(_text(30018), toast.ERROR)
+        return
+    except ValueError as error:
+        # An address no request can be made to: urllib cannot split it (a
+        # port past 65535, an IPv6 literal without its brackets), or the IDNA
+        # codec refuses its host name.
+        LOG.warning("server address refused: %s", error)
         _notification(_text(30018), toast.ERROR)
         return
 
