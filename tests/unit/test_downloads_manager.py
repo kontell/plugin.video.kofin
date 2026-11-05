@@ -2134,6 +2134,118 @@ def test_a_downloads_drive_that_is_not_mounted_is_not_a_deletion(
     assert vanished["pushed"] == [] and vanished["local"] == []
 
 
+def _new_download(manager, on_chunk=None):
+    stream = FakeStream(
+        200,
+        [b"abcd", b"efgh"],
+        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+    )
+    stream.on_chunk = on_chunk
+    manager._process(FakeManagerApi(MOVIE_DTO, [stream]), queue_row())
+
+
+def test_a_download_that_lands_after_the_location_moved_is_not_tracked(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """The location changed while it downloaded: the file stays where it
+    landed, and the row leaves as a previous location's rows do. Finished,
+    the row would sit under no file of the new folder, and its first sweep
+    would read that as a deletion."""
+    manager, _refreshes = make_manager(repoints)
+    old = tmp_path / "dl"
+    _done(old, "Movies/Old (2019)/Old (2019).mkv", "old1")
+    manager._sweep_vanished()
+    announced = []
+    monkeypatch.setattr(
+        DownloadManager, "_announce_complete", lambda self, *a: announced.append(a)
+    )
+
+    def move(index):
+        FakeAddon.store["downloadsPath"] = str(tmp_path / "elsewhere")
+
+    _new_download(manager, on_chunk=move)
+
+    assert store.get("m1") is None
+    assert announced == []
+    assert any(
+        name.endswith(".mkv")
+        for _, _, names in os.walk(old / "Movies" / "The Movie (2019)")
+        for name in names
+    )
+    (tmp_path / "elsewhere").mkdir()
+    manager._sweep_vanished()
+    assert store.get("old1").state == store.DONE
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
+def test_a_new_folder_that_holds_some_downloads_is_not_adopted(
+    tmp_path, repoints, vanished
+):
+    """A copy onto another disk, part way through: the files not there yet
+    are not deletions."""
+    manager, _refreshes = make_manager(repoints)
+    old = tmp_path / "dl"
+    _done(old, "Movies/One (2019)/One (2019).mkv", "one")
+    _done(old, "Movies/Two (2019)/Two (2019).mkv", "two")
+    manager._sweep_vanished()
+    copy = tmp_path / "copy"
+    (copy / "Movies/One (2019)").mkdir(parents=True)
+    shutil.copy(old / "Movies/One (2019)/One (2019).mkv", copy / "Movies/One (2019)")
+
+    FakeAddon.store["downloadsPath"] = str(copy)
+    manager._reconcile_once()
+    manager._sweep_vanished()
+
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"one", "two"}
+    assert vanished["pushed"] == [] and vanished["local"] == []
+    assert not (copy / files.MARKER).exists()
+
+
+def test_the_first_download_of_an_upgrade_keeps_the_folder_it_found(
+    tmp_path, repoints, vanished
+):
+    """No folder remembered yet, and the folder holds a download from before
+    the marker: it is that folder, so its rows stay and a file missing from
+    it is a deletion, whichever of a download and the sweep comes first."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Movies/Kept (2019)/Kept (2019).mkv", "kept")
+    queue_row("gone", media_type="movie")
+    store.finish("gone", "Movies/Gone (2019)/Gone (2019).mkv", "mkv", 1)
+
+    _new_download(manager)
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "gone", "m1"}
+
+    manager._sweep_vanished()
+    assert vanished["local"] == ["gone"]
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "m1"}
+
+
+def test_a_folder_that_goes_during_the_walk_stops_counting_deletions(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """The drive is mounted for the first check and gone by the files after
+    it: what is missing then is the drive, not the files."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
+    _done(root, "Shows/S/Season 01/S01E02.mkv", "e2", "episode")
+    manager._sweep_vanished()
+    for rel in ("Shows/S/Season 01/S01E01.mkv", "Shows/S/Season 01/S01E02.mkv"):
+        (root / rel).unlink()
+
+    def unmount(self, row):
+        (root / files.MARKER).unlink(missing_ok=True)
+        return False
+
+    monkeypatch.setattr(DownloadManager, "_playing_now", unmount)
+    manager._sweep_vanished()
+    manager._reconcile_once()
+
+    assert len(store.rows(store.DONE)) == 2
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
 def test_a_settings_store_that_cannot_be_read_is_not_a_deletion(
     tmp_path, repoints, vanished, monkeypatch
 ):
