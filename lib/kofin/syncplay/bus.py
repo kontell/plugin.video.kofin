@@ -31,9 +31,9 @@ class ProviderBus:
         """SyncProvider.Claim: what is playing when kofin's own pipeline
         did not resolve it. Called on the notification thread; applied on
         the dispatcher."""
-        self.manager._post(self._set_foreign_claim, claim)
+        self.manager._post(self._take_claim, claim)
 
-    def _set_foreign_claim(self, claim: Claim) -> None:
+    def _take_claim(self, claim: Claim) -> None:
         manager = self.manager
         self.foreign_claim = claim
         self._foreign_claim_at = time.time()
@@ -57,7 +57,7 @@ class ProviderBus:
             # A fresh start (phase idle) keeps the event-driven path, and
             # the adoption echo is inert here: its claim names the current
             # item.
-            manager._post(manager.holds._forward_local_play)
+            manager._post(manager.holds.forward)
 
     def drop_stale_claim(self) -> None:
         """A new local play is starting: a foreign claim older than
@@ -108,9 +108,9 @@ class ProviderBus:
     def on_propose(self, payload: dict[str, Any]) -> None:
         """SyncSession.Propose: a provider asks for its item as the group
         queue — the programmatic form of the hold-and-propose flow."""
-        self.manager._post(self._propose_from_bus, payload)
+        self.manager._post(self._propose, payload)
 
-    def _propose_from_bus(self, payload: dict[str, Any]) -> None:
+    def _propose(self, payload: dict[str, Any]) -> None:
         if not self.manager.in_group():
             LOG.debug(
                 "Propose from %r outside a group; ignored", payload.get("provider")
@@ -134,7 +134,7 @@ class ProviderBus:
                 "RunTimeTicks": max(0, runtime),
             }
 
-        self.manager.holds._propose_queue(
+        self.manager.holds.propose(
             payload["key"], position=position, provider=provider, content=content
         )
 

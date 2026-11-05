@@ -763,7 +763,7 @@ class SyncPlayManager:
             LOG.debug("Spectator playing own media; not following transport")
             return
 
-        if command.get("Command") != "Stop" and self.holds._stopped_here(
+        if command.get("Command") != "Stop" and self.holds.stopped_here(
             command.get("PlaylistItemId")
         ):
             # Not a missed queue update, so nothing to reconcile: the item is
@@ -855,7 +855,7 @@ class SyncPlayManager:
 
         if self._pending_local_queue:
             self._pending_local_queue = False
-            self._post(self.holds._forward_local_play)
+            self._post(self.holds.forward)
 
         self.publish_session_state(announce=True)
 
@@ -885,7 +885,7 @@ class SyncPlayManager:
         self.holds.clear_stop()
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
-        self.holds._release_hold()
+        self.holds.release()
         self.publish_session_state(announce=True)
         LOG.debug("---<[ syncplay group ]")
 
@@ -1116,11 +1116,11 @@ class SyncPlayManager:
         ):
             return  # tail-only change; drift reference stays authoritative
 
-        if self.holds._stopped_here(playlist_item_id):
+        if self.holds.stopped_here(playlist_item_id):
             # A re-sent queue or a snapshot, not a new selection: the group
             # is still on the item the user just stopped. A different item
             # falls through and starts — the group really moved on, which is
-            # what _stop_superseded expects.
+            # what LocalStarts._superseded expects.
             LOG.debug(
                 "[ syncplay/queue ] still the item stopped here; "
                 "waiting on the stop prompt"
@@ -1354,7 +1354,7 @@ class SyncPlayManager:
             # Phase "synced" means no stop intervened since the synced
             # item: a native playlist advance, which starts at 0. Phase
             # "idle" is a fresh user start (possibly at a resume point).
-            self.holds.hold_start(transition=self.phase == Phase.SYNCED)
+            self.holds.enter(transition=self.phase == Phase.SYNCED)
 
     def on_kodi_play(self, data: dict[str, Any]) -> None:
         """Player.OnPlay from the Kodi bus: carries the Kodi library id,
@@ -1391,11 +1391,11 @@ class SyncPlayManager:
             # opening; with A/V up it always lands. Our own pause above
             # must not swallow the forward via the programmatic grace.
             self.playback.ensure_paused()
-            self._post(self.holds._forward_local_play)
+            self._post(self.holds.forward)
             return
 
         if not self.is_programmatic() and self.phase in STARTABLE:
-            self._post(self.holds._forward_local_play)
+            self._post(self.holds.forward)
 
     def on_paused(self) -> None:
         if not self.in_group() or self.is_programmatic():

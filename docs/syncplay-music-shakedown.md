@@ -33,7 +33,7 @@ The rest of the audio handling is a set of workarounds for PAPlayer, each load-b
 
 So group music today is **pure toleration**: members converge only when a command arrives, and between commands nothing observes or corrects.
 
-**The track boundary is the other half, and gapless is already gone because of it.** On a native playlist advance `manager.py:1203 on_playback_started` fires before A/V rolls and calls `playback.ensure_paused()`; `_identify_held_play` maps the Kodi id to a Jellyfin id and proposes the transition; the group answers with a scheduled `Unpause`. Every boundary is a full server round trip with the audio held silent across it. A 45-minute episode pays that once; a 3-minute track pays it every 3 minutes. **This study therefore has no gapless to protect and nothing to lose by leaving PAPlayer** — the question is only how much smaller the gap can be made.
+**The track boundary is the other half, and gapless is already gone because of it.** On a native playlist advance `manager.py:1203 on_playback_started` fires before A/V rolls and calls `playback.ensure_paused()`; `LocalStarts._identify` maps the Kodi id to a Jellyfin id and proposes the transition; the group answers with a scheduled `Unpause`. Every boundary is a full server round trip with the audio held silent across it. A 45-minute episode pays that once; a 3-minute track pays it every 3 minutes. **This study therefore has no gapless to protect and nothing to lose by leaving PAPlayer** — the question is only how much smaller the gap can be made.
 
 Two things are absent from the tree and must be treated as unknowns, not defaults: **`musicplayer.crossfade`** appears nowhere in `lib/` (a non-zero crossfade overlaps two tracks and makes both the hold and any position reading meaningless), and there is no music-specific handling of ReplayGain or passthrough.
 
@@ -48,7 +48,7 @@ Two consequences, and they pull in opposite directions:
 * **The per-track cost collapses.** No PlaybackInfo round trip, no server stream open, no network in the critical path. What remains at a boundary is the group round trip alone, and it is symmetric across members that all have the file. This is why the path is worth testing early — and it needs **no code at all**.
 * **It bypasses `plugin/play.py` entirely.** A repointed library row never reaches the play route (`play.py:472`), so `tempo_route()` is never called for it. The same premise break bit phase 4 already: `BACKFILL_MEDIA_TYPES` assumed video always reaches the play route, and a downloaded item played from the library went unclaimed until that was fixed (`offline-downloads-plan.md` line 129).
 
-What *does* still work is the part that matters most here: `_identify_held_play` (`manager.py:1465`) identifies items by **Kodi library id**, not by the play route, and the mapping row survives the repoint (the W3.2 addendum exists to guarantee exactly that). So **group transitions already work for downloaded music today.** It has no actuator, like streamed music — but it does not pay the stream-open cost. That is a free arm in the experiment and it should be run first.
+What *does* still work is the part that matters most here: `LocalStarts._identify` (`manager.py:1465`) identifies items by **Kodi library id**, not by the play route, and the mapping row survives the repoint (the W3.2 addendum exists to guarantee exactly that). So **group transitions already work for downloaded music today.** It has no actuator, like streamed music — but it does not pay the stream-open cost. That is a free arm in the experiment and it should be run first.
 
 ---
 
@@ -129,7 +129,7 @@ This is the only channel that measures what a listener hears. It does not reach 
 
 **Added 2026-08-31** (logging only; the control flow of a shipped add-on is untouched, and the full unit suite is green at 2941):
 
-* `[ syncplay/hold ] entered (transition|fresh start)` at `manager.py:1240`, and `[ syncplay/hold ] released after N ms (adopted|released|detached|stopped|ended)` from `_hold_done`, called at all five sites that clear a hold. Entered→adopted **is** the boundary wait from inside the controller, and it is what §6.1's capture times from outside. Two channels, one event, neither replacing the other.
+* `[ syncplay/hold ] entered (transition|fresh start)` at `manager.py:1240`, and `[ syncplay/hold ] released after N ms (adopted|released|detached|stopped|ended)` from `LocalStarts._done`, called at all five sites that clear a hold. Entered→adopted **is** the boundary wait from inside the controller, and it is what §6.1's capture times from outside. Two channels, one event, neither replacing the other.
 * `[ syncplay/unpause ] resumed after N nudge(s), M ms`, and a warning on the give-up path.
 
 A correction to this plan as first written: `_resume_with_retries` was **not** silent — it already logged `[ syncplay/unpause ] nudging the player` per nudge, so nudges were always countable. What was missing was the *outcome*: a resume that took three nudges and one that took none are indistinguishable from the nudge lines alone, and that difference is exactly what churn measures.

@@ -889,7 +889,7 @@ class TestForwardLocalPlay:
         join(manager)
         manager.player.playing = False
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         assert manager._api.named("syncplay_set_new_queue") == []
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -901,7 +901,7 @@ class TestForwardLocalPlay:
         manager.player.position = 42.0
         manager._local_item_id = lambda: "item-1"
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -916,7 +916,7 @@ class TestForwardLocalPlay:
         manager.player.item = None
         manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -930,10 +930,10 @@ class TestForwardLocalPlay:
         manager.player.playing = True
         manager.player.position = 100.0
         manager.player.item = None
-        manager.playback.live._live_origin_server_ms = 42_000_000.0 - 120_000.0
+        manager.playback.live._origin_server_ms = 42_000_000.0 - 120_000.0
         manager.bus.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -950,7 +950,7 @@ class TestForwardLocalPlay:
         manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
         manager.providers.resolved = None
 
-        manager.holds._identify_held_play({"item": {"id": 33, "type": "channel"}})
+        manager.holds._identify({"item": {"id": 33, "type": "channel"}})
 
         assert manager.ignore_wait is False
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -964,7 +964,7 @@ class TestForwardLocalPlay:
         manager.holds._hold = {"transition": False, "proposed": False, "item_id": None}
         manager.providers.resolved = None
 
-        manager.holds._identify_held_play({"item": {"id": 33, "type": "movie"}})
+        manager.holds._identify({"item": {"id": 33, "type": "movie"}})
 
         assert manager.ignore_wait is True
 
@@ -979,7 +979,7 @@ class TestForwardLocalPlay:
         manager.bus.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
         manager.bus._foreign_claim_at = time_module.time() - 10.0
 
-        manager.holds._identify_held_play({"item": {}})
+        manager.holds._identify({"item": {}})
 
         assert manager.bus.foreign_claim is None
 
@@ -992,7 +992,7 @@ class TestForwardLocalPlay:
         manager.bus.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
         manager.bus._foreign_claim_at = time_module.time()
 
-        manager.holds._identify_held_play({"item": {}})
+        manager.holds._identify({"item": {}})
 
         assert manager.bus.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
 
@@ -1021,7 +1021,7 @@ class TestForwardLocalPlay:
         manager.current_item_id = "old-chan"
         manager.playback.ensure_paused = lambda: None
 
-        manager.bus._set_foreign_claim({"Id": "new-chan", "Provider": "jellyfin"})
+        manager.bus._take_claim({"Id": "new-chan", "Provider": "jellyfin"})
         # the trigger posts to the live dispatcher; wait for it
         import time as time_module
 
@@ -1042,7 +1042,7 @@ class TestForwardLocalPlay:
         manager.player.position = 10.0
         manager.player.item = {"Id": "item-7", "PlayMethod": "DirectStream"}
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
@@ -1210,7 +1210,7 @@ class TestLocalStartHold:
         manager._local_file_info = lambda: None
         manager._local_item_id = lambda: "stale-previous-track"
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         assert manager._api.named("syncplay_set_new_queue") == []
         assert manager.holds._hold["proposed"] is False
@@ -1223,7 +1223,7 @@ class TestLocalStartHold:
         manager.on_playback_started()
         manager._local_file_info = lambda: None
 
-        manager.holds._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
+        manager.holds.forward(attempt=utils.FORWARD_RETRY_LIMIT)
 
         assert manager.ignore_wait is True
         assert manager._api.named("syncplay_set_ignore_wait")
@@ -1283,7 +1283,7 @@ class TestLocalStartHold:
         manager.on_playback_started()
         assert manager.player.paused is True
 
-        manager.holds._release_hold()
+        manager.holds.release()
 
         assert manager.holds._hold is None
         assert manager.player.paused is False
@@ -1293,7 +1293,7 @@ class TestLocalStartHold:
         manager.player.playing = True
         manager.player.paused = True  # paused by the user, not by a hold
 
-        manager.holds._release_hold()
+        manager.holds.release()
 
         assert manager.player.paused is True
 
@@ -1522,7 +1522,7 @@ class TestSpectatorLocalPlayback:
         manager.holds._hold = {"transition": True, "proposed": False, "item_id": None}
         manager._local_file_info = lambda: None
 
-        manager.holds._forward_local_play(attempt=utils.FORWARD_RETRY_LIMIT)
+        manager.holds.forward(attempt=utils.FORWARD_RETRY_LIMIT)
 
         assert manager.holds._hold is None
         assert manager._api.named("syncplay_set_ignore_wait") == []
@@ -1605,7 +1605,7 @@ class TestStoppedPrompt:
         FakeDialog.asked = []
         FakeDialog.on_select = on_select
         monkeypatch.setattr(holds_module.xbmcgui, "Dialog", FakeDialog)
-        manager.holds._user_stopped_prompt()
+        manager.holds._prompt()
         return FakeDialog.asked
 
     def test_stop_for_everyone_keeps_membership(self, manager, monkeypatch):
@@ -1923,7 +1923,7 @@ class TestStopPending:
 
         first()
 
-        assert manager.holds._stopped_here("pl-2")
+        assert manager.holds.stopped_here("pl-2")
 
     def test_a_stop_the_group_made_marks_nothing(self, manager, monkeypatch):
         join(manager)
@@ -2665,7 +2665,7 @@ class TestForeignPropose:
             }
         )
 
-        manager.holds._forward_local_play()
+        manager.holds.forward()
 
         calls = manager._api.named("syncplay_set_new_queue_ex")
         assert len(calls) == 1
