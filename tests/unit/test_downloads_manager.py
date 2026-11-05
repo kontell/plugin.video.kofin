@@ -2221,6 +2221,28 @@ def test_the_first_download_of_an_upgrade_keeps_the_folder_it_found(
     assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "m1"}
 
 
+def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
+    tmp_path, repoints, vanished
+):
+    """The drive is out, its mount point is an empty folder at the
+    remembered path, and a download lands there: the marker stays off,
+    so the sweep still reads the drive as not mounted."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
+    _done(root, "Shows/S/Season 01/S01E02.mkv", "e2", "episode")
+    manager._sweep_vanished()
+    shutil.move(str(root), str(tmp_path / "unplugged"))
+    root.mkdir()
+
+    _new_download(manager)
+    manager._sweep_vanished()
+
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2", "m1"}
+    assert vanished["pushed"] == [] and vanished["local"] == []
+    assert not (root / files.MARKER).exists()
+
+
 def test_a_folder_that_goes_during_the_walk_stops_counting_deletions(
     tmp_path, repoints, vanished, monkeypatch
 ):

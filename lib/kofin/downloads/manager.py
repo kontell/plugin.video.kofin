@@ -1210,7 +1210,12 @@ class DownloadManager:
         with self._root_lock:
             remembered = self._remembered_root()
             if remembered is not None and _same_folder(remembered, root):
-                if not files.has_marker(root):
+                # The marker lives on the volume. With none of the done rows'
+                # files here either, this is the mount point of a drive that
+                # is not mounted, and a marker would make every row a deletion.
+                if not files.has_marker(root) and (
+                    self._holds_a_download(root) or not store.rows(store.DONE)
+                ):
                     files.write_marker(root)
                 return
             if remembered is not None or not self._holds_a_download(root):
