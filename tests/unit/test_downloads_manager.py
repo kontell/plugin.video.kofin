@@ -887,6 +887,28 @@ def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
     assert store.get("m1").state == store.QUEUED
 
 
+def test_turning_downloads_off_ends_a_transfer_at_the_next_chunk(tmp_path, repoints):
+    """The manager's own stop is not the transport's abort, which hears the
+    service's alone. A transfer it stops stays active for the next manager to
+    resume, and no second writer meets this one in the .part."""
+    manager, _ = make_manager(repoints)
+    stream = FakeStream(
+        200,
+        [b"ab", b"cd", b"ef", b"gh"],
+        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+    )
+    stream.on_chunk = lambda index: manager._stop.set()
+    api = FakeManagerApi(MOVIE_DTO, [stream])
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.ACTIVE
+    assert row.bytes_done == 2
+    assert (tmp_path / "dl" / (row.rel_path + ".part")).read_bytes() == b"ab"
+    assert store.recover_interrupted() == 1
+
+
 def test_an_outage_releases_the_row_back_to_queued(tmp_path, repoints):
     """An outage spends no attempt, or a season queued offline would settle
     failed. The row goes back to *queued*, not left active, because

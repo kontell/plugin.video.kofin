@@ -8,12 +8,13 @@ stopped in ``_shutdown`` with bounded joins — and fed by the guarded download
 IPC messages, whose handlers run on Kodi's notification thread and therefore
 only enqueue here (the ops queue) rather than touch a database or a socket.
 
-Stop discipline: the transport abort predicate bounds retries, the per-chunk
-check in ``StreamedResponse.chunks`` bounds a live body, and the read timeout
-bounds a dead one — so a stop request is honored within one chunk plus one
-read timeout, never a file's worth of transfer. A download a stop interrupts
-stays ``active`` and is re-queued by ``recover_interrupted`` at the next
-start, resuming originals from ``bytes_done`` with a Range.
+Stop discipline: the transport abort predicate bounds retries, a per-chunk
+check bounds a live body (``StreamedResponse.chunks`` hears the service's
+stop, and ``_write_body`` the manager's own, which the transport cannot), and
+the read timeout bounds a dead one — so a stop request is honored within one
+chunk plus one read timeout, never a file's worth of transfer. A download a
+stop interrupts stays ``active`` and is re-queued by ``recover_interrupted``
+at the next start, resuming originals from ``bytes_done`` with a Range.
 """
 
 import os
@@ -31,7 +32,12 @@ from collections.abc import Iterable
 import xbmc
 
 from kofin.core import settings, state, toast
-from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
+from kofin.core.http import (
+    JellyfinError,
+    ServerUnreachable,
+    StreamedResponse,
+    Unauthorized,
+)
 from kofin.core.log import Logger
 from kofin.downloads import (
     downloads_root,
@@ -924,6 +930,8 @@ class DownloadManager:
                 for chunk in stream.chunks():
                     if self._cancelled(item_id):
                         raise _Cancelled()
+                    if self._should_stop():
+                        raise ServerUnreachable("stream abandoned while stopping")
                     handle.write(chunk)
                     written += len(chunk)
                     if written - synced >= SYNC_BYTES:
