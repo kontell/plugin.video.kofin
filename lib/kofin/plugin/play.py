@@ -65,9 +65,9 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
-# The inputstream a live item plays through in a SyncPlay group with fine
-# sync on (live_timeshift).
-FFMPEGDIRECT = "inputstream.ffmpegdirect"
+# Kodi's STREAM_PROPERTY_ISREALTIMESTREAM, which every input stream reads
+# (CDVDInputStream): the source is live, as a PVR client marks live TV.
+REALTIME_PROPERTY = "isrealtimestream"
 
 # Chapter images: the chapters dialog draws small tiles, and the server
 # resizes before it sends.
@@ -211,23 +211,12 @@ def stream_url(
     reporting a stream copy as DirectStream here buys nothing and costs the
     session-close and drift-correction paths their signal.
     """
-    # A live channel never takes the static branch, whatever the source
-    # claims to support: /stream?static=true of an infinite stream hands
-    # Kodi's demuxer a download that never begins. When the server allows
-    # direct play the source's Path is the provider's own stream, played
-    # straight from the provider as pvr.kofin does — the one live stream
-    # whose clock every member shares. Otherwise the session's live.m3u8
-    # (AutoOpenLiveStream is already in every PlaybackInfo this module makes)
-    # is the stream that plays.
+    # A live source never takes the static branch, whatever it claims to
+    # support: /stream?static=true of an infinite stream hands Kodi's demuxer
+    # a download that never begins. The session's live.m3u8 is the stream
+    # that plays (AutoOpenLiveStream is in every PlaybackInfo this module
+    # makes): an EVENT playlist, which Kodi's own demuxer pauses and seeks.
     live = bool(source.get("IsInfiniteStream")) or item.get("Type") == "TvChannel"
-    path = source.get("Path") or ""
-    if (
-        live
-        and source.get("SupportsDirectPlay")
-        and not source.get("TranscodingUrl")
-        and path.startswith(("http://", "https://"))
-    ):
-        return path, "DirectPlay"
     if not live and (
         source.get("SupportsDirectPlay") or source.get("SupportsDirectStream")
     ):
@@ -252,47 +241,6 @@ def stream_url(
         return server + transcoding_url, "Transcode"
     raise JellyfinError(
         "no playable stream for %s (%s)" % (item.get("Id"), source.get("Id"))
-    )
-
-
-def live_timeshift(source: JsonDict, play_method: str) -> Optional[dict[str, str]]:
-    """The properties that play a live item through inputstream.ffmpegdirect's
-    timeshift buffer — the ones pvr.kofin plays the same server streams with.
-
-    Kodi plays a live stream at a tempo only when it has a time range to move
-    in, and a live URL played by Kodi's own demuxer has
-    none: no buffer, no pause, no skip. Timeshift gives it one, and gives a
-    member the pause a live hold needs. A playlist stream also carries its
-    manifest type, so the ffmpeg open path does not guess at a URL with no
-    container extension.
-    """
-    properties = {
-        "inputstream": FFMPEGDIRECT,
-        FFMPEGDIRECT + ".is_realtime_stream": "true",
-        FFMPEGDIRECT + ".stream_mode": "timeshift",
-    }
-    if play_method == "Transcode":
-        sub = (source.get("TranscodingSubProtocol") or "hls").lower()
-        if sub in ("hls", "dash"):
-            properties[FFMPEGDIRECT + ".manifest_type"] = sub
-    elif (source.get("Container") or "").lower() in ("hls", "m3u8"):
-        # A provider's own live playlist, played direct (stream_url).
-        properties[FFMPEGDIRECT + ".manifest_type"] = "hls"
-    return properties
-
-
-def wants_live_timeshift() -> bool:
-    """Whether a live item resolved now is for a SyncPlay group with fine
-    sync on: the plugin reads the public session mirror, the setting and the
-    capability report, so nothing private has to be published for it. A
-    Kodi without the tempo set plays the live item as it would outside a
-    group, since no pulse could use the timeshift buffer."""
-    from kofin.sync.backends.api import capabilities
-
-    return (
-        bool(state.syncsession().get("in_group"))
-        and settings.get_bool("syncPlayTempo")
-        and capabilities.has("tempo")
     )
 
 
@@ -409,6 +357,10 @@ def play_state(
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
     }
+    if source.get("LiveStreamId"):
+        # The live stream the server opened for this play: the service's
+        # session reports name it (service/player.py).
+        play_item["LiveStreamId"] = source["LiveStreamId"]
     if streams_menu:
         # Everything the stream menu needs. The service moves this to a window
         # property when it claims the playback, since by then the queue entry
@@ -686,6 +638,7 @@ def play(request: Request) -> None:
     # nothing but a finishing request.
     segments_box: list[Optional[list[JsonDict]]] = []
     segments_thread: Optional[threading.Thread] = None
+    opened_live_stream = ""
     try:
         item = api.item(item_id)
         if item.get("Type") in NATIVE_MEDIA:
@@ -719,7 +672,8 @@ def play(request: Request) -> None:
             start_ticks = int(request.params.get("startticks") or start_ticks)
         except ValueError:
             pass
-        if item.get("Type") == "TvChannel":
+        channel = item.get("Type") == "TvChannel"
+        if channel:
             # Live has no position to start at: the opened live stream
             # begins at its edge, and a group position on a live item is a
             # live-clock anchor, never a stream offset.
@@ -763,19 +717,21 @@ def play(request: Request) -> None:
             audio_index=audio_index,
             subtitle_index=subtitle_index,
             media_source_id=wanted_source or None,
+            # Direct play would hand Kodi a channel's provider stream, a TS
+            # stream or a sliding playlist its demuxer cannot seek.
+            enable_direct_play=not channel,
         )
         sources = info.get("MediaSources") or []
         if not sources:
             raise JellyfinError("no media sources for %s" % item_id)
         source = pick_media_source(sources, wanted_source)
+        opened_live_stream = source.get("LiveStreamId") or ""
         play_session_id = info.get("PlaySessionId", "")
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id
         )
         is_audio = item.get("Type") in AUDIO_TYPES
-        is_live = item.get("Type") == "TvChannel" or bool(
-            source.get("IsInfiniteStream")
-        )
+        is_live = channel or bool(source.get("IsInfiniteStream"))
         if method == "Transcode" and not is_audio and not is_live:
             # The bitrate the user asked for is the budget, whether it came from
             # the context item or the setting: the server reserves its own audio
@@ -800,97 +756,101 @@ def play(request: Request) -> None:
                 url = deny_audio_stream_copy(url)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
+        _close_live_stream(api, opened_live_stream)
         _fail(request)
         return
 
-    # A live item in a group with fine sync on plays through ffmpegdirect's
-    # timeshift, so Kodi can play it at a tempo; without the add-on it plays
-    # as it would outside a group, and the claim says what was missing.
-    timeshift = None
-    timeshift_missing = False
-    if is_live and not is_audio and wants_live_timeshift():
-        if xbmc.getCondVisibility("System.AddonIsEnabled(%s)" % FFMPEGDIRECT):
-            timeshift = live_timeshift(source, method)
-        else:
-            timeshift_missing = True
-    LOG.debug(
-        "play %s via %s%s%s",
-        item_id,
-        method,
-        " (live)" if is_live else "",
-        " (timeshift)" if timeshift else "",
-    )
-    # A resume point on the *resolved* item overrides the choice the user made
-    # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
-    # a resume regardless of the resume:true|false it just passed us, and then
-    # seeks — to the item's own point, or, when that point has no time on it,
-    # to the bookmark in Kodi's database. Nor can the point be cleared once
-    # stamped, so the play route states its start position up front and 0
-    # means the item is built without one.
-    li = listitems.build(item, api.server, resume_seconds=start_ticks / 10_000_000)
-    # Library-item paths carry the Kodi database id;
-    # stamping it on the tag links the playback to the library row for
-    # widgets invoked outside a library window.
-    if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
-        li.getVideoInfoTag().setDbId(int(dbid))
-    elif dbid.isdigit() and is_audio:
-        # setResolvedUrl replaces the library item's music tag wholesale, so
-        # the song's database id has to be restated or the link back to the
-        # Kodi row is lost for anything reading the tag.
-        li.getMusicInfoTag().setDbId(int(dbid), "song")
-    chapters = chapter_art(api, item, source, method)
-    if chapters:
-        li.setArt(chapters)
-    if not is_audio:
-        previews = scrub_previews(api, item, source, method)
-        if previews:
-            hand_over_scrub_previews(li, previews)
-    li.setPath(url)
-    mime = mime_for(source, method)
-    if mime:
-        li.setMimeType(mime)
-    li.setContentLookup(False)
-    for key, value in (timeshift or {}).items():
-        li.setProperty(key, value)
-    # On a transcode this is the *only* way any subtitle reaches the screen —
-    # the transcoded stream carries none. The attached order is what the
-    # stream menu's ordinals map through (subtitles.localize).
-    attached = streams.attached_subtitles(
-        api.server, source, method, kodirpc.preferred_subtitle_language()
-    )
-    localized = (
-        subtitles.localize(http, attached) if attached else subtitles.Localized([], [])
-    )
-    if localized.files:
-        li.setSubtitles([path for _attachment, path in localized.files])
+    try:
+        LOG.debug("play %s via %s%s", item_id, method, " (live)" if is_live else "")
+        # A resume point on the *resolved* item overrides the choice the user made
+        # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
+        # a resume regardless of the resume:true|false it just passed us, and then
+        # seeks — to the item's own point, or, when that point has no time on it,
+        # to the bookmark in Kodi's database. Nor can the point be cleared once
+        # stamped, so the play route states its start position up front and 0
+        # means the item is built without one.
+        li = listitems.build(item, api.server, resume_seconds=start_ticks / 10_000_000)
+        # Library-item paths carry the Kodi database id;
+        # stamping it on the tag links the playback to the library row for
+        # widgets invoked outside a library window.
+        if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
+            li.getVideoInfoTag().setDbId(int(dbid))
+        elif dbid.isdigit() and is_audio:
+            # setResolvedUrl replaces the library item's music tag wholesale, so
+            # the song's database id has to be restated or the link back to the
+            # Kodi row is lost for anything reading the tag.
+            li.getMusicInfoTag().setDbId(int(dbid), "song")
+        chapters = chapter_art(api, item, source, method)
+        if chapters:
+            li.setArt(chapters)
+        if not is_audio:
+            previews = scrub_previews(api, item, source, method)
+            if previews:
+                hand_over_scrub_previews(li, previews)
+        li.setPath(url)
+        mime = mime_for(source, method)
+        if mime:
+            li.setMimeType(mime)
+        li.setContentLookup(False)
+        if is_live:
+            li.setProperty(REALTIME_PROPERTY, "true")
+        # On a transcode this is the *only* way any subtitle reaches the screen —
+        # the transcoded stream carries none. The attached order is what the
+        # stream menu's ordinals map through (subtitles.localize).
+        attached = streams.attached_subtitles(
+            api.server, source, method, kodirpc.preferred_subtitle_language()
+        )
+        localized = (
+            subtitles.localize(http, attached)
+            if attached
+            else subtitles.Localized([], [])
+        )
+        if localized.files:
+            li.setSubtitles([path for _attachment, path in localized.files])
 
-    play_item = play_state(
-        item,
-        source,
-        url,
-        method,
-        play_session_id,
-        creds.device_id,
-        start_ticks / 10_000_000,
-        attached=[attachment.stream_index for attachment, _path in localized.files],
-        deferred=localized.deferred,
-        fetchable=streams.fetchable_subtitles(api.server, source),
-        request_params=request.params,
-    )
-    if is_live:
-        # The engine's spelling of live for kofin's own claim
-        # (syncplay/utils.py::claim_is_live): what makes the group position
-        # a source-clock anchor rather than a stream offset.
-        play_item["Live"] = True
-    if timeshift_missing:
-        # Fine sync tells the group once that live TV needs the add-on.
-        play_item["TimeshiftMissing"] = True
-    segments = _joined_segments(segments_thread, segments_box)
-    if segments is not None:
-        play_item["Segments"] = segments
-    state.push_play_item(play_item)
+        play_item = play_state(
+            item,
+            source,
+            url,
+            method,
+            play_session_id,
+            creds.device_id,
+            start_ticks / 10_000_000,
+            attached=[attachment.stream_index for attachment, _path in localized.files],
+            deferred=localized.deferred,
+            fetchable=streams.fetchable_subtitles(api.server, source),
+            request_params=request.params,
+        )
+        if channel:
+            # The engine's spelling of live for kofin's own claim
+            # (syncplay/utils.py::claim_is_live): what makes the group position
+            # a source-clock anchor rather than a stream offset. A recording
+            # still being written is not live: its playlist starts where the
+            # recording does, so the player's time is a position in it, as
+            # pvr.kofin claims it.
+            play_item["Live"] = True
+        segments = _joined_segments(segments_thread, segments_box)
+        if segments is not None:
+            play_item["Segments"] = segments
+        state.push_play_item(play_item)
+    except Exception:
+        # Nothing will play or report what PlaybackInfo opened.
+        _close_live_stream(api, opened_live_stream)
+        raise
 
     _resolve_to(request, li, url)
+
+
+def _close_live_stream(api: Api, live_stream_id: str) -> None:
+    """Close a live stream PlaybackInfo opened for a play that will not
+    happen: the server keeps it, and the tuner behind it, until a session
+    report names it or it is closed."""
+    if not live_stream_id:
+        return
+    try:
+        api.close_live_stream(live_stream_id)
+    except Exception as error:
+        LOG.warning("live stream close failed: %s", error)
 
 
 def _fail(request: Request, message_id: int = 30018) -> None:

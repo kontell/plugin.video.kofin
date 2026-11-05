@@ -11,11 +11,6 @@
     <import addon="script.module.websocket" version="1.6.4"/>
     <!-- Renders the lyrics kofin publishes. -->
     <import addon="script.kofin.lyrics" version="0.1.0" optional="true"/>
-    <!-- Live TV in a SyncPlay group plays through its timeshift buffer, so
-         Kodi can play the stream at a tempo (plugin/play.py, live_timeshift).
-         Optional: without it a live item plays as it does outside a group,
-         on the group's commands alone. -->
-    <import addon="inputstream.ffmpegdirect" version="22.0.0" optional="true"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio</provides>
@@ -115,7 +110,10 @@
     <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
     <news>v0.96.7
 - The critic-rating setting, which had no effect, is gone.
-- The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.</news>
+- The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.
+- Live TV and recordings in progress can be paused and skipped through without FFmpeg Direct.
+- A SyncPlay member without Kofin PVR follows the group's live TV.
+- Stopping live TV frees the tuner.</news>
     <!-- The bundled backdrop, behind structural listings that have no art of
          their own (plugin/browse.py BACKDROP_IMAGE). The server's splashscreen
          goes to addon_data (service/backdrop.py), never here. A fixed path in

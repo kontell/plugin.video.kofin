@@ -1980,12 +1980,6 @@ msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr ""
 
-# 30875 — SyncPlay fine sync: a live item in a group without FFmpeg Direct
-# (lib/kofin/syncplay/manager.py). A toast.
-msgctxt "#30875"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr ""
-
 # 30876-30884 — the Library status dialog's "Not on this Kodi" row and the
 # names of the features a Kodi may lack (sync/backends/api/capabilities.py).
 

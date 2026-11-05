@@ -1158,18 +1158,6 @@ def utils_time(ms):
     }
 
 
-def test_arming_on_a_live_play_without_timeshift_tells_the_group(rig):
-    scheduler, controller, kodi = rig
-    told = []
-    controller.manager.notify_live_without_timeshift = lambda: told.append(1)
-    controller.manager.claim = claim("ps-live", Live=True, TimeshiftMissing=True)
-    scheduler.tick()
-    assert told == [1]
-    controller.manager.claim = claim("ps-vod")  # not live: nothing to say
-    scheduler.tick()
-    assert told == [1]
-
-
 # ----------------------------------------------------------------------------
 # Music
 # ----------------------------------------------------------------------------

@@ -42,7 +42,6 @@ def test_the_play_route_imports_no_pipeline_module():
         ("kofin.sync.backends.api.paths", "key_from_url", "play"),
         ("kofin.sync.backends.api.store", "namespace", "play"),
         ("kofin.sync.backends.api.identity", "native_id_for", "play"),
-        ("kofin.sync.backends.api", "capabilities", "wants_live_timeshift"),
     }
 
     script = (
@@ -157,44 +156,23 @@ def test_stream_url_live_channel_never_takes_the_static_branch():
     assert url == "http://s:8096/videos/c1/live.m3u8?x=1"
 
 
-def test_stream_url_live_channel_plays_the_provider_direct():
-    # The server allowed direct play: the source's Path is the provider's
-    # own stream, and that is what plays — the one live stream whose clock
-    # every member shares.
+def test_stream_url_recording_in_progress_takes_the_transcoding_url():
+    # A recording still being written is infinite and may claim direct
+    # streaming; the server's HLS is the stream that plays.
     url, method = play.stream_url(
         SERVER,
-        {"Type": "TvChannel", "Id": "c1"},
+        {"Type": "Recording", "Id": "r1"},
         {
             "Id": "src1",
-            "SupportsDirectPlay": True,
+            "SupportsDirectStream": True,
             "IsInfiniteStream": True,
-            "Container": "hls",
-            "Path": "https://provider.example/live/abc.m3u8",
-        },
-        "dev1",
-        "ps1",
-    )
-    assert method == "DirectPlay"
-    assert url == "https://provider.example/live/abc.m3u8"
-
-
-def test_stream_url_live_channel_direct_needs_a_web_path():
-    # A tuner's local path is nothing this Kodi can open: the transcode
-    # stays the route.
-    url, method = play.stream_url(
-        SERVER,
-        {"Type": "TvChannel", "Id": "c1"},
-        {
-            "Id": "src1",
-            "SupportsDirectPlay": True,
-            "IsInfiniteStream": True,
-            "Path": "/dev/dvb/adapter0",
-            "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
+            "TranscodingUrl": "/videos/r1/master.m3u8?x=1",
         },
         "dev1",
         "ps1",
     )
     assert method == "Transcode"
+    assert url == "http://s:8096/videos/r1/master.m3u8?x=1"
 
 
 def test_stream_url_infinite_source_without_transcode_raises():
@@ -1397,118 +1375,146 @@ def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(
     assert resume_env["resolved"]
 
 
-# --- live TV in a SyncPlay group: ffmpegdirect's timeshift -------------------
-
-
-def test_live_timeshift_properties():
-    hls = play.live_timeshift({"TranscodingSubProtocol": "hls"}, "Transcode")
-    assert hls == {
-        "inputstream": "inputstream.ffmpegdirect",
-        "inputstream.ffmpegdirect.is_realtime_stream": "true",
-        "inputstream.ffmpegdirect.stream_mode": "timeshift",
-        "inputstream.ffmpegdirect.manifest_type": "hls",
-    }
-    # Jellyfin's live remux is HLS when it says nothing.
-    assert (
-        play.live_timeshift({}, "Transcode")["inputstream.ffmpegdirect.manifest_type"]
-        == "hls"
-    )
-    # A provider's own playlist played direct.
-    direct = play.live_timeshift({"Container": "m3u8"}, "DirectPlay")
-    assert direct["inputstream.ffmpegdirect.manifest_type"] == "hls"
-    # A transport stream played direct names no manifest.
-    ts = play.live_timeshift({"Container": "ts"}, "DirectPlay")
-    assert "inputstream.ffmpegdirect.manifest_type" not in ts
+# --- live TV and recordings still being written: the server's HLS ----------
 
 
 @pytest.fixture
-def live_env(resume_env, monkeypatch):
-    from kofin.core import state
+def live_env(resume_env):
+    api = resume_env["api"]
+    api._item = {"Id": "c1", "Type": "TvChannel", "Name": "A Channel"}
+    asked = []
 
-    channel = {"Id": "c1", "Type": "TvChannel", "Name": "A Channel"}
-    resume_env["api"]._item = channel
-    resume_env["api"].playback_info = lambda *a, **k: {
-        "MediaSources": [
-            {
-                "Id": "src1",
-                "SupportsDirectPlay": True,
-                "IsInfiniteStream": True,
-                "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
-                "TranscodingSubProtocol": "hls",
-            }
-        ],
-        "PlaySessionId": "ps1",
-    }
-    enabled = {"ffmpegdirect": True}
-    monkeypatch.setattr(
-        play.xbmc,
-        "getCondVisibility",
-        lambda condition: (
-            enabled["ffmpegdirect"]
-            if condition == "System.AddonIsEnabled(inputstream.ffmpegdirect)"
-            else False
-        ),
-    )
-    state.publish_syncsession({"in_group": True})
-    resume_env["addon"].store["syncPlayTempo"] = "true"
-    resume_env["enabled"] = enabled
-    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: True)
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        asked.append(kwargs)
+        return {
+            "MediaSources": [
+                {
+                    "Id": "src1",
+                    "IsInfiniteStream": True,
+                    "SupportsDirectStream": True,
+                    "TranscodingUrl": "/videos/c1/master.m3u8?x=1",
+                    "TranscodingSubProtocol": "hls",
+                }
+            ],
+            "PlaySessionId": "ps1",
+        }
+
+    api.playback_info = playback_info
+    resume_env["asked"] = asked
     return resume_env
+
+
+LIVE_URL = "http://s:8096/videos/c1/master.m3u8?x=1"
 
 
 def _claim():
     from kofin.core import state
 
-    return state.claim_play_item("http://s:8096/videos/c1/live.m3u8?x=1")
+    return state.claim_play_item(LIVE_URL)
 
 
-def test_a_live_item_in_a_group_plays_through_timeshift(live_env):
+def test_a_channel_asks_the_server_for_its_hls(live_env):
+    """Direct play would hand Kodi the provider's own stream, which its
+    demuxer cannot seek; the server's live.m3u8 it can."""
+    run_play({"id": "c1"}, resume=False)
+    assert live_env["asked"][0]["enable_direct_play"] is False
+    assert live_env["li"].path == LIVE_URL
+
+
+def test_an_item_on_demand_may_play_direct(resume_env):
+    run_play({"id": "ep1"}, resume=False)
+    assert resume_env["api"].kwargs[0]["enable_direct_play"] is True
+
+
+@pytest.mark.parametrize("in_group", [True, False], ids=["group", "alone"])
+def test_a_live_play_is_realtime_through_kodis_own_demuxer(live_env, in_group):
+    from kofin.core import state
+
+    if in_group:
+        state.publish_syncsession({"in_group": True})
+    else:
+        state.clear_syncsession()
     run_play({"id": "c1"}, resume=False)
     props = live_env["li"].props
-    assert props["inputstream"] == "inputstream.ffmpegdirect"
-    assert props["inputstream.ffmpegdirect.stream_mode"] == "timeshift"
-    claim = _claim()
-    assert claim["Live"] is True
-    assert "TimeshiftMissing" not in claim
+    assert props.get("isrealtimestream") == "true"
+    assert not any(key.startswith("inputstream") for key in props)
+    assert _claim()["Live"] is True
 
 
-def test_a_live_item_outside_a_group_plays_as_before(live_env):
+def test_a_recording_still_being_written_plays_the_servers_hls(live_env):
+    """Jellyfin marks its source infinite and never offers it direct play:
+    it takes the transcoding URL, realtime, as a channel does. It is claimed
+    as a recording, not live: its playlist starts where the recording does,
+    so a group can seek and pulse it as pvr.kofin's claim of it expects."""
+    live_env["api"]._item = {"Id": "r1", "Type": "Recording", "Name": "A Recording"}
+    run_play({"id": "r1"}, resume=False)
+    assert live_env["asked"][0]["enable_direct_play"] is True
+    assert live_env["li"].path == LIVE_URL
+    assert live_env["li"].props.get("isrealtimestream") == "true"
+    assert "Live" not in _claim()
+
+
+def test_a_live_play_names_the_live_stream_the_server_opened(live_env):
+    api = live_env["api"]
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        return info
+
+    api.playback_info = playback_info
+    run_play({"id": "c1"}, resume=False)
+    assert _claim()["LiveStreamId"] == "ls1"
+
+
+def test_a_failed_resolve_closes_the_live_stream_it_opened(live_env):
+    """No play reports it, so nothing else would give the tuner back."""
+    api = live_env["api"]
+    closed = []
+    api.close_live_stream = closed.append
+    api.playback_info = lambda *a, **k: {
+        "MediaSources": [
+            {"Id": "src1", "IsInfiniteStream": True, "LiveStreamId": "ls1"}
+        ],
+        "PlaySessionId": "ps1",
+    }
+    run_play({"id": "c1"}, resume=False)
+    assert closed == ["ls1"]
+    assert live_env["li"].path == ""  # nothing was resolved
+
+
+def test_a_failure_after_playback_info_closes_the_live_stream(live_env, monkeypatch):
+    """Nothing will play or report what PlaybackInfo opened."""
+    api = live_env["api"]
+    closed = []
+    api.close_live_stream = closed.append
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        return info
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the ListItem could not be built")
+
+    api.playback_info = playback_info
+    monkeypatch.setattr(play.listitems, "build", broken)
+    with pytest.raises(RuntimeError):
+        run_play({"id": "c1"}, resume=False)
+    assert closed == ["ls1"]
+
+
+def test_an_item_on_demand_names_no_live_stream(resume_env):
     from kofin.core import state
 
-    state.clear_syncsession()
-    run_play({"id": "c1"}, resume=False)
-    assert "inputstream" not in live_env["li"].props
-    assert "TimeshiftMissing" not in _claim()
-
-
-def test_a_live_item_with_fine_sync_off_plays_as_before(live_env):
-    live_env["addon"].store["syncPlayTempo"] = "false"
-    run_play({"id": "c1"}, resume=False)
-    assert "inputstream" not in live_env["li"].props
-
-
-def test_without_kodis_tempo_a_live_item_plays_as_before(live_env, monkeypatch):
-    """A Kodi without the tempo set (Piers, stock Kodi 23) takes no pulse, so
-    the timeshift buffer would buy nothing: the live item plays as it would
-    outside a group, and nothing says anything was missing."""
-    monkeypatch.setattr("kofin.sync.backends.api.capabilities.has", lambda name: False)
-    run_play({"id": "c1"}, resume=False)
-    assert "inputstream" not in live_env["li"].props
-    assert "TimeshiftMissing" not in _claim()
-
-
-def test_without_ffmpegdirect_the_claim_says_what_was_missing(live_env):
-    live_env["enabled"]["ffmpegdirect"] = False
-    run_play({"id": "c1"}, resume=False)
-    assert "inputstream" not in live_env["li"].props
-    assert _claim()["TimeshiftMissing"] is True
-
-
-def test_an_item_on_demand_in_a_group_is_not_routed(resume_env, monkeypatch):
-    from kofin.core import state
-
-    state.publish_syncsession({"in_group": True})
-    resume_env["addon"].store["syncPlayTempo"] = "true"
-    monkeypatch.setattr(play.xbmc, "getCondVisibility", lambda condition: True)
     run_play({"id": "ep1"}, resume=False)
-    assert "inputstream" not in resume_env["li"].props
+    claim = state.claim_play_item(resume_env["li"].path)
+    assert claim is not None
+    assert "LiveStreamId" not in claim
+
+
+def test_an_item_on_demand_is_not_realtime(resume_env):
+    run_play({"id": "ep1"}, resume=False)
+    assert "isrealtimestream" not in resume_env["li"].props

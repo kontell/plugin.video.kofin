@@ -177,3 +177,97 @@ def test_menu_visibility_round_trip():
     state.set_menu_syncplay(False)
     assert state.PROP_MENU_WHO not in FakeWindow.store
     assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
+
+
+# --- an entry that names a live stream --------------------------------------
+
+
+@pytest.fixture
+def queue(tmp_path, monkeypatch):
+    directory = tmp_path / "queue"
+    monkeypatch.setattr(state, "_queue_dir", lambda: str(directory))
+    return directory
+
+
+def _entry(directory, age_seconds, **fields):
+    import json
+    import os
+    import time
+    import uuid
+
+    os.makedirs(directory, exist_ok=True)
+    stamp = time.time_ns() - int(age_seconds * 1_000_000_000)
+    path = os.path.join(directory, "%019d-%s.json" % (stamp, uuid.uuid4().hex[:8]))
+    with open(path, "w") as handle:
+        json.dump(fields, handle)
+    return path
+
+
+def test_an_expired_live_entry_waits_for_its_stream_to_be_closed(queue):
+    """Dropped unclosed, the server's stream and its tuner would stay open."""
+    _entry(
+        queue, state.PLAY_QUEUE_TTL_SECONDS + 5, Path="http://old", LiveStreamId="ls1"
+    )
+    state.push_play_item({"Path": "http://fresh", "Id": "fresh"})  # runs the expiry
+
+    closed = []
+    assert state.close_stale_live_streams(closed.append) == ["ls1"]
+    assert closed == ["ls1"]
+    assert state.claim_play_item("http://old") is None
+
+
+def test_a_live_entry_is_left_to_its_claim_for_a_minute(queue):
+    _entry(queue, 5, Path="http://live", LiveStreamId="ls1")
+
+    closed = []
+    assert state.close_stale_live_streams(closed.append) == []
+    assert closed == []
+    assert state.claim_play_item("http://live")["LiveStreamId"] == "ls1"
+
+
+def test_a_failed_close_keeps_the_entry_for_the_next_sweep(queue):
+    _entry(
+        queue,
+        state.PLAY_QUEUE_LIVE_TTL_SECONDS + 5,
+        Path="http://live",
+        LiveStreamId="ls1",
+    )
+
+    def refuse(live_stream_id):
+        raise RuntimeError("server unreachable")
+
+    assert state.close_stale_live_streams(refuse) == []
+    closed = []
+    assert state.close_stale_live_streams(closed.append) == ["ls1"]
+
+
+def test_a_live_entry_past_the_queue_ttl_goes_even_when_its_close_fails(queue):
+    import os
+
+    _entry(
+        queue, state.PLAY_QUEUE_TTL_SECONDS + 5, Path="http://live", LiveStreamId="ls1"
+    )
+
+    def refuse(live_stream_id):
+        raise RuntimeError("server unreachable")
+
+    assert state.close_stale_live_streams(refuse) == []
+    assert os.listdir(queue) == []
+
+
+def test_clearing_the_queue_leaves_a_live_entry_for_its_close(queue):
+    _entry(queue, 5, Path="http://live", LiveStreamId="ls1")
+    state.push_play_item({"Path": "p"})
+
+    state.clear_play_queue()
+
+    assert state.claim_play_item("p") is None
+    assert state.claim_play_item("http://live")["LiveStreamId"] == "ls1"
+
+
+def test_a_claim_by_item_leaves_an_older_live_entry_for_its_close(queue):
+    _entry(queue, 30, Path="http://old", Id="c1", LiveStreamId="ls-old")
+    state.push_play_item({"Path": "http://new", "Id": "c1"})
+
+    assert state.claim_play_item_of("c1")["Path"] == "http://new"
+    assert state.claim_play_item("http://old")["LiveStreamId"] == "ls-old"

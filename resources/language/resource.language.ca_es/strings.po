@@ -1880,10 +1880,6 @@ msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "Torna a llegir ara totes les biblioteques del servidor."
 
-msgctxt "#30875"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "La sincronització fina de TV en directe necessita FFmpeg Direct"
-
 msgctxt "#30876"
 msgid "Not on this Kodi"
 msgstr "No disponible en aquest Kodi"

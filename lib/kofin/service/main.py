@@ -310,6 +310,7 @@ class Service(xbmc.Monitor):
             # edge. Costs two ``is_alive()`` calls a second and does nothing
             # at all until one of them answers False.
             self._recover_threads()
+            self.player.sweep_live_streams()
 
     def _republish_online(self) -> None:
         """Re-raise the online flag when something else lowered it.

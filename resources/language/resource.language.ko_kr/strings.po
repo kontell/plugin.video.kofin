@@ -1880,10 +1880,6 @@ msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "지금 모든 라이브러리를 서버에서 다시 읽습니다."
 
-msgctxt "#30875"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "라이브 TV 정밀 동기화에는 FFmpeg Direct가 필요합니다"
-
 msgctxt "#30876"
 msgid "Not on this Kodi"
 msgstr "이 Kodi에서는 사용할 수 없음"

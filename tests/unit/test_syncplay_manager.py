@@ -2558,6 +2558,37 @@ class TestDelegatedStart:
         assert manager.phase == "loading"
         assert manager.current_provider == "pvr.kofin"
 
+    def test_a_member_without_the_provider_plays_the_key_through_kofin(
+        self, manager, monkeypatch
+    ):
+        """No pvr.kofin here: the channel's Jellyfin id plays through kofin's
+        own route, and no start goes out to a provider nobody runs."""
+        from kofin.syncplay import providers
+
+        class Api:
+            def item(self, item_id):
+                return {"Id": item_id, "Type": "TvChannel"}
+
+        channel_id = "c" * 32
+        join(manager)
+        manager.providers = providers.jellyfin_registry(Api())
+        published = []
+        monkeypatch.setattr(
+            manager_module.contract,
+            "publish_start",
+            lambda provider, key, ticks: published.append((provider, key, ticks)),
+        )
+        played = []
+        manager.playback.play_item = lambda target: played.append(target)
+
+        manager._start_item(channel_id, "pl-1", "pvr.kofin")
+
+        assert published == []
+        assert played[0]["url"].startswith(
+            "plugin://plugin.video.kofin/?mode=play&id=" + channel_id
+        )
+        assert manager.phase == "loading"
+
 
 class TestDeferredUnpauseCleanup:
     def test_start_item_drops_a_deferred_unpause(self, manager):

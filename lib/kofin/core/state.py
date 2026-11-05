@@ -10,7 +10,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 import xbmcgui
 import xbmcvfs
@@ -222,6 +222,13 @@ PLAY_QUEUE_DIR = "special://profile/addon_data/plugin.video.kofin/playqueue"
 # sit there forever.
 PLAY_QUEUE_TTL_SECONDS = 600
 
+# An entry that names a live stream holds the server's stream, and the tuner
+# behind it, until a session report names it or something closes it. Kodi
+# claims a live play within seconds of its resolve, so such an entry left this
+# long unclaimed is closed and dropped (close_stale_live_streams); nothing else
+# drops it.
+PLAY_QUEUE_LIVE_TTL_SECONDS = 60
+
 
 def _queue_dir() -> str:
     return xbmcvfs.translatePath(PLAY_QUEUE_DIR)
@@ -317,6 +324,8 @@ def claim_play_item_of(item_id: str) -> Optional[dict[str, Any]]:
         item = _read_entry(entry_path)
         if item is None or item.get("Id") != item_id:
             continue
+        if newest is not None and item.get("LiveStreamId"):
+            continue  # its stream is closed by close_stale_live_streams
         try:
             os.remove(entry_path)
         except OSError:
@@ -327,11 +336,14 @@ def claim_play_item_of(item_id: str) -> Optional[dict[str, Any]]:
 
 
 def _expire_play_items() -> None:
-    """Drop entries older than the TTL (see PLAY_QUEUE_TTL_SECONDS)."""
+    """Drop entries older than the TTL (see PLAY_QUEUE_TTL_SECONDS), except one
+    that names a live stream, which only close_stale_live_streams drops."""
     cutoff = time.time_ns() - PLAY_QUEUE_TTL_SECONDS * 1_000_000_000
     for entry in _queue_files():
         stamp = os.path.basename(entry).split("-", 1)[0]
         if not stamp.isdigit() or int(stamp) >= cutoff:
+            continue
+        if (_read_entry(entry) or {}).get("LiveStreamId"):
             continue
         try:
             os.remove(entry)
@@ -339,8 +351,55 @@ def _expire_play_items() -> None:
             pass
 
 
-def clear_play_queue() -> None:
+def close_stale_live_streams(close: Callable[[str], None]) -> list[str]:
+    """Close and drop every entry that names a live stream and has waited
+    PLAY_QUEUE_LIVE_TTL_SECONDS unclaimed; returns the ids it closed.
+
+    Renaming the entry out of the queue is the claim, so a play that starts
+    meanwhile and this sweep never both take it. A close that raises puts the
+    entry back for the next sweep, until PLAY_QUEUE_TTL_SECONDS have passed.
+    """
+    now = time.time_ns()
+    closed = []
     for entry in _queue_files():
+        stamp = os.path.basename(entry).split("-", 1)[0]
+        if not stamp.isdigit():
+            continue
+        age = now - int(stamp)
+        if age < PLAY_QUEUE_LIVE_TTL_SECONDS * 1_000_000_000:
+            continue
+        live_stream_id = (_read_entry(entry) or {}).get("LiveStreamId")
+        if not live_stream_id:
+            continue
+        taken = entry + ".closing"
+        try:
+            os.rename(entry, taken)
+        except OSError:
+            continue  # claimed meanwhile
+        try:
+            close(live_stream_id)
+        except Exception:
+            if age < PLAY_QUEUE_TTL_SECONDS * 1_000_000_000:
+                try:
+                    os.rename(taken, entry)
+                except OSError:
+                    pass
+                continue
+        else:
+            closed.append(live_stream_id)
+        try:
+            os.remove(taken)
+        except OSError:
+            pass
+    return closed
+
+
+def clear_play_queue() -> None:
+    """Drop the queue, except an entry that names a live stream, which
+    close_stale_live_streams closes first."""
+    for entry in _queue_files():
+        if (_read_entry(entry) or {}).get("LiveStreamId"):
+            continue
         try:
             os.remove(entry)
         except OSError:
