@@ -2134,14 +2134,18 @@ def test_a_downloads_drive_that_is_not_mounted_is_not_a_deletion(
     assert vanished["pushed"] == [] and vanished["local"] == []
 
 
-def _new_download(manager, on_chunk=None):
+def _new_download(manager, on_chunk=None, item_id="m1", name="The Movie"):
     stream = FakeStream(
         200,
         [b"abcd", b"efgh"],
-        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+        {
+            "Content-Length": "8",
+            "Content-Disposition": 'attachment; filename="%s (2019).mkv"' % name,
+        },
     )
     stream.on_chunk = on_chunk
-    manager._process(FakeManagerApi(MOVIE_DTO, [stream]), queue_row())
+    item = dict(MOVIE_DTO, Id=item_id, Name=name)
+    manager._process(FakeManagerApi(item, [stream]), queue_row(item_id))
 
 
 def test_a_download_that_lands_after_the_location_moved_is_not_tracked(
@@ -2225,8 +2229,9 @@ def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
     tmp_path, repoints, vanished
 ):
     """The drive is out, its mount point is an empty folder at the
-    remembered path, and a download lands there: the marker stays off,
-    so the sweep still reads the drive as not mounted."""
+    remembered path, and downloads land there. None is finished, or the
+    next one would find its file and mark the empty mount; each file stays
+    where it landed, and the sweep still reads the drive as not mounted."""
     manager, _refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
@@ -2235,12 +2240,16 @@ def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
     shutil.move(str(root), str(tmp_path / "unplugged"))
     root.mkdir()
 
-    _new_download(manager)
+    _new_download(manager, item_id="m1", name="First")
+    _new_download(manager, item_id="m2", name="Second")
     manager._sweep_vanished()
 
-    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2", "m1"}
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2"}
+    assert store.get("m1") is None and store.get("m2") is None
     assert vanished["pushed"] == [] and vanished["local"] == []
     assert not (root / files.MARKER).exists()
+    landed = [name for _, _, names in os.walk(root) for name in names]
+    assert sorted(landed) == ["First (2019).mkv", "Second (2019).mkv"]
 
 
 def test_a_folder_that_goes_during_the_walk_stops_counting_deletions(

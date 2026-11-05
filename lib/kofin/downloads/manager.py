@@ -654,7 +654,15 @@ class DownloadManager:
             )
             store.remove(item_id)
             return
-        self._claim_root(root)
+        if not self._claim_root(root):
+            LOG.warning(
+                "download of %s landed in %s, which holds no download and no "
+                "marker (a drive that is not mounted); not tracked",
+                item_id,
+                root,
+            )
+            store.remove(item_id)
+            return
         store.finish(item_id, rel_path, container, actual)
         # Spent: a cancel that arrived after the check above completed
         # anyway, and left in the set it would cancel the *next* download
@@ -1194,9 +1202,9 @@ class DownloadManager:
         )
         return False
 
-    def _claim_root(self, root: str) -> None:
+    def _claim_root(self, root: str) -> bool:
         """Remember ``root``, which a download has just landed in, before its
-        row is done.
+        row is done; False when the download must not be finished there.
 
         A done row whose file is not there was downloaded to the folder the
         location named before. It leaves without being marked watched, since
@@ -1206,18 +1214,20 @@ class DownloadManager:
         its rows.
         """
         if not settings.available():
-            return
+            return True
         with self._root_lock:
             remembered = self._remembered_root()
             if remembered is not None and _same_folder(remembered, root):
+                if files.has_marker(root):
+                    return True
                 # The marker lives on the volume. With none of the done rows'
                 # files here either, this is the mount point of a drive that
-                # is not mounted, and a marker would make every row a deletion.
-                if not files.has_marker(root) and (
-                    self._holds_a_download(root) or not store.rows(store.DONE)
-                ):
+                # is not mounted: a marker would make every row a deletion, and
+                # a row finished here would be one once the drive is back.
+                if self._holds_a_download(root) or not store.rows(store.DONE):
                     files.write_marker(root)
-                return
+                    return True
+                return False
             if remembered is not None or not self._holds_a_download(root):
                 for row in store.rows(store.DONE):
                     if row.rel_path and os.path.exists(
@@ -1236,6 +1246,7 @@ class DownloadManager:
                         self._mark_playlist_dirty(row.jellyfin_id)
             if files.write_marker(root):
                 self._remember_root(root)
+            return True
 
     @staticmethod
     def _holds_a_download(root: str) -> bool:
