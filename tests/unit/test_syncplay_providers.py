@@ -182,6 +182,40 @@ def test_the_registry_refuses_an_unknown_provider():
         registry.get("youtube")
 
 
+def test_a_provider_this_member_lacks_plays_its_key_as_a_jellyfin_item():
+    """pvr.kofin names a live channel by its Jellyfin id, so a member without
+    pvr.kofin follows the channel through kofin's play route."""
+    registry = providers.jellyfin_registry(
+        FakeApi({"Id": ITEM_ID, "Type": "TvChannel"})
+    )
+
+    target = registry.play_target(ITEM_ID, 0, provider="pvr.kofin")
+
+    assert target["url"] == (
+        "plugin://plugin.video.kofin/?mode=play&id=" + ITEM_ID + "&startticks=0"
+    )
+    assert "runtime_ticks" not in target
+
+
+def test_a_key_the_server_does_not_know_still_fails_the_load():
+    """A catchup programme, or another provider's content, is no item."""
+    registry = providers.jellyfin_registry(FakeApi(None))
+
+    with pytest.raises(LookupError):
+        registry.play_target(ITEM_ID + "@1730000000", 0, provider="pvr.kofin")
+
+
+def test_a_registered_provider_answers_for_its_own_keys():
+    registry = providers.jellyfin_registry(FakeApi({"Id": ITEM_ID, "Type": "Movie"}))
+    registry.register(
+        "example", providers.TemplateProvider("plugin://plugin.video.example/?v={key}")
+    )
+
+    target = registry.play_target("abc", 0, provider="example")
+
+    assert target["url"] == "plugin://plugin.video.example/?v=abc"
+
+
 # --- the template provider ------------------------------------------------
 
 

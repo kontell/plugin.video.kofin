@@ -159,23 +159,6 @@ def test_rate_mismatch_is_told_once_per_group(manager):
     assert len(warnings) == 2
 
 
-def test_a_live_play_without_timeshift_is_told_once_per_group(
-    manager,
-):
-    warnings = []
-    manager._toast = lambda message, **kw: kw.get("warning") and warnings.append(
-        message
-    )
-    join(manager)
-    manager.notify_live_without_timeshift()
-    manager.notify_live_without_timeshift()
-    assert len(warnings) == 1
-    manager._leave_locally()
-    join(manager)
-    manager.notify_live_without_timeshift()
-    assert len(warnings) == 2
-
-
 def test_current_claim_is_the_players_item(manager):
     manager.player.playing = True
     manager.player.item = {"Id": "m1", "PlaySessionId": "ps"}

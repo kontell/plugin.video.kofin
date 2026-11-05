@@ -561,16 +561,6 @@ class PulseScheduler:
 
             return
 
-        if self._live and claim.get("TimeshiftMissing"):
-            # kofin's own live play, resolved for this group without the
-            # timeshift route: Kodi will not play it at a tempo.
-            notify = getattr(
-                self.controller.manager, "notify_live_without_timeshift", None
-            )
-
-            if notify is not None:
-                notify()
-
         self._unarmed_logged = False
 
         if audio:

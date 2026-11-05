@@ -897,9 +897,8 @@ What remains is kofin's own:
   §10). The actuator is Kodi's own tempo with that setting **off** (kontell/xbmc #14 and
   #16, with #37), where the same devices free-run within a few hundred ppm, and only where
   the Kodi has it: `TempoSession.begin` asks for the `tempo` feature, and a member without it
-  (Piers, stock Kodi 23) keeps to the group's commands, as every audio item did on 0.19, and
-  plays a live item without the timeshift route. inputstream.tempo, the retired Piers
-  build's actuator, is not used.
+  (Piers, stock Kodi 23) keeps to the group's commands, as every audio item did on 0.19.
+  inputstream.tempo, the retired Piers build's actuator, is not used.
   `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, as a
   correction the OSD does not show where Kodi declares the flag (#38), confirms it by reading
   the `tempo` property back, reads what it moved off the player clock, settles before
@@ -930,10 +929,25 @@ What remains is kofin's own:
   live-clock anchor can never be mistaken for the session-time zero a member without the clock
   proposes. `claim_is_live` is the one spelling of
   live (kofin's own claim carries `Live`; a bus claim has no runtime), and a live item is never
-  seeked — ffmpeg's HLS demuxer refuses a seek on a live playlist — only pulsed, and two forward
-  pulses Kodi ends at the live edge (#25) mean the edge, not a fault (`docs/syncplay-fine-sync.md`).
-  In a group with fine sync on a live item plays through inputstream.ffmpegdirect's timeshift
-  (`plugin/play.py::live_timeshift`): Kodi plays a live stream at a tempo only with a time range.
+  seeked — a live-clock position is not a stream offset, and ffmpeg's HLS demuxer refuses a
+  seek on a sliding live playlist — only pulsed, and two forward pulses Kodi ends at the live
+  edge (#25) mean the edge, not a fault (`docs/syncplay-fine-sync.md`). Kofin's own live play
+  is the server's HLS through Kodi's own demuxer, realtime and with no inputstream add-on;
+  whether Kodi plays it at a tempo is `Player.TempoEnabled`.
+- **A channel plays the server's HLS, through Kodi's own demuxer.** The play route asks
+  `PlaybackInfo` for a `TvChannel` with direct play off (`EnableDirectPlay: false`, in the
+  body), because direct play hands Kodi the provider's own stream: a TS stream or a sliding
+  playlist, which Kodi's demuxer cannot seek. The server's `live.m3u8` is an EVENT playlist
+  that keeps every segment since the stream opened (`-hls_playlist_type event`), and Kodi
+  pauses and seeks it from 22.0b2, whose FFmpeg 9.0 maps an unfinished EVENT playlist onto its
+  first segment. A recording still being written takes the same playlist: Jellyfin probes it
+  to no runtime and never offers it direct play. The resolved item carries `isrealtimestream`.
+- **A member without a group's provider plays the key as a Jellyfin item**
+  (`ProviderRegistry.play_target`). pvr.kofin claims a live channel as a delegated `pvr.kofin`
+  start keyed by the channel's Jellyfin id, so a member without pvr.kofin follows the channel
+  through kofin's play route, without the EPG or the PVR OSD. A key the server does not know
+  as an item, a catchup programme's or another provider's, fails the load as a missing
+  provider always did.
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

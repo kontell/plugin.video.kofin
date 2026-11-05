@@ -15,8 +15,11 @@ database.
 from typing import Optional, Protocol, TypedDict
 from urllib.parse import quote
 
+from kofin.core.log import Logger
 from kofin.core.urls import plugin_url
 from kofin.syncplay.ports import JsonDict, SyncPlayApi
+
+LOG = Logger(__name__)
 
 JELLYFIN = "jellyfin"
 
@@ -176,15 +179,27 @@ class ProviderRegistry:
 
     def is_delegated(self, name: str) -> bool:
         """Whether the named provider takes delegated starts. False for an
-        unregistered name — the ordinary start path then fails the load
-        with the same lookup error it always has."""
+        unregistered name, which the ordinary start path (play_target)
+        tries as a Jellyfin item."""
         provider = self._providers.get(name)
         return bool(getattr(provider, "delegated", False))
 
     def play_target(
         self, key: str, start_ticks: int, provider: str = JELLYFIN
     ) -> PlayTarget:
-        return self.get(provider).play_target(key, start_ticks)
+        named = self._providers.get(provider)
+        if named is None:
+            # A provider this member lacks. Its key may still be an item the
+            # server has: pvr.kofin names a live channel by its Jellyfin id,
+            # so a member without pvr.kofin plays the channel through kofin.
+            # Any other key fails the Jellyfin lookup, and with it the load.
+            LOG.debug(
+                "[ syncplay/play ] no provider %s here; key %s as a Jellyfin item",
+                provider,
+                key,
+            )
+            named = self._providers[JELLYFIN]
+        return named.play_target(key, start_ticks)
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
         # The default provider owns the Kodi library.

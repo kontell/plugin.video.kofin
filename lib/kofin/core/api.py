@@ -565,8 +565,12 @@ class Api:
         subtitle_index: Optional[int] = None,
         media_source_id: Optional[str] = None,
         max_bitrate: Optional[int] = None,
+        enable_direct_play: bool = True,
     ) -> JsonDict:
         body: JsonDict = {"DeviceProfile": profile, "UserId": self.user_id}
+        if not enable_direct_play:
+            # Read from the body: the query form is obsolete on the server.
+            body["EnableDirectPlay"] = False
         params: JsonDict = self._as_user(
             {
                 "StartTimeTicks": start_ticks,

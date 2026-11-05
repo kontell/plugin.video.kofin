@@ -293,6 +293,17 @@ def test_playback_info_optional_params(api):
     second = transport.calls[1]
     assert second["params"]["MaxStreamingBitrate"] == 8_000_000
     assert second["params"]["AudioStreamIndex"] == 2
+    assert "EnableDirectPlay" not in second["json"]
+
+
+def test_playback_info_can_refuse_direct_play_in_the_body(api):
+    """The server reads EnableDirectPlay from the body; the query form is
+    obsolete."""
+    client, transport = api
+    client.playback_info("chan1", {}, enable_direct_play=False)
+    call = transport.calls[0]
+    assert call["json"]["EnableDirectPlay"] is False
+    assert "EnableDirectPlay" not in call["params"]
 
 
 def test_image_url(api):
