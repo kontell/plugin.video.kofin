@@ -170,6 +170,26 @@ def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
     assert settings.Credentials.load().is_logged_in is False
 
 
+def test_a_password_in_the_address_is_neither_sent_nor_logged(kodi_fakes, monkeypatch):
+    """A failed ping is logged at warning, with the address it tried."""
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    pinged = []
+
+    def unreachable(h, a):
+        pinged.append(a)
+        raise ServerUnreachable("GET %s/System/Info/Public: refused" % a)
+
+    monkeypatch.setattr(account.auth, "public_info", unreachable)
+    settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+
+    account.login(REQ)
+
+    assert pinged == ["https://minipie"]
+    assert lines
+    assert not [line for line in lines if "hunter2" in line or "bob" in line]
+
+
 def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     creds = settings.Credentials.load()
     creds.server_address = "http://minipie:8096"

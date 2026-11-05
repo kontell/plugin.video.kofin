@@ -39,7 +39,9 @@ def normalize_address(text: str) -> str:
     """'host', 'host:port' or a full URL -> canonical base URL, no trailing /.
 
     A bare host gets http on port 8096; explicit schemes and ports pass
-    through (https without a port stays portless, i.e. 443).
+    through (https without a port stays portless, i.e. 443). A user name and
+    password are dropped: the Authorization header is the only credential a
+    request carries, and the address is logged and stored.
     """
     address = text.strip().rstrip("/")
     if not address:
@@ -47,7 +49,8 @@ def normalize_address(text: str) -> str:
     if "://" not in address:
         address = "http://" + address
     parts = urlsplit(address)
-    netloc = parts.netloc
+    # The last "@", as urlsplit takes it: a password may hold one.
+    netloc = parts.netloc.rpartition("@")[2]
     # ``parts.port`` rather than a ":" test: an IPv6 literal is full of
     # colons.
     if parts.port is None and parts.scheme == "http" and not netloc.endswith(":"):
