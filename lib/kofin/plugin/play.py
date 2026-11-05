@@ -460,8 +460,8 @@ def downloaded_file(item_id: str) -> Optional[str]:
     if row is None or row.state != store.DONE or not row.rel_path:
         return None
 
-    path = files.absolute_path(downloads_root(), row.rel_path)
-    return path if os.path.exists(path) else None
+    path = files.path_in(downloads_root(), row.rel_path)
+    return path if path is not None and os.path.exists(path) else None
 
 
 def stream_requested(request: Request) -> bool:
