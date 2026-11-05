@@ -1443,13 +1443,15 @@ def test_a_live_play_is_realtime_through_kodis_own_demuxer(live_env, in_group):
 
 def test_a_recording_still_being_written_plays_the_servers_hls(live_env):
     """Jellyfin marks its source infinite and never offers it direct play:
-    it takes the transcoding URL, realtime, as a channel does."""
+    it takes the transcoding URL, realtime, as a channel does. It is claimed
+    as a recording, not live: its playlist starts where the recording does,
+    so a group can seek and pulse it as pvr.kofin's claim of it expects."""
     live_env["api"]._item = {"Id": "r1", "Type": "Recording", "Name": "A Recording"}
     run_play({"id": "r1"}, resume=False)
     assert live_env["asked"][0]["enable_direct_play"] is True
     assert live_env["li"].path == LIVE_URL
     assert live_env["li"].props.get("isrealtimestream") == "true"
-    assert _claim()["Live"] is True
+    assert "Live" not in _claim()
 
 
 def test_a_live_play_names_the_live_stream_the_server_opened(live_env):

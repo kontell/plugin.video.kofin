@@ -163,7 +163,7 @@ def claim_is_live(claim: Optional[Mapping[str, Any]]) -> bool:
     """Whether a claim names a live stream.
 
     kofin's own claim says so outright (``Live``, stamped by the play route
-    from the item type and the source's IsInfiniteStream); a public-bus
+    on a channel); a public-bus
     claim — the ones that carry a ``Provider`` — spells it as no runtime,
     per the provider contract. Anything else is not live: an item whose
     runtime the server does not know still seeks.

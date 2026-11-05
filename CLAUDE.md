@@ -928,7 +928,7 @@ What remains is kofin's own:
   group `LIVE_DELAY_S` behind its reading, offset by `LIVE_PTS_EPOCH_S` on the wire so a
   live-clock anchor can never be mistaken for the session-time zero a member without the clock
   proposes. `claim_is_live` is the one spelling of
-  live (kofin's own claim carries `Live`; a bus claim has no runtime), and a live item is never
+  live (kofin's own claim carries `Live` for a channel; a bus claim has no runtime), and a live item is never
   seeked — a live-clock position is not a stream offset, and ffmpeg's HLS demuxer refuses a
   seek on a sliding live playlist — only pulsed, and two forward pulses Kodi ends at the live
   edge (#25) mean the edge, not a fault (`docs/syncplay-fine-sync.md`). Kofin's own live play
@@ -942,6 +942,10 @@ What remains is kofin's own:
   pauses and seeks it from 22.0b2, whose FFmpeg 9.0 maps an unfinished EVENT playlist onto its
   first segment. A recording still being written takes the same playlist: Jellyfin probes it
   to no runtime and never offers it direct play. The resolved item carries `isrealtimestream`.
+  A recording in progress is still claimed as a recording, not `Live`: its playlist starts
+  where the recording does, so the player's time is a position in it, as pvr.kofin claims it,
+  and a group seeks and pulses it. Claimed `Live`, a member that landed seconds off was never
+  brought back.
 - **A member without a group's provider plays the key as a Jellyfin item**
   (`ProviderRegistry.play_target`). pvr.kofin claims a live channel as a delegated `pvr.kofin`
   start keyed by the channel's Jellyfin id, so a member without pvr.kofin follows the channel

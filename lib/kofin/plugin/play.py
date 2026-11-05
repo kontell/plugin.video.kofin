@@ -824,10 +824,13 @@ def play(request: Request) -> None:
         fetchable=streams.fetchable_subtitles(api.server, source),
         request_params=request.params,
     )
-    if is_live:
+    if channel:
         # The engine's spelling of live for kofin's own claim
         # (syncplay/utils.py::claim_is_live): what makes the group position
-        # a source-clock anchor rather than a stream offset.
+        # a source-clock anchor rather than a stream offset. A recording
+        # still being written is not live: its playlist starts where the
+        # recording does, so the player's time is a position in it, as
+        # pvr.kofin claims it.
         play_item["Live"] = True
     segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
