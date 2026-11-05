@@ -198,9 +198,19 @@ def dispatch(argv: list[str]) -> None:
             try:
                 serve(request)
             except BaseException:
+                import xbmcgui
                 import xbmcplugin
 
-                xbmcplugin.endOfDirectory(handle, succeeded=False, cacheToDisc=False)
+                if params.get("kodi_action") == "check_exists":
+                    # Kodi's clean deletes the row of a probe that fails: a
+                    # catalogue that cannot be read is no word on the row.
+                    xbmcplugin.setResolvedUrl(
+                        handle, True, xbmcgui.ListItem(path=base_url)
+                    )
+                else:
+                    xbmcplugin.endOfDirectory(
+                        handle, succeeded=False, cacheToDisc=False
+                    )
                 raise
             return
 
