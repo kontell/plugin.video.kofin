@@ -95,8 +95,8 @@ def chapter_art(
     for index, chapter in enumerate(item.get("Chapters") or []):
         tag = chapter.get("ImageTag") if isinstance(chapter, dict) else None
         if tag:
-            art["chapter%d" % (index + 1)] = api.chapter_image_url(
-                item["Id"], index, tag, CHAPTER_IMAGE_WIDTH
+            art["chapter%d" % (index + 1)] = settings.for_kodi(
+                api.chapter_image_url(item["Id"], index, tag, CHAPTER_IMAGE_WIDTH)
             )
     return art
 
@@ -153,7 +153,9 @@ def scrub_previews(
         columns,
         rows,
         [
-            api.trickplay_tile_url(item["Id"], source_id, width, index)
+            settings.for_kodi(
+                api.trickplay_tile_url(item["Id"], source_id, width, index)
+            )
             for index in range(tiles)
         ],
         count,
@@ -787,6 +789,8 @@ def play(request: Request) -> None:
             previews = scrub_previews(api, item, source, method)
             if previews:
                 hand_over_scrub_previews(li, previews)
+        # The claim names the file as Kodi is handed it.
+        url = settings.for_kodi(url)
         li.setPath(url)
         mime = mime_for(source, method)
         if mime:
@@ -806,7 +810,9 @@ def play(request: Request) -> None:
             else subtitles.Localized([], [])
         )
         if localized.files:
-            li.setSubtitles([path for _attachment, path in localized.files])
+            li.setSubtitles(
+                [settings.for_kodi(path) for _attachment, path in localized.files]
+            )
 
         play_item = play_state(
             item,

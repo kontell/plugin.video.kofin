@@ -281,6 +281,12 @@ def push_play_item(item: dict[str, Any]) -> None:
         pass
 
 
+def _file_of(path: str) -> str:
+    """A playing path without the protocol options after ``|``, which a
+    resolved URL can carry and Kodi may or may not report back with it."""
+    return path.split("|", 1)[0]
+
+
 def claim_play_item(path: str) -> Optional[dict[str, Any]]:
     """Take only a queued entry for the file Kodi actually started.
 
@@ -297,7 +303,7 @@ def claim_play_item(path: str) -> Optional[dict[str, Any]]:
         item = _read_entry(entry_path)
         if item is None:
             continue
-        if item.get("Path") == path:
+        if _file_of(str(item.get("Path") or "")) == _file_of(path):
             matching.append((entry_path, item))
 
     for entry_path, item in matching:

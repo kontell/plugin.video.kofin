@@ -522,6 +522,8 @@ class SyncPlayManager:
 
     def join_group(self, group_id: str) -> bool:
         self._join_pending_since = time.time()
+        # Only a group this member creates takes its playback as the queue.
+        self._pending_local_queue = False
 
         try:
             # Request v2 unconditionally: older servers ignore unknown
@@ -595,6 +597,8 @@ class SyncPlayManager:
                 return
 
             LOG.warning("No GroupJoined update within 10s of joining")
+            self._join_pending_since = 0.0
+            self._pending_local_queue = False
             self._toast(settings.localized(30570), error=True)
 
             try:
@@ -615,7 +619,7 @@ class SyncPlayManager:
     _GROUP_UPDATES_ANY_STATE = {
         "GroupJoined": "_on_group_joined",
         "NotInGroup": "_on_not_in_group",
-        "GroupDoesNotExist": "_on_not_in_group",
+        "GroupDoesNotExist": "_on_group_does_not_exist",
         "LibraryAccessDenied": "_on_library_access_denied",
     }
     _GROUP_UPDATES_UNVERSIONED = {
@@ -674,8 +678,29 @@ class SyncPlayManager:
         if self.in_group():
             self._attempt_rejoin()
 
+    def _on_group_does_not_exist(self, payload: Any, version: Optional[int]) -> None:
+        """The server sends this to a Join of a group that is gone, and to
+        nothing else: in a group it is the rejoin failing, and before
+        GroupJoined it is the join refused."""
+        if self.in_group():
+            LOG.debug("SyncPlay group %s no longer exists", self.last_group_id)
+            self._leave_locally()
+            self._toast(settings.localized(30571), warning=True)
+        elif self._join_pending_since:
+            self._join_refused(30578)
+
     def _on_library_access_denied(self, payload: Any, version: Optional[int]) -> None:
-        self._toast(settings.localized(30579), error=True)
+        if self._join_pending_since and not self.in_group():
+            self._join_refused(30579)
+        else:
+            self._toast(settings.localized(30579), error=True)
+
+    def _join_refused(self, message: int) -> None:
+        """A join the server refused: the check waiting for GroupJoined has
+        its answer, and nothing local is proposed to a group."""
+        self._join_pending_since = 0.0
+        self._pending_local_queue = False
+        self._toast(settings.localized(message), error=True)
 
     def _on_group_left(self, payload: Any) -> None:
         self._leave_locally()

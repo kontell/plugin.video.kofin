@@ -553,3 +553,62 @@ def test_a_hidden_library_keeps_its_entries_only_while_it_is_synced(views_env):
     whitelist()
     dynamic.publish_from(HidingApi())
     assert "Movies" not in titles() and "Shows" in titles()
+
+
+def test_a_library_grouped_into_a_combined_view_keeps_its_nodes(views_env):
+    """Jellyfin lists a grouped library under a combined view of its own and
+    answers for it by id; a synced one keeps its nodes and its entry."""
+    combined = {"Id": "6" * 32, "Name": "Films", "CollectionType": "movies"}
+
+    class GroupingApi(FakeApi):
+        def views(self, include_hidden=False):
+            return {"Items": [i for i in ITEMS if i["Id"] != MOVIES] + [combined]}
+
+        def item(self, item_id):
+            found = next(i for i in ITEMS if i["Id"] == item_id)
+            return dict(found, Type="CollectionFolder")
+
+    whitelist(MOVIES)
+    dynamic.publish_from(GroupingApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    assert (root / ("kofinmovies" + MOVIES)).is_dir()
+
+
+def test_a_grouped_library_the_server_cannot_answer_for_keeps_its_nodes(views_env):
+    """A grouped library read by its id fails with anything but a 404: the
+    publish stops, rather than write a tree without it."""
+    from kofin.core.http import HttpError, JellyfinError
+
+    combined = {"Id": "6" * 32, "Name": "Films", "CollectionType": "movies"}
+    answer = {"error": None}
+
+    class GroupingApi(FakeApi):
+        def views(self, include_hidden=False):
+            return {"Items": [i for i in ITEMS if i["Id"] != MOVIES] + [combined]}
+
+        def item(self, item_id):
+            if answer["error"] is not None:
+                raise answer["error"]
+            found = next(i for i in ITEMS if i["Id"] == item_id)
+            return dict(found, Type="CollectionFolder")
+
+    whitelist(MOVIES)
+    dynamic.publish_from(GroupingApi())
+    node = (
+        views_env["profile"]
+        / "library"
+        / "video"
+        / NODE_ROOT
+        / ("kofinmovies" + MOVIES)
+    )
+    assert node.is_dir()
+
+    for error in (HttpError(500, "GET /Items -> 500"), OSError("timed out")):
+        answer["error"] = error
+        with pytest.raises(JellyfinError):
+            dynamic.publish_from(GroupingApi())
+        assert node.is_dir()
+
+    answer["error"] = HttpError(404, "GET /Items -> 404")
+    dynamic.publish_from(GroupingApi())
+    assert not node.exists()

@@ -325,6 +325,8 @@ def test_a_library_listed_for_fewer_fields_is_listed_again_by_name(store, monkey
 
     def generation(views):
         server = Server({LIB: [movie()], LIB2: show_bundle()}, views=views)
+        # Jellyfin's answer by id for a library its views leave out.
+        server.gone = {LIB, LIB2} - {view["Id"] for view in views}
         w = worker(store, server, [LIB, LIB2], monkeypatch)
         monkeypatch.setattr(
             library.private, "get_sync", lambda: {"Whitelist": [LIB, LIB2]}
@@ -494,6 +496,7 @@ def test_a_selected_library_the_server_no_longer_lists_is_tried_once(
     from kofin.sync.backends.api import library
 
     server = Server({LIB: [movie()]})
+    server.gone = {"9" * 32}  # Jellyfin answers 404 for a library that is gone
     store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
     w = worker(store, server, [LIB, "9" * 32], monkeypatch)
     monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
