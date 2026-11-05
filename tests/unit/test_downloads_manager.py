@@ -656,6 +656,35 @@ def test_no_free_space_refuses_before_touching_the_network(repoints, monkeypatch
     assert api.stream_calls == []
 
 
+def test_a_network_downloads_folder_is_refused_and_said_once(
+    tmp_path, repoints, monkeypatch
+):
+    """A location an earlier build let the browser pick: nothing is fetched or
+    written under the working directory, and the folder is called unwritable
+    once, not once per item."""
+    monkeypatch.chdir(tmp_path)
+    FakeAddon.store["downloadsPath"] = "smb://user:secret@nas/share/"
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d" % i)
+    manager, _ = make_manager(repoints)
+    body = {"Content-Length": "8", "Content-Disposition": DISPOSITION}
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [FakeStream(200, [b"abcdefgh"], body), FakeStream(200, [b"abcdefgh"], body)],
+    )
+
+    manager._process(api, queue_row("m1"))
+    manager._process(api, queue_row("m2"))
+
+    assert api.stream_calls == []
+    assert not (tmp_path / "smb:").exists()
+    assert [store.get(item).state for item in ("m1", "m2")] == [store.FAILED] * 2
+    assert shown == ["L30717"]
+
+
 def test_reconcile_removes_missing_files_and_reasserts_present_ones(tmp_path, repoints):
     manager, refreshes = make_manager(repoints)
     rel = "Movies/Kept (2019)/kept.mkv"

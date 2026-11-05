@@ -258,14 +258,22 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
     return free >= int(expected_bytes) + FREE_SPACE_RESERVE
 
 
+def on_this_device(root: str) -> bool:
+    """Whether ``root`` is a folder Python's own file calls reach. Kodi's
+    ``translatePath`` leaves a network location (``smb://``, ``nfs://``) as
+    it is, and ``os`` reads one as a folder under the working directory."""
+    return "://" not in root
+
+
 def absolute_path(root: str, rel_path: str) -> str:
     """The one spelling of a download's on-disk location.
 
-    Raises ValueError for a path outside ``root``. A row's path was built
-    from a server's answer, possibly to an earlier build, so it is checked
-    on every use and not only when it is chosen.
+    Raises ValueError for a path outside ``root``, and for any path under a
+    ``root`` not on this device. A row's path was built from a server's
+    answer, possibly to an earlier build, so it is checked on every use and
+    not only when it is chosen.
     """
-    if contained(rel_path):
+    if contained(rel_path) and on_this_device(root):
         absolute = os.path.join(root, rel_path)
         base = os.path.abspath(root)
         if os.path.commonpath([base, os.path.abspath(absolute)]) == base:

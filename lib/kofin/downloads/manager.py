@@ -187,6 +187,8 @@ class DownloadManager:
         self._root_memory: Optional[str] = None  # None: not read yet
         # Held while a worker decides and records a target (_decide_target).
         self._target_lock = threading.Lock()
+        # The network location last refused as the downloads folder.
+        self._refused_root = ""
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
@@ -619,6 +621,15 @@ class DownloadManager:
         )
 
         root = downloads_root()
+        if not files.on_this_device(root):
+            store.fail(item_id, "the downloads folder is not on this device")
+            if root != self._refused_root:
+                # Once per folder, not once per item of a request. The
+                # location itself can carry a password.
+                self._refused_root = root
+                LOG.warning("the downloads folder is a network location")
+                toast.show(settings.localized(30717), toast.WARNING)
+            return
         if row.rel_path and files.path_in(root, row.rel_path) is None:
             # A target an earlier build froze from a server's answer, outside
             # the folder: decided again, and nothing at the old path touched.

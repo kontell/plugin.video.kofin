@@ -876,12 +876,17 @@
           <default>false</default>
           <control type="toggle"/>
         </setting>
+        <!-- The local source alone: the browser offers no network location,
+             which translatePath leaves a URL and Python cannot write. -->
         <setting id="downloadsPath" type="path" label="30704" help="30705">
           <level>0</level>
           <default></default>
           <constraints>
             <allowempty>true</allowempty>
             <writable>true</writable>
+            <sources>
+              <source>local</source>
+            </sources>
           </constraints>
           <dependencies>
             <dependency type="visible">

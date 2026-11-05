@@ -248,6 +248,16 @@ def test_absolute_path_joins_what_stays_inside(tmp_path):
     assert files.path_in(root, "Movies/Film.mkv") == expected
 
 
+@pytest.mark.parametrize("root", ["smb://nas/share", "nfs://nas/export/dl"])
+def test_nothing_is_inside_a_network_location(root):
+    """Kodi's translatePath leaves one as it is, and os would read it as a
+    folder under the working directory."""
+    assert not files.on_this_device(root)
+    with pytest.raises(ValueError):
+        files.absolute_path(root, "Movies/Film.mkv")
+    assert files.path_in(root, "Movies/Film.mkv") is None
+
+
 def test_default_filename_orders_directories():
     episode = {
         "Type": "Episode",

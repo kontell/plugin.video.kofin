@@ -320,6 +320,20 @@ def test_the_downloads_category_stays_a_single_group():
     assert len(list(category.iter("group"))) == 1
 
 
+def test_the_download_location_offers_this_devices_folders_alone():
+    """Kodi's folder browser lists the network locations beside the local
+    drives unless a path setting names the local source alone."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    setting = next(
+        element
+        for element in root.iter("setting")
+        if element.get("id") == "downloadsPath"
+    )
+    assert [source.text for source in setting.iter("source")] == ["local"]
+
+
 def test_the_streaming_bitrate_cap_shows_under_force_direct_play():
     """Play with transcoding's default bitrate is the cap, and force direct
     play does not reach that play, so the cap has a use with it on."""
