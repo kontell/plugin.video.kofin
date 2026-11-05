@@ -624,7 +624,11 @@ class Player(xbmc.Player):
             LOG.exception("applying Jellyfin default tracks failed")
 
     def _apply_default_tracks(self, item: JsonDict) -> None:
-        payload = item.get("Streams") or {}
+        payload = item.get("Streams")
+        if not payload:
+            # A downloaded play: the server's defaults index the tracks of a
+            # source, not of the file playing, so Kodi's own choice stands.
+            return
         media_streams = payload.get("MediaStreams") or []
         attached = payload.get("Attached") or []
         method = str(item.get("PlayMethod") or "")

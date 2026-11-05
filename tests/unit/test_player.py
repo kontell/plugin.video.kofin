@@ -742,6 +742,40 @@ def test_no_default_subtitle_turns_them_off(monkeypatch):
     assert tracks.subtitle == []
 
 
+def test_a_downloaded_play_keeps_kodis_own_tracks(monkeypatch):
+    """The claim of a downloaded play carries no streams: the server's
+    defaults index a source's tracks, not the file's, so nothing is put over
+    Kodi's own choice, a forced or sidecar subtitle included."""
+    from kofin.plugin import play as play_module
+
+    local = "/storage/downloads/Movies/M (2019)/m.mkv"
+    state.push_play_item(
+        play_module.play_state(
+            {"Id": "m1", "Type": "Movie", "Name": "M"},
+            {"Id": "m1"},
+            local,
+            "DirectPlay",
+            "ps1",
+            "dev1",
+            0.0,
+            streams_menu=False,
+        )
+    )
+    player, _ = make_player(monkeypatch, url=local)
+    monkeypatch.setattr("kofin.service.player.downloaded_path", lambda path: True)
+    tracks = TrackRecorder()
+    monkeypatch.setattr(player, "setAudioStream", tracks.audio.append)
+    monkeypatch.setattr(player, "setSubtitleStream", tracks.subtitle.append)
+    monkeypatch.setattr(player, "showSubtitles", tracks.shown.append)
+    FakeAddon.store["honourJellyfinDefaultTracks"] = "true"
+
+    player.onPlayBackStarted()
+    assert player.current_item()["Id"] == "m1"
+    player.onAVStarted()
+
+    assert tracks.audio == [] and tracks.subtitle == [] and tracks.shown == []
+
+
 def test_the_setting_is_respected(monkeypatch):
     player, tracks = stream_player(monkeypatch)
     FakeAddon.store["honourJellyfinDefaultTracks"] = "false"
