@@ -113,7 +113,8 @@
 - The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.
 - Live TV and recordings in progress can be paused and skipped through without FFmpeg Direct.
 - A SyncPlay member without Kofin PVR follows the group's live TV.
-- Stopping live TV frees the tuner.</news>
+- Stopping live TV frees the tuner.
+- Signing in works when Kodi's device name is in a non-Latin script.</news>
     <!-- The bundled backdrop, behind structural listings that have no art of
          their own (plugin/browse.py BACKDROP_IMAGE). The server's splashscreen
          goes to addon_data (service/backdrop.py), never here. A fixed path in
