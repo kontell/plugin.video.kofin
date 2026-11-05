@@ -115,6 +115,8 @@ class SyncPlayManager:
 
         self._prog_depth = 0
         self._prog_release = 0.0
+        # The file the last A/V start was for (see on_resumed).
+        self._av_file = ""
         self._prog_lock = threading.Lock()
 
         self._inbox: Queue[Posted] = Queue()
@@ -1352,7 +1354,14 @@ class SyncPlayManager:
         pipeline claims the item). Called on the notification thread."""
         self.holds.on_kodi_play(data)
 
+    def _playing_file(self) -> str:
+        try:
+            return str(self.player.getPlayingFile() or "")
+        except Exception:
+            return ""
+
     def on_avstarted(self) -> None:
+        self._av_file = self._playing_file()
         if not self.in_group():
             return
 
@@ -1404,6 +1413,12 @@ class SyncPlayManager:
             return
 
         if self.phase in FOLLOWING:
+            playing = self._playing_file()
+            if self._av_file and playing and playing != self._av_file:
+                # VideoPlayer raises a resume as it opens another file in
+                # place of the playing one, before that file's start: the
+                # start is on_playback_started's, not an unpause.
+                return
             LOG.debug("[ syncplay/user unpause ]")
             # The group start time is the server's call: hold position
             # and ask for a group unpause instead of running ahead.

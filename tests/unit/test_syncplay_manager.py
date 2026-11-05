@@ -24,6 +24,7 @@ class FakePlayer:
         self.position = 0.0
         self.syncplay_group_active = False
         self.item = None  # the claimed play state (current_item())
+        self.file = ""  # what getPlayingFile() answers
 
     def getTime(self):
         if not self.playing:
@@ -33,6 +34,9 @@ class FakePlayer:
 
     def isPlaying(self):
         return self.playing
+
+    def getPlayingFile(self):
+        return self.file
 
     def isPlayingAudio(self):
         return False
@@ -1393,6 +1397,58 @@ class TestLocalPlayIdentityOnEitherBuild:
                 utils.seconds_to_ticks(2520.0),
             )
         ]
+
+    def test_a_video_opened_in_place_of_the_synced_one_is_proposed_not_unpaused(
+        self, manager, paused_cond, library
+    ):
+        """Kodi raises a resume as it opens a file in place of the playing
+        one, before that file's start. Read as a user unpause, its own pause
+        opened the programmatic grace and the start was dropped: the picked
+        video played outside the group."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.player.file = "http://s/Videos/group-movie/stream"
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_avstarted()
+
+        manager.player.file = "http://s/Videos/other-movie/stream"
+        manager.on_resumed()
+        assert manager._api.named("syncplay_unpause") == []
+
+        manager.on_playback_started()
+        assert manager.holds._hold is not None
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        manager.player.position = 1186.0
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "CurrentPosition": 1186.0,
+        }
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(1186.0),
+            )
+        ]
+
+    def test_a_user_unpause_of_the_synced_file_still_asks_the_group(
+        self, manager, paused_cond
+    ):
+        join(manager)
+        manager.player.playing = True
+        manager.player.file = "http://s/Videos/group-movie/stream"
+        manager.phase = "synced"
+        manager.on_avstarted()
+
+        manager.on_resumed()
+
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
 
     def test_a_video_playlist_advance_is_proposed_at_its_start(
         self, manager, paused_cond, library
