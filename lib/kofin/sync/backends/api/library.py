@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import xbmc
 
 from kofin.core import memory, settings, toast
-from kofin.core.http import HttpError, JellyfinError
+from kofin.core.http import HttpError, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, kofindb, private
@@ -1109,6 +1109,8 @@ class Library(threading.Thread):
         result: list[dict] = []
         ids = list(ids)
         for start in range(0, len(ids), IDS_PER_REQUEST):
+            if self._stop_event.is_set():
+                raise InterruptedError("item fetch stopped")
             chunk = ids[start : start + IDS_PER_REQUEST]
             page = self.api.items(
                 {"userId": self.api.user_id, "Ids": ",".join(chunk), "Fields": FIELDS}
@@ -1121,7 +1123,7 @@ class Library(threading.Thread):
                 for i in rows
                 if isinstance(i, dict) and i.get("Id") and i.get("Name")
             )
-        attach_extras(self.api, result)
+        attach_extras(self.api, result, self._stop_event.is_set)
         return result
 
     def _library_of(
@@ -1145,6 +1147,8 @@ class Library(threading.Thread):
             parent = self.store.entry(item["AlbumId"])
             if parent is not None and parent.library in selected:
                 return parent.library
+        if self._stop_event.is_set():
+            raise InterruptedError("item placement stopped")
         for ancestor in self.api.ancestors(item["Id"]):
             if isinstance(ancestor, dict) and ancestor.get("Id") in selected:
                 found: str = ancestor["Id"]
@@ -1641,14 +1645,25 @@ class Library(threading.Thread):
 
         Each edit on its own: an edit of an item the server does not have
         (404) is dropped, and any other failure is raised once the rest have
-        been delivered.
+        been delivered. A write that cannot reach the server, or that the
+        server refuses for the account, is raised at once: every edit behind
+        it would fail alike, and they wait for the next round.
         """
         failure: Optional[Exception] = None
         for item_id, values in self.store.local_pending():
+            if self._stop_event.is_set():
+                raise InterruptedError("play state delivery stopped")
+            written = False
             try:
-                self._deliver_local(item_id, values)
+                self._write_local(item_id, values)
+                written = True
+                self._read_back_local(item_id, values)
             except InterruptedError:
                 raise
+            except (ServerUnreachable, Unauthorized) as error:
+                if not written:
+                    raise
+                failure = failure or error
             except HttpError as error:
                 if error.status == 404:
                     LOG.debug(
@@ -1663,7 +1678,7 @@ class Library(threading.Thread):
         if failure is not None:
             raise failure
 
-    def _deliver_local(self, item_id: str, values: dict[str, Any]) -> None:
+    def _write_local(self, item_id: str, values: dict[str, Any]) -> None:
         payload: dict[str, Any] = {}
         if "playcount" in values:
             # The watched mark and never the count: the server and Kodi each
@@ -1674,10 +1689,12 @@ class Library(threading.Thread):
         # The partial setter is idempotent across an interrupted reply;
         # MarkPlayed would increment the server count again on retry.
         self.api.update_user_data(item_id, payload)
+
+    def _read_back_local(self, item_id: str, values: dict[str, Any]) -> None:
         # Re-fetch the authoritative full DTO before acknowledging the
         # local outbox; a failed read remains replayable.
         item = metadata.compact(self.api.item(item_id))
-        attach_extras(self.api, [item])
+        attach_extras(self.api, [item], self._stop_event.is_set)
         if self.store.entry(item_id) is not None:
             self.publish([item])
         self.store.local_done(item_id, values)

@@ -1197,3 +1197,153 @@ def test_an_edit_the_server_refuses_stays_and_does_not_hold_the_others_back(
         w.flush_local()
     assert server.updated == [("b", {"Played": True})]
     assert store.local_pending() == [("a", {"playcount": 2})]
+
+
+@pytest.mark.parametrize("refusal", ["unreachable", "unauthorized"])
+def test_a_server_out_of_reach_ends_the_outbox_round_at_its_first_edit(
+    store, monkeypatch, refusal
+):
+    """Every edit behind the first would fail alike, each after a connect
+    timeout of its own: they wait for the next round."""
+    from kofin.core.http import ServerUnreachable, Unauthorized
+
+    failure = {
+        "unreachable": ServerUnreachable("POST /UserItems/a/UserData: timed out"),
+        "unauthorized": Unauthorized("POST /UserItems/a/UserData -> 401"),
+    }[refusal]
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 0})
+    sent = []
+
+    def refuse(item_id, payload):
+        sent.append(item_id)
+        raise failure
+
+    monkeypatch.setattr(server, "update_user_data", refuse)
+    with pytest.raises(type(failure)):
+        w.flush_local()
+    assert len(sent) == 1
+    assert sorted(store.local_pending()) == [
+        ("a", {"playcount": 1}),
+        ("b", {"playcount": 0}),
+    ]
+
+
+def test_an_item_whose_reading_back_times_out_does_not_hold_the_others_back(
+    store, monkeypatch
+):
+    """The write went through, so the server is there: the failure is the
+    item's, and the edits behind it still go."""
+    from kofin.core.http import ServerUnreachable
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 1})
+    item = server.item
+
+    def hangs(item_id):
+        if item_id == "a":
+            raise ServerUnreachable("GET /Items/a: read timed out")
+        return item(item_id)
+
+    monkeypatch.setattr(server, "item", hangs)
+    with pytest.raises(ServerUnreachable):
+        w.flush_local()
+    assert sorted(server.updated) == [("a", {"Played": True}), ("b", {"Played": True})]
+    assert store.local_pending() == [("a", {"playcount": 1})]
+
+
+def _stopping(w):
+    """The stop flag, raised by appending to the list returned."""
+    raised: list = []
+    w._stop_event = SimpleNamespace(is_set=lambda: bool(raised), wait=lambda s: False)
+    return raised
+
+
+def test_a_stop_ends_the_outbox_round_between_edits(store, monkeypatch):
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 1})
+    stop = _stopping(w)
+    update = server.update_user_data
+
+    def update_then_stop(item_id, payload):
+        update(item_id, payload)
+        stop.append(True)
+
+    monkeypatch.setattr(server, "update_user_data", update_then_stop)
+    with pytest.raises(InterruptedError):
+        w.flush_local()
+    assert len(server.updated) == 1 and len(store.local_pending()) == 1
+
+
+def test_a_stop_ends_a_large_fetch_between_its_requests(store, monkeypatch):
+    """Fifty items a request, and one more for each movie with extras."""
+    ids = ["m%03d" % n for n in range(120)]
+    server = Server({LIB: [movie(i, SpecialFeatureCount=1) for i in ids]})
+    w = worker(store, server, [LIB], monkeypatch)
+    stop = _stopping(w)
+    asked = []
+    items = server.items
+
+    def listing(params):
+        asked.append("items")
+        return items(params)
+
+    def features(item_id):
+        asked.append(item_id)
+        stop.append(True)
+        return []
+
+    server.items = listing
+    server.special_features = features
+    with pytest.raises(InterruptedError):
+        w.fetch_items(ids)
+    assert asked == ["items", "items", "items", "m000"]
+
+    stop.clear()
+    asked.clear()
+    server.special_features = lambda item_id: []
+
+    def listing_then_stop(params):
+        stop.append(True)
+        return listing(params)
+
+    server.items = listing_then_stop
+    with pytest.raises(InterruptedError):
+        w.fetch_items(ids)
+    assert asked == ["items"]
+
+
+def test_a_stop_ends_the_placement_of_new_items_between_its_requests(
+    store, monkeypatch
+):
+    """A record that names no library has its item's ancestors asked for."""
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+
+    ids = ["n%03d" % n for n in range(5)]
+    server = Server({LIB: [movie(i) for i in ids]})
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed([ChangeRecord(i, "Added") for i in ids], server_time=900)
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    stop = _stopping(w)
+    asked = []
+    ancestors = server.ancestors
+
+    def ancestors_then_stop(item_id):
+        asked.append(item_id)
+        stop.append(True)
+        return ancestors(item_id)
+
+    server.ancestors = ancestors_then_stop
+    with pytest.raises(InterruptedError):
+        w.catch_up()
+    assert asked == ["n000"]
+    assert store.watermark()[0] == unix_to_watermark(500)
