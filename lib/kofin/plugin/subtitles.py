@@ -22,9 +22,10 @@ the request does not abandon the work: the extraction runs to completion
 server-side, which is what makes chasing it worthwhile rather than a second
 cold start.
 
-Kodi parses ``<name>.<language>[.forced].<ext>``: a name, the language, and
-``forced`` when it applies. Nothing else, because anything Kodi does not parse
-ends up rendered.
+Kodi parses ``<name>.<language>[.forced][.impaired].<ext>``: a name, the
+language, and the flags that apply. Nothing else, because anything Kodi does
+not parse ends up rendered: the number that tells two otherwise alike tracks
+apart is rendered on purpose.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -51,6 +52,7 @@ from kofin.core.subtitles import (  # noqa: F401 - re-exports
     fetch_to,
     filename_for,
     sweep,
+    unique_filename,
 )
 
 LOG = Logger(__name__)
@@ -98,11 +100,15 @@ def localize(
     sweep(path)
 
     to_fetch = attached[:MAX_FILES]
+    # Named before any fetch starts, so a name follows the order in and not
+    # the order the fetches finish.
+    taken: set[str] = set()
+    names = [unique_filename(attachment, taken) for attachment in to_fetch]
     local_paths: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=min(4, len(to_fetch))) as pool:
         futures = {
-            pool.submit(_fetch, http, attachment, path): attachment
-            for attachment in to_fetch
+            pool.submit(_fetch, http, attachment, path, name=name): attachment
+            for attachment, name in zip(to_fetch, names)
         }
         for future in as_completed(futures):
             local_paths[futures[future].stream_index] = future.result()

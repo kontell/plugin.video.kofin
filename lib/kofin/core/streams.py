@@ -39,6 +39,9 @@ class Attachment(NamedTuple):
     language: str
     title: str
     forced: bool
+    # Defaulted: a claim queued without it still decodes
+    # (latesubs.fetchable_of).
+    hearing_impaired: bool = False
 
 
 # The play methods whose stream *is* the original file, so Kodi reads the
@@ -190,6 +193,7 @@ def attached_subtitles(
                 language=str(stream.get("Language") or ""),
                 title=str(stream.get("Title") or ""),
                 forced=bool(stream.get("IsForced")),
+                hearing_impaired=bool(stream.get("IsHearingImpaired")),
             )
         )
     return attached
@@ -225,6 +229,7 @@ def fetchable_subtitles(server: str, source: JsonDict) -> list[Attachment]:
                 language=str(stream.get("Language") or ""),
                 title=str(stream.get("Title") or ""),
                 forced=bool(stream.get("IsForced")),
+                hearing_impaired=bool(stream.get("IsHearingImpaired")),
             )
         )
     return fetchable
