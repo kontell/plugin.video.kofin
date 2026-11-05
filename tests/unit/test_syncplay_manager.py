@@ -1360,6 +1360,59 @@ class TestLocalPlayIdentityOnEitherBuild:
         assert manager.holds._hold["proposed"] is True
         assert manager.player.paused is True
 
+    def test_a_video_picked_over_the_synced_one_starts_the_group_where_it_resumed(
+        self, manager, paused_cond, library
+    ):
+        """Kodi's player opens a new file in place and sends no stop, so the
+        start reads as a playlist advance; the resume point the user picked
+        is where the group starts, not 0."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+        manager.player.position = 2520.0
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "PlaySessionId": "s2",
+            "CurrentPosition": 2520.0,
+        }
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(2520.0),
+            )
+        ]
+
+    def test_a_video_playlist_advance_is_proposed_at_its_start(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        library[(8, "episode")] = "ep-2"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "ep-1"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 8, "type": "episode"}})
+        manager.player.item = {"Id": "ep-2", "Type": "Episode", "CurrentPosition": 0.0}
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            ("syncplay_set_new_queue", ["ep-2"], 0, 0)
+        ]
+        assert manager.player.paused is True  # held for the group
+
     def test_a_row_that_is_not_kofin_s_is_released_at_once(
         self, manager, paused_cond, library
     ):

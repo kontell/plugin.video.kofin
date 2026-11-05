@@ -20,6 +20,21 @@ if TYPE_CHECKING:
 LOG = Logger(__name__)
 
 
+def _start_of(info: Any) -> float:
+    """Where a claimed start began, for its proposal to the group.
+
+    0 for a live claim, whose player clock is session time, and for a song:
+    the claim's position follows the player, whose clock can still read the
+    previous track straight after a gapless advance.
+    """
+    if not info or utils.claim_is_live(info) or info.get("Type") == "Audio":
+        return 0.0
+    try:
+        return max(0.0, float(info.get("CurrentPosition") or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class LocalStarts:
     """The hold-and-propose flow of the member's own starts and stops.
 
@@ -155,7 +170,7 @@ class LocalStarts:
             hold["item_id"] = item_id
 
             if hold["transition"]:
-                self.propose(item_id, position=0.0, provider=provider)
+                self.propose(item_id, position=_start_of(info), provider=provider)
                 return
 
         position = None
@@ -225,6 +240,12 @@ class LocalStarts:
             return
 
         if not hold["transition"]:
+            return
+
+        if media != "song":
+            # Kodi sends no stop when the user picks another video over the
+            # synced one, so this start may be at a resume point, which only
+            # its claim states: forward proposes it once A/V is up.
             return
 
         hold["proposed"] = True

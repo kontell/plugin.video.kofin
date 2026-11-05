@@ -1340,8 +1340,9 @@ class SyncPlayManager:
             return
 
         if self.phase in STARTABLE:
-            # Phase "synced" means no stop intervened since the synced
-            # item: a native playlist advance, which starts at 0. Phase
+            # Phase "synced" means no stop intervened since the synced item:
+            # a native playlist advance, or a video the user picked in its
+            # place (Kodi's player opens it in place, with no stop). Phase
             # "idle" is a fresh user start (possibly at a resume point).
             self.holds.enter(transition=self.phase == Phase.SYNCED)
 
