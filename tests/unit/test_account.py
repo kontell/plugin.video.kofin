@@ -104,6 +104,20 @@ def test_login_password_happy_path(kodi_fakes, server, monkeypatch):
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)
 
 
+def test_sign_in_logs_no_user_name(kodi_fakes, server, monkeypatch):
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor", "secretpw"]
+
+    account.login(REQ)
+
+    assert settings.Credentials.load().is_logged_in is True
+    assert any("signed in to minipie" in line for line in lines)
+    assert not [line for line in lines if "conor" in line]
+
+
 def test_login_quick_connect_path(kodi_fakes, server, monkeypatch):
     monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: True)
     monkeypatch.setattr(
