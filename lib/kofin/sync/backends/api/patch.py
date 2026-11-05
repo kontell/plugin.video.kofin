@@ -683,12 +683,11 @@ class Applier:
             applied["tag"] = self.native.music.tag_hash(record)
             applied["dir"] = record.parent_id
             applied["userdata"] = metadata.userdata(record.item)
-            if previous.get("tag") not in (None, applied["tag"]) and not (
-                (record.library, record.parent_id) in self.native.music.rescanned
-                or (record.library, "*") in self.native.music.rescanned
+            if previous.get("tag") not in (None, applied["tag"]) and (
+                (record.library, record.parent_id) not in self.native.music.listed
             ):
-                # The tags moved and the directory was not re-listed this
-                # pass: the row still carries the old ones.
+                # The tags moved and Kodi was not handed the directory's
+                # listing this pass: the row still carries the old ones.
                 raise RuntimeError("song awaits its directory's rescan")
         elif kind == "MusicAlbum":
             owner = self.native.music.album_owner(kodi_id)

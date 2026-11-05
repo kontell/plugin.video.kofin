@@ -40,9 +40,14 @@ class MusicPass:
         self.native = native
         self.store = native.store
         self.key = native.key
-        # (library, folder) pairs whose directory this pass has re-listed,
-        # and (library, "*") when that was every directory of the library.
+        # (library, folder) pairs whose directory a scan of this pass was to
+        # list, and (library, "*") when that was every directory of the
+        # library: where a song can have been lost (lost_songs).
         self.rescanned: set[tuple[str, str]] = set()
+        # Of those, the pairs whose listing Kodi was handed from the
+        # catalogue (Store.listed). A scan stopped before a directory never
+        # asks for it, and a song's tags reach Kodi only through it.
+        self.listed: set[tuple[str, str]] = set()
         # Whether this pass read a whole library's rows: every song for the
         # comparison (check_due, lost_songs) or every album payload for a
         # scan; the pass hands that heap back (Native.reconcile).
@@ -207,8 +212,14 @@ class MusicPass:
         # Every directory this pass re-listed has been checked.
         self.native.credit_music_scans(library)
         # Only now: a scan that raised leaves the library to be compared
-        # whole again.
-        if library in self._compared:
+        # whole again, and so does one that left a directory it was to list
+        # unread, whose rows only a whole compare finds again.
+        unread = {
+            pair for pair in self.rescanned if pair[0] == library and pair[1] != "*"
+        } - self.listed
+        if unread:
+            self.native.music_checked.discard(library)
+        elif library in self._compared:
             self.native.music_checked.add(library)
 
     def scan(self, library: str, folders: set[str], expected: int = 0) -> None:
@@ -266,6 +277,14 @@ class MusicPass:
         self.rescanned.update((library, folder) for folder in folders)
         if every <= set(folders):
             self.rescanned.add((library, "*"))
+        listed = self.store.listed(library) & set(folders)
+        self.listed.update((library, folder) for folder in listed)
+        if len(listed) < len(folders):
+            LOG.debug(
+                "music: Kodi read %d of the %d directories the scan was to list",
+                len(listed),
+                len(folders),
+            )
 
     def lost_songs(
         self, library: str, folders: set[str], entries: abc.Mapping[str, Entry]

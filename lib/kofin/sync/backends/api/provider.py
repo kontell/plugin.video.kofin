@@ -577,12 +577,17 @@ def _music_folder(
     is handed over: the store's, or Kodi's own rows read back in full with
     the paged total proving the count. Until one of them answers the listing
     waits, and leaves only with Kodi.
+
+    The store's listing is recorded before it is handed over
+    (``Store.note_listed``): a song's tags reach Kodi only through it, and
+    the pass reads the record once its scan has ended (``MusicPass.listed``).
     """
     directory = paths.music_dir(key, library, folder)
     began = time.monotonic()
     while True:
         try:
             entries = _song_entries(store, key, library, folder, features)
+            _note_listed(store, library, folder)
             break
         except Exception:
             LOG.exception("music listing unavailable for %s", directory)
@@ -608,6 +613,15 @@ def _music_folder(
         built - began,
         time.monotonic() - built,
     )
+
+
+def _note_listed(store: Store, library: str, folder: str) -> None:
+    """``Store.note_listed``, never at the listing's expense: a directory
+    left unrecorded costs the pass another scan of it."""
+    try:
+        store.note_listed(library, folder)
+    except Exception:
+        LOG.exception("music folder %s: its listing was not recorded", folder[-8:])
 
 
 def _song_entries(

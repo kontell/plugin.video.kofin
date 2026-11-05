@@ -528,6 +528,8 @@ class Kodi:
     def _scan_folder(self, library, folder):
         directory = paths.music_dir(self.key, library, folder)
         listed = self._listing(library, folder)
+        # The provider records a listing it hands over.
+        self.store.note_listed(library, folder)
         # RemoveSongsFromPath, exact: this directory's songs go, remembered
         # by file name for id and userdata reuse.
         previous = {
