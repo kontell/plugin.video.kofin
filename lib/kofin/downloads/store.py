@@ -77,6 +77,10 @@ class Download:
     # both are empty for anything queued automatically.
     request_id: str = ""
     request_name: str = ""
+    # The server's validator (a strong ETag, else Last-Modified) for the file
+    # whose bytes the original's ``.part`` holds, sent as If-Range on a
+    # resume. Written whenever a ``.part`` starts again from byte zero.
+    validator: str = ""
 
     @property
     def userdata(self) -> dict[str, Any]:
@@ -390,6 +394,14 @@ def record_target(jellyfin_id: str, rel_path: str, container: str) -> None:
         opened.cursor.execute(
             "UPDATE download SET rel_path = ?, container = ? WHERE jellyfin_id = ?",
             (rel_path, container, jellyfin_id),
+        )
+
+
+def record_validator(jellyfin_id: str, validator: str) -> None:
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET validator = ? WHERE jellyfin_id = ?",
+            (validator, jellyfin_id),
         )
 
 

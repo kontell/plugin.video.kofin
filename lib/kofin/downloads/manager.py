@@ -748,7 +748,7 @@ class DownloadManager:
             part_existing = files.part_path(root, rel_path)
             if os.path.exists(part_existing):
                 start = os.path.getsize(part_existing)
-        stream = api.download_stream(item_id, start=start)
+        stream = api.download_stream(item_id, start=start, if_range=row.validator)
         try:
             if not rel_path:
                 # First contact decides the name: the server states it in
@@ -770,18 +770,28 @@ class DownloadManager:
             )
             if not stream.already_complete:
                 if stream.status == 200 and start:
-                    # The server ignored the range; write fresh.
+                    # The server ignored the range, or its file is no longer
+                    # the one the .part began from: write fresh.
                     start = 0
+                if not start:
+                    # Emptied before the validator is stored, so the .part
+                    # never holds bytes of a file its validator does not name.
+                    open(part, "wb").close()
+                    store.record_validator(item_id, _validator(stream))
                 self._write_body(stream, part, start, item_id)
         finally:
             stream.close()
 
         actual = os.path.getsize(part) if os.path.exists(part) else 0
         if expected_total and actual != expected_total:
+            mismatch = "size mismatch: %d of %d bytes" % (actual, expected_total)
+            if actual > expected_total:
+                # Longer than the whole file, so not a head of it: the next
+                # attempt starts from zero rather than resuming past its end.
+                _remove_quietly(part)
+                actual = 0
             store.record_progress(item_id, actual)
-            raise JellyfinError(
-                "size mismatch: %d of %d bytes" % (actual, expected_total)
-            )
+            raise JellyfinError(mismatch)
         return rel_path, actual
 
     def _pull_transcode(
@@ -1646,6 +1656,15 @@ def _expected_total(stream: StreamedResponse, start: int, fallback: int) -> int:
     if length.isdigit():
         return start + int(length) if stream.status == 206 else int(length)
     return int(fallback)
+
+
+def _validator(stream: StreamedResponse) -> str:
+    """What a resume's If-Range names the response's file by: its ETag, which
+    must not be a weak one there, else its Last-Modified; "" for neither."""
+    tag = stream.header("ETag")
+    if tag and not tag.startswith("W/"):
+        return tag
+    return stream.header("Last-Modified")
 
 
 def _userdata_json(userdata: Any) -> str:

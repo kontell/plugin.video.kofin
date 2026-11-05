@@ -9,7 +9,7 @@ import shutil
 
 import pytest
 
-from kofin.core.http import JellyfinError, Unauthorized
+from kofin.core.http import JellyfinError, ServerUnreachable, Unauthorized
 from kofin.downloads import files
 from kofin.downloads import manager as manager_module
 from kofin.downloads import store
@@ -131,6 +131,7 @@ class FakeManagerApi:
         self._playback = playback
         self._transcode_streams = list(transcode_streams)
         self.stream_calls = []
+        self.if_ranges = []
         self.transcode_urls = []
         self.closed_transcodes = []
         self.subtitle_payloads = {}
@@ -142,8 +143,9 @@ class FakeManagerApi:
             raise self._item
         return self._item
 
-    def download_stream(self, item_id, start=0):
+    def download_stream(self, item_id, start=0, if_range=""):
         self.stream_calls.append(start)
+        self.if_ranges.append(if_range)
         return self._streams.pop(0)
 
     def playback_info(self, item_id, profile, **kwargs):
@@ -436,11 +438,87 @@ def test_a_size_mismatch_requeues_with_the_watermark_then_fails(
     assert "size mismatch" in store.get("m1").error
 
 
+class ReplacedFile(FakeManagerApi):
+    """The download endpoint once the server's file was replaced in place, as
+    ASP.NET's PhysicalFile serves it: a Range is served from the new file
+    unless an If-Range names another Last-Modified, which gets all of it."""
+
+    def __init__(self, body, modified):
+        item = dict(MOVIE_DTO)
+        item["MediaSources"] = [dict(MOVIE_DTO["MediaSources"][0], Size=len(body))]
+        super().__init__(item, [])
+        self.body = body
+        self.modified = modified
+
+    def download_stream(self, item_id, start=0, if_range=""):
+        self.stream_calls.append(start)
+        self.if_ranges.append(if_range)
+        size = len(self.body)
+        headers = {"Last-Modified": self.modified} if self.modified else {}
+        if start and if_range in ("", self.modified):
+            if start >= size:
+                headers["Content-Range"] = "bytes */%d" % size
+                return FakeStream(416, [], headers, already_complete=True)
+            headers["Content-Range"] = "bytes %d-%d/%d" % (start, size - 1, size)
+            return FakeStream(206, [self.body[start:]], headers)
+        headers["Content-Length"] = str(size)
+        return FakeStream(200, [self.body], headers)
+
+
+def _cut_short(body, served, modified=""):
+    """A first attempt the connection drops after ``served`` bytes."""
+    headers = {"Content-Length": str(len(body)), "Content-Disposition": DISPOSITION}
+    if modified:
+        headers["Last-Modified"] = modified
+    stream = FakeStream(
+        200, [body[:served], ServerUnreachable("connection reset")], headers
+    )
+    return FakeManagerApi(MOVIE_DTO, [stream])
+
+
+def test_a_resume_names_the_file_its_part_began_from(tmp_path, repoints, monkeypatch):
+    """A file re-encoded in place under the same item must not be finished
+    as the old file's head on the new one's tail: the resume's If-Range
+    names the old file, and the server answers with all of the new one."""
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    old, new = "Mon, 02 Nov 2026 10:00:00 GMT", "Thu, 05 Nov 2026 09:00:00 GMT"
+    manager._process(_cut_short(b"OLDOLDOL", 4, modified=old), queue_row())
+    assert store.get("m1").bytes_done == 4
+
+    api = ReplacedFile(b"NEWNEW", new)
+    manager._process(api, store.claim())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"NEWNEW"
+    assert (api.stream_calls, api.if_ranges) == ([4], [old])
+    assert row.validator == new
+
+
+def test_a_part_longer_than_the_file_starts_over(tmp_path, repoints, monkeypatch):
+    """Without a validator to send, a file replaced by a smaller one answers
+    the resume with 416: the .part is no head of it, and goes."""
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    manager._process(_cut_short(b"OLDOLDOL", 6), queue_row())
+    api = ReplacedFile(b"NEW!", "")
+
+    manager._process(api, store.claim())
+    assert store.get("m1").state == store.QUEUED
+    manager._process(api, store.claim())
+
+    assert api.stream_calls == [6, 0]
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"NEW!"
+
+
 def test_unauthorized_fails_immediately_no_retry(repoints):
     manager, _ = make_manager(repoints)
 
     class Api403(FakeManagerApi):
-        def download_stream(self, item_id, start=0):
+        def download_stream(self, item_id, start=0, if_range=""):
             raise Unauthorized("GET -> 403")
 
     manager._process(Api403(MOVIE_DTO, []), queue_row())
