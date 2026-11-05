@@ -1,5 +1,7 @@
 """Test doubles for the Kodi API surfaces kofin touches."""
 
+from datetime import datetime
+
 
 class FakeAddon:
     """Stands in for xbmcaddon.Addon with a dict-backed settings store."""
@@ -177,6 +179,16 @@ class FakeLibrary:
 
     def userdata(self, data):
         self.applied.append(data)
+
+
+class LaterInterpreterDatetime(datetime):
+    """``datetime`` in a Kodi on Python 3.11, in any interpreter after the
+    first that parsed a date: ``strptime`` calls into the ``_strptime``
+    module of an interpreter that is gone."""
+
+    @classmethod
+    def strptime(cls, date_string, format):
+        raise TypeError("'NoneType' object is not callable")
 
 
 def _time_object(ms):

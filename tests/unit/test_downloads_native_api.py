@@ -463,3 +463,18 @@ def test_the_downloaded_music_view_lists_the_finished_songs(
     assert [line for line in text.splitlines() if line.startswith("plugin://")] == [
         resolver.entry(store.item("tc31"), "Audio").path
     ]
+
+
+def test_a_kodi_stamp_is_read_without_datetime_strptime(monkeypatch):
+    """Kodi runs the add-on in more than one interpreter, and on Python 3.11
+    datetime.strptime fails in every one after the first that called it:
+    the stale-download sweep reads Kodi's stamps without it."""
+    from datetime import datetime
+
+    from tests.unit.fakes import LaterInterpreterDatetime
+
+    expected = datetime(2026, 1, 2, 3, 4, 5).timestamp()
+    monkeypatch.setattr(nativeport, "datetime", LaterInterpreterDatetime)
+    assert nativeport._as_epoch("2026-01-02 03:04:05") == expected
+    assert nativeport._as_epoch("2026-01-02T03:04:05.123Z") == expected
+    assert nativeport._as_epoch("never") == 0.0

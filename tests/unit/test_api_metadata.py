@@ -671,3 +671,15 @@ def test_the_parts_are_the_tokens_own_fields():
     bare = metadata.refresh_parts(episode("e1"))
     ended = metadata.refresh_parts(episode("e1", IndexNumberEnd=2))
     assert bare["numbering"] != ended["numbering"] and bare["cast"] == ended["cast"]
+
+
+def test_a_stamp_is_read_without_datetime_strptime(monkeypatch):
+    """Kodi runs the add-on in more than one interpreter, and on Python 3.11
+    datetime.strptime fails in every one after the first that called it:
+    a last-played stamp is compared without it."""
+    from tests.unit.fakes import LaterInterpreterDatetime
+
+    monkeypatch.setattr(metadata, "datetime", LaterInterpreterDatetime)
+    assert metadata.same_play("2026-10-12 14:24:33", "2026-10-12 14:24:08")
+    assert not metadata.same_play("2026-10-12 14:24:08", "2026-10-12 14:24:33")
+    assert not metadata.same_play("not a date", "2026-10-12 14:24:33")
