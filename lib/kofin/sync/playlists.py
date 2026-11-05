@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
+import unicodedata
 import xml.etree.ElementTree as etree
 from typing import (
     Any,
@@ -75,6 +77,10 @@ MAX_PLAYLIST_ITEMS = 20000
 # Characters the filesystem or playlist path cannot carry. Keep the server
 # name otherwise intact (Unicode allowed).
 _UNSAFE = re.compile(r'[/\\<>:"|?*\x00-\x1f]')
+
+# A file name has at most 255 bytes. A playlist's is its stem, " (n)" while
+# another playlist has the same title, and ".m3u8.tmp" while it is written.
+MAX_STEM_BYTES = 255 - len(" (9999)") - len(".m3u8.tmp")
 
 
 class Entry(NamedTuple):
@@ -164,8 +170,23 @@ def write_downloaded_music_list(
 
 
 def safe_filename(name: str) -> str:
-    """File stem from a Jellyfin playlist name (extension added by caller)."""
+    """File stem from a Jellyfin playlist name (extension added by caller).
+
+    A name the filesystem encoding cannot carry folds to ASCII, as a
+    download's does (``downloads/files.sanitize``), and a long one is cut
+    to MAX_STEM_BYTES.
+    """
     cleaned = _UNSAFE.sub("_", (name or "").strip())
+    try:
+        cleaned.encode(sys.getfilesystemencoding() or "utf-8")
+    except UnicodeEncodeError:
+        cleaned = (
+            unicodedata.normalize("NFKD", cleaned)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+            .strip()
+        )
+    cleaned = cleaned.encode("utf-8")[:MAX_STEM_BYTES].decode("utf-8", "ignore")
     cleaned = cleaned.rstrip(" .")
     return cleaned or "playlist"
 
@@ -637,6 +658,13 @@ def reconcile(
             )
         return stats
 
+    def keep(prior: Any) -> None:
+        """A playlist the pass could not write keeps its file and state."""
+        if prior and prior[0] == "Audio":
+            want_audio.add(prior[1])
+        elif prior and prior[0] == "Video":
+            want_video.add(prior[1])
+
     for playlist in listed:
         playlist_id = playlist.get("Id") or ""
         if not playlist_id:
@@ -647,12 +675,7 @@ def reconcile(
             LOG.exception(
                 "playlist %s: items listing failed; keeping prior state", playlist_id
             )
-            prior = state.get_playlist_state(playlist_id)
-            if prior:
-                if prior[0] == "Audio":
-                    want_audio.add(prior[1])
-                elif prior[0] == "Video":
-                    want_video.add(prior[1])
+            keep(state.get_playlist_state(playlist_id))
             continue
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
@@ -666,9 +689,14 @@ def reconcile(
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
             continue
-        done = _materialize(
-            state, playlist, items, side, stored, directory, taken, resolver
-        )
+        try:
+            done = _materialize(
+                state, playlist, items, side, stored, directory, taken, resolver
+            )
+        except Exception:
+            LOG.exception("playlist %s: not written; keeping prior state", playlist_id)
+            keep(stored)
+            continue
         stats["tracks"] += done.entries
         stats["skipped"] += done.missing
         if done.renamed:

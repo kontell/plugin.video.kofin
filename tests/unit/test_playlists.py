@@ -1,6 +1,7 @@
 """Unit tests for one-way music playlist materialization."""
 
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -302,6 +303,79 @@ def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
     assert (root / "Old.m3u8").is_file()
     assert state.get_playlist_state("bad") is not None
     assert SONG_LINE in (root / "Gym.m3u8").read_text(encoding="utf-8")
+
+
+def test_a_playlist_the_filesystem_refuses_stops_no_other(tmp_path):
+    """A file that cannot be written is that playlist's alone: the others
+    are written, the prune runs, and the refused one keeps its file and its
+    state for the next pass."""
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / "Stuck.m3u8").write_text("#EXTM3U\nold\n", encoding="utf-8")
+    # The write goes through Stuck.m3u8.tmp, which a directory holds.
+    (root / "Stuck.m3u8.tmp").mkdir()
+    (root / "Gone.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state("stuck", "Audio", "Stuck.m3u8", "old")
+    state.add_playlist_state("gone", "Audio", "Gone.m3u8", "old")
+    api = FakeApi(
+        playlist_list=[
+            _audio_playlist("Stuck", "new", playlist_id="stuck"),
+            _audio_playlist("Gym", "new", playlist_id="gym"),
+        ],
+        items_by_id={
+            "stuck": [{"Id": "a1", "Type": "Audio"}],
+            "gym": [{"Id": "a1", "Type": "Audio"}],
+        },
+    )
+    playlists.reconcile(
+        api, state, {"Audio"}, music_root=str(root), resolver=_audio_resolver()
+    )
+    assert SONG_LINE in (root / "Gym.m3u8").read_text(encoding="utf-8")
+    assert (root / "Stuck.m3u8").read_text(encoding="utf-8") == "#EXTM3U\nold\n"
+    assert state.get_playlist_state("stuck") == ("Audio", "Stuck.m3u8", "old")
+    assert not (root / "Gone.m3u8").exists()
+    assert state.get_playlist_state("gone") is None
+
+
+def test_a_long_title_is_cut_to_a_name_the_filesystem_takes(tmp_path):
+    """A file name has 255 bytes: a longer title is cut where a character
+    ends, with room for the "(2)" of a second playlist of that title."""
+    title = "Ω" * 200
+    api = FakeApi(
+        playlist_list=[
+            _audio_playlist(title, "one", playlist_id="pl1"),
+            _audio_playlist(title, "one", playlist_id="pl2"),
+        ],
+        items_by_id={
+            "pl1": [{"Id": "a1", "Type": "Audio"}],
+            "pl2": [{"Id": "a1", "Type": "Audio"}],
+        },
+    )
+    state = FakeState()
+    playlists.reconcile(
+        api, state, {"Audio"}, music_root=str(tmp_path), resolver=_audio_resolver()
+    )
+    stem = "Ω" * (playlists.MAX_STEM_BYTES // 2)
+    assert len((stem + " (9999).m3u8.tmp").encode("utf-8")) <= 255
+    assert state.get_playlist_state("pl1")[1] == stem + ".m3u8"
+    assert state.get_playlist_state("pl2")[1] == stem + " (2).m3u8"
+    assert sorted(p.name for p in tmp_path.glob("*.m3u8")) == [
+        stem + " (2).m3u8",
+        stem + ".m3u8",
+    ]
+
+
+def test_a_title_the_filesystem_encoding_cannot_carry_folds_to_ascii(monkeypatch):
+    """Kodi's Python can run with an ASCII filesystem encoding, where a
+    name with an accent cannot be opened at all; anything it can carry is
+    kept as it is."""
+    assert playlists.safe_filename("Café Classics") == "Café Classics"
+    monkeypatch.setattr(sys, "getfilesystemencoding", lambda: "ascii")
+    assert playlists.safe_filename("Café Classics") == "Cafe Classics"
+    assert playlists.safe_filename("日本 Mix") == "Mix"
+    assert playlists.safe_filename("日本") == "playlist"
+    assert playlists.safe_filename("Road Trip") == "Road Trip"
 
 
 def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
