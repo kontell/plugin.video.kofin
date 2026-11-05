@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import xbmc
 
 from kofin.core import memory, settings, toast
-from kofin.core.http import HttpError
+from kofin.core.http import HttpError, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, kofindb, private
@@ -702,8 +702,12 @@ class Library(threading.Thread):
             for library in settings.get_list("librarySelection")
             if library not in self._listed
         ]
-        # An unread id stays out of _listed, and settle_missing asks for it.
-        grouped, _unread = library_folders(self.api, unlisted)
+        grouped, unread = library_folders(self.api, unlisted)
+        if unread:
+            # A pass without them would move the watermark past their
+            # changes. A 404 is not unread, so settle_missing still removes
+            # a library the server says is gone.
+            raise JellyfinError("selected libraries not read: %s" % ", ".join(unread))
         self._listed |= {folder["Id"] for folder in grouped}
         views = views + grouped
         return {

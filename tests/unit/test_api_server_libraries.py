@@ -2,7 +2,7 @@
 
 import pytest
 
-from kofin.core.http import HttpError, Unauthorized
+from kofin.core.http import HttpError, JellyfinError, Unauthorized
 from kofin.sync.backends.api import library
 from kofin.sync.backends.api.library import Library
 from tests.unit.apifixtures import (  # noqa: F401
@@ -102,15 +102,18 @@ def test_a_library_the_server_says_is_gone_leaves_after_two_404s(gone):
     ],
 )
 def test_a_library_the_server_cannot_answer_for_stays(gone, error):
-    """Anything but a 404 is a server that could not say."""
+    """Anything but a 404 is a server that could not say: the round fails,
+    and the library stays."""
     server, w, seen, check = gone
 
     def unreachable(item_id):
         raise error
 
     server.item = unreachable
-    check()
-    check(after=library.MISSING_CONFIRM * 2)
+    with pytest.raises(JellyfinError):
+        check()
+    with pytest.raises(JellyfinError):
+        check(after=library.MISSING_CONFIRM * 2)
     assert seen["dropped"] == [] and seen["written"] == [] and seen["shown"] == []
 
 
@@ -200,3 +203,25 @@ def test_a_change_to_an_item_of_a_grouped_library_is_published(store, monkeypatc
     w.command("changed", ["a"])
 
     assert store.records(pinned=False)["a"].item["Name"] == "Renamed"
+
+
+def test_a_catch_up_that_cannot_read_a_grouped_library_keeps_the_watermark(
+    store, monkeypatch
+):
+    """Run without the library, the catch-up would move the watermark past
+    its changes, and they would wait for a full enumeration of it."""
+    server = Server({LIB: [movie()], LIB2: []})
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    w.full_sync()
+    mark = store.watermark()
+    assert mark[1]
+
+    def failing(item_id):
+        raise HttpError(500, "GET /Items/%s -> 500" % item_id)
+
+    server.item = failing
+    with pytest.raises(JellyfinError):
+        w.catch_up()
+
+    assert store.watermark() == mark
