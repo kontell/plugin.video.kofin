@@ -948,6 +948,12 @@ What remains is kofin's own:
   through kofin's play route, without the EPG or the PVR OSD. A key the server does not know
   as an item, a catchup programme's or another provider's, fails the load as a missing
   provider always did.
+- **A live play names its live stream in every session report** (`play_state`,
+  `service/player.py::name_live_stream`). Jellyfin closes a live stream, and frees the tuner
+  behind it, at stop or when the session ends only when a report names it, and a transcoding
+  URL that carries `LiveStreamId` leaves the stream open when its job ends
+  (`StreamState.Dispose`). A resolve that fails after `PlaybackInfo` opened one closes it
+  (`Api.close_live_stream`).
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

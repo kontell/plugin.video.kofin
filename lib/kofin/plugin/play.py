@@ -357,6 +357,10 @@ def play_state(
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
     }
+    if source.get("LiveStreamId"):
+        # The live stream the server opened for this play: the service's
+        # session reports name it (service/player.py).
+        play_item["LiveStreamId"] = source["LiveStreamId"]
     if streams_menu:
         # Everything the stream menu needs. The service moves this to a window
         # property when it claims the playback, since by then the queue entry
@@ -634,6 +638,7 @@ def play(request: Request) -> None:
     # nothing but a finishing request.
     segments_box: list[Optional[list[JsonDict]]] = []
     segments_thread: Optional[threading.Thread] = None
+    opened_live_stream = ""
     try:
         item = api.item(item_id)
         if item.get("Type") in NATIVE_MEDIA:
@@ -720,6 +725,7 @@ def play(request: Request) -> None:
         if not sources:
             raise JellyfinError("no media sources for %s" % item_id)
         source = pick_media_source(sources, wanted_source)
+        opened_live_stream = source.get("LiveStreamId") or ""
         play_session_id = info.get("PlaySessionId", "")
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id
@@ -750,6 +756,13 @@ def play(request: Request) -> None:
                 url = deny_audio_stream_copy(url)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
+        if opened_live_stream:
+            # No play will report it, and the server keeps it, and the tuner
+            # behind it, until it is closed.
+            try:
+                api.close_live_stream(opened_live_stream)
+            except JellyfinError as close_error:
+                LOG.warning("live stream close failed: %s", close_error)
         _fail(request)
         return
 

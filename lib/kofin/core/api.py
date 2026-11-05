@@ -331,6 +331,9 @@ class Api:
     def device_sessions(self, device_id: str) -> list[JsonDict]:
         return self._get_list("/Sessions", {"deviceId": device_id})
 
+    def close_live_stream(self, live_stream_id: str) -> None:
+        self.post("/LiveStreams/Close", params={"liveStreamId": live_stream_id})
+
     def close_transcode(self, device_id: str, play_session_id: str) -> None:
         self.delete(
             "/Videos/ActiveEncodings",

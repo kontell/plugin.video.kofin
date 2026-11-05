@@ -81,7 +81,7 @@ def drain(player):
     assert player._reporter.flush(5)
 
 
-def queue_item(url="http://s/stream", method="DirectStream"):
+def queue_item(url="http://s/stream", method="DirectStream", **extra):
     state.push_play_item(
         {
             "Id": "m1",
@@ -95,6 +95,7 @@ def queue_item(url="http://s/stream", method="DirectStream"):
             "AudioStreamIndex": 1,
             "SubtitleStreamIndex": None,
             "CurrentPosition": 10.0,
+            **extra,
         }
     )
 
@@ -110,6 +111,7 @@ def test_claim_and_report_lifecycle(monkeypatch):
     assert start["ItemId"] == "m1"
     assert start["PositionTicks"] == 100_000_000
     assert start["VolumeLevel"] == 77
+    assert "LiveStreamId" not in start
     assert state.get_playing_id() == "m1"
 
     player.onPlayBackSeek(65_000, 0)
@@ -128,6 +130,21 @@ def test_claim_and_report_lifecycle(monkeypatch):
     assert kinds[-1] == "stopped"
     assert api.calls[-1][1]["PositionTicks"] == 420_000_000
     assert state.get_playing_id() == ""
+
+
+def test_a_live_play_names_its_live_stream_in_every_report(monkeypatch):
+    """Jellyfin closes a live stream, and frees its tuner, at stop or when the
+    session ends only when a report names it."""
+    player, api = make_player(monkeypatch)
+    queue_item(LiveStreamId="ls1")
+
+    player.onPlayBackStarted()
+    player.report_progress()
+    player.onPlayBackStopped()
+    drain(player)
+
+    assert [kind for kind, _data in api.calls] == ["playing", "progress", "stopped"]
+    assert all(data["LiveStreamId"] == "ls1" for _kind, data in api.calls)
 
 
 def test_callbacks_return_while_the_post_is_still_in_flight(monkeypatch):

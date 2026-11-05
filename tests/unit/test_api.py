@@ -306,6 +306,14 @@ def test_playback_info_can_refuse_direct_play_in_the_body(api):
     assert "EnableDirectPlay" not in call["params"]
 
 
+def test_close_live_stream_posts_the_id(api):
+    client, transport = api
+    client.close_live_stream("ls1")
+    call = transport.calls[0]
+    assert call["url"].endswith("/LiveStreams/Close")
+    assert call["params"] == {"liveStreamId": "ls1"}
+
+
 def test_image_url(api):
     client, _ = api
     assert (

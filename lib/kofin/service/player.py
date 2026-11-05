@@ -75,6 +75,14 @@ def kofin_lyrics_installed() -> bool:
     return bool(xbmc.getCondVisibility("System.HasAddon(%s)" % KOFIN_LYRICS_ADDON))
 
 
+def name_live_stream(data: JsonDict, item: JsonDict) -> None:
+    """Name the play's live stream in a session report. Jellyfin closes a
+    live stream, and frees the tuner behind it, at stop or when the session
+    ends only when a report names it."""
+    if item.get("LiveStreamId"):
+        data["LiveStreamId"] = item["LiveStreamId"]
+
+
 class _Reporter(threading.Thread):
     """One FIFO worker for every server-bound playback report.
 
@@ -381,6 +389,7 @@ class Player(xbmc.Player):
             "PlaySessionId": item["PlaySessionId"],
             "PositionTicks": int(item["CurrentPosition"] * 10_000_000),
         }
+        name_live_stream(stop_data, item)
         close_encoding = item.get("PlayMethod") == "Transcode"
         device_id = item.get("DeviceId", "")
         play_session_id = item["PlaySessionId"]
@@ -721,6 +730,7 @@ class Player(xbmc.Player):
             "AudioStreamIndex": item.get("AudioStreamIndex"),
             "SubtitleStreamIndex": item.get("SubtitleStreamIndex"),
         }
+        name_live_stream(data, item)
         if event:
             data["EventName"] = event
         # Payload is complete; the post itself must not run on this thread —
