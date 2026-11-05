@@ -115,6 +115,9 @@ MUSIC_PAGE = 500
 # Pages of one listing in flight at once: a page's wait is the wire, not the
 # server or the client.
 PAGERS = 3
+# Ids named in one /Items request. Each costs 35 characters of the request
+# line, which Kestrel caps at 8 KiB by default and answers 414 past.
+IDS_PER_REQUEST = 50
 # How long after a playback stopped the user data held for its item is
 # applied when the server has sent nothing newer. The server's own entry
 # for the stop arrives within a second or two and replaces the held one.
@@ -335,16 +338,23 @@ def fetch_boxsets(
         "Fields": FIELDS,
         "EnableTotalRecordCount": True,
     }
-    if ids is not None:
-        if not ids:
-            return []
-        params["Ids"] = ",".join(ids)
-    page = api.items(params)
-    rows = page.get("Items")
-    if not isinstance(rows, list) or (
-        ids is None and page.get("TotalRecordCount") != len(rows)
-    ):
-        raise ValueError("incomplete collection listing")
+    rows: list[Any] = []
+    if ids is None:
+        page = api.items(params)
+        listed = page.get("Items")
+        if not isinstance(listed, list) or page.get("TotalRecordCount") != len(listed):
+            raise ValueError("incomplete collection listing")
+        rows = listed
+    else:
+        wanted = list(ids)
+        for start in range(0, len(wanted), IDS_PER_REQUEST):
+            if abort():
+                raise InterruptedError("enumeration stopped")
+            chunk = ",".join(wanted[start : start + IDS_PER_REQUEST])
+            listed = api.items(dict(params, Ids=chunk)).get("Items")
+            if not isinstance(listed, list):
+                raise ValueError("incomplete collection listing")
+            rows.extend(listed)
     result = []
     for boxset in rows:
         if abort():
@@ -1071,8 +1081,8 @@ class Library(threading.Thread):
         """Full DTOs by id; the server lists only what this user may see."""
         result: list[dict] = []
         ids = list(ids)
-        for start in range(0, len(ids), 50):
-            chunk = ids[start : start + 50]
+        for start in range(0, len(ids), IDS_PER_REQUEST):
+            chunk = ids[start : start + IDS_PER_REQUEST]
             page = self.api.items(
                 {"userId": self.api.user_id, "Ids": ",".join(chunk), "Fields": FIELDS}
             )
