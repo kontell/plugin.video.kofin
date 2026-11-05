@@ -317,6 +317,22 @@ def test_a_row_kodi_cannot_play_is_not_marked_playable(recorded, item_type):
     assert "IsPlayable" not in recorded[-1].properties
 
 
+@pytest.mark.parametrize(
+    "item_type", ["Playlist", "Folder", "Person", "Book", "TvChannel"]
+)
+def test_a_type_kodi_has_no_media_type_for_takes_none(recorded, item_type):
+    """addon.xml offers "Play with transcoding" on a kofin row whose DBTYPE is
+    video, so a playlist, a folder or a person must not carry it."""
+    listitems.build({"Type": item_type, "Id": "x1", "Name": "Row"}, SERVER)
+    assert recorded[-1].tag.media_type is None
+
+
+@pytest.mark.parametrize("item_type", ["Video", "Trailer", "Recording"])
+def test_the_video_kinds_without_a_library_type_take_video(recorded, item_type):
+    listitems.build({"Type": item_type, "Id": "x1", "Name": "Row"}, SERVER)
+    assert recorded[-1].tag.media_type == "video"
+
+
 def test_every_playable_kind_is_marked_playable(recorded):
     for item_type in sorted(listitems.PLAYABLE_TYPES):
         listitems.build({"Type": item_type, "Id": "x1", "Name": "Media"}, SERVER)

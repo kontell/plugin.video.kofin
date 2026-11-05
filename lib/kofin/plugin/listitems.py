@@ -298,8 +298,8 @@ def build(
     return li
 
 
-# Library containers (addon root views, etc.) are folders, not playable
-# media — do not stamp setMediaType("video") (ListItem.DBTYPE).
+# Library containers (addon root views, etc.) are folders, not media: their
+# tag takes a title and a plot.
 _CONTAINER_TYPES = frozenset({"CollectionFolder", "UserView"})
 
 
@@ -319,7 +319,11 @@ def _fill_video(
             tag.setPlot(item["Overview"])
         return
 
-    tag.setMediaType(MEDIATYPE.get(item_type, "video"))
+    # A DBTYPE of video is playable video to addon.xml's "Play with
+    # transcoding", so a type MEDIATYPE does not name takes none.
+    media_type = MEDIATYPE.get(item_type)
+    if media_type:
+        tag.setMediaType(media_type)
 
     if item.get("OriginalTitle"):
         tag.setOriginalTitle(item["OriginalTitle"])
