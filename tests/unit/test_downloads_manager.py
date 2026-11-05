@@ -635,6 +635,25 @@ def test_a_stored_target_outside_the_folder_is_decided_again(tmp_path, repoints)
     assert api.stream_calls == [0]  # not resumed from the stray part
 
 
+def test_a_done_row_outside_the_folder_leaves_the_folder_checks_working(
+    tmp_path, repoints, vanished
+):
+    """A stored path outside the folder is neither a download the folder
+    holds nor an error: a claim and the sweep go on past it."""
+    manager, _ = make_manager(repoints)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)
+    (tmp_path / "outside.mkv").write_bytes(b"not kofin's")
+    queue_row("x1", media_type="movie")
+    store.finish("x1", OUTSIDE, "mkv", 1)
+
+    _new_download(manager)
+    manager._sweep_vanished()
+
+    assert store.get("m1").state == store.DONE
+    assert (tmp_path / "outside.mkv").read_bytes() == b"not kofin's"
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
 def test_a_done_row_outside_the_folder_is_left_alone(tmp_path, repoints, vanished):
     """The sweep, reconcile and removal never look at or delete a file
     outside the folder, and do not read its absence as a deletion."""

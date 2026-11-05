@@ -1242,9 +1242,7 @@ class DownloadManager:
                 return False
             if remembered is not None or not self._holds_a_download(root):
                 for row in store.rows(store.DONE):
-                    if row.rel_path and os.path.exists(
-                        files.absolute_path(root, row.rel_path)
-                    ):
+                    if _present(root, row):
                         continue
                     LOG.debug(
                         "download of %s is not in %s; no longer tracked",
@@ -1262,10 +1260,7 @@ class DownloadManager:
 
     @staticmethod
     def _holds_a_download(root: str) -> bool:
-        return any(
-            row.rel_path and os.path.exists(files.absolute_path(root, row.rel_path))
-            for row in store.rows(store.DONE)
-        )
+        return any(_present(root, row) for row in store.rows(store.DONE))
 
     def _remembered_root(self) -> Optional[str]:
         """The folder the done rows were downloaded to. It is kept in
@@ -1802,6 +1797,13 @@ def _prune_empty_dirs(directory: str, floor: str) -> None:
         except OSError:
             return
         current = os.path.dirname(current)
+
+
+def _present(root: str, row: "store.Download") -> bool:
+    """Whether the row's file is in ``root``. A stored path outside the
+    folder is not, and is never looked at."""
+    absolute = files.path_in(root, row.rel_path) if row.rel_path else None
+    return absolute is not None and os.path.exists(absolute)
 
 
 def _same_folder(first: str, second: str) -> bool:
