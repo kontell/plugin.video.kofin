@@ -7,6 +7,8 @@ carries. Every test here runs once per transport through ``Api`` and asserts
 one answer for both.
 """
 
+from urllib.parse import unquote_plus
+
 import pytest
 
 from kofin.core import http as http_module
@@ -76,6 +78,25 @@ def test_a_non_json_200_is_an_http_error_on_both(server, client):
 
     assert raised.value.status == 200
     assert "not JSON" in str(raised.value)
+
+
+def test_a_device_name_in_any_script_is_sent_on_both(server, client):
+    """http.client encodes header values as Latin-1; the device name rides in
+    the auth header, so it has to arrive encoded and decode to what was set."""
+    _, transport_name = client
+    transport = (
+        http_module.Http() if transport_name == "requests" else stdhttp.StdlibHttp()
+    )
+    api = Api(transport, server.url, "Гостиная", "dev1", "0.1.0", token="tok")
+    server.answer("/Items", 200, json_body={"Items": []})
+
+    try:
+        assert api.get("/Items") == {"Items": []}
+    finally:
+        transport.close()
+
+    sent = server.requests[0][2]["Authorization"]
+    assert unquote_plus(sent.split('Device="', 1)[1].split('"', 1)[0]) == "Гостиная"
 
 
 def test_a_non_json_probe_is_an_http_error_on_both(server, client):
