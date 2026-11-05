@@ -38,10 +38,21 @@ FOLDER_TYPES = frozenset(
 )
 
 PLAYABLE_TYPES = frozenset(
-    {"Movie", "Episode", "MusicVideo", "Video", "Trailer", "Audio", "Recording"}
+    {
+        "Movie",
+        "Episode",
+        "MusicVideo",
+        "Video",
+        "Trailer",
+        "Audio",
+        "AudioBook",
+        "Recording",
+    }
 )
 
-MUSIC_TYPES = frozenset({"Audio", "MusicAlbum", "MusicArtist", "MusicGenre"})
+MUSIC_TYPES = frozenset(
+    {"Audio", "AudioBook", "MusicAlbum", "MusicArtist", "MusicGenre"}
+)
 
 # Kodi's media type for each Jellyfin item type a tag can carry.
 MEDIATYPE = {
@@ -281,7 +292,8 @@ def build(
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
         _fill_video(li, item, server, resume_seconds, resume_offset)
 
-    if not is_folder(item) and item.get("Type") != "Photo":
+    # Exactly the rows path_for sends to the play route.
+    if item.get("Type") in PLAYABLE_TYPES:
         li.setProperty("IsPlayable", "true")
     return li
 

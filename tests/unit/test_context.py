@@ -221,6 +221,11 @@ def test_manage_options_reset_is_for_kofins_own_video_rows(monkeypatch):
     modes = [params["mode"] for _, params in _options(monkeypatch, song, False)]
     assert "resetresume" not in modes
 
+    book = {"Id": "b1", "Type": "AudioBook", "UserData": in_progress}
+    modes = [params["mode"] for _, params in _options(monkeypatch, book, False)]
+    assert "resetresume" not in modes
+    assert "watched" in modes
+
 
 # --- play all / shuffle -------------------------------------------------------
 

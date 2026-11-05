@@ -63,7 +63,7 @@ MIME_BY_CONTAINER = {
 }
 HLS_MIME = "application/x-mpegURL"
 
-AUDIO_TYPES = frozenset({"Audio"})
+AUDIO_TYPES = frozenset({"Audio", "AudioBook"})
 
 # Kodi's STREAM_PROPERTY_ISREALTIMESTREAM, which every input stream reads
 # (CDVDInputStream): the source is live, as a PVR client marks live TV.

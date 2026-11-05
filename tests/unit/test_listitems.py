@@ -162,9 +162,17 @@ class RecordingTag:
 class RecordingListItem:
     def __init__(self, label="", offscreen=False):
         self.tag = RecordingTag()
+        self.music_tag = RecordingTag()
+        self.properties = {}
 
     def getVideoInfoTag(self):
         return self.tag
+
+    def getMusicInfoTag(self):
+        return self.music_tag
+
+    def setProperty(self, key, value):
+        self.properties[key] = value
 
     def __getattr__(self, name):
         return lambda *args, **kwargs: None
@@ -281,6 +289,38 @@ def test_build_does_not_stamp_mediatype_on_library_views(recorded):
 def test_build_stamps_mediatype_on_episodes(recorded):
     listitems.build(EPISODE, SERVER)
     assert recorded[-1].tag.media_type == "episode"
+
+
+def test_an_audiobook_is_a_playable_audio_row(recorded):
+    """Jellyfin's AudioBook is an Audio item: the play route, a music tag,
+    and IsPlayable for Kodi to resolve it."""
+    book = {"Type": "AudioBook", "Id": "b1", "Name": "Chapter One"}
+    assert listitems.path_for(book) == listitems.play_path("b1")
+    assert listitems.is_folder(book) is False
+
+    listitems.build(book, SERVER)
+
+    assert recorded[-1].properties.get("IsPlayable") == "true"
+    assert recorded[-1].music_tag.media_type == "song"
+    assert recorded[-1].tag.media_type is None
+
+
+@pytest.mark.parametrize("item_type", ["Book", "Person", "Unknown"])
+def test_a_row_kodi_cannot_play_is_not_marked_playable(recorded, item_type):
+    """IsPlayable makes Kodi resolve the row's URL, and a browse URL answers
+    that with a listing: only the rows the play route answers carry it."""
+    item = {"Type": item_type, "Id": "x1", "Name": "Not media"}
+    assert "mode=play" not in listitems.path_for(item)
+
+    listitems.build(item, SERVER)
+
+    assert "IsPlayable" not in recorded[-1].properties
+
+
+def test_every_playable_kind_is_marked_playable(recorded):
+    for item_type in sorted(listitems.PLAYABLE_TYPES):
+        listitems.build({"Type": item_type, "Id": "x1", "Name": "Media"}, SERVER)
+        assert recorded[-1].properties.get("IsPlayable") == "true", item_type
 
 
 @pytest.mark.parametrize(
