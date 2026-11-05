@@ -702,7 +702,8 @@ class Library(threading.Thread):
             for library in settings.get_list("librarySelection")
             if library not in self._listed
         ]
-        grouped = library_folders(self.api, unlisted)
+        # An unread id stays out of _listed, and settle_missing asks for it.
+        grouped, _unread = library_folders(self.api, unlisted)
         self._listed |= {folder["Id"] for folder in grouped}
         views = views + grouped
         return {

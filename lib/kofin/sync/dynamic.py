@@ -178,6 +178,7 @@ def publish_from(api: "Api") -> None:
     one, hidden from My Media or grouped into a combined view or not, and of
     the rest those Jellyfin's home screen shows."""
     from kofin.core.api import library_folders
+    from kofin.core.http import JellyfinError
 
     every = api.views(include_hidden=True).get("Items", [])
     shown = {item.get("Id") for item in api.views().get("Items", [])}
@@ -185,7 +186,13 @@ def publish_from(api: "Api") -> None:
     whitelist = [
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
-    every = every + library_folders(api, [i for i in whitelist if i not in listed])
+    grouped, unread = library_folders(api, [i for i in whitelist if i not in listed])
+    if unread:
+        # The writers delete every node folder they do not write, and nothing
+        # republishes before the next publish_from: a synced library the
+        # server could not answer for keeps the tree it has.
+        raise JellyfinError("synced libraries not read: %s" % ", ".join(unread))
+    every = every + grouped
     publish(every, api, hidden={item.get("Id") for item in every} - shown)
 
 
