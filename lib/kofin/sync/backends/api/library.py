@@ -97,6 +97,12 @@ CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 # (fullUpdateInterval, in days, 0 for none). Without the sync queue the
 # catch-up reads save dates and cannot see a deletion.
 CATCHUP_INTERVAL = 1800
+# A catch-up's cursor is stored this many seconds behind the clock it read:
+# a feed can write a record after a catch-up has read past the time the
+# record is stamped with, and without a companion the cursor is Kodi's clock
+# against the server's save dates. A change read twice costs only its
+# re-fetch.
+CATCHUP_OVERLAP = 300
 DAY = 86400
 # A selected library the server stopped listing leaves once GET
 # /Items/{id} has answered 404 twice this far apart (settle_missing).
@@ -799,12 +805,12 @@ class Library(threading.Thread):
             return kofindb.JellyfinDatabase(db.cursor).view_names()
 
     def _changefeed(self) -> Any:
+        """The change feed, or None for a server without a companion; raises
+        when the server could not say (changefeed.detect). Taken for none, a
+        catch-up reads the save dates, which see no deletion, and moves the
+        cursor past the feed's removals."""
         if self.changefeed is None:
-            try:
-                self.changefeed = changefeed.detect(self.api)
-            except Exception as error:
-                LOG.debug("no change-feed companion detected (%s)", error)
-                self.changefeed = None
+            self.changefeed = changefeed.detect(self.api)
             # For the status dialog: a found feed is kept for the thread's
             # life, a missing one is looked for again on every call, and the
             # record moves with the answer.
@@ -816,16 +822,16 @@ class Library(threading.Thread):
         return self.changefeed
 
     def _server_now(self) -> int:
-        feed = self._changefeed()
-        if feed is not None:
-            try:
+        try:
+            feed = self._changefeed()
+            if feed is not None:
                 now: int = feed.server_now()
                 return now
-            except Exception as error:
-                LOG.warning("server clock unavailable: %s", error)
+        except Exception as error:
+            LOG.warning("server clock unavailable: %s", error)
         # Without a companion the catch-up is MinDateLastSaved against the
-        # local clock; a few minutes of overlap costs nothing but re-fetches.
-        return int(time.time()) - 300
+        # local clock.
+        return int(time.time()) - CATCHUP_OVERLAP
 
     def _bar(self) -> "progress.Progress":
         """The enumeration's progress bar, made on first use."""
@@ -1055,7 +1061,9 @@ class Library(threading.Thread):
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
-                watermark=changefeed.unix_to_watermark(change_set.envelope.server_time)
+                watermark=changefeed.unix_to_watermark(
+                    change_set.envelope.server_time - CATCHUP_OVERLAP
+                )
             )
 
     def _catch_up_by_date(
@@ -1064,7 +1072,7 @@ class Library(threading.Thread):
         selected: Iterable[str],
         supported: dict[str, dict[str, Any]],
     ) -> None:
-        started = int(time.time()) - 300
+        started = int(time.time()) - CATCHUP_OVERLAP
         items: list[dict] = []
         membership: dict[str, str] = {}
         for library in sorted(selected):

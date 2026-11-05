@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from collections.abc import Sequence
 
-from kofin.core.http import JellyfinError
+from kofin.core.http import HttpError, JellyfinError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -217,15 +217,29 @@ class LegacyFeed:
         return _iso_to_unix(self.api.server_time().get("ServerDateTime"))
 
 
+def _absent(error: JellyfinError) -> bool:
+    """Whether a probe's failure says the plugin is not there: Jellyfin
+    has no route for a plugin that is not installed and enabled."""
+    return isinstance(error, HttpError) and error.status == 404
+
+
 def detect(api: Any) -> Optional[Any]:
     """The tier ladder, best first: KofinSyncQueue → official → None.
 
-    Probes answer only when the respective plugin is installed and enabled;
-    a KofinSyncQueue speaking an unknown protocol falls to tier 2.
+    Only a 404 says a plugin is absent; any other failure of a probe is
+    raised, since the server could not say. A KofinSyncQueue speaking an
+    unknown protocol falls to tier 2.
     """
     try:
         info = api.kofin_sync_info()
-        version = _as_int(info.get("ProtocolVersion"))
+    except JellyfinError as error:
+        if not _absent(error):
+            raise
+        LOG.debug("no KofinSyncQueue companion detected (%s)", error)
+    else:
+        version = (
+            _as_int(info.get("ProtocolVersion")) if isinstance(info, dict) else None
+        )
 
         if version == PROTOCOL_VERSION:
             LOG.debug(
@@ -241,16 +255,16 @@ def detect(api: Any) -> Optional[Any]:
             version,
             PROTOCOL_VERSION,
         )
-    except JellyfinError as error:
-        LOG.debug("no KofinSyncQueue companion detected (%s)", error)
 
     try:
         api.server_time()
-        return LegacyFeed(api)
     except JellyfinError as error:
+        if not _absent(error):
+            raise
         LOG.debug("no KodiSyncQueue companion detected (%s)", error)
+        return None
 
-    return None
+    return LegacyFeed(api)
 
 
 def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:

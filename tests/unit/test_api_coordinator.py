@@ -197,6 +197,7 @@ def test_a_listing_that_leaves_nothing_to_apply_ends_the_update(store, monkeypat
 
 
 def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeypatch):
+    from kofin.sync.backends.api.library import CATCHUP_OVERLAP
     from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
 
     server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
@@ -222,7 +223,7 @@ def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeyp
     assert store.state("b").operation == "remove"
     assert records["ea11"].library == LIB2 and records[SHOW].library == LIB2
     assert "zz" not in records
-    assert store.watermark()[0] == unix_to_watermark(1200)
+    assert store.watermark()[0] == unix_to_watermark(1200 - CATCHUP_OVERLAP)
     assert feed.asked[0][1] == (
         "movies",
         "tvshows",
@@ -266,6 +267,74 @@ def test_catch_up_without_a_companion_uses_the_save_date(store, monkeypatch):
     assert set(store.records(pinned=False)) == {"a"}
     assert store.watermark()[0] > "2026-10-08T00:00:00Z"
     assert unix_to_watermark(0) < store.watermark()[0]
+
+
+def test_a_record_written_after_a_catch_up_read_past_its_stamp_is_still_read(
+    store, monkeypatch
+):
+    """The sync queue can write a record after a catch-up has read past the
+    time the record is stamped with: the next catch-up still asks from
+    before it."""
+    from kofin.sync.changefeed import (
+        ChangeRecord,
+        unix_to_watermark,
+        watermark_to_unix,
+    )
+
+    class Queue(Feed):
+        """Serves the records written by then, stamped after the cursor."""
+
+        def __init__(self):
+            super().__init__([])
+            self.written = []
+
+        def changes(self, last_sync, include, libraries=None):
+            since = watermark_to_unix(last_sync)
+            self.records = [r for stamp, r in self.written if stamp > since]
+            return super().changes(last_sync, include, libraries)
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie()], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Queue()
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    feed.server_time = 1000
+    w.catch_up()
+    # Changed at 998, and written once that catch-up had read the queue.
+    feed.written.append((998, ChangeRecord("b", "Added", library_ids=[LIB])))
+    feed.server_time = 1100
+    w.catch_up()
+    assert "b" in store.records(pinned=False)
+
+
+def test_a_catch_up_whose_probe_could_not_say_reads_no_save_dates(store, monkeypatch):
+    """Only a 404 says the server has no companion. Read as none, a probe
+    that timed out had the catch-up take the save dates, which see no
+    deletion, and move the cursor past the feed's removals."""
+    from kofin.core.http import HttpError, ServerUnreachable
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import detect
+
+    server = Server({LIB: [movie(DateLastSaved="2026-10-09T00:00:00Z")]})
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
+    w = worker(store, server, [LIB], monkeypatch)
+    monkeypatch.setattr(library.changefeed, "detect", detect)
+
+    def timed_out():
+        raise ServerUnreachable("GET /Kofin/SyncQueue/Info: timed out")
+
+    def absent():
+        raise HttpError(404, "GET /Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime")
+
+    server.kofin_sync_info = timed_out
+    server.server_time = absent
+    with pytest.raises(ServerUnreachable):
+        w.catch_up()
+    assert store.watermark()[0] == "2026-10-08T00:00:00Z"
+    assert store.records(pinned=False) == {}
+    # A complete listing needs only a clock, and takes Kodi's.
+    w.full_sync()
+    assert set(store.records(pinned=False)) == {"a"}
 
 
 @pytest.mark.parametrize(
