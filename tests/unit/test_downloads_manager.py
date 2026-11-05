@@ -597,6 +597,62 @@ def test_reconcile_removes_missing_files_and_reasserts_present_ones(tmp_path, re
     assert refreshes == [["video"]]
 
 
+OUTSIDE = "Movies/../../outside.mkv"  # a path an earlier build stored
+
+
+def test_a_stored_target_outside_the_folder_is_decided_again(tmp_path, repoints):
+    """A target frozen from a server's answer before the check is not
+    resumed: the attempt decides a new one inside the folder, and the file
+    at the old path is left as it is."""
+    manager, _ = make_manager(repoints)
+    queue_row()
+    store.record_target("m1", OUTSIDE, "mkv")
+    store.record_details("m1", "movie", "", 8, "", store.QUALITY_ORIGINAL)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    stray = tmp_path / "outside.mkv.part"
+    stray.write_bytes(b"from an earlier build")
+    row = store.get("m1")
+    row.state = store.ACTIVE
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, row)
+
+    finished = store.get("m1")
+    assert finished.state == store.DONE
+    assert manager_module.files.contained(finished.rel_path)
+    assert stray.read_bytes() == b"from an earlier build"
+    assert api.stream_calls == [0]  # not resumed from the stray part
+
+
+def test_a_done_row_outside_the_folder_is_left_alone(tmp_path, repoints, vanished):
+    """The sweep, reconcile and removal never look at or delete a file
+    outside the folder, and do not read its absence as a deletion."""
+    manager, _ = make_manager(repoints)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    stray = tmp_path / "outside.mkv"
+    stray.write_bytes(b"not kofin's")
+    queue_row("m1", media_type="movie")
+    store.finish("m1", OUTSIDE, "mkv", 1)
+
+    manager._reconcile_once()
+    manager._sweep_vanished()
+    assert store.get("m1").state == store.DONE
+    assert vanished["local"] == [] and vanished["pushed"] == []
+
+    manager._apply_remove_batch(["m1"])
+    assert store.get("m1") is None
+    assert stray.read_bytes() == b"not kofin's"
+
+
 def test_remove_deletes_and_prunes(tmp_path, repoints):
     manager, refreshes = make_manager(repoints)
     rel = "Movies/The Movie (2019)/The Movie (2019).mkv"

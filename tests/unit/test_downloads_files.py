@@ -176,6 +176,36 @@ def test_contained_refuses_a_path_that_leaves_its_folder(rel_path, inside):
     assert files.contained(rel_path) is inside
 
 
+def test_contained_refuses_a_drive(monkeypatch):
+    """Windows' ``C:name`` is not absolute, yet ``os.path.join`` drops the
+    folder for it."""
+    import ntpath
+
+    monkeypatch.setattr(files.os.path, "splitdrive", ntpath.splitdrive)
+    assert files.contained("C:escaped.mkv") is False
+    assert files.contained("Movies/Film.mkv") is True
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    ["Movies/../../escaped.mkv", "/etc/passwd", "", "Movies//Film.mkv"],
+)
+def test_absolute_path_refuses_what_leaves_the_folder(tmp_path, rel_path):
+    root = str(tmp_path / "dl")
+    with pytest.raises(ValueError):
+        files.absolute_path(root, rel_path)
+    with pytest.raises(ValueError):
+        files.part_path(root, rel_path)
+    assert files.path_in(root, rel_path) is None
+
+
+def test_absolute_path_joins_what_stays_inside(tmp_path):
+    root = str(tmp_path / "dl")
+    expected = str(tmp_path / "dl" / "Movies" / "Film.mkv")
+    assert files.absolute_path(root, "Movies/Film.mkv") == expected
+    assert files.path_in(root, "Movies/Film.mkv") == expected
+
+
 def test_default_filename_orders_directories():
     episode = {
         "Type": "Episode",

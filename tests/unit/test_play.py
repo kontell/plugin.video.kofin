@@ -1363,6 +1363,19 @@ def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
     assert play_module.downloaded_file("m1") is None  # the file went away
 
 
+def test_downloaded_file_refuses_a_path_outside_the_folder(offline_env):
+    from kofin.downloads import store
+    from kofin.plugin import play as play_module
+
+    (offline_env / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    (offline_env / "outside.mkv").write_bytes(b"not kofin's")
+    store.queue(store.Download(jellyfin_id="m1", media_type="movie", queued_at=1))
+    store.claim()
+    store.finish("m1", "Movies/../../outside.mkv", "mkv", 1)
+
+    assert play_module.downloaded_file("m1") is None
+
+
 def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(
     resume_env, monkeypatch
 ):

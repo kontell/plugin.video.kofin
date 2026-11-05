@@ -603,6 +603,12 @@ class DownloadManager:
         )
 
         root = downloads_root()
+        if row.rel_path and files.path_in(root, row.rel_path) is None:
+            # A target an earlier build froze from a server's answer, outside
+            # the folder: decided again, and nothing at the old path touched.
+            LOG.debug("download target of %s left its folder; deciding again", item_id)
+            store.record_target(item_id, "", "")
+            row.rel_path = ""
         if not row.rel_path and not files.free_space_ok(root, size_expected):
             store.fail(item_id, "not enough free space")
             if not row.request_id:
@@ -1036,8 +1042,10 @@ class DownloadManager:
         if not row.rel_path:
             return
         root = downloads_root()
-        absolute = files.absolute_path(root, row.rel_path)
-        _remove_quietly(files.part_path(root, row.rel_path))
+        absolute = files.path_in(root, row.rel_path)
+        if absolute is None:
+            return
+        _remove_quietly(absolute + ".part")
         _prune_empty_dirs(
             os.path.dirname(absolute), _category_floor(root, row.rel_path)
         )
@@ -1110,8 +1118,10 @@ class DownloadManager:
                 if self._should_stop():
                     return
                 songs = songs or row.media_type == "song"
-                absolute = files.absolute_path(root, row.rel_path)
-                if not row.rel_path or not os.path.exists(absolute):
+                absolute = files.path_in(root, row.rel_path) if row.rel_path else ""
+                if absolute is None:
+                    continue  # outside the folder: not kofin's file to look at
+                if not absolute or not os.path.exists(absolute):
                     self._handle_vanished(row, root)
                     touched = True
                     continue
@@ -1200,9 +1210,9 @@ class DownloadManager:
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if row.rel_path and os.path.exists(
-                    files.absolute_path(root, row.rel_path)
-                ):
+                absolute = files.path_in(root, row.rel_path) if row.rel_path else ""
+                if absolute is None or (absolute and os.path.exists(absolute)):
+                    # Present, or outside the folder and not kofin's to judge.
                     continue
                 if self._playing_now(row):
                     # Not gone, just unreadable for a moment (a network share
@@ -1329,8 +1339,10 @@ class DownloadManager:
             return False
         if not playing or not row.rel_path:
             return False
-        absolute = files.absolute_path(downloads_root(), row.rel_path)
-        return os.path.abspath(playing) == os.path.abspath(absolute)
+        absolute = files.path_in(downloads_root(), row.rel_path)
+        return absolute is not None and os.path.abspath(playing) == os.path.abspath(
+            absolute
+        )
 
     # -- making writes visible --------------------------------------------------
 
@@ -1557,7 +1569,9 @@ def delete_media_files(row: "store.Download") -> None:
     if not row.rel_path:
         return
     root = downloads_root()
-    absolute = files.absolute_path(root, row.rel_path)
+    absolute = files.path_in(root, row.rel_path)
+    if absolute is None:
+        return
     directory = os.path.dirname(absolute)
     base = os.path.basename(row.rel_path).rsplit(".", 1)[0]
     _remove_quietly(absolute + ".part")

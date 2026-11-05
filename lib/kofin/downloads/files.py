@@ -101,8 +101,13 @@ def extension(value: str, fallback: str) -> str:
 
 
 def contained(rel_path: str) -> bool:
-    """Whether ``rel_path`` stays inside the folder it is joined to."""
+    """Whether ``rel_path`` stays inside the folder it is joined to.
+
+    A drive (Windows' ``C:name``) is refused too: ``os.path.join`` drops the
+    folder for it, though it is not absolute."""
     if not rel_path or os.path.isabs(rel_path) or posixpath.isabs(rel_path):
+        return False
+    if os.path.splitdrive(rel_path)[0]:
         return False
     parts = rel_path.replace("\\", "/").split("/")
     return all(part not in ("", ".", "..") for part in parts)
@@ -217,8 +222,27 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
 
 
 def absolute_path(root: str, rel_path: str) -> str:
-    """The one spelling of a download's on-disk location."""
-    return os.path.join(root, rel_path)
+    """The one spelling of a download's on-disk location.
+
+    Raises ValueError for a path outside ``root``. A row's path was built
+    from a server's answer, possibly to an earlier build, so it is checked
+    on every use and not only when it is chosen.
+    """
+    if contained(rel_path):
+        absolute = os.path.join(root, rel_path)
+        base = os.path.abspath(root)
+        if os.path.commonpath([base, os.path.abspath(absolute)]) == base:
+            return absolute
+    raise ValueError("not inside the downloads folder: %r" % rel_path)
+
+
+def path_in(root: str, rel_path: str) -> Optional[str]:
+    """``absolute_path``, or None where it refuses: for the callers that only
+    look at a file or remove one, which leave such a row alone."""
+    try:
+        return absolute_path(root, rel_path)
+    except ValueError:
+        return None
 
 
 def part_path(root: str, rel_path: str) -> str:
