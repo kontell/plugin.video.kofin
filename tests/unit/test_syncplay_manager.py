@@ -1102,16 +1102,19 @@ class TestLocalStartHold:
         assert manager.player.paused is True
         assert manager.holds._hold is None
 
-    def test_programmatic_start_not_held(self, manager, paused_cond):
+    def test_a_start_in_the_echo_grace_is_held(self, manager, paused_cond):
+        """play_item() is kofin's only start, so a start just after our own
+        pause is the viewer's."""
         join(manager)
         manager.player.playing = True
         manager.phase = "idle"
-
         with manager.programmatic():
-            manager.on_playback_started()
+            pass
 
-        assert manager.holds._hold is None
-        assert manager.player.paused is False
+        manager.on_playback_started()
+
+        assert manager.holds._hold is not None
+        assert manager.player.paused is True
 
     def test_not_in_group_ignored(self, manager, paused_cond):
         manager.player.playing = True
@@ -1359,6 +1362,161 @@ class TestLocalPlayIdentityOnEitherBuild:
         ]
         assert manager.holds._hold["proposed"] is True
         assert manager.player.paused is True
+
+    def test_a_video_picked_over_the_synced_one_starts_the_group_where_it_resumed(
+        self, manager, paused_cond, library
+    ):
+        """Kodi's player opens a new file in place and sends no stop, so the
+        start reads as a playlist advance; the resume point the user picked
+        is where the group starts, not 0."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+        manager.player.position = 2520.0
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "PlaySessionId": "s2",
+            "CurrentPosition": 2520.0,
+        }
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(2520.0),
+            )
+        ]
+
+    def _open_in_place(self, manager, position):
+        """The new file's start: Kodi's OnPlay, then A/V at the claimed
+        position."""
+        manager.on_playback_started()
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        manager.player.position = position
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "CurrentPosition": position,
+        }
+        manager.on_avstarted()
+
+    def test_a_video_opened_in_place_while_the_group_plays_is_proposed(
+        self, manager, paused_cond, library
+    ):
+        """Kodi raises a resume ahead of the start of a file it opens in
+        place of the playing one. A group that plays has nothing to unpause,
+        and the start is proposed where it resumed."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": False}
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+
+        manager.on_resumed()
+        assert manager._api.named("syncplay_unpause") == []
+        assert manager.player.paused is False
+
+        self._open_in_place(manager, 1186.0)
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(1186.0),
+            )
+        ]
+
+    def test_a_video_opened_in_place_while_the_group_is_paused_is_proposed(
+        self, manager, paused_cond, library
+    ):
+        """Over a paused group the resume is a real one and asks the group
+        to unpause. Its re-pause is our own, and the start after it is
+        still proposed."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+
+        manager.on_resumed()
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
+        assert manager.player.paused is True
+
+        self._open_in_place(manager, 1186.0)
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(1186.0),
+            )
+        ]
+
+    def test_a_resume_before_the_group_has_paused_still_asks_it(
+        self, manager, paused_cond
+    ):
+        """A pause and a resume inside the server's round trip: the group
+        still reads Playing, and the claim says the member was paused."""
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
+        manager.phase = "synced"
+        manager.group_state = "Playing"
+
+        manager.on_resumed()
+
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
+
+    def test_a_seek_of_a_held_file_is_not_the_groups(
+        self, manager, paused_cond, library, monkeypatch
+    ):
+        """A scrub of the file held for the proposal does not move the
+        group's item; the proposal carries the position."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+        # Past the echo grace of the hold's own pause.
+        monkeypatch.setattr(utils, "PROGRAMMATIC_ECHO_GRACE", 0.0)
+
+        manager.on_seek(1500.0)
+
+        assert manager._api.named("syncplay_seek") == []
+
+    def test_a_video_playlist_advance_is_proposed_at_its_start(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        library[(8, "episode")] = "ep-2"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "ep-1"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 8, "type": "episode"}})
+        manager.player.item = {"Id": "ep-2", "Type": "Episode", "CurrentPosition": 0.0}
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            ("syncplay_set_new_queue", ["ep-2"], 0, 0)
+        ]
+        assert manager.player.paused is True  # held for the group
 
     def test_a_row_that_is_not_kofin_s_is_released_at_once(
         self, manager, paused_cond, library
@@ -2338,14 +2496,86 @@ class TestGroupUpdateTables:
         )
         assert toasts == []
 
-    def test_group_does_not_exist_rejoins_like_not_in_group(self, manager, monkeypatch):
+    def test_group_does_not_exist_in_a_group_leaves_it(self, manager, monkeypatch):
+        """The server sends it only to a Join, so in a group it is the rejoin
+        failing: the group is gone, and a rejoin would get the same answer."""
         join(manager)
         attempts = []
+        toasts = []
         monkeypatch.setattr(manager, "_attempt_rejoin", lambda: attempts.append(1))
+        monkeypatch.setattr(manager_module.settings, "localized", lambda i: "#%d" % i)
+        manager._toast = lambda message, **kwargs: toasts.append(message)
         manager._handle_group_update(
             {"GroupId": "g1", "Type": "GroupDoesNotExist", "Data": "g1"}
         )
-        assert attempts == [1]
+        assert attempts == []
+        assert not manager.in_group()
+        assert manager.player.syncplay_group_active is False
+        assert toasts == ["#30571"]
+
+    def test_a_group_gone_after_a_server_restart_is_left(self, manager, monkeypatch):
+        """Every in-group verb answers 403 once the group is gone, the rejoin
+        it starts answers 204, and GroupDoesNotExist follows on the socket."""
+        from kofin.core.http import Unauthorized
+
+        class Restarted:
+            def __init__(self):
+                self.calls = []
+
+            def __getattr__(self, name):
+                def verb(*args):
+                    self.calls.append(name)
+                    if name == "syncplay_join":
+                        return None
+                    raise Unauthorized("POST /SyncPlay/... -> 403")
+
+                return verb
+
+        join(manager, protocol_version=2)
+        manager.api = Restarted()
+        manager._api = SyncPlayManager._api.__get__(manager)
+        manager._api_raw = SyncPlayManager._api_raw.__get__(manager)
+        monkeypatch.setattr(manager_module.utils, "later", lambda *a: None)
+        manager._request_snapshot(force=True)
+        manager._handle_group_update({"Type": "GroupDoesNotExist", "Data": ""})
+        assert not manager.in_group()
+        assert manager.api.calls.count("syncplay_join") == 1
+
+    @pytest.mark.parametrize(
+        "refusal,message",
+        [("GroupDoesNotExist", "#30578"), ("LibraryAccessDenied", "#30579")],
+    )
+    def test_a_refused_join_is_reported_once(
+        self, manager, monkeypatch, refusal, message
+    ):
+        later = []
+        toasts = []
+        monkeypatch.setattr(manager_module.utils, "later", lambda *a: later.append(a))
+        monkeypatch.setattr(manager_module.settings, "localized", lambda i: "#%d" % i)
+        manager._toast = lambda text, **kwargs: toasts.append(text)
+        manager.join_group("g2")
+        manager._handle_group_update({"GroupId": "g2", "Type": refusal, "Data": ""})
+        _, _, check = later[0]
+        check()
+        assert toasts == [message]
+        assert manager._api_raw.named("syncplay_leave") == []
+
+    def test_a_new_group_that_never_confirms_proposes_nothing_to_a_later_join(
+        self, manager, paused_cond, monkeypatch
+    ):
+        """Only a group this member creates takes its playback as the queue;
+        a stale flag from an unconfirmed New replaced another group's queue."""
+        later = []
+        monkeypatch.setattr(manager_module.utils, "later", lambda *a: later.append(a))
+        assert manager.new_group("ours") is True
+        _, _, check = later[0]
+        check()
+        manager.player.playing = True
+        manager.player.position = 600.0
+        manager.player.item = {"Id": "my-own-show", "PlaySessionId": "s9"}
+        manager.join_group("g1")
+        join(manager, protocol_version=2)
+        assert manager._api.named("syncplay_set_new_queue") == []
 
     def test_group_does_not_exist_outside_a_group_is_quiet(self, manager, monkeypatch):
         attempts = []

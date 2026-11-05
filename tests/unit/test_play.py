@@ -1014,6 +1014,21 @@ def test_play_state_carries_what_the_stream_menu_needs(resume_env, monkeypatch):
     assert published["Request"]["dbid"] == "77"
 
 
+def test_a_self_signed_server_s_stream_tells_kodi_to_skip_the_check(resume_env):
+    """With sslVerify off kofin's own requests skip the certificate check, and
+    Kodi's curl, which opens a direct play, has to be told so too."""
+    from kofin.core import state
+
+    resume_env["api"].server = "https://jf:8920"
+    resume_env["addon"].store["sslVerify"] = "false"
+    run_play({"id": "ep1"}, resume=False)
+
+    path = resume_env["li"].path
+    assert path.startswith("https://jf:8920/Videos/ep1/stream")
+    assert path.endswith("|verifypeer=false")
+    assert state.claim_play_item(path.split("|")[0])["Path"] == path
+
+
 def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
     from kofin.core import deviceprofile
 
@@ -1361,6 +1376,19 @@ def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
 
     (media / "m.mkv").unlink()
     assert play_module.downloaded_file("m1") is None  # the file went away
+
+
+def test_downloaded_file_refuses_a_path_outside_the_folder(offline_env):
+    from kofin.downloads import store
+    from kofin.plugin import play as play_module
+
+    (offline_env / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    (offline_env / "outside.mkv").write_bytes(b"not kofin's")
+    store.queue(store.Download(jellyfin_id="m1", media_type="movie", queued_at=1))
+    store.claim()
+    store.finish("m1", "Movies/../../outside.mkv", "mkv", 1)
+
+    assert play_module.downloaded_file("m1") is None
 
 
 def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(

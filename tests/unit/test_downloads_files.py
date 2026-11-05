@@ -1,6 +1,8 @@
 """L1 units for download file layout and naming."""
 
 import os
+import shutil
+from collections import namedtuple
 
 import pytest
 
@@ -92,15 +94,16 @@ def test_unique_dir_suffixes_only_on_collision():
     )
 
 
-class FakeStatvfs:
-    def __init__(self, free_bytes):
-        self.f_bavail = free_bytes // 4096
-        self.f_frsize = 4096
+Usage = namedtuple("Usage", "total used free")
+
+
+def _usage(free):
+    return Usage(free * 2, free, free)
 
 
 def test_free_space_needs_download_plus_reserve(monkeypatch):
     monkeypatch.setattr(
-        os, "statvfs", lambda root: FakeStatvfs(files.FREE_SPACE_RESERVE + 8192)
+        shutil, "disk_usage", lambda root: _usage(files.FREE_SPACE_RESERVE + 8192)
     )
     assert files.free_space_ok("/dl", 8192) is True
     assert files.free_space_ok("/dl", 8193) is False
@@ -108,10 +111,18 @@ def test_free_space_needs_download_plus_reserve(monkeypatch):
 
 def test_free_space_probe_failure_allows_rather_than_refuses(monkeypatch):
     def broken(root):
-        raise OSError("no statvfs here")
+        raise OSError("no such volume")
 
-    monkeypatch.setattr(os, "statvfs", broken)
+    monkeypatch.setattr(shutil, "disk_usage", broken)
     assert files.free_space_ok("/dl", 10**12) is True
+
+
+def test_free_space_is_read_where_os_has_no_statvfs(monkeypatch):
+    """Windows' os module has no statvfs: the probe must not reach for it."""
+    monkeypatch.delattr(os, "statvfs", raising=False)
+    monkeypatch.setattr(shutil, "disk_usage", lambda root: _usage(5 * 1024**3))
+
+    assert files.free_bytes("C:\\Downloads") == 5 * 1024**3
 
 
 # -- the music layout and the fallback names -----------------------------------
@@ -138,6 +149,72 @@ def test_audio_dirs_fall_back_through_the_artist_fields():
     assert files.item_dirs(from_artists)[0] == "Music/Credited/Album"
     bare = {"Type": "Audio"}
     assert files.item_dirs(bare) == ("Music/Unknown artist/Unknown album", None)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("mkv", "mkv"),
+        ("MP4", "mp4"),
+        ("x/../../../../addons/plugin.video.kofin/service.py", "mp4"),
+        ("srt\\..\\..\\x", "mp4"),
+        ("mp4.part", "mp4"),
+        ("averylongword", "mp4"),
+        ("", "mp4"),
+    ],
+)
+def test_a_server_container_is_an_extension_only_when_it_is_one_word(value, expected):
+    assert files.extension(value, "mp4") == expected
+
+
+def test_a_default_filename_never_carries_a_path_in_its_extension():
+    movie = {"Type": "Movie", "Name": "Film"}
+    assert files.default_filename(movie, "x/../../escaped") == "Film.bin"
+
+
+@pytest.mark.parametrize(
+    "rel_path,inside",
+    [
+        ("Movies/Film (2020)/Film (2020).mkv", True),
+        ("Movies/Film (2020)/../../escaped", False),
+        ("Movies\\..\\..\\escaped", False),
+        ("/etc/passwd", False),
+        ("Movies//Film.mkv", False),
+        ("", False),
+    ],
+)
+def test_contained_refuses_a_path_that_leaves_its_folder(rel_path, inside):
+    assert files.contained(rel_path) is inside
+
+
+def test_contained_refuses_a_drive(monkeypatch):
+    """Windows' ``C:name`` is not absolute, yet ``os.path.join`` drops the
+    folder for it."""
+    import ntpath
+
+    monkeypatch.setattr(files.os.path, "splitdrive", ntpath.splitdrive)
+    assert files.contained("C:escaped.mkv") is False
+    assert files.contained("Movies/Film.mkv") is True
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    ["Movies/../../escaped.mkv", "/etc/passwd", "", "Movies//Film.mkv"],
+)
+def test_absolute_path_refuses_what_leaves_the_folder(tmp_path, rel_path):
+    root = str(tmp_path / "dl")
+    with pytest.raises(ValueError):
+        files.absolute_path(root, rel_path)
+    with pytest.raises(ValueError):
+        files.part_path(root, rel_path)
+    assert files.path_in(root, rel_path) is None
+
+
+def test_absolute_path_joins_what_stays_inside(tmp_path):
+    root = str(tmp_path / "dl")
+    expected = str(tmp_path / "dl" / "Movies" / "Film.mkv")
+    assert files.absolute_path(root, "Movies/Film.mkv") == expected
+    assert files.path_in(root, "Movies/Film.mkv") == expected
 
 
 def test_default_filename_orders_directories():

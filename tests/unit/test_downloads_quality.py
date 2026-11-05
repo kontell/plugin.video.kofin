@@ -90,6 +90,24 @@ def test_over_a_limit_transcodes_with_the_absolute_url():
     assert decision.play_session_id == "ps1"
 
 
+def test_a_transcoding_container_that_is_not_a_word_falls_back():
+    """The container names the downloaded file: a path in it would write the
+    transcode outside the downloads folder."""
+    FakeAddon.store = {"downloadsTranscode": "true"}
+    api = FakeApi(
+        {
+            "MediaSources": [
+                {
+                    "SupportsDirectPlay": False,
+                    "TranscodingUrl": "/Videos/m1/stream.mp4?deviceId=d",
+                    "TranscodingContainer": "x/../../../../addons/a/service.py",
+                }
+            ],
+        }
+    )
+    assert quality.decide(api, MOVIE).container == "mp4"
+
+
 def test_an_hls_answer_is_rewritten_to_the_progressive_shape():
     assert (
         quality.progressive("/Videos/m1/master.m3u8?a=1") == "/Videos/m1/stream.mp4?a=1"

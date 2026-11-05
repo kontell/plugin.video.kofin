@@ -9,6 +9,7 @@ the downloads root.
 import os
 import posixpath
 import re
+import shutil
 import sys
 import unicodedata
 from typing import Any, Callable, Optional
@@ -26,6 +27,7 @@ JsonDict = dict[str, Any]
 # ride along in the same class.
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
+_EXTENSION = re.compile(r"[a-z0-9]{1,8}")
 
 # Free space kept in reserve beyond the download itself: Kodi's own caches
 # and databases live on the same volume more often than not, and filling it
@@ -91,6 +93,27 @@ def filename_from_disposition(value: str, fallback: str) -> str:
     return fallback
 
 
+def extension(value: str, fallback: str) -> str:
+    """A container or codec name the server gave, as a file extension, or
+    ``fallback``. Anything but a short word of letters and digits would put a
+    separator, a ``..`` or a second extension into the file name."""
+    candidate = str(value or "").strip().lower()
+    return candidate if _EXTENSION.fullmatch(candidate) else fallback
+
+
+def contained(rel_path: str) -> bool:
+    """Whether ``rel_path`` stays inside the folder it is joined to.
+
+    A drive (Windows' ``C:name``) is refused too: ``os.path.join`` drops the
+    folder for it, though it is not absolute."""
+    if not rel_path or os.path.isabs(rel_path) or posixpath.isabs(rel_path):
+        return False
+    if os.path.splitdrive(rel_path)[0]:
+        return False
+    parts = rel_path.replace("\\", "/").split("/")
+    return all(part not in ("", ".", "..") for part in parts)
+
+
 def default_filename(item: JsonDict, container: str) -> str:
     """The filename when no Content-Disposition names one — every transcode,
     whose response carries no original name. Episodes lead with SxxEyy and
@@ -107,7 +130,7 @@ def default_filename(item: JsonDict, container: str) -> str:
         track = item.get("IndexNumber")
         if track is not None:
             name = "%02d %s" % (int(track), name)
-    return "%s.%s" % (name, container or "bin")
+    return "%s.%s" % (name, extension(container, "bin"))
 
 
 def item_dirs(item: JsonDict) -> tuple[str, Optional[str]]:
@@ -179,11 +202,12 @@ def free_bytes(root: str) -> int:
     number in front of a person.
     """
     try:
-        stats = os.statvfs(root)
+        # statvfs exists on POSIX only; disk_usage reads it there and asks
+        # Windows for the caller's free bytes.
+        return shutil.disk_usage(root).free
     except OSError as error:
         LOG.debug("free-space probe failed for %s: %s", root, error)
         return -1
-    return stats.f_bavail * stats.f_frsize
 
 
 def free_space_ok(root: str, expected_bytes: int) -> bool:
@@ -200,8 +224,27 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
 
 
 def absolute_path(root: str, rel_path: str) -> str:
-    """The one spelling of a download's on-disk location."""
-    return os.path.join(root, rel_path)
+    """The one spelling of a download's on-disk location.
+
+    Raises ValueError for a path outside ``root``. A row's path was built
+    from a server's answer, possibly to an earlier build, so it is checked
+    on every use and not only when it is chosen.
+    """
+    if contained(rel_path):
+        absolute = os.path.join(root, rel_path)
+        base = os.path.abspath(root)
+        if os.path.commonpath([base, os.path.abspath(absolute)]) == base:
+            return absolute
+    raise ValueError("not inside the downloads folder: %r" % rel_path)
+
+
+def path_in(root: str, rel_path: str) -> Optional[str]:
+    """``absolute_path``, or None where it refuses: for the callers that only
+    look at a file or remove one, which leave such a row alone."""
+    try:
+        return absolute_path(root, rel_path)
+    except ValueError:
+        return None
 
 
 def part_path(root: str, rel_path: str) -> str:

@@ -436,6 +436,38 @@ def test_merge_never_clears_inherited_art_an_old_acknowledgement_owned():
     assert "tvshow.poster" not in desired["art"]
 
 
+def test_a_tag_kodi_holds_in_another_case_settles():
+    """Kodi links a tag to the spelling its tag table already holds
+    ("Christmas", from another movie), whatever spelling it was sent
+    ("christmas"), and reads that spelling back."""
+    from kofin.sync.backends.api.patch import matches, merge
+
+    desired = {"tag": ["christmas"]}
+    row = {"tag": ["Christmas"]}
+    compare = merge("Movie", desired, row, {})
+    assert compare["tag"] == ["christmas"] == desired["tag"]
+    assert matches(row, compare)
+
+
+def test_a_tag_kofin_owned_comes_off_in_kodis_spelling_too():
+    from kofin.sync.backends.api.patch import merge
+
+    compare = merge(
+        "Movie",
+        {"tag": []},
+        {"tag": ["Christmas", "Favourites"]},
+        {"tag": ["christmas"]},
+    )
+    assert compare["tag"] == ["Favourites"]
+
+
+def test_tags_differing_beyond_ascii_case_are_two_tags():
+    """Kodi's like folds ASCII case only."""
+    from kofin.sync.backends.api.patch import matches
+
+    assert not matches({"tag": ["Ärger"]}, {"tag": ["ärger"]})
+
+
 def test_song_tags_are_total_for_numbers_that_do_not_parse():
     """song_tags is the listing and the hash: a value that does not parse is
     the missing-field zero, so one song cannot stall its library's scans."""

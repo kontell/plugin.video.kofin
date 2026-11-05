@@ -518,6 +518,45 @@ def test_external_subtitles_land_as_sidecars(tmp_path, repoints):
     assert len(api.downloaded_urls) == 1  # embedded and audio streams skipped
 
 
+def test_a_sidecar_codec_that_is_not_a_word_is_skipped(tmp_path, repoints):
+    """The codec names the sidecar's extension; one carrying a path would
+    write the subtitle outside the movie's folder."""
+    manager, _ = make_manager(repoints)
+    dto = dict(MOVIE_DTO)
+    dto["MediaSources"] = [
+        {
+            "Id": "src1",
+            "Container": "mkv",
+            "Size": 8,
+            "MediaStreams": [
+                {
+                    "Type": "Subtitle",
+                    "IsExternal": True,
+                    "Index": 3,
+                    "Codec": "x/../../../../escaped",
+                    "Language": "eng",
+                },
+            ],
+        }
+    ]
+    api = FakeManagerApi(
+        dto,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert store.get("m1").state == store.DONE
+    assert api.downloaded_urls == []
+    assert not (tmp_path / "escaped").exists()
+
+
 def test_unsupported_type_settles_failed(repoints):
     manager, _ = make_manager(repoints)
     api = FakeManagerApi({"Id": "m1", "Type": "Book", "MediaSources": []}, [])
@@ -558,6 +597,62 @@ def test_reconcile_removes_missing_files_and_reasserts_present_ones(tmp_path, re
     assert store.get("ghost") is None
     assert store.get("kept").state == store.DONE
     assert refreshes == [["video"]]
+
+
+OUTSIDE = "Movies/../../outside.mkv"  # a path an earlier build stored
+
+
+def test_a_stored_target_outside_the_folder_is_decided_again(tmp_path, repoints):
+    """A target frozen from a server's answer before the check is not
+    resumed: the attempt decides a new one inside the folder, and the file
+    at the old path is left as it is."""
+    manager, _ = make_manager(repoints)
+    queue_row()
+    store.record_target("m1", OUTSIDE, "mkv")
+    store.record_details("m1", "movie", "", 8, "", store.QUALITY_ORIGINAL)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    stray = tmp_path / "outside.mkv.part"
+    stray.write_bytes(b"from an earlier build")
+    row = store.get("m1")
+    row.state = store.ACTIVE
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, row)
+
+    finished = store.get("m1")
+    assert finished.state == store.DONE
+    assert manager_module.files.contained(finished.rel_path)
+    assert stray.read_bytes() == b"from an earlier build"
+    assert api.stream_calls == [0]  # not resumed from the stray part
+
+
+def test_a_done_row_outside_the_folder_is_left_alone(tmp_path, repoints, vanished):
+    """The sweep, reconcile and removal never look at or delete a file
+    outside the folder, and do not read its absence as a deletion."""
+    manager, _ = make_manager(repoints)
+    (tmp_path / "dl" / "Movies").mkdir(parents=True)  # the path resolves
+    stray = tmp_path / "outside.mkv"
+    stray.write_bytes(b"not kofin's")
+    queue_row("m1", media_type="movie")
+    store.finish("m1", OUTSIDE, "mkv", 1)
+
+    manager._reconcile_once()
+    manager._sweep_vanished()
+    assert store.get("m1").state == store.DONE
+    assert vanished["local"] == [] and vanished["pushed"] == []
+
+    manager._apply_remove_batch(["m1"])
+    assert store.get("m1") is None
+    assert stray.read_bytes() == b"not kofin's"
 
 
 def test_remove_deletes_and_prunes(tmp_path, repoints):

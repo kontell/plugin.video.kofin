@@ -16,7 +16,7 @@ from typing import Any, NamedTuple
 
 from kofin.core import deviceprofile, settings
 from kofin.core.http import JellyfinError
-from kofin.downloads import store
+from kofin.downloads import files, store
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -152,7 +152,9 @@ def decide(api: Any, item: JsonDict) -> Decision:
     url = cap_bitrates_to_source(progressive(transcoding_url), source)
     if url.startswith("/"):
         url = api.server + url
-    container = str(source.get("TranscodingContainer") or "").split(",")[0]
+    container = files.extension(
+        str(source.get("TranscodingContainer") or "").split(",")[0], ""
+    )
     if not container:
         container = (
             (settings.get_str("downloadsMusicCodec") or "opus")

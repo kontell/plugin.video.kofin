@@ -610,6 +610,12 @@ class DownloadManager:
         )
 
         root = downloads_root()
+        if row.rel_path and files.path_in(root, row.rel_path) is None:
+            # A target an earlier build froze from a server's answer, outside
+            # the folder: decided again, and nothing at the old path touched.
+            LOG.debug("download target of %s left its folder; deciding again", item_id)
+            store.record_target(item_id, "", "")
+            row.rel_path = ""
         if not row.rel_path and not files.free_space_ok(root, size_expected):
             store.fail(item_id, "not enough free space")
             if not row.request_id:
@@ -901,6 +907,8 @@ class DownloadManager:
         fallback = files.default_filename(item, container)
         filename = files.filename_from_disposition(disposition, fallback)
         rel_path = "%s/%s" % (directory, filename)
+        if not files.contained(rel_path):
+            raise JellyfinError("download path of %s leaves its folder" % item_id)
         store.record_target(item_id, rel_path, container)
         return rel_path
 
@@ -969,7 +977,7 @@ class DownloadManager:
             external = bool(stream_info.get("IsExternal"))
             if external:
                 codec = str(stream_info.get("Codec") or "").lower()
-                extension = SUBTITLE_EXTENSIONS.get(codec, codec)
+                extension = files.extension(SUBTITLE_EXTENSIONS.get(codec, codec), "")
             elif include_embedded and stream_info.get("IsTextSubtitleStream"):
                 extension = "srt"
             else:
@@ -1062,8 +1070,10 @@ class DownloadManager:
         if not row.rel_path:
             return
         root = downloads_root()
-        absolute = files.absolute_path(root, row.rel_path)
-        _remove_quietly(files.part_path(root, row.rel_path))
+        absolute = files.path_in(root, row.rel_path)
+        if absolute is None:
+            return
+        _remove_quietly(absolute + ".part")
         _prune_empty_dirs(
             os.path.dirname(absolute), _category_floor(root, row.rel_path)
         )
@@ -1137,8 +1147,10 @@ class DownloadManager:
                 if self._should_stop():
                     return
                 songs = songs or row.media_type == "song"
-                absolute = files.absolute_path(root, row.rel_path)
-                if not row.rel_path or not os.path.exists(absolute):
+                absolute = files.path_in(root, row.rel_path) if row.rel_path else ""
+                if absolute is None:
+                    continue  # outside the folder: not kofin's file to look at
+                if not absolute or not os.path.exists(absolute):
                     # Asked again for every missing file: a drive that goes
                     # during the walk takes its marker with it.
                     if in_hand and self._root_in_hand(root):
@@ -1334,9 +1346,9 @@ class DownloadManager:
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if row.rel_path and os.path.exists(
-                    files.absolute_path(root, row.rel_path)
-                ):
+                absolute = files.path_in(root, row.rel_path) if row.rel_path else ""
+                if absolute is None or (absolute and os.path.exists(absolute)):
+                    # Present, or outside the folder and not kofin's to judge.
                     continue
                 if self._playing_now(row):
                     # Not gone, just unreadable for a moment (a network share
@@ -1465,8 +1477,10 @@ class DownloadManager:
             return False
         if not playing or not row.rel_path:
             return False
-        absolute = files.absolute_path(downloads_root(), row.rel_path)
-        return os.path.abspath(playing) == os.path.abspath(absolute)
+        absolute = files.path_in(downloads_root(), row.rel_path)
+        return absolute is not None and os.path.abspath(playing) == os.path.abspath(
+            absolute
+        )
 
     # -- making writes visible --------------------------------------------------
 
@@ -1693,7 +1707,9 @@ def delete_media_files(row: "store.Download") -> None:
     if not row.rel_path:
         return
     root = downloads_root()
-    absolute = files.absolute_path(root, row.rel_path)
+    absolute = files.path_in(root, row.rel_path)
+    if absolute is None:
+        return
     directory = os.path.dirname(absolute)
     base = os.path.basename(row.rel_path).rsplit(".", 1)[0]
     _remove_quietly(absolute + ".part")
