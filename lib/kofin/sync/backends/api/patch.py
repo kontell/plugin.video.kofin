@@ -1008,6 +1008,14 @@ def local_edits(
     return edits
 
 
+def tag_key(tag: str) -> str:
+    """A tag as Kodi's tag table tells tags apart. Kodi files a tag by
+    ``like`` against the names it holds (CVideoDatabase::AddToTable), which
+    ignores ASCII case, so a row links to the spelling filed first whatever
+    spelling it was sent."""
+    return "".join(c.lower() if "A" <= c <= "Z" else c for c in tag)
+
+
 def merge(
     kind: str,
     desired: dict[str, Any],
@@ -1026,9 +1034,13 @@ def merge(
             for tag in row.get("tag", [])
             if tag.startswith(metadata.LIBRARY_TAG_PREFIX)
         }
-        compare["tag"] = sorted(
-            set(compare["tag"]) | (set(row.get("tag", [])) - old_tags)
-        )
+        # A row tag that is one of these to Kodi is Kofin's, in Kodi's
+        # spelling, not a tag of the viewer's to keep beside it.
+        ours = {tag_key(tag) for tag in old_tags} | {
+            tag_key(tag) for tag in compare["tag"]
+        }
+        viewers = {tag for tag in row.get("tag", []) if tag_key(tag) not in ours}
+        compare["tag"] = sorted(set(compare["tag"]) | viewers)
         desired["tag"] = compare["tag"]
     for field in ("art", "ratings", "uniqueid"):
         if field not in compare:
@@ -1098,6 +1110,11 @@ def matches(row: dict[str, Any], desired: dict[str, Any]) -> bool:
                 return False
         elif key == "lastplayed":
             if not metadata.same_play(actual or "", value or ""):
+                return False
+        elif key == "tag":
+            if {tag_key(tag) for tag in actual or []} != {
+                tag_key(tag) for tag in value
+            }:
                 return False
         elif isinstance(value, list):
             if sorted(actual or []) != sorted(value):
