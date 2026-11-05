@@ -695,6 +695,16 @@ class Library(threading.Thread):
         if not isinstance(views, list):
             raise ValueError("incomplete library listing")
         self._listed = {v["Id"] for v in views if v.get("Id")}
+        from kofin.core.api import library_folders
+
+        unlisted = [
+            library
+            for library in settings.get_list("librarySelection")
+            if library not in self._listed
+        ]
+        grouped = library_folders(self.api, unlisted)
+        self._listed |= {folder["Id"] for folder in grouped}
+        views = views + grouped
         return {
             v["Id"]: v
             for v in views
@@ -1145,7 +1155,10 @@ class Library(threading.Thread):
             library = self._library_of(
                 item, selected, hint.library_ids if hint is not None else None
             )
-            if library is None or kind not in collection_kinds(supported[library]):
+            if library is None:
+                continue
+            view = supported.get(library)
+            if view is None or kind not in collection_kinds(view):
                 continue
             membership[item["Id"]] = library
             items.append(item)

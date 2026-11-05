@@ -175,10 +175,17 @@ def wanted() -> Optional[bool]:
 
 def publish_from(api: "Api") -> None:
     """Publish the server's libraries as the user has them: every synced
-    one, hidden from My Media or not, and of the rest those Jellyfin's home
-    screen shows."""
+    one, hidden from My Media or grouped into a combined view or not, and of
+    the rest those Jellyfin's home screen shows."""
+    from kofin.core.api import library_folders
+
     every = api.views(include_hidden=True).get("Items", [])
     shown = {item.get("Id") for item in api.views().get("Items", [])}
+    listed = {item.get("Id") for item in every}
+    whitelist = [
+        x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
+    ]
+    every = every + library_folders(api, [i for i in whitelist if i not in listed])
     publish(every, api, hidden={item.get("Id") for item in every} - shown)
 
 

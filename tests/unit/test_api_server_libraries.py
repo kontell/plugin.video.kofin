@@ -156,3 +156,47 @@ def test_a_library_found_by_its_id_needs_two_new_404s(gone):
     assert seen["dropped"] == []
     check(after=library.MISSING_CONFIRM)
     assert seen["dropped"] == [LIB2]
+
+
+def _grouped(server, library, collection="movies"):
+    """Jellyfin's answer once the user groups ``library`` into a combined
+    view: /UserViews lists the combined view, the library answers by id."""
+    server.views_list = [v for v in server.views_list if v["Id"] != library] + [
+        {"Id": "c" * 32, "CollectionType": collection, "Name": "Movies"}
+    ]
+    by_id = server.item
+
+    def item(item_id):
+        if item_id == library:
+            return {
+                "Id": library,
+                "Type": "CollectionFolder",
+                "CollectionType": collection,
+                "Name": "Films",
+            }
+        return by_id(item_id)
+
+    server.item = item
+
+
+def test_a_library_grouped_into_a_combined_view_keeps_syncing(store, monkeypatch):
+    server = Server({LIB: [movie()], LIB2: []})
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.full_sync()
+
+    assert "a" in store.records(pinned=False)
+
+
+def test_a_change_to_an_item_of_a_grouped_library_is_published(store, monkeypatch):
+    server = Server({LIB: [movie()], LIB2: []})
+    store.publish([movie()], library=LIB)
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    w._catchup_due = 10**9
+    server.libraries[LIB] = [movie(Name="Renamed")]
+
+    w.command("changed", ["a"])
+
+    assert store.records(pinned=False)["a"].item["Name"] == "Renamed"
