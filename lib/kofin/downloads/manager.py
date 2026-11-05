@@ -1374,7 +1374,13 @@ class DownloadManager:
         track is not a finished one), and the item currently playing is
         skipped — Kodi marks played at ~90%, and a sweep firing in a binge
         episode's last minutes would delete the file under the player.
-        Watched-ness is Kodi's own playcount — local truth, works offline.
+
+        Watched means watched since the download landed, from Kodi's own
+        state, which works offline: a play count, a last played later than
+        ``done_at``, and no resume point. A download of something already
+        watched carries the server's count and its earlier date, and Kodi
+        stamps the date of a play stopped part way too, leaving its resume
+        point.
         """
         try:
             if not settings.get_bool("downloadsDeleteAfterWatching"):
@@ -1387,6 +1393,12 @@ class DownloadManager:
                 if row.media_type not in store.VIDEO_MEDIA_TYPES:
                     continue
                 if not _watched_locally(row):
+                    continue
+                touched = _last_touch(row)
+                if touched is None:
+                    continue
+                last_played, resuming = touched
+                if resuming or last_played <= row.done_at:
                     continue
                 if self._playing_now(row):
                     continue

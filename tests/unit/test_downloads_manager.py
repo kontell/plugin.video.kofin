@@ -1301,7 +1301,10 @@ def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatc
 # -- retention and exported-metadata pruning ----------------------------------
 
 
-def seed_done(item_id, origin, queued_at=100):
+DAY = manager_module.SECONDS_PER_DAY
+
+
+def seed_done(item_id, origin, queued_at=100, done_at=0):
     store.queue(
         store.Download(
             jellyfin_id=item_id, media_type="movie", origin=origin, queued_at=queued_at
@@ -1309,7 +1312,9 @@ def seed_done(item_id, origin, queued_at=100):
     )
     store.claim()
     store.record_details(item_id, "movie", "", 0, "")
-    store.finish(item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1)
+    store.finish(
+        item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1, done_at=done_at
+    )
 
 
 def test_retention_sweeps_every_watched_download_in_the_silent_mode(
@@ -1317,12 +1322,16 @@ def test_retention_sweeps_every_watched_download_in_the_silent_mode(
 ):
     """The sweep is the backstop for what the end-of-playback offer misses,
     and takes a watched download whoever queued it."""
+    import time as time_module
+
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
-    seed_done("auto-watched", "auto:s1", queued_at=100)
-    seed_done("auto-fresh", "auto:s1", queued_at=101)
-    seed_done("user-watched", store.ORIGIN_USER, queued_at=102)
+    now = time_module.time()
+    landed = int(now - 2 * DAY)
+    seed_done("auto-watched", "auto:s1", queued_at=100, done_at=landed)
+    seed_done("auto-fresh", "auto:s1", queued_at=101, done_at=landed)
+    seed_done("user-watched", store.ORIGIN_USER, queued_at=102, done_at=landed)
 
     watched = {"auto-watched", "user-watched"}
     monkeypatch.setattr(
@@ -1330,11 +1339,41 @@ def test_retention_sweeps_every_watched_download_in_the_silent_mode(
         "_watched_locally",
         lambda row: row.jellyfin_id in watched,
     )
+    touches(monkeypatch, {item_id: (now - DAY, False) for item_id in watched})
     removed = []
     monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
 
     manager._retention_sweep()
     assert removed == ["auto-watched", "user-watched"]  # never the unwatched
+
+
+def test_retention_counts_only_a_play_since_the_download_landed(repoints, monkeypatch):
+    """A download of something already watched (a rewatch taken on a trip)
+    carries the server's play count from the start. It goes once Kodi has
+    counted a play after it landed, and not while a play stopped part way
+    has left a resume point."""
+    import time as time_module
+
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
+    manager, _ = make_manager(repoints)
+    now = time_module.time()
+    for item_id in ("rewatching", "seen-before", "seen-since", "unmapped"):
+        seed_done(item_id, store.ORIGIN_USER, done_at=int(now - 2 * DAY))
+    monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    touches(
+        monkeypatch,
+        {
+            "rewatching": (now - DAY, True),
+            "seen-before": (now - 30 * DAY, False),
+            "seen-since": (now - DAY, False),
+        },
+    )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._retention_sweep()
+    assert removed == ["seen-since"]
 
 
 def test_retention_stands_down_when_removal_is_a_question(repoints, monkeypatch):
@@ -1359,11 +1398,15 @@ def test_retention_stands_down_when_removal_is_a_question(repoints, monkeypatch)
 
 
 def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
+    import time as time_module
+
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
-    seed_done("auto-playing", "auto:s1")
+    now = time_module.time()
+    seed_done("auto-playing", "auto:s1", done_at=int(now - 2 * DAY))
     monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    touches(monkeypatch, {"auto-playing": (now - DAY, False)})
     monkeypatch.setattr(manager, "_playing_now", lambda row: True)
     removed = []
     monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
@@ -1373,9 +1416,6 @@ def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
 
 
 # -- the stale sweep ---------------------------------------------------------
-
-
-DAY = manager_module.SECONDS_PER_DAY
 
 
 def seed_stale(item_id, days_ago, media_type="movie"):
