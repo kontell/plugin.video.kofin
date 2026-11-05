@@ -2048,6 +2048,33 @@ def test_a_connect_that_raises_outside_the_taxonomy_waits_out_the_backoff(
 
     assert probes == [1]
     assert service._backoff.due(time.time()) is False
+    assert state.is_offline() is True
+
+
+def test_the_same_failure_on_the_next_attempt_is_logged_once(monkeypatch, tmp_path):
+    """The ticks between two attempts raise nothing; the second attempt's
+    identical failure is a debug line, not a second traceback."""
+    from kofin.service import main
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service.credentials.is_logged_in = True
+    tracebacks = []
+    monkeypatch.setattr(main.LOG, "exception", lambda *a: tracebacks.append(a))
+
+    def probe(self):
+        raise UnicodeEncodeError("latin-1", "Гостиная", 0, 1, "not Latin-1")
+
+    service.api = type("A", (), {"probe_info": probe})()
+
+    service._guarded_tick()  # the attempt fails
+    service._guarded_tick()  # backoff pending: no attempt, nothing raised
+    monkeypatch.setattr(service._backoff, "due", lambda now: True)
+    service._guarded_tick()  # the next attempt fails the same way
+
+    assert len(tracebacks) == 1
 
 
 def test_join_workers_joins_what_ran_and_skips_the_empty_slots():

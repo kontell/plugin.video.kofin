@@ -267,11 +267,17 @@ class Service(xbmc.Monitor):
             self._tick_failure = failure
             if not self._online:
                 # Offline, the tick's work is the connection attempt: one that
-                # failed outside the transport's errors waits out the backoff
-                # as one inside them does.
+                # failed outside the transport's errors is a failed attempt as
+                # one inside them is, so it waits out the backoff and states
+                # the outage (see _connect).
                 self._backoff.failed(time.time())
+                state.set_online(False)
         else:
-            self._tick_failure = ""
+            if self._online:
+                # Offline, the ticks between attempts raise nothing, so only
+                # a connection ends a failure: the same error on the next
+                # attempt is a repeat.
+                self._tick_failure = ""
 
     def _prepare_api_backend(self) -> None:
         from kofin.sync.backends.api import APIBackend, capabilities
