@@ -252,6 +252,10 @@ class Player(xbmc.Player):
         claimed = self._claim()
         if claimed is None:
             return
+        # From the player: a pause made before the claim existed (a SyncPlay
+        # hold pauses before _claim, whose wait runs the callback) found no
+        # item to mark.
+        claimed["Paused"] = bool(xbmc.getCondVisibility("Player.Paused"))
         with self._lock:
             self._item = claimed
         state.set_playing_id(claimed["Id"])
