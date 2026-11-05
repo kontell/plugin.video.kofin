@@ -118,7 +118,7 @@
         </setting>
         <!-- No <close>, unlike the buttons around it: the menu is meant to
              read as a sub-dialog of this one, so Back returns here. The
-             Downloads tab's "Manage shows" button is the same shape.
+             Downloads tab's "Storage used" button is the same shape.
              Visible only while the toggle above is on: with it off nothing
              here reaches playback on this box, and a button that opens a
              dialog that then has to say so is worse than hiding it. -->
@@ -1126,10 +1126,18 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
-        <setting id="downloadsManagePlaylists" type="action" label="30851" help="30854">
+        <!-- The two manage buttons here and the shows one below write the
+             list they show, so each closes the dialog before its route runs
+             (see findServers). -->
+        <setting id="downloadsManagePlaylists" type="string" label="30851" help="30854">
           <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
           <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
-          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=playlist)</data></control>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=playlist)</data>
+            <close>true</close>
+          </control>
         </setting>
         <setting id="downloadsMusicLibraries" type="string">
           <level>4</level>
@@ -1137,10 +1145,15 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
-        <setting id="downloadsManageMusicLibraries" type="action" label="30852" help="30855">
+        <setting id="downloadsManageMusicLibraries" type="string" label="30852" help="30855">
           <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
           <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
-          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=library)</data></control>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=library)</data>
+            <close>true</close>
+          </control>
         </setting>
         <!-- Automatic downloads and lifecycle, plus the metadata export. -->
         <setting id="downloadsAutoNext" type="boolean" label="30738" help="30739">
@@ -1241,8 +1254,10 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
-        <setting id="downloadsManageShows" type="action" label="30758" help="30759">
+        <setting id="downloadsManageShows" type="string" label="30758" help="30759">
           <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="downloadsEnabled">true</condition>
@@ -1250,6 +1265,7 @@
           </dependencies>
           <control type="button" format="action">
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadshows)</data>
+            <close>true</close>
           </control>
         </setting>
         <!-- One lifecycle answer for every download, whoever queued it.
@@ -1349,7 +1365,7 @@
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsize)</data>
           </control>
         </setting>
-        <!-- No <close>, like "Manage shows" above: the confirmation is meant
+        <!-- No <close>, like "Storage used" above: the confirmation is meant
              to read as a sub-dialog of this one, so answering it returns
              here rather than dumping the user back to the library. -->
         <setting id="downloadsDeleteAll" type="action" label="30804" help="30805">

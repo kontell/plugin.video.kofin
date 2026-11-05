@@ -472,6 +472,35 @@ def test_every_settings_button_names_a_registered_route():
     assert not unregistered
 
 
+def test_a_button_whose_route_writes_a_setting_closes_the_dialog_first():
+    """Backing out of an open settings dialog saves the dialog's own copy
+    over whatever a route wrote meanwhile; ``<close>true</close>`` saves and
+    shuts it before the route runs."""
+    import re
+    import xml.etree.ElementTree as etree
+
+    writers = {
+        "findservers",
+        "login",
+        "selectlibraries",
+        "whoshortlist",
+        "downloadsubscriptions",
+        "downloadshows",
+    }
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    seen, left_open = set(), []
+    for setting in root.iter("setting"):
+        for control in setting.iter("control"):
+            found = re.search(r"\?mode=([a-z]+)", control.findtext("data") or "")
+            if found and found.group(1) in writers:
+                seen.add(found.group(1))
+                if control.findtext("close") != "true":
+                    left_open.append(setting.get("id"))
+
+    assert seen == writers
+    assert left_open == []
+
+
 @pytest.mark.parametrize(
     "url,verify,expected",
     [

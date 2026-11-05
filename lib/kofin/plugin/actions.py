@@ -629,7 +629,11 @@ def download_music_library(request: Request) -> None:
 
 
 def manage_download_subscriptions(request: Request) -> None:
-    """Settings picker for either kind of standing music download order."""
+    """Settings picker for either kind of standing music download order.
+
+    The button carries ``<close>true</close>``: written into a settings
+    dialog still open, the list would be put back when the user backs out.
+    """
     from kofin.downloads import subscriptions
     from kofin.sync import kofindb
     from kofin.sync.private import Database
@@ -677,7 +681,8 @@ def manage_download_shows(request: Request) -> None:
     Cancel changes nothing; OK keeps exactly what stayed ticked. Names come
     from Kodi's own rows via the mapping, so the picker works offline; a
     show missing from the library falls back to its raw id, which is still
-    removable.
+    removable. The button closes the settings dialog first, as the
+    subscriptions picker's does.
     """
     from kofin.downloads import auto as downloads_auto
 
