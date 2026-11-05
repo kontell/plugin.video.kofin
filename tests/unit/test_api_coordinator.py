@@ -295,6 +295,76 @@ def test_the_scheduled_full_update_follows_the_setting(
     assert ran == (["full"] if full else ["catch-up"])
 
 
+def test_a_complete_listing_that_fails_is_tried_again_half_a_minute_on(
+    store, monkeypatch
+):
+    """Not on every failed tick; and a viewer's request is not held by the
+    wait."""
+    from kofin.sync.backends.api import library
+
+    server = Server({LIB: [movie()]})
+    w = worker(store, server, [LIB], monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    asked = []
+
+    def away(include_hidden=False):
+        asked.append(clock[0])
+        raise OSError("server away")
+
+    server.views = away
+
+    def tick():
+        try:
+            w.refresh()
+        except OSError:
+            pass
+
+    for _ in range(11):
+        tick()
+        # A failed tick waits five seconds, then half a second.
+        clock[0] += 5.5
+    assert asked == [100.0, 133.0]
+    w.command("UpdateLibrary", {})
+    tick()
+    assert asked == [100.0, 133.0, 160.5]
+
+
+@pytest.mark.parametrize("selection", [[], ["0" * 32]])
+def test_a_complete_listing_with_nothing_to_publish_is_stamped(
+    store, monkeypatch, selection
+):
+    """Nothing selected (the only library unticked before its first import
+    finished), or a selection naming another server's libraries: the
+    listing is complete all the same, and not asked for again."""
+    server = Server({LIB: [movie()]})
+    server.gone = {"0" * 32}
+    w = worker(store, server, selection, monkeypatch)
+    w.refresh()
+    assert store.watermark()[1]
+    ran = []
+    monkeypatch.setattr(w, "full_sync", lambda libraries=None: ran.append(libraries))
+    for _ in range(5):
+        w.refresh()
+    assert None not in ran
+
+
+def test_a_retention_overrun_is_listed_whole_on_the_next_tick(store, monkeypatch):
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import unix_to_watermark
+
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed([], server_time=9000, retention=8000)
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch, feed=feed)
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+    ran = []
+    monkeypatch.setattr(w, "full_sync", lambda libraries=None: ran.append(libraries))
+    w.refresh()
+    assert len(feed.asked) == 1 and ran == []
+    w.refresh()
+    assert ran == [None]
+
+
 def test_the_listing_asks_for_a_movie_s_original_title(store, monkeypatch):
     """Jellyfin leaves OriginalTitle out of a listing unless it is asked
     for."""

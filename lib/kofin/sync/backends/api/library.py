@@ -648,6 +648,8 @@ class Library(threading.Thread):
             or not watermark
             or self._schedule_due(enumerated)
         ):
+            if time.monotonic() < self._catchup_due:
+                return
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
             self._catchup_due = time.monotonic() + 30
@@ -678,7 +680,10 @@ class Library(threading.Thread):
                 )
                 self.full_sync(stale)
             self.catch_up()
-            self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
+            # A retention overrun (catch_up) owes the complete listing now.
+            self._catchup_due = (
+                0.0 if self._full_due else time.monotonic() + CATCHUP_INTERVAL
+            )
 
     def stale_listings(self) -> list[str]:
         """The synced, selected libraries whose last published listing asked
@@ -923,6 +928,13 @@ class Library(threading.Thread):
         selected = settings.get_list("librarySelection")
         committed = [library for library in fetched if library in selected]
         if not committed and not (complete and boxsets):
+            if complete:
+                # Complete with nothing to publish, and stamped as such:
+                # refresh lists the whole profile until it is.
+                self.store.set_watermark(
+                    watermark=changefeed.unix_to_watermark(started),
+                    enumerated=time.time(),
+                )
             return
         items: list[dict] = []
         membership: dict[str, str] = {}
@@ -1421,6 +1433,7 @@ class Library(threading.Thread):
                 # follows in this tick lists every selected library, this
                 # one among them.
                 self._full_due = True
+                self._catchup_due = 0
                 return
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
             return
@@ -1456,6 +1469,7 @@ class Library(threading.Thread):
             else []
         )
         self._full_due = True
+        self._catchup_due = 0
         # A rebuild's first pass only removes; the pass after the complete
         # enumeration that follows is the repair (full_sync).
         self._repair = self._repair or (command == "RepairLibrary" and not rebuilt)
