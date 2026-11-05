@@ -416,7 +416,7 @@ def write_parent(root: str) -> None:
 
 def write_library(root: str, view: dict[str, Any], mixed: bool, order: int) -> None:
     """One library's folder: its index and every node of its kind."""
-    folder = os.path.join(root, node_folder(view))
+    folder = fs.entry(root, node_folder(view))
     if not os.path.isdir(folder):
         os.makedirs(folder)
 

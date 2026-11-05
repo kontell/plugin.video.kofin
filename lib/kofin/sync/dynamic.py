@@ -33,6 +33,7 @@ merge), so a profile holding only ``kofin/`` lists nothing for
 music tree gets Kodi's shipped music nodes the same way.
 """
 
+import re
 from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
@@ -51,6 +52,10 @@ if TYPE_CHECKING:
 LOG = Logger(__name__)
 
 SETTING = "libraryNodes"
+
+# How Jellyfin spells an item id. A library's id names its node folders and
+# its smart playlist, so a view the server names any other way is left out.
+LIBRARY_ID = re.compile(r"[0-9a-f]{32}")
 
 
 class View(NamedTuple):
@@ -207,11 +212,15 @@ def publish(
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
     items = [i for i in items if i.get("Id") not in hidden or i["Id"] in whitelist]
-    views = [
-        View(i["Id"], i.get("Name", ""), i.get("CollectionType") or "mixed")
-        for i in items
-        if i.get("Id") and i.get("CollectionType") != "livetv"
-    ]
+    views: list[View] = []
+    for item in items:
+        library, media = item.get("Id"), item.get("CollectionType") or "mixed"
+        if not library or media == "livetv":
+            continue
+        if not LIBRARY_ID.fullmatch(str(library)):
+            LOG.warning("library %r left out: its id is not an item id", library)
+            continue
+        views.append(View(library, item.get("Name", ""), media))
     nodes = wanted()
     key: Optional[str] = None
     if nodes is not None:

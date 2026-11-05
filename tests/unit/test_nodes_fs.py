@@ -4,6 +4,8 @@ files survives every reconcile and every teardown."""
 
 import os
 
+import pytest
+
 from kofin.sync.nodes import fs
 
 
@@ -91,6 +93,21 @@ def test_a_foreign_entry_inside_a_managed_folder_keeps_it(tmp_path):
         "kofinmovieslib1/theirs",
         "kofinmovieslib1/theirs/note.txt",
     ]
+
+
+def test_an_entry_is_refused_unless_it_resolves_into_its_root(tmp_path):
+    """A generated name carries a library's id: a name that walks out of
+    the root is refused, and so is an entry that is a link out of it."""
+    root = tmp_path / "kofin"
+    root.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (root / "kofinmovieslink").symlink_to(
+        tmp_path / "elsewhere", target_is_directory=True
+    )
+    assert fs.entry(str(root), "kofinmovies1") == str(root / "kofinmovies1")
+    for name in ("kofinmoviesx/../..", "kofinmoviesx/..", "kofinmovieslink", ""):
+        with pytest.raises(ValueError):
+            fs.entry(str(root), name)
 
 
 def test_listdir_of_a_missing_directory_is_empty(tmp_path):

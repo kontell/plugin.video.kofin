@@ -51,6 +51,17 @@ def delete_file(path: str, label: str = "node") -> None:
     LOG.debug("DELETE %s %s", label, path)
 
 
+def entry(root: str, name: str) -> str:
+    """The path of ``name`` in ``root``, refused (ValueError) unless it
+    resolves to an entry of ``root`` itself, links followed. A generated
+    name carries a library's id, and a library's node folder is emptied of
+    whatever the pass did not write."""
+    path = os.path.join(root, name)
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(root):
+        raise ValueError("%r is not an entry of %s" % (name, root))
+    return path
+
+
 def remove_empty(root: str) -> bool:
     """Remove a directory when nothing is left in it."""
     if not os.path.isdir(root):

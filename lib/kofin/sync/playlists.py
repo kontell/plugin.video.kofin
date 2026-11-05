@@ -821,7 +821,7 @@ def write_video_playlists(entries: Iterable[Any]) -> None:
             continue
         name = video_playlist_file(view)
         etree.ElementTree(build_video_playlist(view, mixed)).write(
-            os.path.join(directory, name)
+            fs.entry(directory, name)
         )
         keep.add(name)
 

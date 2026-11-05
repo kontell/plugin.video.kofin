@@ -180,6 +180,50 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
     assert "5" * 32 not in " ".join(window.values())
 
 
+def test_a_library_whose_id_is_not_an_item_id_names_no_file(views_env):
+    """A library's id names its node folders and its smart playlist, and a
+    node folder is emptied of what the pass did not write: a view the
+    server names by anything but an item id is left out of the trees and
+    the skin entries, and the libraries beside it are written whole."""
+    profile = views_env["profile"]
+    (profile / "guisettings.xml").write_text("<settings/>")
+    away = [
+        {"Id": "x/../../../..", "Name": "Away", "CollectionType": "movies"},
+        {"Id": "y/../../../..", "Name": "Afar", "CollectionType": "music"},
+    ]
+    whitelist(MOVIES, *(view["Id"] for view in away))
+    for _ in range(2):
+        dynamic.publish(ITEMS + away, FakeApi())
+    assert sorted(p.name for p in profile.iterdir()) == [
+        "addon_data",
+        "guisettings.xml",
+        "library",
+        "playlists",
+    ]
+    assert (profile / "guisettings.xml").read_text() == "<settings/>"
+    root = profile / "library" / "video" / NODE_ROOT
+    assert sorted(p.name for p in root.iterdir() if p.is_dir()) == [
+        "kofinmovies" + MOVIES
+    ]
+    assert (root / "kofin_Favoritemovies.xml").is_file()
+    assert not {"Away", "Afar"} & set(props().values())
+
+
+def test_a_node_folder_that_leads_out_of_the_tree_is_not_written(views_env, tmp_path):
+    """A library's node folder is emptied of what the pass did not write,
+    so a folder that is a link elsewhere is refused and what it leads to
+    stays as it is."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "mine.txt").write_text("mine")
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    root.mkdir()
+    (root / ("kofinmovies" + MOVIES)).symlink_to(elsewhere, target_is_directory=True)
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert [p.name for p in elsewhere.iterdir()] == ["mine.txt"]
+
+
 def test_favourite_episodes_are_found_by_their_own_tag(views_env):
     """With episode_tags Kodi keeps an episode's tags and its tag rule
     matches them; a favourite episode carries the tag."""
