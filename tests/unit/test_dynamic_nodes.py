@@ -448,6 +448,46 @@ def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
     assert (profile / NODE_ROOT / "index.xml").is_file()
 
 
+def test_a_node_file_kodi_can_read_is_never_replaced(views_env, monkeypatch):
+    """A node the user edited is theirs while Kodi can read it, and Kodi
+    reads more than a strict XML parser does: a bare "&", whitespace before
+    the declaration, a charset other than UTF-8, anything after the first
+    element. Only a file it cannot read is recovered from the default."""
+    import shutil
+
+    import xbmcvfs
+
+    from kofin.sync import kodisetup
+
+    monkeypatch.setattr(
+        "xbmcvfs.copy", lambda src, dst: shutil.copyfile(src, dst) or True
+    )
+    edited = {
+        "amp": b"<node><label>Kids & Family</label></node>",
+        "space": b'\n<?xml version="1.0" encoding="UTF-8"?>\n<node/>',
+        "latin": "<node><label>Für Kinder</label></node>".encode("latin-1"),
+        "wide": '<?xml version="1.0" encoding="UTF-16"?><node>A & B</node>'.encode(
+            "utf-16"
+        ),
+        "after": b"<node/>\n</node>",
+        "cut": b"<node><label>Kids</la",
+        "empty": b"",
+    }
+    system = xbmcvfs.translatePath("special://xbmc/system/library/video")
+    os.makedirs(os.path.join(system, "movies"))
+    profile = views_env["profile"] / "library" / "video" / "movies"
+    profile.mkdir()
+    for name, data in edited.items():
+        with open(os.path.join(system, "movies", name + ".xml"), "w") as handle:
+            handle.write("<node/>")
+        (profile / (name + ".xml")).write_bytes(data)
+    kodisetup.seed_default_nodes("video")
+    for name in ("amp", "space", "latin", "wide", "after"):
+        assert (profile / (name + ".xml")).read_bytes() == edited[name]
+    for name in ("cut", "empty"):
+        assert (profile / (name + ".xml")).read_text() == "<node/>"
+
+
 def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     views_env, monkeypatch
 ):
