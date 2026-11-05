@@ -953,7 +953,10 @@ def _search_person_items(request: Request, api: Api, person_id: str) -> None:
                 "IncludeItemTypes": "Movie,Series,Episode",
                 "Fields": bounded_fields(),
                 "ImageTypeLimit": 1,
+                # Newest first, so what SEARCH_LIMIT leaves out is the oldest
+                # credits rather than a series lead's latest work.
                 "SortBy": "PremiereDate,SortName",
+                "SortOrder": "Descending,Ascending",
                 "Limit": SEARCH_LIMIT,
             }
         ).get("Items", [])

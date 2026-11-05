@@ -1126,6 +1126,56 @@ def test_search_person_lists_what_they_are_in(monkeypatch, directory):
     assert directory["content"] == "videos"
 
 
+class CreditsApi(SearchApi):
+    """/Items over one person's credits, ordered by premiere date as the
+    SortOrder asks (Ascending when none is given) and cut at the Limit."""
+
+    def __init__(self, credits):
+        super().__init__()
+        self.credits = credits
+
+    def items(self, params):
+        self.queries.append(params)
+        newest_first = str(params.get("SortOrder", "")).startswith("Descending")
+        rows = sorted(
+            self.credits, key=lambda row: row["PremiereDate"], reverse=newest_first
+        )
+        return {"Items": rows[: params["Limit"]]}
+
+
+def test_search_person_keeps_the_newest_credits(monkeypatch, directory):
+    """A series lead has more episodes than the listing's limit: what it
+    leaves out is their oldest work, not their latest film."""
+    episodes = [
+        {
+            "Id": "e%03d" % index,
+            "Name": "Episode %d" % index,
+            "Type": "Episode",
+            "PremiereDate": "%d-01-%02dT00:00:00.0000000Z"
+            % (2001 + index // 28, 1 + index % 28),
+        }
+        for index in range(browse.SEARCH_LIMIT + 20)
+    ]
+    film = {
+        "Id": "m1",
+        "Name": "Latest Film",
+        "Type": "Movie",
+        "PremiereDate": "2024-06-01T00:00:00.0000000Z",
+    }
+    api = CreditsApi(episodes + [film])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.search(Request("plugin://x", 1, {"person": "p1"}))
+
+    listed = [
+        parse_qs(urlsplit(path).query)["id"][0]
+        for path, _li, _folder in directory["entries"]
+    ]
+    assert len(listed) == browse.SEARCH_LIMIT
+    assert listed[0] == "m1"
+    assert "e000" not in listed
+
+
 def test_search_failure_fails_the_fetch(monkeypatch, directory):
     monkeypatch.setattr(browse, "_api", lambda: SearchApi(fail=True))
 
