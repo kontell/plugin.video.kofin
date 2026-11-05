@@ -5,7 +5,7 @@ kofin.plugin.account; this module only talks to the server.
 """
 
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from kofin.core.http import Http
 from kofin.core.log import Logger
@@ -63,7 +63,11 @@ def build_auth_header(
 ) -> str:
     fields = [
         'MediaBrowser Client="Kofin"',
-        'Device="%s"' % device_name.replace('"', "'"),
+        # Jellyfin URL-decodes every value of this header, and http.client
+        # sends header values as Latin-1. Encoded as encodeURIComponent
+        # encodes it, a name in any script and with any punctuation reaches
+        # the server as typed.
+        'Device="%s"' % quote(device_name, safe="!~*'()"),
         'DeviceId="%s"' % device_id,
         'Version="%s"' % version,
     ]
