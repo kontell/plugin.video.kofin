@@ -299,7 +299,14 @@ class Http:
             url,
             retries,
             attempt,
-            (requests.ConnectionError, requests.Timeout),
+            # The last two are a body cut short mid-read and a body that will
+            # not decompress: the transport failing, as on the stdlib side.
+            (
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ContentDecodingError,
+            ),
             abort=self._abort,
         )
         return response

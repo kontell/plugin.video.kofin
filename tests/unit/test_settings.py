@@ -456,3 +456,44 @@ def test_every_settings_button_names_a_registered_route():
         "%s -> mode=%s" % (owner, mode) for owner, mode in buttons if mode not in ROUTES
     )
     assert not unregistered
+
+
+@pytest.mark.parametrize(
+    "url,verify,expected",
+    [
+        (
+            "https://jf:8920/Items/1/Images/Primary",
+            "false",
+            "https://jf:8920/Items/1/Images/Primary|verifypeer=false",
+        ),
+        (
+            "https://jf:8920/Videos/1/Trickplay/320/0.jpg|Authorization=x",
+            "false",
+            "https://jf:8920/Videos/1/Trickplay/320/0.jpg|Authorization=x&verifypeer=false",
+        ),
+        (
+            "https://jf:8920/Items/1/Images/Primary",
+            "true",
+            "https://jf:8920/Items/1/Images/Primary",
+        ),
+        (
+            "http://jf:8096/Items/1/Images/Primary",
+            "false",
+            "http://jf:8096/Items/1/Images/Primary",
+        ),
+        ("/storage/sub.srt", "false", "/storage/sub.srt"),
+    ],
+)
+def test_kodi_skips_the_certificate_check_only_where_kofin_does(
+    fake_addon, url, verify, expected
+):
+    """Kodi's curl checks every https certificate itself; with sslVerify off
+    a self-signed server's art and streams would fail in Kodi alone."""
+    fake_addon.store["sslVerify"] = verify
+    assert settings.for_kodi(url) == expected
+
+
+def test_a_settings_store_that_cannot_be_read_keeps_the_check(monkeypatch):
+    monkeypatch.setattr(settings, "get_addon", lambda: None)
+    url = "https://jf:8920/Items/1/Images/Primary"
+    assert settings.for_kodi(url) == url
