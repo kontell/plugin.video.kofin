@@ -14,7 +14,7 @@ import pytest
 from kofin.core import http as http_module
 from kofin.core import stdhttp
 from kofin.core.api import Api
-from kofin.core.http import HttpError
+from kofin.core.http import HttpError, ServerUnreachable
 
 from tests.unit.transportserver import ScriptedServer
 
@@ -97,6 +97,46 @@ def test_a_device_name_in_any_script_is_sent_on_both(server, client):
 
     sent = server.requests[0][2]["Authorization"]
     assert unquote_plus(sent.split('Device="', 1)[1].split('"', 1)[0]) == "Гостиная"
+
+
+def test_a_non_json_probe_is_an_http_error_on_both(server, client):
+    """The service's connection probe reads the same answer the same way: a
+    ValueError out of it would end the service."""
+    api, _ = client
+    server.answer(
+        "/System/Info/Public",
+        200,
+        body=b"<html>Sign in to the guest network</html>",
+        headers={"Content-Type": "text/html"},
+    )
+
+    with pytest.raises(HttpError) as raised:
+        api.probe_info()
+
+    assert raised.value.status == 200
+    assert "not JSON" in str(raised.value)
+
+
+def test_a_probe_answer_that_is_not_an_object_is_an_http_error_on_both(server, client):
+    api, _ = client
+    server.answer("/System/Info/Public", 200, json_body=["not", "an", "object"])
+
+    with pytest.raises(HttpError) as raised:
+        api.probe_info()
+
+    assert "not an object" in str(raised.value)
+
+
+def test_a_body_cut_short_is_unreachable_on_both(server, client):
+    """A connection that closes before the body it announced is a transport
+    failure, replayed on the GET budget and then ServerUnreachable."""
+    api, _ = client
+    server.answer("/Items", 200, json_body={"Items": [1, 2, 3]}, repeat=True, cut=True)
+
+    with pytest.raises(ServerUnreachable):
+        api.get("/Items")
+
+    assert [r[1] for r in server.requests] == ["/Items"] * 4
 
 
 def test_a_transient_status_rides_the_get_budget(server, client):
