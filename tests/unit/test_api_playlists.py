@@ -427,6 +427,60 @@ def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
     assert notified == [(actions.ipc.SYNC_PLAYLISTS, {"Id": "p" * 32})]
 
 
+def test_save_playlist_replaces_only_its_own_sides_playlist_of_that_name(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """A Jellyfin video playlist mirrored as Mine.m3u8 shares the file name
+    with a local music playlist; saving the songs never replaces the videos.
+    The music side's own copy of that name is the re-save it always was."""
+    from kofin.plugin import actions
+    from kofin.plugin.router import Request
+    from kofin.sync import kofindb
+    from kofin.sync.backends.api import identity
+    from kofin.sync.private import Database
+
+    backend.setup()
+    store.publish(album_bundle(songs=2), library=LIB2)
+    backend.reconcile()
+    resolver = api_playlists.Resolver(store)
+    songs = [
+        resolver.entry(song_item(item_id, "Song", track), "Audio").path
+        for track, item_id in enumerate(("tc31", "tc32"), 1)
+    ]
+    playlist = tmp_path / "Mine.m3u8"
+    playlist.write_text("#EXTM3U\n" + "\n".join(songs) + "\n", encoding="utf-8")
+    with Database("kofin") as db:
+        kofindb.JellyfinDatabase(db.cursor).add_playlist_state(
+            "v" * 32, "Video", "Mine.m3u8", "sum"
+        )
+    sent = []
+
+    class Api:
+        def create_playlist(self, name, ids, media_type):
+            sent.append(("create", name, ids, media_type))
+            return {"Id": "p" * 32}
+
+        def replace_playlist_items(self, playlist_id, ids):
+            sent.append(("replace", playlist_id, ids))
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    monkeypatch.setattr(actions, "_api", lambda: Api())
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: path)
+    monkeypatch.setattr(actions.ipc, "notify", lambda kind, data: None)
+    request = Request("plugin://plugin.video.kofin/", 1, {"path": str(playlist)})
+
+    actions.save_playlist(request)
+    assert sent == [("create", "Mine", ["tc31", "tc32"], "Audio")]
+
+    with Database("kofin") as db:
+        kofindb.JellyfinDatabase(db.cursor).add_playlist_state(
+            "a" * 32, "Audio", "Mine.m3u8", "sum"
+        )
+    sent.clear()
+    actions.save_playlist(request)
+    assert sent == [("replace", "a" * 32, ["tc31", "tc32"])]
+
+
 def test_a_service_that_starts_with_the_switch_off_owes_the_playlists_pass(
     store, monkeypatch
 ):

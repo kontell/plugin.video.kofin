@@ -1,6 +1,9 @@
 """The selected libraries against the server's: hidden, deleted, unreachable."""
 
+import uuid
+
 import pytest
+import requests
 
 from kofin.core.http import HttpError, JellyfinError, Unauthorized
 from kofin.sync.backends.api import library
@@ -9,6 +12,7 @@ from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     LIB2,
     Server,
+    boxset,
     movie,
     store,
     worker,
@@ -159,6 +163,37 @@ def test_a_library_found_by_its_id_needs_two_new_404s(gone):
     assert seen["dropped"] == []
     check(after=library.MISSING_CONFIRM)
     assert seen["dropped"] == [LIB2]
+
+
+def test_many_changed_collections_are_fetched_in_requests_kestrel_accepts(
+    store, monkeypatch
+):
+    """Kestrel answers 414 to a request line past 8 KiB, about 215 ids: one
+    request naming every changed collection failed the catch-up for good."""
+    sets = [boxset(uuid.uuid4().hex, "Set %d" % n, ["a"]) for n in range(300)]
+    server = Server({LIB: [movie()]}, boxsets=sets)
+    store.publish([movie()] + sets, library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    w._catchup_due = 10**9
+    listing = server.items
+    lines = []
+    named = set()
+
+    def kestrel(params):
+        prepared = requests.Request("GET", "http://jf:8096/Items", params=params)
+        line = len("GET %s HTTP/1.1" % prepared.prepare().path_url)
+        lines.append(line)
+        if line > 8192:
+            raise HttpError(414, "GET /Items -> 414")
+        named.update((params.get("Ids") or "").split(","))
+        return listing(params)
+
+    server.items = kestrel
+
+    w.command("changed", [s["Id"] for s in sets])
+
+    assert max(lines) <= 8192
+    assert {s["Id"] for s in sets} <= named
 
 
 def _grouped(server, library, collection="movies"):

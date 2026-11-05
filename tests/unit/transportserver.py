@@ -9,9 +9,10 @@ Usage::
         server.requests  # [(method, path, headers, body), ...] in wire order
 
 Each ``answer`` is consumed by one request to that path (query string
-ignored); ``repeat=True`` keeps it for every request. A path with no answer
-left gets a 599 with an explanatory body, so a test that under-scripts fails
-loudly rather than hanging.
+ignored); ``repeat=True`` keeps it for every request, and ``cut=True`` sends
+the full Content-Length but only half the body before closing. A path with no
+answer left gets a 599 with an explanatory body, so a test that under-scripts
+fails loudly rather than hanging.
 """
 
 import json
@@ -19,7 +20,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 
-Answer = tuple[int, dict[str, str], bytes, bool]
+Answer = tuple[int, dict[str, str], bytes, bool, bool]
 
 
 class ScriptedServer:
@@ -40,6 +41,7 @@ class ScriptedServer:
         headers: Optional[dict[str, str]] = None,
         json_body: Any = None,
         repeat: bool = False,
+        cut: bool = False,
     ) -> None:
         sent_headers = dict(headers or {})
         if json_body is not None:
@@ -47,7 +49,7 @@ class ScriptedServer:
             sent_headers.setdefault("Content-Type", "application/json")
         with self._lock:
             self._script.setdefault(path, []).append(
-                (status, sent_headers, body, repeat)
+                (status, sent_headers, body, repeat, cut)
             )
 
     def _next(self, path: str) -> Answer:
@@ -59,11 +61,12 @@ class ScriptedServer:
                     {"Content-Type": "text/plain"},
                     ("no scripted answer for %s" % path).encode("utf-8"),
                     False,
+                    False,
                 )
-            status, headers, body, repeat = queue[0]
-            if not repeat:
+            answer = queue[0]
+            if not answer[3]:
                 queue.pop(0)
-            return status, headers, body, repeat
+            return answer
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -81,14 +84,16 @@ class ScriptedServer:
                     script.requests.append(
                         (self.command, path, dict(self.headers.items()), body)
                     )
-                status, headers, payload, _ = script._next(path)
+                status, headers, payload, _, cut = script._next(path)
                 self.send_response(status)
                 for name, value in headers.items():
                     self.send_header(name, value)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 if self.command != "HEAD":
-                    self.wfile.write(payload)
+                    self.wfile.write(payload[: len(payload) // 2] if cut else payload)
+                if cut:
+                    self.close_connection = True
 
             do_GET = do_POST = do_DELETE = do_HEAD = do_PUT = _serve
 
