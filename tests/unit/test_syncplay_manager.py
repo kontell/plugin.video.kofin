@@ -2577,6 +2577,29 @@ class TestGroupUpdateTables:
         join(manager, protocol_version=2)
         assert manager._api.named("syncplay_set_new_queue") == []
 
+    def test_a_rejoin_after_an_unconfirmed_new_group_proposes_nothing(
+        self, manager, paused_cond
+    ):
+        """The rejoin is of a group this member did not create: a New group
+        still waiting for GroupJoined must not hand it the local playback."""
+        manager.last_group_id = "g1"
+        manager._pending_local_queue = True  # a New group not confirmed yet
+        manager.player.playing = True
+        manager.player.item = {"Id": "my-own-show", "PlaySessionId": "s9"}
+
+        manager._attempt_rejoin(force=True)
+        join(manager, protocol_version=2)
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_leaving_forgets_a_new_group_not_confirmed_yet(self, manager):
+        join(manager)
+        manager._pending_local_queue = True
+
+        manager._leave_locally()
+
+        assert manager._pending_local_queue is False
+
     def test_group_does_not_exist_outside_a_group_is_quiet(self, manager, monkeypatch):
         attempts = []
         monkeypatch.setattr(manager, "_attempt_rejoin", lambda: attempts.append(1))
