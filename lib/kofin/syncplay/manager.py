@@ -1356,8 +1356,9 @@ class SyncPlayManager:
             self.playback.ensure_paused()
             return
 
-        if self.is_programmatic():
-            return
+        # No is_programmatic() test: play_item() is the only start kofin
+        # makes, and the echo grace after our own pause or seek must not
+        # swallow the start of a file the viewer opened.
 
         if self.ignore_wait:
             # A spectator's own plays stay local: nothing is proposed to
@@ -1365,8 +1366,9 @@ class SyncPlayManager:
             return
 
         if self.phase in STARTABLE:
-            # Phase "synced" means no stop intervened since the synced
-            # item: a native playlist advance, which starts at 0. Phase
+            # Phase "synced" means no stop intervened since the synced item:
+            # a native playlist advance, or a video the user picked in its
+            # place (Kodi's player opens it in place, with no stop). Phase
             # "idle" is a fresh user start (possibly at a resume point).
             self.holds.enter(transition=self.phase == Phase.SYNCED)
 
@@ -1427,6 +1429,14 @@ class SyncPlayManager:
         if not self.in_group() or self.is_programmatic():
             return
 
+        claim = self.player.current_item()
+        if claim and not claim.get("Paused"):
+            # Nothing was paused. Kodi sets speed 1 before it opens a file,
+            # and VideoPlayer reports that as a resume even while playing,
+            # ahead of the file's start. The service records a pause or a
+            # resume on its claim only after forwarding it here.
+            return
+
         if self.phase in FOLLOWING:
             LOG.debug("[ syncplay/user unpause ]")
             # The group start time is the server's call: hold position
@@ -1436,6 +1446,11 @@ class SyncPlayManager:
 
     def on_seek(self, seconds: float) -> None:
         if not self.in_group() or self.is_programmatic():
+            return
+
+        if self.holds._hold is not None:
+            # The held file is not the group's item yet: its position goes
+            # to the group with the proposal, from the claim.
             return
 
         if self.phase in FOLLOWING:

@@ -1102,16 +1102,19 @@ class TestLocalStartHold:
         assert manager.player.paused is True
         assert manager.holds._hold is None
 
-    def test_programmatic_start_not_held(self, manager, paused_cond):
+    def test_a_start_in_the_echo_grace_is_held(self, manager, paused_cond):
+        """play_item() is kofin's only start, so a start just after our own
+        pause is the viewer's."""
         join(manager)
         manager.player.playing = True
         manager.phase = "idle"
-
         with manager.programmatic():
-            manager.on_playback_started()
+            pass
 
-        assert manager.holds._hold is None
-        assert manager.player.paused is False
+        manager.on_playback_started()
+
+        assert manager.holds._hold is not None
+        assert manager.player.paused is True
 
     def test_not_in_group_ignored(self, manager, paused_cond):
         manager.player.playing = True
@@ -1359,6 +1362,161 @@ class TestLocalPlayIdentityOnEitherBuild:
         ]
         assert manager.holds._hold["proposed"] is True
         assert manager.player.paused is True
+
+    def test_a_video_picked_over_the_synced_one_starts_the_group_where_it_resumed(
+        self, manager, paused_cond, library
+    ):
+        """Kodi's player opens a new file in place and sends no stop, so the
+        start reads as a playlist advance; the resume point the user picked
+        is where the group starts, not 0."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+        manager.player.position = 2520.0
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "PlaySessionId": "s2",
+            "CurrentPosition": 2520.0,
+        }
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(2520.0),
+            )
+        ]
+
+    def _open_in_place(self, manager, position):
+        """The new file's start: Kodi's OnPlay, then A/V at the claimed
+        position."""
+        manager.on_playback_started()
+        manager.on_kodi_play({"item": {"id": 7, "type": "movie"}})
+        manager.player.position = position
+        manager.player.item = {
+            "Id": "other-movie",
+            "Type": "Movie",
+            "CurrentPosition": position,
+        }
+        manager.on_avstarted()
+
+    def test_a_video_opened_in_place_while_the_group_plays_is_proposed(
+        self, manager, paused_cond, library
+    ):
+        """Kodi raises a resume ahead of the start of a file it opens in
+        place of the playing one. A group that plays has nothing to unpause,
+        and the start is proposed where it resumed."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": False}
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+
+        manager.on_resumed()
+        assert manager._api.named("syncplay_unpause") == []
+        assert manager.player.paused is False
+
+        self._open_in_place(manager, 1186.0)
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(1186.0),
+            )
+        ]
+
+    def test_a_video_opened_in_place_while_the_group_is_paused_is_proposed(
+        self, manager, paused_cond, library
+    ):
+        """Over a paused group the resume is a real one and asks the group
+        to unpause. Its re-pause is our own, and the start after it is
+        still proposed."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+
+        manager.on_resumed()
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
+        assert manager.player.paused is True
+
+        self._open_in_place(manager, 1186.0)
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            (
+                "syncplay_set_new_queue",
+                ["other-movie"],
+                0,
+                utils.seconds_to_ticks(1186.0),
+            )
+        ]
+
+    def test_a_resume_before_the_group_has_paused_still_asks_it(
+        self, manager, paused_cond
+    ):
+        """A pause and a resume inside the server's round trip: the group
+        still reads Playing, and the claim says the member was paused."""
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
+        manager.phase = "synced"
+        manager.group_state = "Playing"
+
+        manager.on_resumed()
+
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
+
+    def test_a_seek_of_a_held_file_is_not_the_groups(
+        self, manager, paused_cond, library, monkeypatch
+    ):
+        """A scrub of the file held for the proposal does not move the
+        group's item; the proposal carries the position."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+        # Past the echo grace of the hold's own pause.
+        monkeypatch.setattr(utils, "PROGRAMMATIC_ECHO_GRACE", 0.0)
+
+        manager.on_seek(1500.0)
+
+        assert manager._api.named("syncplay_seek") == []
+
+    def test_a_video_playlist_advance_is_proposed_at_its_start(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        library[(8, "episode")] = "ep-2"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "ep-1"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 8, "type": "episode"}})
+        manager.player.item = {"Id": "ep-2", "Type": "Episode", "CurrentPosition": 0.0}
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            ("syncplay_set_new_queue", ["ep-2"], 0, 0)
+        ]
+        assert manager.player.paused is True  # held for the group
 
     def test_a_row_that_is_not_kofin_s_is_released_at_once(
         self, manager, paused_cond, library
