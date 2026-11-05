@@ -256,6 +256,18 @@ def _read_entry(path: str) -> Optional[dict[str, Any]]:
     return item if isinstance(item, dict) else None
 
 
+def _write_private(temporary: str, target: str, payload: Any) -> None:
+    """``payload`` as JSON at ``target``, written to ``temporary`` and renamed
+    so a reader never sees half of it. A claim's Path is its stream URL, and
+    a transcoding URL carries api_key=: the same owner-only mode as the IPC
+    nonce, so a copied addon_data tree does not leak the token."""
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        json.dump(payload, handle)
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+
+
 def push_play_item(item: dict[str, Any]) -> None:
     """Queue a resolved play's state for the service-side player to claim."""
     directory = _queue_dir()
@@ -268,13 +280,7 @@ def push_play_item(item: dict[str, Any]) -> None:
         name = "%019d-%s.json" % (time.time_ns(), uuid.uuid4().hex[:8])
         target = os.path.join(directory, name)
         temporary = target + ".tmp"
-        # Transcoding URLs carry api_key=; same owner-only mode as the IPC
-        # nonce, so a copied addon_data tree does not leak the token.
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w") as handle:
-            json.dump(item, handle)
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, target)
+        _write_private(temporary, target, item)
     except OSError:
         # A queue that cannot be written costs this playback its reporting,
         # never the play.
@@ -410,6 +416,42 @@ def clear_play_queue() -> None:
             os.remove(entry)
         except OSError:
             pass
+
+
+def same_file(path: str, other: str) -> bool:
+    """Whether two playing paths name one file, protocol options aside."""
+    return _file_of(path) == _file_of(other)
+
+
+def _handover_path() -> str:
+    """Where a stopped generation leaves the claim of a play it no longer
+    reports (Player.stop_threads), for the next one to report on or drop
+    (Player.adopt): beside the play queue, out of its housekeeping, which
+    reads only ``.json`` entries, and of clear_all, which an in-process
+    restart runs before its successor exists."""
+    return os.path.join(_queue_dir(), "handover.claim")
+
+
+def hand_over_play(payload: dict[str, Any]) -> None:
+    """Leave a playing claim to the next generation."""
+    target = _handover_path()
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        _write_private(target + ".tmp", target, payload)
+    except OSError:
+        # Costs the next generation this play's reporting, never the play.
+        pass
+
+
+def take_handed_over_play() -> dict[str, Any]:
+    """What a stopped generation handed over, or {}; gone either way."""
+    path = _handover_path()
+    payload = _read_entry(path) or {}
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return payload
 
 
 def set_playing_id(item_id: str) -> None:

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from kofin.core import state
@@ -6,6 +8,9 @@ from tests.unit.fakes import FakeAddon, FakeWindow
 
 
 class RecordingApi:
+    server = "http://s:8096"
+    user_id = "uid"
+
     def __init__(self):
         self.calls = []
         self.deleted = []
@@ -271,6 +276,88 @@ def test_a_stopped_player_leaves_the_claim_to_the_live_one(monkeypatch):
     assert stopped.current_item() is None
     assert live.current_item()["Id"] == "m1"
     assert api.calls[0][0] == "playing"
+
+
+def handing_over(monkeypatch, url="http://s/stream", **extra):
+    """A generation stopped in the middle of a play it claimed; its api."""
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
+    old, api = make_player(monkeypatch, url=url)
+    queue_item(url=url, **extra)
+    old.onPlayBackStarted()
+    drain(old)
+    api.calls.clear()
+    old.stop_threads()
+    return api
+
+
+def adopting(monkeypatch, playing="http://s/stream"):
+    """The next generation's player, with Kodi playing ``playing``."""
+    new, api = make_player(monkeypatch, url=playing)
+    monkeypatch.setattr(new, "isPlaying", lambda: bool(playing))
+    return new, api
+
+
+def test_the_next_generation_reports_the_play_kodi_goes_on_with(monkeypatch):
+    """A restart (an add-on update, a sign-in, an sslVerify change) stops a
+    generation in the middle of a play. The next one reports it on, in the
+    same play session and never as a new play, since the server counts a
+    play when it starts; and its stop still names the live stream."""
+    old_api = handing_over(monkeypatch, LiveStreamId="ls1")
+    new, api = adopting(monkeypatch)
+
+    new.adopt()
+    drain(new)
+
+    assert new.current_item()["PlaySessionId"] == "ps1"
+    assert state.get_playing_id() == "m1"
+    assert [kind for kind, _data in api.calls] == ["progress"]
+    assert api.calls[0][1]["PositionTicks"] == 420_000_000  # where Kodi is
+    assert api.calls[0][1]["LiveStreamId"] == "ls1"
+
+    new.onPlayBackStopped()
+    drain(new)
+    assert api.calls[-1][0] == "stopped"
+    assert api.calls[-1][1]["PlaySessionId"] == "ps1"
+    assert api.calls[-1][1]["LiveStreamId"] == "ls1"
+    assert old_api.calls == []
+
+
+@pytest.mark.parametrize(
+    "playing,user,calls",
+    [
+        # The play ended between the generations: nothing reports it now, so
+        # its live stream is closed.
+        ("", "uid", [("close_live_stream", "ls1")]),
+        ("http://s/other", "uid", [("close_live_stream", "ls1")]),
+        # A sign-in to another account: not this login's to report or close.
+        ("http://s/stream", "someone-else", []),
+    ],
+)
+def test_a_play_not_this_generations_to_report_is_dropped(
+    monkeypatch, playing, user, calls
+):
+    handing_over(monkeypatch, LiveStreamId="ls1")
+    new, api = adopting(monkeypatch, playing=playing)
+    monkeypatch.setattr(api, "user_id", user, raising=False)
+
+    new.adopt()
+    drain(new)
+
+    assert new.current_item() is None
+    assert api.calls == calls
+    assert not os.path.exists(state._handover_path())
+
+
+def test_a_generation_with_a_play_of_its_own_adopts_nothing(monkeypatch):
+    handing_over(monkeypatch)
+    new, api = adopting(monkeypatch, playing="http://s/next")
+    queue_item(url="http://s/next")
+    new.onPlayBackStarted()
+
+    new.adopt()
+
+    assert new.current_item()["Path"] == "http://s/next"
+    assert os.path.exists(state._handover_path())
 
 
 def test_transcode_stop_closes_encoding(monkeypatch):

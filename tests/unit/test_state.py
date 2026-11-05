@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from kofin.core import state
@@ -157,6 +159,43 @@ def test_clear_all():
     assert state.watching_names() == []
     assert state.PROP_MENU_WHO not in FakeWindow.store
     assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store
+
+
+def test_a_handed_over_play_is_taken_once():
+    state.hand_over_play({"Claim": {"Id": "m1"}, "UserId": "u"})
+    assert state.take_handed_over_play() == {"Claim": {"Id": "m1"}, "UserId": "u"}
+    assert state.take_handed_over_play() == {}
+    assert not os.path.exists(state._handover_path())
+
+
+def test_a_handed_over_play_is_for_the_owner_alone():
+    """A claim's Path is its stream URL, which can carry the token; it is
+    never written where another add-on or a JSON-RPC client reads."""
+    state.hand_over_play({"Claim": {"Id": "m1", "Path": "http://s/x?api_key=t"}})
+    assert os.stat(state._handover_path()).st_mode & 0o777 == 0o600
+    assert not any("api_key" in str(value) for value in FakeWindow.store.values())
+
+
+def test_a_garbled_hand_over_is_taken_as_nothing():
+    os.makedirs(os.path.dirname(state._handover_path()), exist_ok=True)
+    with open(state._handover_path(), "w") as handle:
+        handle.write("not-json")
+    assert state.take_handed_over_play() == {}
+    assert not os.path.exists(state._handover_path())
+
+
+def test_the_queue_and_clear_all_leave_a_handed_over_play():
+    """An in-process restart clears the live state before the next
+    generation exists, and that generation is the one the play is left to."""
+    state.hand_over_play({"Claim": {"Id": "m1"}})
+    state.clear_all()
+    state.clear_play_queue()
+    assert state.take_handed_over_play() == {"Claim": {"Id": "m1"}}
+
+
+def test_one_file_whatever_options_either_path_carries():
+    assert state.same_file("https://s/a?x=1|verifypeer=false", "https://s/a?x=1")
+    assert not state.same_file("https://s/a?x=1", "https://s/a?x=2")
 
 
 def test_watching_names_round_trip():

@@ -458,12 +458,71 @@ class Player(xbmc.Player):
             LOG.debug("closed the live streams of unclaimed plays: %s", closed)
 
     def stop_threads(self) -> None:
-        """Service shutdown: stop the ticker and checker without reporting."""
+        """Service shutdown: stop the ticker and checker without reporting.
+
+        A play still claimed goes on in Kodi, so its claim is handed to the
+        next generation (``adopt``), once the last report queued here has
+        gone."""
         self._stopped = True
         self.segments.reset()
         self._stop_ticker()
         self._stop_late_subtitles()
         self._reporter.stop()
+        item = self.current_item()
+        if item is not None:
+            state.hand_over_play(
+                {"Claim": item, "Server": self.api.server, "UserId": self.api.user_id}
+            )
+
+    def adopt(self) -> None:
+        """Report the play a stopped generation handed over, when it is this
+        login's and Kodi is still playing its file; drop it otherwise.
+
+        Reported on from where Kodi is, with a progress report and never a
+        start: the server counts a play when it starts. A play that ended
+        between the generations goes unreported, since how long ago is
+        unknown and a stop that late could overwrite a resume point set
+        since; only its live stream is closed."""
+        if self._stopped or self.current_item() is not None:
+            return
+        handed = state.take_handed_over_play()
+        claim = handed.get("Claim")
+        if not isinstance(claim, dict) or not claim.get("Id"):
+            return
+        if (
+            handed.get("Server") != self.api.server
+            or handed.get("UserId") != self.api.user_id
+        ):
+            LOG.debug("handed-over play of %s dropped: another login's", claim["Id"])
+            return
+        playing, position = "", 0.0
+        try:
+            if self.isPlaying():
+                playing = self.getPlayingFile()
+                position = max(float(self.getTime()), 0.0)
+        except RuntimeError:  # it stopped meanwhile
+            playing = ""
+        if not playing or not state.same_file(playing, str(claim.get("Path") or "")):
+            LOG.debug("handed-over play of %s dropped: it has ended", claim["Id"])
+            live_stream_id = claim.get("LiveStreamId")
+            if live_stream_id:
+                # Nothing reports this play now, and only a report that names
+                # its live stream, or a close, frees the tuner behind it.
+                self._reporter.submit(
+                    lambda: self.api.close_live_stream(live_stream_id)
+                )
+            return
+        claim["CurrentPosition"] = position
+        claim["Paused"] = bool(xbmc.getCondVisibility("Player.Paused"))
+        with self._lock:
+            self._item = claim
+        state.set_playing_id(claim["Id"])
+        self._publish_streams(claim)
+        LOG.debug("--> adopted %s (%s)", claim["Id"], claim.get("PlayMethod"))
+        self._report(self.api.session_progress, event="timeupdate")
+        self._start_ticker()
+        self._start_segment_engine(claim)
+        self._start_late_subtitles(claim)
 
     # -- delete after watching -------------------------------------------------
 
