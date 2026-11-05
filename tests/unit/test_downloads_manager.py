@@ -516,6 +516,45 @@ def test_external_subtitles_land_as_sidecars(tmp_path, repoints):
     assert len(api.downloaded_urls) == 1  # embedded and audio streams skipped
 
 
+def test_a_sidecar_codec_that_is_not_a_word_is_skipped(tmp_path, repoints):
+    """The codec names the sidecar's extension; one carrying a path would
+    write the subtitle outside the movie's folder."""
+    manager, _ = make_manager(repoints)
+    dto = dict(MOVIE_DTO)
+    dto["MediaSources"] = [
+        {
+            "Id": "src1",
+            "Container": "mkv",
+            "Size": 8,
+            "MediaStreams": [
+                {
+                    "Type": "Subtitle",
+                    "IsExternal": True,
+                    "Index": 3,
+                    "Codec": "x/../../../../escaped",
+                    "Language": "eng",
+                },
+            ],
+        }
+    ]
+    api = FakeManagerApi(
+        dto,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert store.get("m1").state == store.DONE
+    assert api.downloaded_urls == []
+    assert not (tmp_path / "escaped").exists()
+
+
 def test_unsupported_type_settles_failed(repoints):
     manager, _ = make_manager(repoints)
     api = FakeManagerApi({"Id": "m1", "Type": "Book", "MediaSources": []}, [])

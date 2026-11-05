@@ -26,6 +26,7 @@ JsonDict = dict[str, Any]
 # ride along in the same class.
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
+_EXTENSION = re.compile(r"[a-z0-9]{1,8}")
 
 # Free space kept in reserve beyond the download itself: Kodi's own caches
 # and databases live on the same volume more often than not, and filling it
@@ -91,6 +92,22 @@ def filename_from_disposition(value: str, fallback: str) -> str:
     return fallback
 
 
+def extension(value: str, fallback: str) -> str:
+    """A container or codec name the server gave, as a file extension, or
+    ``fallback``. Anything but a short word of letters and digits would put a
+    separator, a ``..`` or a second extension into the file name."""
+    candidate = str(value or "").strip().lower()
+    return candidate if _EXTENSION.fullmatch(candidate) else fallback
+
+
+def contained(rel_path: str) -> bool:
+    """Whether ``rel_path`` stays inside the folder it is joined to."""
+    if not rel_path or os.path.isabs(rel_path) or posixpath.isabs(rel_path):
+        return False
+    parts = rel_path.replace("\\", "/").split("/")
+    return all(part not in ("", ".", "..") for part in parts)
+
+
 def default_filename(item: JsonDict, container: str) -> str:
     """The filename when no Content-Disposition names one — every transcode,
     whose response carries no original name. Episodes lead with SxxEyy and
@@ -107,7 +124,7 @@ def default_filename(item: JsonDict, container: str) -> str:
         track = item.get("IndexNumber")
         if track is not None:
             name = "%02d %s" % (int(track), name)
-    return "%s.%s" % (name, container or "bin")
+    return "%s.%s" % (name, extension(container, "bin"))
 
 
 def item_dirs(item: JsonDict) -> tuple[str, Optional[str]]:

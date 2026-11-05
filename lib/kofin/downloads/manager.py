@@ -873,6 +873,8 @@ class DownloadManager:
         fallback = files.default_filename(item, container)
         filename = files.filename_from_disposition(disposition, fallback)
         rel_path = "%s/%s" % (directory, filename)
+        if not files.contained(rel_path):
+            raise JellyfinError("download path of %s leaves its folder" % item_id)
         store.record_target(item_id, rel_path, container)
         return rel_path
 
@@ -941,7 +943,7 @@ class DownloadManager:
             external = bool(stream_info.get("IsExternal"))
             if external:
                 codec = str(stream_info.get("Codec") or "").lower()
-                extension = SUBTITLE_EXTENSIONS.get(codec, codec)
+                extension = files.extension(SUBTITLE_EXTENSIONS.get(codec, codec), "")
             elif include_embedded and stream_info.get("IsTextSubtitleStream"):
                 extension = "srt"
             else:
