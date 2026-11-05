@@ -2025,6 +2025,31 @@ def test_a_tick_that_raises_does_not_end_the_service(monkeypatch, tmp_path):
     assert service._stopping.is_set() is True
 
 
+def test_a_connect_that_raises_outside_the_taxonomy_waits_out_the_backoff(
+    monkeypatch, tmp_path
+):
+    """Offline, a tick that raises is a failed connection attempt: the next
+    one waits for the backoff instead of probing on every tick."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service.credentials.is_logged_in = True
+    probes = []
+
+    def probe(self):
+        probes.append(1)
+        raise UnicodeEncodeError("latin-1", "Гостиная", 0, 1, "not Latin-1")
+
+    service.api = type("A", (), {"probe_info": probe})()
+
+    service._guarded_tick()
+    service._guarded_tick()
+
+    assert probes == [1]
+    assert service._backoff.due(time.time()) is False
+
+
 def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
     service = Service()
     done = threading.Event()

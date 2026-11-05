@@ -265,6 +265,11 @@ class Service(xbmc.Monitor):
             else:
                 LOG.exception("service tick failed")
             self._tick_failure = failure
+            if not self._online:
+                # Offline, the tick's work is the connection attempt: one that
+                # failed outside the transport's errors waits out the backoff
+                # as one inside them does.
+                self._backoff.failed(time.time())
         else:
             self._tick_failure = ""
 
