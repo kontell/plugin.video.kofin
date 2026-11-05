@@ -98,7 +98,14 @@ def _parse(data: bytes, source_host: str) -> Optional[Found]:
         return None
     if not isinstance(payload, dict):
         return None
-    address = auth.normalize_address(str(payload.get("Address") or ""))
+    published = str(payload.get("Address") or "")
+    try:
+        address = auth.normalize_address(published)
+    except ValueError:
+        # urlsplit refuses a port that is not a number in range, and an
+        # unclosed IPv6 bracket.
+        LOG.warning("discovery: unusable address %r from %s", published, source_host)
+        return None
     if not address:
         return None
     return Found(

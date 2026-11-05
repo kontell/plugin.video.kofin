@@ -194,6 +194,17 @@ def test_a_datagram_that_is_not_json_does_not_end_the_scan():
     assert len(sock.sent) == 3
 
 
+@pytest.mark.parametrize(
+    "address", ["http://10.0.0.9:80a", "http://10.0.0.9:99999", "http://[fd00::1"]
+)
+def test_an_unusable_address_does_not_end_the_scan(address):
+    bad = b'{"Address":"%s","Id":"b","Name":"bad"}' % address.encode()
+    found, sock, _clock = _scan([(0.01, bad, "10.0.0.9"), (0.02, PAYLOAD, HOST)])
+
+    assert [entry.name for entry in found] == ["minipie"]
+    assert len(sock.sent) == 3
+
+
 def test_an_unsendable_probe_is_not_fatal():
     """An interface that is down should answer "nothing found", not raise into
     the settings dialog."""
