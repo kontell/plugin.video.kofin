@@ -1302,6 +1302,68 @@ def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypat
     assert repoints.get("music_view") == [False]
 
 
+ALBUM = "Music/The Band/Greatest Hits"
+
+
+def _track_api(item_id, body, filename="01.flac"):
+    """A track of SONG_DTO's album that the server holds under ``filename``."""
+    item = dict(SONG_DTO, Id=item_id)
+    item["MediaSources"] = [dict(SONG_DTO["MediaSources"][0], Size=len(body))]
+    disposition = 'attachment; filename="%s"' % filename
+    stream = FakeStream(
+        200,
+        [body],
+        {"Content-Length": str(len(body)), "Content-Disposition": disposition},
+    )
+    return FakeManagerApi(item, [stream])
+
+
+def test_two_tracks_of_one_name_keep_a_file_each(tmp_path, repoints):
+    """A track of each disc, CD1/01.flac and CD2/01.flac on the server, lands
+    in one album directory: the second takes a numbered name, and each row
+    keeps its own file."""
+    manager, _ = make_manager(repoints)
+
+    manager._process(_track_api("d1t1", b"DISC-ONE"), queue_row("d1t1"))
+    manager._process(_track_api("d2t1", b"DISC-TWO"), queue_row("d2t1"))
+
+    one, two = store.get("d1t1"), store.get("d2t1")
+    assert (one.rel_path, two.rel_path) == (ALBUM + "/01.flac", ALBUM + "/01 (2).flac")
+    assert (tmp_path / "dl" / one.rel_path).read_bytes() == b"DISC-ONE"
+    assert (tmp_path / "dl" / two.rel_path).read_bytes() == b"DISC-TWO"
+
+
+def test_a_name_is_held_from_the_moment_a_transfer_records_it(tmp_path, repoints):
+    """Before a byte of it is on disk, as for a track another worker has
+    only just started."""
+    manager, _ = make_manager(repoints)
+    queue_row("d1t1")
+    store.record_details("d1t1", "song", "album1", 8, "")
+    store.record_target("d1t1", ALBUM + "/01.flac", "flac")
+
+    manager._process(_track_api("d2t1", b"DISC-TWO"), queue_row("d2t1"))
+
+    assert store.get("d2t1").rel_path == ALBUM + "/01 (2).flac"
+
+
+def test_a_file_no_download_names_is_never_written_over(tmp_path, repoints):
+    """A folder the downloads share can hold the user's own files in the same
+    layout. A .part no row names is a stale transfer's, and is reused."""
+    manager, _ = make_manager(repoints)
+    album = tmp_path / "dl" / ALBUM
+    album.mkdir(parents=True)
+    (album / "01.flac").write_bytes(b"MINE")
+    (album / "02.flac.part").write_bytes(b"stale")
+
+    manager._process(_track_api("t1", b"ONE"), queue_row("t1"))
+    manager._process(_track_api("t2", b"TWO", "02.flac"), queue_row("t2"))
+
+    assert store.get("t1").rel_path == ALBUM + "/01 (2).flac"
+    assert (album / "01.flac").read_bytes() == b"MINE"
+    assert store.get("t2").rel_path == ALBUM + "/02.flac"
+    assert (album / "02.flac").read_bytes() == b"TWO"
+
+
 # -- the progress bar ---------------------------------------------------------
 
 

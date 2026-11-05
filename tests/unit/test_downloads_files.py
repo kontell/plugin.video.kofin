@@ -94,6 +94,37 @@ def test_unique_dir_suffixes_only_on_collision():
     )
 
 
+@pytest.mark.parametrize(
+    "held, filename, expected",
+    [
+        (set(), "01.flac", "01.flac"),
+        ({"01"}, "01.flac", "01 (2).flac"),
+        ({"01", "01 (2)"}, "01.flac", "01 (3).flac"),
+        ({"01"}, "01", "01 (2)"),
+        ({"02"}, "01.flac", "01.flac"),
+    ],
+)
+def test_unique_filename_numbers_a_stem_already_held(held, filename, expected):
+    assert files.unique_filename(filename, lambda stem: stem in held) == expected
+
+
+@pytest.mark.parametrize(
+    "first, second, clash",
+    [
+        ("01", "01", True),
+        ("Intro", "intro", True),  # one file on FAT and exFAT
+        ("Movie", "Movie.en", True),  # a sidecar, which removal takes with it
+        ("Movie.en", "Movie", True),
+        ("01", "01 (2)", False),
+        ("Movie", "Movies", False),
+    ],
+)
+def test_stems_clash_where_a_file_or_its_removal_reaches_the_other(
+    first, second, clash
+):
+    assert files.stems_clash(first, second) is clash
+
+
 Usage = namedtuple("Usage", "total used free")
 
 

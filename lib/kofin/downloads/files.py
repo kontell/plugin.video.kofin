@@ -194,6 +194,41 @@ def unique_dir(base: str, owner_id: str, taken: Callable[[str], bool]) -> str:
     return "%s [%s]" % (base, owner_id[:8])
 
 
+def stem(filename: str) -> str:
+    """A file name without its extension: what sidecars are named after, and
+    what a removal clears beside the file (every ``<stem>.*``)."""
+    return filename.rsplit(".", 1)[0]
+
+
+def stems_clash(first: str, second: str) -> bool:
+    """Whether files of these two stems can be taken for each other's: the
+    same stem, compared as FAT and exFAT compare names, or one that carries
+    on past a dot from the other, which a removal of the shorter matches."""
+    first, second = first.casefold(), second.casefold()
+    return (
+        first == second
+        or first.startswith(second + ".")
+        or second.startswith(first + ".")
+    )
+
+
+def unique_filename(filename: str, taken: Callable[[str], bool]) -> str:
+    """``filename``, or ``<stem> (n).<ext>`` for the first n from 2 whose
+    stem ``taken`` does not hold.
+
+    Two items of one directory can carry the same name: a track of each disc
+    of an album, which a server holds as ``CD1/01.flac`` and ``CD2/01.flac``,
+    or two transcoded tracks of one number and title.
+    """
+    base = stem(filename)
+    extension = filename[len(base) :]
+    candidate, number = base, 2
+    while taken(candidate):
+        candidate = "%s (%d)" % (base, number)
+        number += 1
+    return candidate + extension
+
+
 def free_bytes(root: str) -> int:
     """Bytes available to an unprivileged writer under ``root``, -1 unknown.
 

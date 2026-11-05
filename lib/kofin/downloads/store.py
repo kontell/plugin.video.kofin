@@ -478,6 +478,19 @@ def rows(state: Optional[str] = None) -> list[Download]:
     return [_row_to_download(row) for row in fetched]
 
 
+def targets_under(directory: str) -> list[tuple[str, str]]:
+    """``(jellyfin_id, rel_path)`` of every row whose target is somewhere
+    under ``directory``. LIKE matches ASCII letters in either case."""
+    escaped = directory.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id, rel_path FROM download "
+            "WHERE rel_path LIKE ? ESCAPE '\\'",
+            (escaped + "/%",),
+        )
+        return [(str(found[0]), str(found[1])) for found in opened.cursor.fetchall()]
+
+
 def is_done(jellyfin_id: str) -> bool:
     row = get(jellyfin_id)
     return row is not None and row.state == DONE

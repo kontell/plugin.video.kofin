@@ -18,6 +18,7 @@ at the next start, resuming originals from ``bytes_done`` with a Range.
 """
 
 import os
+import posixpath
 import threading
 import time
 from queue import Empty, Queue
@@ -184,6 +185,8 @@ class DownloadManager:
         # are read and moved under this lock, by the workers and the sweep.
         self._root_lock = threading.Lock()
         self._root_memory: Optional[str] = None  # None: not read yet
+        # Held while a worker decides and records a target (_decide_target).
+        self._target_lock = threading.Lock()
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
@@ -760,6 +763,7 @@ class DownloadManager:
                     owner_id,
                     container,
                     stream.header("Content-Disposition"),
+                    root,
                 )
             absolute = files.absolute_path(root, rel_path)
             part = files.part_path(root, rel_path)
@@ -834,6 +838,7 @@ class DownloadManager:
                         owner_id,
                         decision.container,
                         stream.header("Content-Disposition"),
+                        root,
                     )
                 absolute = files.absolute_path(root, rel_path)
                 part = files.part_path(root, rel_path)
@@ -915,17 +920,23 @@ class DownloadManager:
         owner_id: str,
         container: str,
         disposition: str,
+        root: str,
     ) -> str:
-        """Freeze the target path on first contact (files.py owns the rules)."""
+        """Freeze the target path on first contact (files.py owns the rules).
+        One worker decides at a time, so two transfers never take one name."""
         owning, leaf = files.item_dirs(item)
-        owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
-        directory = owning if leaf is None else "%s/%s" % (owning, leaf)
         fallback = files.default_filename(item, container)
         filename = files.filename_from_disposition(disposition, fallback)
-        rel_path = "%s/%s" % (directory, filename)
-        if not files.contained(rel_path):
-            raise JellyfinError("download path of %s leaves its folder" % item_id)
-        store.record_target(item_id, rel_path, container)
+        with self._target_lock:
+            owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
+            directory = owning if leaf is None else "%s/%s" % (owning, leaf)
+            filename = files.unique_filename(
+                filename, _stem_taken(root, directory, item_id)
+            )
+            rel_path = "%s/%s" % (directory, filename)
+            if not files.contained(rel_path):
+                raise JellyfinError("download path of %s leaves its folder" % item_id)
+            store.record_target(item_id, rel_path, container)
         return rel_path
 
     def _write_body(
@@ -1693,6 +1704,29 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
         return False
 
     return taken
+
+
+def _stem_taken(root: str, directory: str, item_id: str) -> Callable[[str], bool]:
+    """Is a file stem in ``directory`` held already: by another row's file,
+    or by a file there that no row names, which a download never writes
+    over? A ``.part`` counts only through its row: one with no row is a
+    stale transfer's, and is written over."""
+    folded = directory.casefold()
+    names = [
+        posixpath.basename(rel_path)
+        for other_id, rel_path in store.targets_under(directory)
+        if other_id != item_id and posixpath.dirname(rel_path).casefold() == folded
+    ]
+    absolute = files.path_in(root, directory)
+    if absolute is not None:
+        try:
+            names.extend(
+                name for name in os.listdir(absolute) if not name.endswith(".part")
+            )
+        except OSError:
+            pass  # not made yet
+    held = [files.stem(name) for name in names]
+    return lambda candidate: any(files.stems_clash(candidate, other) for other in held)
 
 
 # The sweep's two reads of Kodi's own play state, as module functions so a
