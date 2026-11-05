@@ -190,6 +190,8 @@ class Service(xbmc.Monitor):
         # server gone (see _verify_connection).
         self._verify_online = False
         self._backoff = Backoff()
+        # The last tick failure, so a repeated one is logged once in full.
+        self._tick_failure = ""
         # Paces _recover_threads' rebuilds of a library thread that keeps
         # dying; one that gets past startup resets it.
         self._library_backoff = Backoff()
@@ -242,13 +244,40 @@ class Service(xbmc.Monitor):
                     and time.time() - started >= SETTINGS_READY_DELAY
                 ):
                     self.settings_apply.mark_ready()
-                self._tick()
+                self._guarded_tick()
                 if self.waitForAbort(1):
                     break
         finally:
             self._shutdown()
         LOG.debug("---<<< kofin service")
         return self._restart_requested and not self.abortRequested()
+
+    def _guarded_tick(self) -> None:
+        """One tick, never fatal: Kodi does not start a service script again
+        once it has ended, so an exception out of ``run`` would leave Kodi
+        without the service until it restarts."""
+        try:
+            self._tick()
+        except Exception as error:
+            failure = "%s: %s" % (type(error).__name__, error)
+            if failure == self._tick_failure:
+                LOG.debug("service tick failed again (%s)", failure)
+            else:
+                LOG.exception("service tick failed")
+            self._tick_failure = failure
+            if not self._online:
+                # Offline, the tick's work is the connection attempt: one that
+                # failed outside the transport's errors is a failed attempt as
+                # one inside them is, so it waits out the backoff and states
+                # the outage (see _connect).
+                self._backoff.failed(time.time())
+                state.set_online(False)
+        else:
+            if self._online:
+                # Offline, the ticks between attempts raise nothing, so only
+                # a connection ends a failure: the same error on the next
+                # attempt is a repeat.
+                self._tick_failure = ""
 
     def _prepare_api_backend(self) -> None:
         from kofin.sync.backends.api import APIBackend, capabilities

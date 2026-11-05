@@ -1,6 +1,8 @@
 """L1 units for download file layout and naming."""
 
 import os
+import shutil
+from collections import namedtuple
 
 import pytest
 
@@ -92,15 +94,16 @@ def test_unique_dir_suffixes_only_on_collision():
     )
 
 
-class FakeStatvfs:
-    def __init__(self, free_bytes):
-        self.f_bavail = free_bytes // 4096
-        self.f_frsize = 4096
+Usage = namedtuple("Usage", "total used free")
+
+
+def _usage(free):
+    return Usage(free * 2, free, free)
 
 
 def test_free_space_needs_download_plus_reserve(monkeypatch):
     monkeypatch.setattr(
-        os, "statvfs", lambda root: FakeStatvfs(files.FREE_SPACE_RESERVE + 8192)
+        shutil, "disk_usage", lambda root: _usage(files.FREE_SPACE_RESERVE + 8192)
     )
     assert files.free_space_ok("/dl", 8192) is True
     assert files.free_space_ok("/dl", 8193) is False
@@ -108,10 +111,18 @@ def test_free_space_needs_download_plus_reserve(monkeypatch):
 
 def test_free_space_probe_failure_allows_rather_than_refuses(monkeypatch):
     def broken(root):
-        raise OSError("no statvfs here")
+        raise OSError("no such volume")
 
-    monkeypatch.setattr(os, "statvfs", broken)
+    monkeypatch.setattr(shutil, "disk_usage", broken)
     assert files.free_space_ok("/dl", 10**12) is True
+
+
+def test_free_space_is_read_where_os_has_no_statvfs(monkeypatch):
+    """Windows' os module has no statvfs: the probe must not reach for it."""
+    monkeypatch.delattr(os, "statvfs", raising=False)
+    monkeypatch.setattr(shutil, "disk_usage", lambda root: _usage(5 * 1024**3))
+
+    assert files.free_bytes("C:\\Downloads") == 5 * 1024**3
 
 
 # -- the music layout and the fallback names -----------------------------------

@@ -103,6 +103,24 @@ def queue_item(url="http://s/stream", method="DirectStream", **extra):
     )
 
 
+def test_a_claim_installed_on_a_paused_player_says_so(monkeypatch):
+    """A SyncPlay hold pauses the start before the claim exists, and a pause
+    callback run during the claim's wait has no item to mark: the claim
+    starts from the player's own state, which SyncPlay reads to tell a
+    viewer's play from the resume Kodi raises before an open."""
+    player, api = make_player(monkeypatch)
+    queue_item()
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility", lambda condition: condition == "Player.Paused"
+    )
+
+    player.onPlayBackStarted()
+
+    assert player.current_item()["Paused"] is True
+    drain(player)
+    assert api.calls[0][1]["IsPaused"] is True
+
+
 def test_claim_and_report_lifecycle(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item()

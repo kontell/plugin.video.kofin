@@ -170,8 +170,10 @@ def save_playlist(request: Request) -> None:
     if not name:
         name = os.path.splitext(os.path.basename(path.rstrip("/")))[0]
     with Database("kofin") as kofindb:
+        # By name and by side: a music and a video playlist can share a
+        # name, and each side's managed copy is named after its title.
         stored_id = jellyfin_db.JellyfinDatabase(kofindb.cursor).playlist_for_file(
-            os.path.basename(path)
+            os.path.basename(path), side=media_type
         )
     try:
         if stored_id:

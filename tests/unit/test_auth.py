@@ -1,3 +1,5 @@
+from urllib.parse import unquote_plus
+
 import pytest
 
 from kofin.core import auth
@@ -30,15 +32,26 @@ def test_normalize_address(raw, expected):
 def test_auth_header_without_token():
     header = auth.build_auth_header("Living Room", "dev123", "0.1.0")
     assert header == (
-        'MediaBrowser Client="Kofin", Device="Living Room", '
+        'MediaBrowser Client="Kofin", Device="Living%20Room", '
         'DeviceId="dev123", Version="0.1.0"'
     )
 
 
 def test_auth_header_with_token_and_quote_escape():
-    header = auth.build_auth_header('The "Box"', "d", "1", token="tok")
-    assert "Device=\"The 'Box'\"" in header
+    header = auth.build_auth_header('The "Box", 2', "d", "1", token="tok")
+    assert 'Device="The%20%22Box%22%2C%202"' in header
     assert header.endswith('Token="tok"')
+
+
+@pytest.mark.parametrize("name", ["Гостиная", "客厅", "Küche", "Kodi+ (p1d)"])
+def test_a_device_name_in_any_script_is_a_latin1_header_jellyfin_decodes(name):
+    """http.client refuses a header value Latin-1 cannot encode, and
+    Jellyfin URL-decodes every value, ``+`` as a space included."""
+    header = auth.build_auth_header(name, "d", "1", token="tok")
+
+    header.encode("latin-1")  # what http.client does with it
+    value = header.split('Device="', 1)[1].split('"', 1)[0]
+    assert unquote_plus(value) == name
 
 
 def test_auth_result_parses_response():

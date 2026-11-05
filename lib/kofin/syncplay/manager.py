@@ -522,6 +522,8 @@ class SyncPlayManager:
 
     def join_group(self, group_id: str) -> bool:
         self._join_pending_since = time.time()
+        # Only a group this member creates takes its playback as the queue.
+        self._pending_local_queue = False
 
         try:
             # Request v2 unconditionally: older servers ignore unknown
@@ -595,6 +597,8 @@ class SyncPlayManager:
                 return
 
             LOG.warning("No GroupJoined update within 10s of joining")
+            self._join_pending_since = 0.0
+            self._pending_local_queue = False
             self._toast(settings.localized(30570), error=True)
 
             try:
@@ -615,7 +619,7 @@ class SyncPlayManager:
     _GROUP_UPDATES_ANY_STATE = {
         "GroupJoined": "_on_group_joined",
         "NotInGroup": "_on_not_in_group",
-        "GroupDoesNotExist": "_on_not_in_group",
+        "GroupDoesNotExist": "_on_group_does_not_exist",
         "LibraryAccessDenied": "_on_library_access_denied",
     }
     _GROUP_UPDATES_UNVERSIONED = {
@@ -674,8 +678,29 @@ class SyncPlayManager:
         if self.in_group():
             self._attempt_rejoin()
 
+    def _on_group_does_not_exist(self, payload: Any, version: Optional[int]) -> None:
+        """The server sends this to a Join of a group that is gone, and to
+        nothing else: in a group it is the rejoin failing, and before
+        GroupJoined it is the join refused."""
+        if self.in_group():
+            LOG.debug("SyncPlay group %s no longer exists", self.last_group_id)
+            self._leave_locally()
+            self._toast(settings.localized(30571), warning=True)
+        elif self._join_pending_since:
+            self._join_refused(30578)
+
     def _on_library_access_denied(self, payload: Any, version: Optional[int]) -> None:
-        self._toast(settings.localized(30579), error=True)
+        if self._join_pending_since and not self.in_group():
+            self._join_refused(30579)
+        else:
+            self._toast(settings.localized(30579), error=True)
+
+    def _join_refused(self, message: int) -> None:
+        """A join the server refused: the check waiting for GroupJoined has
+        its answer, and nothing local is proposed to a group."""
+        self._join_pending_since = 0.0
+        self._pending_local_queue = False
+        self._toast(settings.localized(message), error=True)
 
     def _on_group_left(self, payload: Any) -> None:
         self._leave_locally()
@@ -1331,8 +1356,9 @@ class SyncPlayManager:
             self.playback.ensure_paused()
             return
 
-        if self.is_programmatic():
-            return
+        # No is_programmatic() test: play_item() is the only start kofin
+        # makes, and the echo grace after our own pause or seek must not
+        # swallow the start of a file the viewer opened.
 
         if self.ignore_wait:
             # A spectator's own plays stay local: nothing is proposed to
@@ -1340,8 +1366,9 @@ class SyncPlayManager:
             return
 
         if self.phase in STARTABLE:
-            # Phase "synced" means no stop intervened since the synced
-            # item: a native playlist advance, which starts at 0. Phase
+            # Phase "synced" means no stop intervened since the synced item:
+            # a native playlist advance, or a video the user picked in its
+            # place (Kodi's player opens it in place, with no stop). Phase
             # "idle" is a fresh user start (possibly at a resume point).
             self.holds.enter(transition=self.phase == Phase.SYNCED)
 
@@ -1402,6 +1429,14 @@ class SyncPlayManager:
         if not self.in_group() or self.is_programmatic():
             return
 
+        claim = self.player.current_item()
+        if claim and not claim.get("Paused"):
+            # Nothing was paused. Kodi sets speed 1 before it opens a file,
+            # and VideoPlayer reports that as a resume even while playing,
+            # ahead of the file's start. The service records a pause or a
+            # resume on its claim only after forwarding it here.
+            return
+
         if self.phase in FOLLOWING:
             LOG.debug("[ syncplay/user unpause ]")
             # The group start time is the server's call: hold position
@@ -1411,6 +1446,11 @@ class SyncPlayManager:
 
     def on_seek(self, seconds: float) -> None:
         if not self.in_group() or self.is_programmatic():
+            return
+
+        if self.holds._hold is not None:
+            # The held file is not the group's item yet: its position goes
+            # to the group with the proposal, from the claim.
             return
 
         if self.phase in FOLLOWING:

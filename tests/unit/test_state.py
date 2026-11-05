@@ -42,6 +42,15 @@ def test_claim_by_path_match():
     assert state.claim_play_item("http://a") is None
 
 
+def test_a_claim_matches_the_file_whatever_options_kodi_reports():
+    """A resolved URL can carry protocol options after ``|``; Kodi may report
+    the playing file with them or without."""
+    state.push_play_item({"Path": "https://s/stream?x=1|verifypeer=false", "Id": "1"})
+    state.push_play_item({"Path": "https://s/stream?x=2|verifypeer=false", "Id": "2"})
+    assert state.claim_play_item("https://s/stream?x=1")["Id"] == "1"
+    assert state.claim_play_item("https://s/stream?x=2|verifypeer=false")["Id"] == "2"
+
+
 def test_unrelated_play_does_not_claim_a_failed_resolve():
     """A movie resolve can fail while Kodi starts a song."""
     state.push_play_item({"Path": "http://s/Videos/movie/stream", "Id": "movie"})

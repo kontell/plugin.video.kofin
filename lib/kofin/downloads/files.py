@@ -9,6 +9,7 @@ the downloads root.
 import os
 import posixpath
 import re
+import shutil
 import sys
 import unicodedata
 from typing import Any, Callable, Optional
@@ -201,11 +202,12 @@ def free_bytes(root: str) -> int:
     number in front of a person.
     """
     try:
-        stats = os.statvfs(root)
+        # statvfs exists on POSIX only; disk_usage reads it there and asks
+        # Windows for the caller's free bytes.
+        return shutil.disk_usage(root).free
     except OSError as error:
         LOG.debug("free-space probe failed for %s: %s", root, error)
         return -1
-    return stats.f_bavail * stats.f_frsize
 
 
 def free_space_ok(root: str, expected_bytes: int) -> bool:

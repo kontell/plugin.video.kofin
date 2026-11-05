@@ -1014,6 +1014,21 @@ def test_play_state_carries_what_the_stream_menu_needs(resume_env, monkeypatch):
     assert published["Request"]["dbid"] == "77"
 
 
+def test_a_self_signed_server_s_stream_tells_kodi_to_skip_the_check(resume_env):
+    """With sslVerify off kofin's own requests skip the certificate check, and
+    Kodi's curl, which opens a direct play, has to be told so too."""
+    from kofin.core import state
+
+    resume_env["api"].server = "https://jf:8920"
+    resume_env["addon"].store["sslVerify"] = "false"
+    run_play({"id": "ep1"}, resume=False)
+
+    path = resume_env["li"].path
+    assert path.startswith("https://jf:8920/Videos/ep1/stream")
+    assert path.endswith("|verifypeer=false")
+    assert state.claim_play_item(path.split("|")[0])["Path"] == path
+
+
 def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
     from kofin.core import deviceprofile
 
