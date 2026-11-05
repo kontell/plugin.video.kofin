@@ -53,10 +53,11 @@ class MusicPass:
         # Libraries whose every song this pass compared with Kodi's rows.
         self._compared: set[str] = set()
         # For the applier, per library: the album directories with a live
-        # song, the artists a live album credits, and the Kodi album id each
-        # album's songs were filed under -- read once a pass, not once a row.
+        # song, the artists live albums credit with the albums that credit
+        # each, and the Kodi album id each album's songs were filed under --
+        # read once a pass, not once a row.
         self._song_folders: dict[str, set[str]] = {}
-        self._credited: dict[str, set[str]] = {}
+        self._credited: dict[str, dict[str, set[str]]] = {}
         self._album_ids: dict[str, dict[str, Optional[int]]] = {}
         # Kodi's album and artist rows are not per library: two libraries
         # (or two albums of one) may share a row, and one of ours owns it.
@@ -100,17 +101,29 @@ class MusicPass:
             self._song_folders[library] = set(self.store.folders("Audio", library))
         return self._song_folders[library]
 
-    def credited(self, library: str) -> set[str]:
-        """The artist ids the library's live albums credit."""
+    def credited(self, library: str) -> dict[str, set[str]]:
+        """The artist ids the library's live albums credit, each with the
+        ids of the albums that credit it."""
         if library not in self._credited:
-            artists: set[str] = set()
-            for item in self.album_items(library).values():
+            artists: dict[str, set[str]] = {}
+            for album_id, item in self.album_items(library).items():
                 for credits in (item.get("AlbumArtists"), item.get("ArtistItems")):
                     for credit in credits or []:
                         if isinstance(credit, dict) and credit.get("Id"):
-                            artists.add(str(credit["Id"]))
+                            artists.setdefault(str(credit["Id"]), set()).add(album_id)
             self._credited[library] = artists
         return self._credited[library]
+
+    def albums_filed(self, library: str, artist_id: str) -> bool:
+        """Whether every album of the library that credits the artist and
+        holds a song of ours has songs in Kodi: the scanner makes an
+        artist's row from the tags of the songs it files."""
+        holding = self.song_folders(library)
+        return all(
+            self.native.readback.scope("Audio", library, album)
+            for album in sorted(self.credited(library).get(artist_id, ()))
+            if album in holding
+        )
 
     def artist_owner(self, record: Record) -> str:
         """Kodi keeps one artist per name; of our artists sharing a name the

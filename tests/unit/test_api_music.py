@@ -233,6 +233,26 @@ def test_album_and_artist_art_is_written_before_any_play_count(store, backend, k
     assert not store.pending()
 
 
+def test_an_artist_whose_album_is_not_filed_yet_waits_for_its_row(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi makes an artist's row from the songs it files: a scan that filed
+    none of the album leaves the artist pending, not settled without a row,
+    so its art and biography arrive with the album."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    scan_folder = kodi._scan_folder
+    monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
+    with pytest.raises(RuntimeError, match="remain pending"):
+        backend.reconcile()
+    assert store.state(ARTIST).status == "pending"
+    monkeypatch.setattr(kodi, "_scan_folder", scan_folder)
+    backend.reconcile()
+    assert not store.pending()
+    (row,) = kodi.artists.values()
+    assert row["description"] == "About the band"
+    assert store.mapping(ARTIST).kodi_id == row["artistid"]
+
+
 def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, kodi):
     store.publish(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB

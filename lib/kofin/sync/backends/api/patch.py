@@ -353,11 +353,14 @@ class Applier:
         if kind == "MusicArtist":
             # An artist no live album credits -- a guest on a track, or one
             # whose albums are outside the selection -- has no row of ours to
-            # find by name; one whose albums have rows but whose name Kodi
-            # spells otherwise has none either.
+            # find by name, and one whose albums have rows but whose name
+            # Kodi spells otherwise has none either. One whose album the
+            # scanner has not filed yet is waiting for its row.
             if record.item_id not in self.native.music.credited(record.library):
                 return True
-            return self.row_for(record) is None
+            if self.row_for(record) is not None:
+                return False
+            return self.native.music.albums_filed(record.library, record.item_id)
         if kind == "BoxSet":
             name = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
             return not any(
