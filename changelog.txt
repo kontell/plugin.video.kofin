@@ -4,7 +4,6 @@ v0.96.7
 - Live TV and recordings in progress can be paused and skipped through without FFmpeg Direct.
 - A SyncPlay member without Kofin PVR follows the group's live TV.
 - Stopping live TV frees the tuner.
-- Signing in works when Kodi's device name is in a non-Latin script.
 
 v0.96.6
 - Song play counts reach the library faster.
