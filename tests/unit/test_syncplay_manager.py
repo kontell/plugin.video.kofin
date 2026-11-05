@@ -1419,8 +1419,8 @@ class TestLocalPlayIdentityOnEitherBuild:
         join(manager)
         library[(7, "movie")] = "other-movie"
         manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": False}
         manager.phase = "synced"
-        manager.group_state = "Playing"
         manager.current_item_id = "group-movie"
 
         manager.on_resumed()
@@ -1447,8 +1447,8 @@ class TestLocalPlayIdentityOnEitherBuild:
         join(manager)
         library[(7, "movie")] = "other-movie"
         manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
         manager.phase = "synced"
-        manager.group_state = "Paused"
         manager.current_item_id = "group-movie"
 
         manager.on_resumed()
@@ -1465,6 +1465,39 @@ class TestLocalPlayIdentityOnEitherBuild:
                 utils.seconds_to_ticks(1186.0),
             )
         ]
+
+    def test_a_resume_before_the_group_has_paused_still_asks_it(
+        self, manager, paused_cond
+    ):
+        """A pause and a resume inside the server's round trip: the group
+        still reads Playing, and the claim says the member was paused."""
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = {"Id": "group-movie", "Type": "Movie", "Paused": True}
+        manager.phase = "synced"
+        manager.group_state = "Playing"
+
+        manager.on_resumed()
+
+        assert manager._api.named("syncplay_unpause") == [("syncplay_unpause",)]
+
+    def test_a_seek_of_a_held_file_is_not_the_groups(
+        self, manager, paused_cond, library, monkeypatch
+    ):
+        """A scrub of the file held for the proposal does not move the
+        group's item; the proposal carries the position."""
+        join(manager)
+        library[(7, "movie")] = "other-movie"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.current_item_id = "group-movie"
+        manager.on_playback_started()
+        # Past the echo grace of the hold's own pause.
+        monkeypatch.setattr(utils, "PROGRAMMATIC_ECHO_GRACE", 0.0)
+
+        manager.on_seek(1500.0)
+
+        assert manager._api.named("syncplay_seek") == []
 
     def test_a_video_playlist_advance_is_proposed_at_its_start(
         self, manager, paused_cond, library

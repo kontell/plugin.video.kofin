@@ -1404,10 +1404,12 @@ class SyncPlayManager:
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase == Phase.SYNCED and self.group_state == "Playing":
-            # A group that plays has nothing to unpause. Kodi sets speed 1
-            # before it opens a file, and VideoPlayer reports that as a
-            # resume even while playing, ahead of the file's start.
+        claim = self.player.current_item()
+        if claim and not claim.get("Paused"):
+            # Nothing was paused. Kodi sets speed 1 before it opens a file,
+            # and VideoPlayer reports that as a resume even while playing,
+            # ahead of the file's start. The service records a pause or a
+            # resume on its claim only after forwarding it here.
             return
 
         if self.phase in FOLLOWING:
@@ -1419,6 +1421,11 @@ class SyncPlayManager:
 
     def on_seek(self, seconds: float) -> None:
         if not self.in_group() or self.is_programmatic():
+            return
+
+        if self.holds._hold is not None:
+            # The held file is not the group's item yet: its position goes
+            # to the group with the proposal, from the claim.
             return
 
         if self.phase in FOLLOWING:
