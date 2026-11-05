@@ -171,6 +171,9 @@ class DownloadManager:
         self._playlist_dirty: set[str] = set()
         self._dirty_since = 0.0
         self._dirty_lock = threading.Lock()
+        # Two workers finishing into a folder that is not marked yet claim it
+        # once (see _claim_root).
+        self._root_lock = threading.Lock()
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
@@ -634,6 +637,7 @@ class DownloadManager:
             rel_path,
             include_embedded=not original,
         )
+        self._claim_root(root)
         os.replace(part, absolute)
         store.finish(item_id, rel_path, container, actual)
         # Spent: a cancel that arrived after the check above completed
@@ -1101,6 +1105,7 @@ class DownloadManager:
         got."""
         try:
             root = downloads_root()
+            in_hand = self._root_in_hand(root)
             touched = False
             songs = False
             repointed_songs: set[str] = set()
@@ -1110,8 +1115,9 @@ class DownloadManager:
                 songs = songs or row.media_type == "song"
                 absolute = files.absolute_path(root, row.rel_path)
                 if not row.rel_path or not os.path.exists(absolute):
-                    self._handle_vanished(row, root)
-                    touched = True
+                    if in_hand:
+                        self._handle_vanished(row, root)
+                        touched = True
                     continue
                 if self.native.attached(row, root):
                     touched = True
@@ -1144,6 +1150,54 @@ class DownloadManager:
         self._mark_dirty(row.media_type)
         if row.media_type == "song":
             self._mark_playlist_dirty(row.jellyfin_id)
+
+    def _root_in_hand(self, root: str) -> bool:
+        """Whether a done row's file missing under ``root`` was deleted.
+
+        Yes in the marked folder (``files.MARKER``). An unmarked folder is
+        marked here when it already holds a done row's file: one from before
+        the marker, or a folder the user moved by hand. ``_claim_root`` marks
+        a new folder before its first row is done, so that file is never a
+        new one. Anything else (a drive not mounted, another folder, a
+        settings store that cannot be read and so names the default folder)
+        is not a deletion.
+        """
+        if not settings.available() or not os.path.isdir(root):
+            return False
+        if files.has_marker(root):
+            return True
+        for row in store.rows(store.DONE):
+            if row.rel_path and os.path.exists(files.absolute_path(root, row.rel_path)):
+                return files.write_marker(root)
+        LOG.debug("downloads folder %s is not marked; missing files left alone", root)
+        return False
+
+    def _claim_root(self, root: str) -> None:
+        """Mark ``root`` before the first download lands in it.
+
+        A done row whose file is not there was downloaded to the folder the
+        location named before. It leaves without being marked watched: once
+        the folder is marked, the sweep would read it as deleted.
+        """
+        with self._root_lock:
+            if files.has_marker(root) or not settings.available():
+                return
+            for row in store.rows(store.DONE):
+                if row.rel_path and os.path.exists(
+                    files.absolute_path(root, row.rel_path)
+                ):
+                    continue
+                LOG.debug(
+                    "download of %s is not in %s; no longer tracked",
+                    row.jellyfin_id,
+                    root,
+                )
+                store.remove(row.jellyfin_id)
+                self.native.detached(row)
+                self._mark_dirty(row.media_type)
+                if row.media_type == "song":
+                    self._mark_playlist_dirty(row.jellyfin_id)
+            files.write_marker(root)
 
     def _mark_watched(self, row: "store.Download") -> None:
         """Mark a vanished download watched, here and on the server.
@@ -1193,6 +1247,8 @@ class DownloadManager:
         runs only at start."""
         try:
             root = downloads_root()
+            if not self._root_in_hand(root):
+                return
             touched = False
             songs = False
             for row in store.rows(store.DONE):
