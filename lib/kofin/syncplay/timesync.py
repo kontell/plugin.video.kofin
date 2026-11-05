@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import websocket
 
 from kofin.core.log import Logger
-from kofin.core.ws import sslopt
+from kofin.core.ws import NoRedirectSocket, sslopt
 from kofin.syncplay import utils
 
 if TYPE_CHECKING:
@@ -147,6 +147,7 @@ class TimeSync(threading.Thread):
             kwargs: dict[str, Any] = {
                 "timeout": 3,
                 "header": {"Authorization": authorization},
+                "class_": NoRedirectSocket,
             }
             if url.startswith("wss://"):
                 kwargs["sslopt"] = sslopt(self._verify_ssl)
