@@ -1880,10 +1880,6 @@ msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "立即从服务器重新读取所有媒体库。"
 
-msgctxt "#30875"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "直播电视的精细同步需要 FFmpeg Direct"
-
 msgctxt "#30876"
 msgid "Not on this Kodi"
 msgstr "此 Kodi 不支持"
