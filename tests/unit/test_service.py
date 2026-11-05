@@ -1998,6 +1998,33 @@ def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
     assert service.library is None
 
 
+def test_a_tick_that_raises_does_not_end_the_service(monkeypatch, tmp_path):
+    """Kodi starts a service script once, so the loop outlives a failing
+    tick and the next tick runs."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_prepare_api_backend", lambda: None)
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    monkeypatch.setattr(service, "_tick", tick)
+    aborts = iter([False, False, False])
+    monkeypatch.setattr(service, "abortRequested", lambda: next(aborts, True))
+    waits = iter([False, True])
+    monkeypatch.setattr(service, "waitForAbort", lambda timeout=None: next(waits))
+
+    assert service.run() is False
+
+    assert ticks == [1, 1]
+    assert service._stopping.is_set() is True
+
+
 def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
     service = Service()
     done = threading.Event()

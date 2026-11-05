@@ -292,7 +292,13 @@ class Api:
             timeout=PROBE_TIMEOUT,
             retries=0,
         )
-        body: JsonDict = response.json() if response.content else {}
+        body = self._json(response, {})
+        if not isinstance(body, dict):
+            raise HttpError(
+                response.status_code,
+                "%s -> %d with a body that is not an object"
+                % (getattr(response, "url", "?"), response.status_code),
+            )
         return body
 
     def branding_configuration(self) -> JsonDict:
@@ -522,8 +528,8 @@ class Api:
             if error.status == 404:
                 return {}
             raise
-        body: JsonDict = response.json() if response.content else {}
-        return body
+        body = self._json(response, {})
+        return body if isinstance(body, dict) else {}
 
     # -- KodiSyncQueue companion plugin ---------------------------------------
 
