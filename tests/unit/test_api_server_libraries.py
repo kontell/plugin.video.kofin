@@ -5,7 +5,7 @@ import uuid
 import pytest
 import requests
 
-from kofin.core.http import HttpError, Unauthorized
+from kofin.core.http import HttpError, JellyfinError, Unauthorized
 from kofin.sync.backends.api import library
 from kofin.sync.backends.api.library import Library
 from tests.unit.apifixtures import (  # noqa: F401
@@ -106,15 +106,18 @@ def test_a_library_the_server_says_is_gone_leaves_after_two_404s(gone):
     ],
 )
 def test_a_library_the_server_cannot_answer_for_stays(gone, error):
-    """Anything but a 404 is a server that could not say."""
+    """Anything but a 404 is a server that could not say: the round fails,
+    and the library stays."""
     server, w, seen, check = gone
 
     def unreachable(item_id):
         raise error
 
     server.item = unreachable
-    check()
-    check(after=library.MISSING_CONFIRM * 2)
+    with pytest.raises(JellyfinError):
+        check()
+    with pytest.raises(JellyfinError):
+        check(after=library.MISSING_CONFIRM * 2)
     assert seen["dropped"] == [] and seen["written"] == [] and seen["shown"] == []
 
 
@@ -191,3 +194,69 @@ def test_many_changed_collections_are_fetched_in_requests_kestrel_accepts(
 
     assert max(lines) <= 8192
     assert {s["Id"] for s in sets} <= named
+
+
+def _grouped(server, library, collection="movies"):
+    """Jellyfin's answer once the user groups ``library`` into a combined
+    view: /UserViews lists the combined view, the library answers by id."""
+    server.views_list = [v for v in server.views_list if v["Id"] != library] + [
+        {"Id": "c" * 32, "CollectionType": collection, "Name": "Movies"}
+    ]
+    by_id = server.item
+
+    def item(item_id):
+        if item_id == library:
+            return {
+                "Id": library,
+                "Type": "CollectionFolder",
+                "CollectionType": collection,
+                "Name": "Films",
+            }
+        return by_id(item_id)
+
+    server.item = item
+
+
+def test_a_library_grouped_into_a_combined_view_keeps_syncing(store, monkeypatch):
+    server = Server({LIB: [movie()], LIB2: []})
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.full_sync()
+
+    assert "a" in store.records(pinned=False)
+
+
+def test_a_change_to_an_item_of_a_grouped_library_is_published(store, monkeypatch):
+    server = Server({LIB: [movie()], LIB2: []})
+    store.publish([movie()], library=LIB)
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    w._catchup_due = 10**9
+    server.libraries[LIB] = [movie(Name="Renamed")]
+
+    w.command("changed", ["a"])
+
+    assert store.records(pinned=False)["a"].item["Name"] == "Renamed"
+
+
+def test_a_catch_up_that_cannot_read_a_grouped_library_keeps_the_watermark(
+    store, monkeypatch
+):
+    """Run without the library, the catch-up would move the watermark past
+    its changes, and they would wait for a full enumeration of it."""
+    server = Server({LIB: [movie()], LIB2: []})
+    _grouped(server, LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    w.full_sync()
+    mark = store.watermark()
+    assert mark[1]
+
+    def failing(item_id):
+        raise HttpError(500, "GET /Items/%s -> 500" % item_id)
+
+    server.item = failing
+    with pytest.raises(JellyfinError):
+        w.catch_up()
+
+    assert store.watermark() == mark

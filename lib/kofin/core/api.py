@@ -1,6 +1,6 @@
 """The Jellyfin API surface kofin uses."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -103,6 +103,31 @@ def paged(
             else:
                 return
         first = False
+
+
+def library_folders(api: "Api", ids: Iterable[str]) -> tuple[list[JsonDict], list[str]]:
+    """The library folders among ``ids``, each read by its id, and the ids
+    the server could not answer for.
+
+    /UserViews leaves out a library the user grouped into a combined view
+    (Jellyfin's Home settings), and Jellyfin still answers for it by id. A
+    404 is an answer: the library was deleted or is out of the user's reach.
+    Any other failure leaves the id unread, and the caller decides what an
+    unknown library means to it.
+    """
+    folders = []
+    unread = []
+    for item_id in ids:
+        try:
+            item = api.item(item_id)
+        except Exception as error:
+            LOG.debug("library %s not read by its id: %s", item_id, error)
+            if not (isinstance(error, HttpError) and error.status == 404):
+                unread.append(item_id)
+            continue
+        if item.get("Type") == "CollectionFolder" and item.get("Id"):
+            folders.append(item)
+    return folders, unread
 
 
 # Connect/read budget for the lyrics fetch. Deliberately far below the
