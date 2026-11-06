@@ -544,8 +544,12 @@ def same_play(actual: str, wanted: str) -> bool:
     if not actual or not wanted:
         return False
     try:
+        # On Python 3.11 datetime.strptime fails in every interpreter after
+        # the first that called it, which keeps its _strptime module;
+        # time.strptime imports the module on each call.
         ahead = (
-            datetime.strptime(actual, STAMP) - datetime.strptime(wanted, STAMP)
+            datetime(*time.strptime(actual, STAMP)[:6])
+            - datetime(*time.strptime(wanted, STAMP)[:6])
         ).total_seconds()
     except ValueError:
         return False

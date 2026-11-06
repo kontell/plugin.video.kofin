@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
+import unicodedata
 import xml.etree.ElementTree as etree
 from typing import (
     Any,
@@ -75,6 +77,10 @@ MAX_PLAYLIST_ITEMS = 20000
 # Characters the filesystem or playlist path cannot carry. Keep the server
 # name otherwise intact (Unicode allowed).
 _UNSAFE = re.compile(r'[/\\<>:"|?*\x00-\x1f]')
+
+# A file name has at most 255 bytes. A playlist's is its stem, " (n)" while
+# another playlist has the same title, and ".m3u8.tmp" while it is written.
+MAX_STEM_BYTES = 255 - len(" (9999)") - len(".m3u8.tmp")
 
 
 class Entry(NamedTuple):
@@ -164,10 +170,29 @@ def write_downloaded_music_list(
 
 
 def safe_filename(name: str) -> str:
-    """File stem from a Jellyfin playlist name (extension added by caller)."""
-    cleaned = _UNSAFE.sub("_", (name or "").strip())
-    cleaned = cleaned.rstrip(" .")
-    return cleaned or "playlist"
+    """File stem from a Jellyfin playlist name (extension added by caller).
+
+    A name the filesystem encoding cannot carry folds to ASCII, as a
+    download's does (``downloads/files.sanitize``), before the unsafe
+    characters go: the fold makes some of them (``／`` is ``/``).
+    """
+    cleaned = (name or "").strip()
+    try:
+        cleaned.encode(sys.getfilesystemencoding() or "utf-8")
+    except UnicodeEncodeError:
+        cleaned = (
+            unicodedata.normalize("NFKD", cleaned)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+            .strip()
+        )
+    return _UNSAFE.sub("_", cleaned).rstrip(" .") or "playlist"
+
+
+def _cut(stem: str) -> str:
+    """``stem`` cut to MAX_STEM_BYTES where a character ends."""
+    cut = stem.encode("utf-8")[:MAX_STEM_BYTES].decode("utf-8", "ignore")
+    return cut.rstrip(" .") or "playlist"
 
 
 def entry_label(entry: Entry) -> str:
@@ -192,7 +217,7 @@ def render_m3u8(entries: Iterable[Entry]) -> str:
 
 
 def _unique_stem(name: str, taken: set[str]) -> str:
-    base = safe_filename(name)
+    base = _cut(safe_filename(name))
     candidate = base
     n = 2
     while candidate.lower() in taken:
@@ -203,13 +228,20 @@ def _unique_stem(name: str, taken: set[str]) -> str:
 
 
 def _stem_matches_title(name: str, filename: str) -> bool:
-    """True when ``filename`` is this title, or its ``Title (n)`` disambiguation.
+    """True when ``filename`` is this title, or its ``Title (n)``
+    disambiguation, with the title cut as :func:`_unique_stem` cuts it or
+    whole: the cut leaves room for a number, and a stored name past it is
+    one the filesystem took.
 
     A membership rewrite keeps that file: recomputing the stem would turn
     ``Title (2).m3u8`` into ``Title.m3u8`` over whoever owns the base name.
     """
     stem = os.path.splitext(filename)[0]
-    base = safe_filename(name)
+    whole = safe_filename(name)
+    return _is_title_stem(stem, whole) or _is_title_stem(stem, _cut(whole))
+
+
+def _is_title_stem(stem: str, base: str) -> bool:
     if stem == base:
         return True
     prefix = base + " ("
@@ -420,9 +452,10 @@ def write_playlist_file(
     taken: set[str],
     stored_filename: str | None = None,
 ) -> tuple[str, bool]:
-    """Write one .m3u8. Returns (filename, written)."""
+    """Write one .m3u8. Returns (filename, written); ValueError for a name
+    that is no entry of ``directory``."""
     filename = assign_playlist_filename(name, taken, stored_filename)
-    path = os.path.join(directory, filename)
+    path = fs.entry(directory, filename)
     return filename, _write_text(path, render_m3u8(entries))
 
 
@@ -637,6 +670,13 @@ def reconcile(
             )
         return stats
 
+    def keep(prior: Any) -> None:
+        """A playlist the pass could not write keeps its file and state."""
+        if prior and prior[0] == "Audio":
+            want_audio.add(prior[1])
+        elif prior and prior[0] == "Video":
+            want_video.add(prior[1])
+
     for playlist in listed:
         playlist_id = playlist.get("Id") or ""
         if not playlist_id:
@@ -647,12 +687,7 @@ def reconcile(
             LOG.exception(
                 "playlist %s: items listing failed; keeping prior state", playlist_id
             )
-            prior = state.get_playlist_state(playlist_id)
-            if prior:
-                if prior[0] == "Audio":
-                    want_audio.add(prior[1])
-                elif prior[0] == "Video":
-                    want_video.add(prior[1])
+            keep(state.get_playlist_state(playlist_id))
             continue
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
@@ -666,9 +701,14 @@ def reconcile(
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
             continue
-        done = _materialize(
-            state, playlist, items, side, stored, directory, taken, resolver
-        )
+        try:
+            done = _materialize(
+                state, playlist, items, side, stored, directory, taken, resolver
+            )
+        except Exception:
+            LOG.exception("playlist %s: not written; keeping prior state", playlist_id)
+            keep(stored)
+            continue
         stats["tracks"] += done.entries
         stats["skipped"] += done.missing
         if done.renamed:
@@ -821,7 +861,7 @@ def write_video_playlists(entries: Iterable[Any]) -> None:
             continue
         name = video_playlist_file(view)
         etree.ElementTree(build_video_playlist(view, mixed)).write(
-            os.path.join(directory, name)
+            fs.entry(directory, name)
         )
         keep.add(name)
 

@@ -180,6 +180,50 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
     assert "5" * 32 not in " ".join(window.values())
 
 
+def test_a_library_whose_id_is_not_an_item_id_names_no_file(views_env):
+    """A library's id names its node folders and its smart playlist, and a
+    node folder is emptied of what the pass did not write: a view the
+    server names by anything but an item id is left out of the trees and
+    the skin entries, and the libraries beside it are written whole."""
+    profile = views_env["profile"]
+    (profile / "guisettings.xml").write_text("<settings/>")
+    away = [
+        {"Id": "x/../../../..", "Name": "Away", "CollectionType": "movies"},
+        {"Id": "y/../../../..", "Name": "Afar", "CollectionType": "music"},
+    ]
+    whitelist(MOVIES, *(view["Id"] for view in away))
+    for _ in range(2):
+        dynamic.publish(ITEMS + away, FakeApi())
+    assert sorted(p.name for p in profile.iterdir()) == [
+        "addon_data",
+        "guisettings.xml",
+        "library",
+        "playlists",
+    ]
+    assert (profile / "guisettings.xml").read_text() == "<settings/>"
+    root = profile / "library" / "video" / NODE_ROOT
+    assert sorted(p.name for p in root.iterdir() if p.is_dir()) == [
+        "kofinmovies" + MOVIES
+    ]
+    assert (root / "kofin_Favoritemovies.xml").is_file()
+    assert not {"Away", "Afar"} & set(props().values())
+
+
+def test_a_node_folder_that_leads_out_of_the_tree_is_not_written(views_env, tmp_path):
+    """A library's node folder is emptied of what the pass did not write,
+    so a folder that is a link elsewhere is refused and what it leads to
+    stays as it is."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "mine.txt").write_text("mine")
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    root.mkdir()
+    (root / ("kofinmovies" + MOVIES)).symlink_to(elsewhere, target_is_directory=True)
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert [p.name for p in elsewhere.iterdir()] == ["mine.txt"]
+
+
 def test_favourite_episodes_are_found_by_their_own_tag(views_env):
     """With episode_tags Kodi keeps an episode's tags and its tag rule
     matches them; a favourite episode carries the tag."""
@@ -402,6 +446,46 @@ def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
     # A node the user edited is theirs.
     assert (profile / "movies" / "genres.xml").read_text() == "<node><mine/></node>"
     assert (profile / NODE_ROOT / "index.xml").is_file()
+
+
+def test_a_node_file_kodi_can_read_is_never_replaced(views_env, monkeypatch):
+    """A node the user edited is theirs while Kodi can read it, and Kodi
+    reads more than a strict XML parser does: a bare "&", whitespace before
+    the declaration, a charset other than UTF-8, anything after the first
+    element. Only a file it cannot read is recovered from the default."""
+    import shutil
+
+    import xbmcvfs
+
+    from kofin.sync import kodisetup
+
+    monkeypatch.setattr(
+        "xbmcvfs.copy", lambda src, dst: shutil.copyfile(src, dst) or True
+    )
+    edited = {
+        "amp": b"<node><label>Kids & Family</label></node>",
+        "space": b'\n<?xml version="1.0" encoding="UTF-8"?>\n<node/>',
+        "latin": "<node><label>Für Kinder</label></node>".encode("latin-1"),
+        "wide": '<?xml version="1.0" encoding="UTF-16"?><node>A & B</node>'.encode(
+            "utf-16"
+        ),
+        "after": b"<node/>\n</node>",
+        "cut": b"<node><label>Kids</la",
+        "empty": b"",
+    }
+    system = xbmcvfs.translatePath("special://xbmc/system/library/video")
+    os.makedirs(os.path.join(system, "movies"))
+    profile = views_env["profile"] / "library" / "video" / "movies"
+    profile.mkdir()
+    for name, data in edited.items():
+        with open(os.path.join(system, "movies", name + ".xml"), "w") as handle:
+            handle.write("<node/>")
+        (profile / (name + ".xml")).write_bytes(data)
+    kodisetup.seed_default_nodes("video")
+    for name in ("amp", "space", "latin", "wide", "after"):
+        assert (profile / (name + ".xml")).read_bytes() == edited[name]
+    for name in ("cut", "empty"):
+        assert (profile / (name + ".xml")).read_text() == "<node/>"
 
 
 def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(

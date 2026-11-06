@@ -10,6 +10,7 @@ through JSON-RPC by the mapped id, so the retention sweep still works
 offline.
 """
 
+import time
 from datetime import datetime
 from typing import Any, Optional, Protocol
 from collections.abc import Iterable
@@ -50,9 +51,9 @@ def _as_epoch(stamp: Any) -> float:
     if not stamp:
         return 0.0
     try:
-        return datetime.strptime(
-            str(stamp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S"
-        ).timestamp()
+        # time.strptime, for the reason metadata.same_play gives.
+        parsed = time.strptime(str(stamp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+        return datetime(*parsed[:6]).timestamp()
     except ValueError:
         return 0.0
 

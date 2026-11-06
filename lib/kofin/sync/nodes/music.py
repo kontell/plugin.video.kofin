@@ -134,7 +134,7 @@ def _write_music_parent(root: str) -> None:
 
 def _write_music_library_folder(root: str, view: dict[str, Any], index: int) -> None:
     """One synced music library's folder and its four ways in."""
-    folder = os.path.join(root, music_node_folder(view))
+    folder = fs.entry(root, music_node_folder(view))
 
     if not os.path.isdir(folder):
         os.makedirs(folder)
