@@ -70,6 +70,24 @@ def test_an_address_as_a_sign_in_stores_it_is_never_written(monkeypatch):
     assert written == []
 
 
+def test_an_address_no_request_can_use_loads_as_it_stands(monkeypatch):
+    """A port out of range or an unclosed IPv6 bracket is refused by urllib;
+    every client and the service load the credentials, so the load must not
+    raise, and the setting is left for Log in to name."""
+    written = []
+
+    class CountingAddon(FakeAddon):
+        def setSetting(self, setting_id, value):
+            written.append(setting_id)
+            super().setSetting(setting_id, value)
+
+    monkeypatch.setattr("xbmcaddon.Addon", CountingAddon)
+    for stored in ("192.168.1.10:80960", "http://[fe80::1:8096"):
+        FakeAddon.store.update({"serverAddress": stored, "deviceId": "d"})
+        assert settings.Credentials.load().server_address == stored
+    assert written == []
+
+
 def test_a_password_in_the_stored_address_never_replaces_the_token():
     """The service builds its client on the loaded credentials over requests,
     which sends a URL's user name and password as Basic auth in place of the

@@ -242,8 +242,14 @@ class Credentials:
         # password as Basic auth, in place of the token's Authorization
         # header, and the settings dialog shows what the setting holds.
         stored_address = addon.getSetting("serverAddress")
+        try:
+            server_address = auth.normalize_address(stored_address)
+        except ValueError:
+            # An address no request can be made to is left as it stands, for
+            # Log in to name (plugin/account.py).
+            server_address = stored_address
         creds = cls(
-            server_address=auth.normalize_address(stored_address),
+            server_address=server_address,
             server_name=addon.getSetting("serverName"),
             server_id=addon.getSetting("serverId"),
             user_id=addon.getSetting("userId"),
