@@ -23,6 +23,11 @@ from kofin.core import auth
         ("http://[fd00::1]", "http://[fd00::1]:8096"),
         ("[fd00::1]:8920", "http://[fd00::1]:8920"),
         ("https://[fd00::1]", "https://[fd00::1]"),
+        # A user name and password are no part of the address, and a
+        # password may hold an "@".
+        ("https://bob:hunter2@jelly.konell.xyz", "https://jelly.konell.xyz"),
+        ("bob:hunter2@minipie", "http://minipie:8096"),
+        ("http://bob:p@ss@[fd00::1]:8920/jf/", "http://[fd00::1]:8920/jf"),
     ],
 )
 def test_normalize_address(raw, expected):
