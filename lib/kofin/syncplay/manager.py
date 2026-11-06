@@ -786,6 +786,25 @@ class SyncPlayManager:
             LOG.debug("Command for the item stopped here; waiting on the stop prompt")
             return
 
+        if self.holds.holding() and command.get("Command") in (
+            "Unpause",
+            "Pause",
+            "Seek",
+        ):
+            # A local start is held: the player has swapped off the group's
+            # item to the one being proposed, which still carries the old
+            # item's PlaylistItemId (the queue has not moved), so this
+            # transport command would seek or pause the held file to the old
+            # item's position. The held file's position reaches the group with
+            # the proposal (holds.forward). The counterpart to on_seek's hold
+            # guard: a scrub of a held file is not the group's, and a group
+            # command for the item being replaced is not the held file's.
+            LOG.debug(
+                "[ syncplay/%s ] not applied: a local start is held",
+                command.get("Command"),
+            )
+            return
+
         if (
             command.get("Command") != "Stop"
             and command.get("PlaylistItemId")
