@@ -7,7 +7,7 @@ kofin.plugin.account; this module only talks to the server.
 from typing import Any
 from urllib.parse import quote, urlsplit
 
-from kofin.core.http import Http
+from kofin.core.http import Http, HttpError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -80,8 +80,21 @@ def build_auth_header(
 
 
 def public_info(http: Http, address: str) -> dict[str, Any]:
-    response = http.request("GET", address + "/System/Info/Public", retries=1)
-    info: dict[str, Any] = response.json()
+    """The server's public info. Whatever else answers at the address (a web
+    page, a captive portal) sends a body that is not a JSON object, which is
+    an HttpError like any other bad answer."""
+    url = address + "/System/Info/Public"
+    response = http.request("GET", url, retries=1)
+    try:
+        info = response.json()
+    except ValueError:
+        info = None
+    if not isinstance(info, dict):
+        raise HttpError(
+            response.status_code,
+            "GET %s -> %d with a body that is not a JSON object"
+            % (url, response.status_code),
+        )
     return info
 
 

@@ -37,11 +37,15 @@ FOLDER_TYPES = frozenset(
     }
 )
 
-PLAYABLE_TYPES = frozenset(
-    {"Movie", "Episode", "MusicVideo", "Video", "Trailer", "Audio", "Recording"}
+# Jellyfin's AudioBook is an Audio item.
+AUDIO_TYPES = frozenset({"Audio", "AudioBook"})
+
+PLAYABLE_TYPES = (
+    frozenset({"Movie", "Episode", "MusicVideo", "Video", "Trailer", "Recording"})
+    | AUDIO_TYPES
 )
 
-MUSIC_TYPES = frozenset({"Audio", "MusicAlbum", "MusicArtist", "MusicGenre"})
+MUSIC_TYPES = AUDIO_TYPES | {"MusicAlbum", "MusicArtist", "MusicGenre"}
 
 # Kodi's media type for each Jellyfin item type a tag can carry.
 MEDIATYPE = {
@@ -281,13 +285,14 @@ def build(
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
         _fill_video(li, item, server, resume_seconds, resume_offset)
 
-    if not is_folder(item) and item.get("Type") != "Photo":
+    # Exactly the rows path_for sends to the play route.
+    if item.get("Type") in PLAYABLE_TYPES:
         li.setProperty("IsPlayable", "true")
     return li
 
 
-# Library containers (addon root views, etc.) are folders, not playable
-# media — do not stamp setMediaType("video") (ListItem.DBTYPE).
+# Library containers (addon root views, etc.) are folders, not media: their
+# tag takes a title and a plot.
 _CONTAINER_TYPES = frozenset({"CollectionFolder", "UserView"})
 
 
@@ -307,7 +312,11 @@ def _fill_video(
             tag.setPlot(item["Overview"])
         return
 
-    tag.setMediaType(MEDIATYPE.get(item_type, "video"))
+    # A DBTYPE of video is playable video to addon.xml's "Play with
+    # transcoding", so a type MEDIATYPE does not name takes none.
+    media_type = MEDIATYPE.get(item_type)
+    if media_type:
+        tag.setMediaType(media_type)
 
     if item.get("OriginalTitle"):
         tag.setOriginalTitle(item["OriginalTitle"])

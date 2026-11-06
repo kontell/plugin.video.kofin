@@ -581,6 +581,10 @@ class SegmentEngine:
             return
         if self._overlay is not None:
             return  # never two overlays at once
+        # Asked at the crossing, not only when armed: a SyncPlay group joined
+        # mid-play withdraws the offer.
+        if not self._play_next_on_offer():
+            return
         if crossed_into(self._prev_pos, now, self._near_end_at, self._runtime):
             self._near_end_prompted = True
             LOG.debug("near-end Play Next prompt at %.1f", now)
@@ -766,7 +770,10 @@ class SegmentEngine:
                 pass
             if remaining <= AUTOPLAY_MARGIN_SECONDS:
                 self._close_overlay()
-                self._start_next_episode()
+                # Asked again at the hand-off: a SyncPlay group joined while
+                # the overlay was up withdraws the offer.
+                if self._play_next_on_offer():
+                    self._start_next_episode()
                 return
         if 0 < self._overlay_hide_at <= now:
             self._close_overlay()

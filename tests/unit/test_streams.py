@@ -444,6 +444,20 @@ def test_an_attachment_carries_what_it_takes_to_name_it():
     (item,) = streams.attached_subtitles(SERVER, layout, "DirectStream")
     assert item.sidecar is True
     assert (item.language, item.title, item.forced) == ("ger", "Kommentar", True)
+    assert item.hearing_impaired is False
+
+
+def test_the_hearing_impaired_flag_rides_along():
+    """Jellyfin reads an SDH sidecar's name into the flag alone and leaves its
+    title empty, so the flag is all that tells it from the full track."""
+    layout = source(
+        text_sub(3, IsExternal=True, Language="eng", IsHearingImpaired=True),
+        text_sub(4, Language="eng", IsHearingImpaired=True),
+    )
+    (sidecar,) = streams.attached_subtitles(SERVER, layout, "DirectStream")
+    (embedded,) = streams.fetchable_subtitles(SERVER, layout)
+    assert sidecar.hearing_impaired is True
+    assert embedded.hearing_impaired is True
 
 
 def test_an_embedded_attachment_is_not_a_sidecar():

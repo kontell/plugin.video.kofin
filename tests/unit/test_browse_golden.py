@@ -365,7 +365,7 @@ EXPECTED = {
     "music_recent_albums": "1d5673b309336d5f",
     "next_episodes": "c92e9962cbefdcd0",
     "next_episodes_all": "c92e9962cbefdcd0",
-    "root": "3252645c2f963f76",
+    "root": "3816930311fc3bfe",
     "search_menu": "84b9c3fad941d5d1",
     "search_movies": "cfdff64543ad7601",
     "search_person": "581ee8741dae8a45",
