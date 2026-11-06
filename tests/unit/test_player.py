@@ -31,7 +31,7 @@ class RecordingApi:
         self.calls.append(("stopped", data))
 
     def close_transcode(self, device_id, play_session_id):
-        self.calls.append(("close_transcode", device_id))
+        self.calls.append(("close_transcode", (device_id, play_session_id)))
 
     def close_live_stream(self, live_stream_id):
         self.calls.append(("close_live_stream", live_stream_id))
@@ -322,21 +322,28 @@ def test_the_next_generation_reports_the_play_kodi_goes_on_with(monkeypatch):
     assert old_api.calls == []
 
 
+LIVE_CLOSED = [("close_live_stream", "ls1")]
+ENCODING_CLOSED = [("close_transcode", ("dev1", "ps1"))]
+
+
 @pytest.mark.parametrize(
-    "playing,user,calls",
+    "playing,user,method,calls",
     [
         # The play ended between the generations: nothing reports it now, so
-        # its live stream is closed.
-        ("", "uid", [("close_live_stream", "ls1")]),
-        ("http://s/other", "uid", [("close_live_stream", "ls1")]),
+        # what the server holds open for it is closed.
+        ("", "uid", "DirectStream", LIVE_CLOSED),
+        ("http://s/other", "uid", "DirectStream", LIVE_CLOSED),
+        ("", "uid", "Transcode", LIVE_CLOSED + ENCODING_CLOSED),
+        ("http://s/other", "uid", "Transcode", LIVE_CLOSED + ENCODING_CLOSED),
         # A sign-in to another account: not this login's to report or close.
-        ("http://s/stream", "someone-else", []),
+        ("http://s/stream", "someone-else", "DirectStream", []),
+        ("", "someone-else", "Transcode", []),
     ],
 )
 def test_a_play_not_this_generations_to_report_is_dropped(
-    monkeypatch, playing, user, calls
+    monkeypatch, playing, user, method, calls
 ):
-    handing_over(monkeypatch, LiveStreamId="ls1")
+    handing_over(monkeypatch, method=method, LiveStreamId="ls1")
     new, api = adopting(monkeypatch, playing=playing)
     monkeypatch.setattr(api, "user_id", user, raising=False)
 
@@ -360,13 +367,40 @@ def test_a_generation_with_a_play_of_its_own_adopts_nothing(monkeypatch):
     assert os.path.exists(state._handover_path())
 
 
+@pytest.mark.parametrize(
+    "user,calls",
+    [
+        ("uid", LIVE_CLOSED + ENCODING_CLOSED),
+        ("someone-else", []),
+    ],
+)
+def test_a_hand_over_never_taken_is_retired_before_it_is_replaced(
+    monkeypatch, user, calls
+):
+    """A generation that stops with a play of its own replaces the claim it
+    never took, whose play ended before its own began."""
+    handing_over(monkeypatch, method="Transcode", LiveStreamId="ls1")
+    new, api = adopting(monkeypatch, playing="http://s/next")
+    monkeypatch.setattr(api, "user_id", user, raising=False)
+    queue_item(url="http://s/next", PlaySessionId="ps2")
+    new.onPlayBackStarted()
+    new.adopt()
+    drain(new)
+    api.calls.clear()
+
+    new.stop_threads()
+
+    assert api.calls == calls
+    assert state.take_handed_over_play()["Claim"]["PlaySessionId"] == "ps2"
+
+
 def test_transcode_stop_closes_encoding(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item(method="Transcode")
     player.onPlayBackStarted()
     player.onPlayBackEnded()
     drain(player)
-    assert ("close_transcode", "dev1") in api.calls
+    assert ("close_transcode", ("dev1", "ps1")) in api.calls
 
 
 def test_pause_resume_report_state(monkeypatch):

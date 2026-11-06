@@ -462,16 +462,55 @@ class Player(xbmc.Player):
 
         A play still claimed goes on in Kodi, so its claim is handed to the
         next generation (``adopt``), once the last report queued here has
-        gone."""
+        gone. A claim handed over earlier and never taken is of a play that
+        ended before this one's began, and is retired before this one
+        replaces it."""
         self._stopped = True
         self.segments.reset()
         self._stop_ticker()
         self._stop_late_subtitles()
-        self._reporter.stop()
         item = self.current_item()
+        if item is not None:
+            superseded = self._take_handed_over()
+            if superseded is not None:
+                LOG.debug(
+                    "handed-over play of %s dropped: another play followed it",
+                    superseded["Id"],
+                )
+                self._retire(superseded)
+        self._reporter.stop()
         if item is not None:
             state.hand_over_play(
                 {"Claim": item, "Server": self.api.server, "UserId": self.api.user_id}
+            )
+
+    def _take_handed_over(self) -> JsonDict | None:
+        """The claim a stopped generation handed over, when it is this
+        login's; taken from the file either way."""
+        handed = state.take_handed_over_play()
+        claim = handed.get("Claim")
+        if not isinstance(claim, dict) or not claim.get("Id"):
+            return None
+        if (
+            handed.get("Server") != self.api.server
+            or handed.get("UserId") != self.api.user_id
+        ):
+            LOG.debug("handed-over play of %s dropped: another login's", claim["Id"])
+            return None
+        return claim
+
+    def _retire(self, claim: JsonDict) -> None:
+        """Close what the server holds open for a play nothing reports any
+        more, as its stop would have: the live stream, whose tuner only a
+        report naming it or a close frees, and a transcode's encoding."""
+        live_stream_id = claim.get("LiveStreamId")
+        if live_stream_id:
+            self._reporter.submit(lambda: self.api.close_live_stream(live_stream_id))
+        if claim.get("PlayMethod") == "Transcode":
+            self._reporter.submit(
+                lambda: self.api.close_transcode(
+                    claim.get("DeviceId", ""), claim["PlaySessionId"]
+                )
             )
 
     def adopt(self) -> None:
@@ -482,18 +521,11 @@ class Player(xbmc.Player):
         start: the server counts a play when it starts. A play that ended
         between the generations goes unreported, since how long ago is
         unknown and a stop that late could overwrite a resume point set
-        since; only its live stream is closed."""
+        since; it is only retired."""
         if self._stopped or self.current_item() is not None:
             return
-        handed = state.take_handed_over_play()
-        claim = handed.get("Claim")
-        if not isinstance(claim, dict) or not claim.get("Id"):
-            return
-        if (
-            handed.get("Server") != self.api.server
-            or handed.get("UserId") != self.api.user_id
-        ):
-            LOG.debug("handed-over play of %s dropped: another login's", claim["Id"])
+        claim = self._take_handed_over()
+        if claim is None:
             return
         playing, position = "", 0.0
         try:
@@ -504,13 +536,7 @@ class Player(xbmc.Player):
             playing = ""
         if not playing or not state.same_file(playing, str(claim.get("Path") or "")):
             LOG.debug("handed-over play of %s dropped: it has ended", claim["Id"])
-            live_stream_id = claim.get("LiveStreamId")
-            if live_stream_id:
-                # Nothing reports this play now, and only a report that names
-                # its live stream, or a close, frees the tuner behind it.
-                self._reporter.submit(
-                    lambda: self.api.close_live_stream(live_stream_id)
-                )
+            self._retire(claim)
             return
         claim["CurrentPosition"] = position
         claim["Paused"] = bool(xbmc.getCondVisibility("Player.Paused"))
