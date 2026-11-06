@@ -913,7 +913,14 @@ class Player(xbmc.Player):
 
 class _Ticker(threading.Thread):
     def __init__(self, player: Player) -> None:
-        super().__init__(name="kofin-progress")
+        # Daemon: a progress tick is best-effort and must never outlive the
+        # service. It waits only on its own halt, not on abort, so a tick
+        # stalled past its stop join (an auto-next lookup, a getTime on a
+        # player being torn down) would, as a non-daemon thread, keep Kodi
+        # from finalising the stopped service script and so block the next
+        # generation from starting. The stop report, which must flush, is the
+        # reporter's and is drained on teardown.
+        super().__init__(name="kofin-progress", daemon=True)
         self._player = player
         self._halt = threading.Event()
 

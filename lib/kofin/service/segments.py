@@ -206,7 +206,10 @@ class SegmentChecker(threading.Thread):
     """Drives the player's segment tick at 0.25 s while playback runs."""
 
     def __init__(self, player: Any) -> None:
-        super().__init__(name="kofin-segments")
+        # Daemon: a best-effort playback helper never outlives the service, so
+        # a tick stalled past its stop join cannot keep Kodi from finalising
+        # the stopped service script and blocking the next generation.
+        super().__init__(name="kofin-segments", daemon=True)
         self._player = player
         self._halt = threading.Event()
 

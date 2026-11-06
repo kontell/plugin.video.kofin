@@ -1080,3 +1080,12 @@ def test_finalize_tears_down_overlay_and_state(engine):
     assert engine.segments._segments == []
     assert not engine.segments._segments_loaded
     assert engine.segments._next_episode is None
+
+
+def test_the_segment_checker_is_a_daemon_thread():
+    """A best-effort playback helper must never outlive the service: a
+    non-daemon one stalled past its stop join keeps Kodi from finalising the
+    stopped service script and blocks the next generation (the transcode-stop
+    hang)."""
+    checker = segments_mod.SegmentChecker(player=None)
+    assert checker.daemon is True

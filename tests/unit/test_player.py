@@ -1289,3 +1289,12 @@ def test_a_plugin_url_that_is_not_kofins_claims_nothing(monkeypatch):
     drain(player)
     assert api.calls == []
     assert state.claim_play_item_of(SONG) is not None
+
+
+def test_the_progress_ticker_is_a_daemon_thread():
+    """A stalled progress tick (e.g. an auto-next lookup during a transcode)
+    must never, as a non-daemon thread, keep Kodi from finalising a stopped
+    service script and so block the next generation from starting."""
+    from kofin.service.player import _Ticker
+
+    assert _Ticker(player=None).daemon is True
