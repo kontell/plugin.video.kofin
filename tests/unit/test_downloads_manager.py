@@ -4,6 +4,7 @@ Everything drives ``_process`` directly — no worker threads — with a fake
 Api and duck-typed streams; the library side is recorded, not executed
 (test_downloads_native_api covers it)."""
 
+import itertools
 import os
 import shutil
 
@@ -1391,6 +1392,78 @@ def test_a_file_no_download_names_is_never_written_over(tmp_path, repoints):
     assert (album / "01.flac").read_bytes() == b"MINE"
     assert store.get("t2").rel_path == ALBUM + "/02.flac"
     assert (album / "02.flac").read_bytes() == b"TWO"
+
+
+MOVIE_DIR = "Movies/The Movie (2019)"
+
+
+def _movie_api(item_id, body, filename):
+    """MOVIE_DTO under ``item_id``, which the server holds under ``filename``."""
+    item = dict(MOVIE_DTO, Id=item_id)
+    item["MediaSources"] = [dict(MOVIE_DTO["MediaSources"][0], Size=len(body))]
+    disposition = 'attachment; filename="%s"' % filename
+    stream = FakeStream(
+        200,
+        [body],
+        {"Content-Length": str(len(body)), "Content-Disposition": disposition},
+    )
+    return FakeManagerApi(item, [stream])
+
+
+def _fail_an_endless_name_search(monkeypatch):
+    """A name search that never ends fails the test rather than hang it."""
+    clash, checks = files.stems_clash, itertools.count()
+
+    def counted(first, second):
+        assert next(checks) < 10_000, "the name search did not end"
+        return clash(first, second)
+
+    monkeypatch.setattr(files, "stems_clash", counted)
+
+
+@pytest.mark.parametrize(
+    "directory, make_api, mine, served, expected",
+    [
+        (ALBUM, _track_api, "01.flac", "01. Title.flac", "(2) 01. Title.flac"),
+        (ALBUM, _track_api, "01.cue", "01. Title.flac", "(2) 01. Title.flac"),
+        (ALBUM, _track_api, "01. Title.flac", "01.flac", "01 (2).flac"),
+        (MOVIE_DIR, _movie_api, "Movie.mkv", "Movie.en.mkv", "(2) Movie.en.mkv"),
+    ],
+)
+def test_a_name_never_carries_on_past_a_dot_from_a_file_beside_it(
+    tmp_path, repoints, monkeypatch, directory, make_api, mine, served, expected
+):
+    """A removal of 01.flac takes every 01.* beside it, and 01. Title (2).flac
+    is one: there the number leads."""
+    _fail_an_endless_name_search(monkeypatch)
+    manager, _ = make_manager(repoints)
+    folder = tmp_path / "dl" / directory
+    folder.mkdir(parents=True)
+    (folder / mine).write_bytes(b"MINE")
+
+    manager._process(make_api("i1", b"ONE", served), queue_row("i1"))
+
+    assert store.get("i1").rel_path == directory + "/" + expected
+    assert (folder / mine).read_bytes() == b"MINE"
+    assert (folder / expected).read_bytes() == b"ONE"
+
+
+def test_a_name_with_no_free_number_fails_the_download(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(files, "MAX_NAME_NUMBER", 2)
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    album = tmp_path / "dl" / ALBUM
+    album.mkdir(parents=True)
+    (album / "01.flac").write_bytes(b"MINE")
+    (album / "01 (2).flac").write_bytes(b"MINE TOO")
+
+    manager._process(_track_api("t1", b"ONE"), queue_row("t1"))
+    manager._process(_track_api("t1", b"ONE"), store.claim())
+    manager._process(_track_api("t1", b"ONE"), store.claim())
+
+    row = store.get("t1")
+    assert row.state == store.FAILED and "no free name" in row.error
+    assert sorted(os.listdir(album)) == ["01 (2).flac", "01.flac"]
 
 
 # -- the progress bar ---------------------------------------------------------

@@ -102,10 +102,21 @@ def test_unique_dir_suffixes_only_on_collision():
         ({"01", "01 (2)"}, "01.flac", "01 (3).flac"),
         ({"01"}, "01", "01 (2)"),
         ({"02"}, "01.flac", "01.flac"),
+        ({"01. Title"}, "01.flac", "01 (2).flac"),
+        ({"Movie.en"}, "Movie.mkv", "Movie (2).mkv"),
+        # Every "<stem> (n)" carries on from the held stem past a dot.
+        ({"01"}, "01. Title.flac", "(2) 01. Title.flac"),
+        ({"movie"}, "Movie.en.mkv", "(2) Movie.en.mkv"),
+        ({"01", "(2) 01. Title"}, "01. Title.flac", "(3) 01. Title.flac"),
     ],
 )
 def test_unique_filename_numbers_a_stem_already_held(held, filename, expected):
-    assert files.unique_filename(filename, lambda stem: stem in held) == expected
+    assert files.unique_filename(filename, held) == expected
+
+
+def test_unique_filename_has_none_past_its_last_number():
+    numbered = {"(%d) 01. Title" % n for n in range(2, files.MAX_NAME_NUMBER + 1)}
+    assert files.unique_filename("01. Title.flac", {"01"} | numbered) is None
 
 
 @pytest.mark.parametrize(

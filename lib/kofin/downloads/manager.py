@@ -941,10 +941,12 @@ class DownloadManager:
         with self._target_lock:
             owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
             directory = owning if leaf is None else "%s/%s" % (owning, leaf)
-            filename = files.unique_filename(
-                filename, _stem_taken(root, directory, item_id)
+            unique = files.unique_filename(
+                filename, _held_stems(root, directory, item_id)
             )
-            rel_path = "%s/%s" % (directory, filename)
+            if unique is None:
+                raise JellyfinError("no free name for %s in %s" % (item_id, directory))
+            rel_path = "%s/%s" % (directory, unique)
             if not files.contained(rel_path):
                 raise JellyfinError("download path of %s leaves its folder" % item_id)
             store.record_target(item_id, rel_path, container)
@@ -1717,11 +1719,11 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
     return taken
 
 
-def _stem_taken(root: str, directory: str, item_id: str) -> Callable[[str], bool]:
-    """Is a file stem in ``directory`` held already: by another row's file,
-    or by a file there that no row names, which a download never writes
-    over? A ``.part`` counts only through its row: one with no row is a
-    stale transfer's, and is written over."""
+def _held_stems(root: str, directory: str, item_id: str) -> list[str]:
+    """The file stems ``directory`` holds already: another row's file's, and
+    those of the files there that no row names, which a download never
+    writes over. A ``.part`` counts only through its row: one with no row is
+    a stale transfer's, and is written over."""
     folded = directory.casefold()
     names = [
         posixpath.basename(rel_path)
@@ -1736,8 +1738,7 @@ def _stem_taken(root: str, directory: str, item_id: str) -> Callable[[str], bool
             )
         except OSError:
             pass  # not made yet
-    held = [files.stem(name) for name in names]
-    return lambda candidate: any(files.stems_clash(candidate, other) for other in held)
+    return [files.stem(name) for name in names]
 
 
 # The sweep's two reads of Kodi's own play state, as module functions so a
