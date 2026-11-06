@@ -184,8 +184,13 @@ def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
     assert settings.Credentials.load().is_logged_in is False
 
 
-def test_a_password_in_the_address_is_neither_sent_nor_logged(kodi_fakes, monkeypatch):
-    """A failed ping is logged at warning, with the address it tried."""
+@pytest.mark.parametrize("typed", [False, True])
+def test_a_password_in_the_address_is_neither_sent_nor_logged(
+    kodi_fakes, monkeypatch, typed
+):
+    """A failed ping is logged at warning, with the address it tried. A stored
+    address is left without its password; a typed one is stored only by a
+    sign-in that succeeds."""
     lines = []
     monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
     pinged = []
@@ -195,13 +200,32 @@ def test_a_password_in_the_address_is_neither_sent_nor_logged(kodi_fakes, monkey
         raise ServerUnreachable("GET %s/System/Info/Public: refused" % a)
 
     monkeypatch.setattr(account.auth, "public_info", unreachable)
-    settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+    if typed:
+        FakeDialog.inputs = ["https://bob:hunter2@minipie"]
+    else:
+        settings.set_str("serverAddress", "https://bob:hunter2@minipie")
 
     account.login(REQ)
 
     assert pinged == ["https://minipie"]
     assert lines
     assert not [line for line in lines if "hunter2" in line or "bob" in line]
+    assert settings.get_str("serverAddress") == ("" if typed else "https://minipie")
+
+
+def test_signed_in_the_stored_address_loses_its_password(kodi_fakes, monkeypatch):
+    """Log in while signed in asks the server nothing, and the settings
+    dialog shows the address."""
+    _logged_in()
+    settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+    pinged = []
+    monkeypatch.setattr(account.auth, "public_info", lambda h, a: pinged.append(a))
+
+    account.login(REQ)
+
+    assert pinged == []
+    assert settings.get_str("serverAddress") == "https://minipie"
+    assert settings.Credentials.load().is_logged_in is True
 
 
 def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
