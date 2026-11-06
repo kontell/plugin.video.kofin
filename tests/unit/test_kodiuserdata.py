@@ -181,19 +181,22 @@ def test_the_echo_of_the_passs_own_write_is_not_an_edit(outbox):
     assert outbox.edits == []
 
 
-def test_a_reset_resume_records_kodis_own_bookmark(outbox, kodi_resume):
-    outbox.filed["jf-ep-1"] = 1200.0
+@pytest.mark.parametrize("filed", [1200.0, 0.0])
+def test_a_reset_resume_records_kodis_own_bookmark(outbox, kodi_resume, filed):
+    """Filed 0 is a first play's row until a pass files the play: the
+    bookmark Kodi's player wrote at the stop is still the one reset."""
+    outbox.filed["jf-ep-1"] = filed
     kodi_resume["position"] = 0.0
     drain(RecordingApi(), [RESET_RESUME])
     assert outbox.edits == [("jf-ep-1", {"position": 0.0})]
 
 
-@pytest.mark.parametrize("kodi, filed", [(600.0, 1200.0), (600.0, 0.0), (0.0, 0.0)])
-def test_the_flat_shape_without_a_reset_is_no_edit(outbox, kodi_resume, kodi, filed):
+@pytest.mark.parametrize("filed", [1200.0, 0.0])
+def test_the_flat_shape_without_a_reset_is_no_edit(outbox, kodi_resume, filed):
     """Kodi announces the flat shape for a change of art or title too, and a
     row that lags the server would otherwise put its older position back."""
     outbox.filed["jf-ep-1"] = filed
-    kodi_resume["position"] = kodi
+    kodi_resume["position"] = 600.0
     drain(RecordingApi(), [RESET_RESUME])
     assert outbox.edits == []
 
