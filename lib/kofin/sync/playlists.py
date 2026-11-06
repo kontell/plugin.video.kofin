@@ -174,8 +174,7 @@ def safe_filename(name: str) -> str:
 
     A name the filesystem encoding cannot carry folds to ASCII, as a
     download's does (``downloads/files.sanitize``), before the unsafe
-    characters go: the fold makes some of them (``／`` is ``/``). A long
-    name is cut to MAX_STEM_BYTES.
+    characters go: the fold makes some of them (``／`` is ``/``).
     """
     cleaned = (name or "").strip()
     try:
@@ -187,10 +186,13 @@ def safe_filename(name: str) -> str:
             .decode("ascii")
             .strip()
         )
-    cleaned = _UNSAFE.sub("_", cleaned)
-    cleaned = cleaned.encode("utf-8")[:MAX_STEM_BYTES].decode("utf-8", "ignore")
-    cleaned = cleaned.rstrip(" .")
-    return cleaned or "playlist"
+    return _UNSAFE.sub("_", cleaned).rstrip(" .") or "playlist"
+
+
+def _cut(stem: str) -> str:
+    """``stem`` cut to MAX_STEM_BYTES where a character ends."""
+    cut = stem.encode("utf-8")[:MAX_STEM_BYTES].decode("utf-8", "ignore")
+    return cut.rstrip(" .") or "playlist"
 
 
 def entry_label(entry: Entry) -> str:
@@ -215,7 +217,7 @@ def render_m3u8(entries: Iterable[Entry]) -> str:
 
 
 def _unique_stem(name: str, taken: set[str]) -> str:
-    base = safe_filename(name)
+    base = _cut(safe_filename(name))
     candidate = base
     n = 2
     while candidate.lower() in taken:
@@ -226,13 +228,20 @@ def _unique_stem(name: str, taken: set[str]) -> str:
 
 
 def _stem_matches_title(name: str, filename: str) -> bool:
-    """True when ``filename`` is this title, or its ``Title (n)`` disambiguation.
+    """True when ``filename`` is this title, or its ``Title (n)``
+    disambiguation, with the title cut as :func:`_unique_stem` cuts it or
+    whole: the cut leaves room for a number, and a stored name past it is
+    one the filesystem took.
 
     A membership rewrite keeps that file: recomputing the stem would turn
     ``Title (2).m3u8`` into ``Title.m3u8`` over whoever owns the base name.
     """
     stem = os.path.splitext(filename)[0]
-    base = safe_filename(name)
+    whole = safe_filename(name)
+    return _is_title_stem(stem, whole) or _is_title_stem(stem, _cut(whole))
+
+
+def _is_title_stem(stem: str, base: str) -> bool:
     if stem == base:
         return True
     prefix = base + " ("

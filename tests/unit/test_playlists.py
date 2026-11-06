@@ -365,6 +365,51 @@ def test_a_long_title_is_cut_to_a_name_the_filesystem_takes(tmp_path):
         stem + ".m3u8",
     ]
 
+    # Changed and listed the other way round, each keeps its cut name.
+    api._playlists = [
+        _audio_playlist(title, "two", playlist_id="pl2"),
+        _audio_playlist(title, "two", playlist_id="pl1"),
+    ]
+    playlists.reconcile(
+        api, state, {"Audio"}, music_root=str(tmp_path), resolver=_audio_resolver()
+    )
+    assert state.get_playlist_state("pl1")[1] == stem + ".m3u8"
+    assert state.get_playlist_state("pl2")[1] == stem + " (2).m3u8"
+
+
+@pytest.mark.parametrize(
+    "title, stored",
+    [
+        ("a" * 246, "a" * 246 + ".m3u8"),
+        ("a" * 242, "a" * 242 + " (2).m3u8"),
+    ],
+    ids=["title", "numbered"],
+)
+def test_a_stored_name_past_the_cut_is_kept_while_the_title_matches(
+    tmp_path, title, stored
+):
+    """The cut leaves room for a "(n)": a longer stem the filesystem took is
+    the title's as much as the cut one, and a rewrite keeps its file."""
+    (tmp_path / stored).write_text("#EXTM3U\n", encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state(
+        "pl1", "Audio", stored, playlists.reference_checksum("old")
+    )
+    api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
+
+    playlists.apply_one(
+        api,
+        state,
+        _audio_playlist(title, "new"),
+        {"Audio"},
+        music_root=str(tmp_path),
+        resolver=_audio_resolver(),
+    )
+
+    assert state.get_playlist_state("pl1")[1] == stored
+    assert [path.name for path in tmp_path.glob("*.m3u8")] == [stored]
+    assert SONG_LINE in (tmp_path / stored).read_text(encoding="utf-8")
+
 
 def test_a_title_the_filesystem_encoding_cannot_carry_folds_to_ascii(monkeypatch):
     """Kodi's Python can run with an ASCII filesystem encoding, where a
