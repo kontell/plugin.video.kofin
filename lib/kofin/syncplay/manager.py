@@ -898,7 +898,6 @@ class SyncPlayManager:
         self.ignore_wait = False
         self.holds.clear_stop()
         self._join_pending_since = 0.0
-        self._pending_local_queue = False
         self.player.syncplay_group_active = False
         self.holds.release()
         self.publish_session_state(announce=True)

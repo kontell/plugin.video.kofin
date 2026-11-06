@@ -184,9 +184,9 @@ def manager():
     m._dispatcher.join(timeout=2)
 
 
-def join(manager, protocol_version=2, version=1):
+def join(manager, protocol_version=2, version=1, group_id="g1"):
     info = {
-        "GroupId": "g1",
+        "GroupId": group_id,
         "GroupName": "movie night",
         "State": "Idle",
         "Participants": ["alice", "bob"],
@@ -196,7 +196,12 @@ def join(manager, protocol_version=2, version=1):
         info["ProtocolVersion"] = protocol_version
 
     manager._handle_group_update(
-        {"GroupId": "g1", "Type": "GroupJoined", "Data": info, "StateVersion": version}
+        {
+            "GroupId": group_id,
+            "Type": "GroupJoined",
+            "Data": info,
+            "StateVersion": version,
+        }
     )
     # Don't let the real TimeSync thread run in unit tests.
     if manager.timesync is not None:
@@ -2592,13 +2597,25 @@ class TestGroupUpdateTables:
 
         assert manager._api.named("syncplay_set_new_queue") == []
 
-    def test_leaving_forgets_a_new_group_not_confirmed_yet(self, manager):
+    def test_a_new_group_made_from_inside_a_group_takes_the_local_playback(
+        self, manager, paused_cond, monkeypatch
+    ):
+        """The server leaves the current group before it creates the new one,
+        so the old group's GroupLeft arrives ahead of the GroupJoined that
+        hands the new group its creator's playback."""
+        monkeypatch.setattr(manager_module.utils, "later", lambda *a: None)
         join(manager)
-        manager._pending_local_queue = True
+        manager.player.playing = True
+        manager.player.item = {"Id": "my-own-show", "PlaySessionId": "s9"}
 
-        manager._leave_locally()
+        assert manager.new_group("ours") is True
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "GroupLeft", "Data": "g1"}
+        )
+        join(manager, group_id="g2")
 
-        assert manager._pending_local_queue is False
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert [call[1] for call in calls] == [["my-own-show"]]
 
     def test_group_does_not_exist_outside_a_group_is_quiet(self, manager, monkeypatch):
         attempts = []
