@@ -29,6 +29,7 @@ from kofin.core.urls import (
     STREAM_REQUEST_PARAMS,
 )
 from kofin.plugin import listitems, subtitles
+from kofin.plugin.listitems import AUDIO_TYPES
 from kofin.sync import private
 from kofin.plugin.router import Request
 
@@ -62,8 +63,6 @@ MIME_BY_CONTAINER = {
     "wav": "audio/wav",
 }
 HLS_MIME = "application/x-mpegURL"
-
-AUDIO_TYPES = frozenset({"Audio"})
 
 # Kodi's STREAM_PROPERTY_ISREALTIMESTREAM, which every input stream reads
 # (CDVDInputStream): the source is live, as a PVR client marks live TV.

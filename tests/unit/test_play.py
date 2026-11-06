@@ -98,6 +98,17 @@ def test_stream_url_audio_kind_and_multi_container():
     assert method == "DirectStream"
 
 
+def test_stream_url_an_audiobook_streams_as_audio():
+    url, _method = play.stream_url(
+        SERVER,
+        {"Type": "AudioBook", "Id": "b1"},
+        {"Id": "src1", "SupportsDirectPlay": True, "Container": "m4b"},
+        "dev1",
+        "ps1",
+    )
+    assert url.startswith("http://s:8096/Audio/b1/stream.m4b?")
+
+
 def test_stream_url_transcode():
     url, method = play.stream_url(
         SERVER,

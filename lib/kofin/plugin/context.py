@@ -255,7 +255,7 @@ WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 # What a resume point can be reset on: the playable video kinds. Jellyfin
 # keeps a position for songs only as audiobooks, and Kodi has nowhere to
 # resume one (Api.resume says the same).
-RESUMABLE_TYPES = PLAYABLE_TYPES - {"Audio"}
+RESUMABLE_TYPES = PLAYABLE_TYPES - {"Audio", "AudioBook"}
 
 # The containers Play all / Shuffle expand (plugin/playall.py). A Playlist
 # joins when it is an audio one (``_plays_all``).
