@@ -512,11 +512,18 @@ def _checksum(playlist: dict[str, Any]) -> str:
     return (reference_checksum(etag) or "") if etag else ""
 
 
-def _stands(stored: Any, side: str, checksum: str) -> bool:
-    """Whether the stored copy is current: the same side, a filename, the
-    Etag's checksum, and not a reserved name. An empty checksum never
+def _on_disk(directory: str, filename: str) -> bool:
+    return bool(filename) and os.path.isfile(os.path.join(directory, filename))
+
+
+def _stands(stored: Any, side: str, checksum: str, directory: str) -> bool:
+    """Whether the stored copy is current: the same side, a filename on disk,
+    the Etag's checksum, and not a reserved name. An empty checksum never
     stands: it is the mark of a short write, and of a playlist the server
-    gave no Etag."""
+    gave no Etag. A file the state names but disk no longer holds never
+    stands either — the Etag does not move when the file is lost, so without
+    this a playlist another writer deleted from the folder (a title starting
+    with "kofin" once was) would never be written again."""
     return bool(
         stored
         and stored[0] == side
@@ -524,6 +531,7 @@ def _stands(stored: Any, side: str, checksum: str) -> bool:
         and checksum
         and stored[2] == checksum
         and not _reserved(side, stored[1])
+        and _on_disk(directory, stored[1])
     )
 
 
@@ -600,13 +608,13 @@ def apply_one(
             return True
         return False
 
-    if _stands(stored, side, _checksum(playlist)):
-        return False
     directory = (
         managed_dir(music_root)
         if side == "Audio"
         else (video_root if video_root is not None else managed_video_dir())
     )
+    if _stands(stored, side, _checksum(playlist), directory):
+        return False
     if not os.path.isdir(directory):
         os.makedirs(directory)
     write_folder_icon(directory)
@@ -696,7 +704,7 @@ def reconcile(
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
-        if stored is not None and _stands(stored, side, _checksum(playlist)):
+        if stored is not None and _stands(stored, side, _checksum(playlist), directory):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
@@ -864,6 +872,12 @@ def write_video_playlists(entries: Iterable[Any]) -> None:
             fs.entry(directory, name)
         )
         keep.add(name)
+
+    # The ``.m3u8`` files in this folder are the Jellyfin video playlists,
+    # owned by the materializer (reconcile/_prune) — not ours to prune here,
+    # even one whose title starts with "kofin" and so carries the deletion
+    # prefix. Only the smart playlists (.xsp) are this writer's.
+    keep.update(name for name in fs.listdir(directory)[1] if name.endswith(".m3u8"))
 
     for name in fs.remove_managed_entries(directory, keep=keep, label="playlist"):
         LOG.debug("--[ playlists ] pruned stale %s", name)

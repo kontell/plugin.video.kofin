@@ -646,6 +646,76 @@ def test_apply_one_renames_a_music_playlist_when_the_title_changes(tmp_path):
     assert state.get_playlist_state("pl1")[1] == "Road Trip.m3u8"
 
 
+def test_a_video_playlist_named_kofin_survives_the_smart_playlist_rewrite(
+    tmp_path, monkeypatch
+):
+    """The video Kofin/ folder holds both the per-library smart playlists
+    (.xsp) and the Jellyfin video playlists (.m3u8). The smart-playlist
+    writer reconciles the folder by the ``kofin`` prefix, so a Jellyfin
+    playlist whose title starts with "kofin" used to be pruned as a stale
+    managed file and, its Etag unmoved, never written again. Only the
+    materializer owns the .m3u8 files; this writer spares every one."""
+    directory = tmp_path / "Kofin"
+    directory.mkdir()
+    monkeypatch.setattr(playlists, "managed_video_dir", lambda: str(directory))
+    monkeypatch.setattr(playlists, "video_playlists_dir", lambda: str(tmp_path))
+    (directory / "kofin night.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    (directory / "mine.xsp").write_text("<smartplaylist/>")
+    stale = "kofinmovies" + "f" * 32 + ".xsp"
+    (directory / stale).write_text("<smartplaylist/>")
+
+    view = {
+        "Id": "a" * 32,
+        "Media": "movies",
+        "Name": "Movies",
+        "Path": "plugin://plugin.video.kofin/?mode=browse&node=lib",
+    }
+    playlists.write_video_playlists([(view, False)])
+
+    names = {p.name for p in directory.iterdir()}
+    assert "kofin night.m3u8" in names  # the Jellyfin playlist, spared
+    assert ("kofinmovies" + "a" * 32 + ".xsp") in names  # the smart playlist written
+    assert "mine.xsp" in names  # a hand-made file, spared
+    assert stale not in names  # a stale managed smart playlist, pruned
+
+
+def test_a_standing_playlist_whose_file_vanished_is_written_again(tmp_path):
+    """The server's Etag does not move when the file is lost, so a standing
+    playlist whose .m3u8 was removed from the folder would never return. The
+    skip now also requires the file on disk, so a vanished one self-heals."""
+    api = FakeApi(
+        playlist_list=[
+            {"Id": "pl1", "Name": "kofin night", "MediaType": "Video", "Etag": "one"}
+        ],
+        items_by_id={"pl1": [{"Id": "m1", "Type": "Movie"}]},
+    )
+    resolver = _video_resolver()
+    root = tmp_path / "video"
+    root.mkdir()
+    state = FakeState()
+
+    playlists.reconcile(api, state, {"Video"}, video_root=str(root), resolver=resolver)
+    written = state.get_playlist_state("pl1")[1]
+    assert (root / written).is_file()
+
+    # Removed by something else; the Etag still stands.
+    (root / written).unlink()
+    assert playlists.apply_one(
+        api,
+        state,
+        api.playlists()[0],
+        {"Video"},
+        video_root=str(root),
+        resolver=resolver,
+    )
+    assert (root / written).is_file()
+
+    # A full reconcile heals it too.
+    (root / written).unlink()
+    playlists.reconcile(api, state, {"Video"}, video_root=str(root), resolver=resolver)
+    assert (root / written).is_file()
+
+
 def test_an_empty_listing_does_not_empty_the_managed_folder(tmp_path):
     """The managed folder's ownership rule is the folder itself, so every
     .m3u8 not in the server's set is removed. A listing that comes back empty
