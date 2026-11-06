@@ -77,3 +77,24 @@ def test_the_schema_drops_the_tables_nothing_reads():
     }
     assert {"view", "playlist_state", "download"} <= names
     assert "jellyfin" not in names
+
+
+def test_a_download_table_without_the_validator_gains_it():
+    """A profile an earlier build filed has the download table without the
+    column a resume's If-Range is read from."""
+    import sqlite3
+
+    cursor = sqlite3.connect(":memory:").cursor()
+    cursor.execute("""CREATE TABLE download(
+        jellyfin_id TEXT PRIMARY KEY, media_type TEXT, series_id TEXT,
+        state TEXT, origin TEXT, rel_path TEXT, container TEXT,
+        size_expected INTEGER, size_actual INTEGER, quality TEXT,
+        bytes_done INTEGER, userdata_json TEXT,
+        queued_at INTEGER, done_at INTEGER, error TEXT,
+        segments_json TEXT,
+        request_id TEXT, request_name TEXT)""")
+
+    private.kofin_tables(cursor)
+
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(download)")}
+    assert "validator" in columns

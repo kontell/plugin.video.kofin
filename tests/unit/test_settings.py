@@ -390,6 +390,20 @@ def test_the_downloads_category_stays_a_single_group():
     assert len(list(category.iter("group"))) == 1
 
 
+def test_the_download_location_offers_this_devices_folders_alone():
+    """Kodi's folder browser lists the network locations beside the local
+    drives unless a path setting names the local source alone."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    setting = next(
+        element
+        for element in root.iter("setting")
+        if element.get("id") == "downloadsPath"
+    )
+    assert [source.text for source in setting.iter("source")] == ["local"]
+
+
 def test_the_streaming_bitrate_cap_shows_under_force_direct_play():
     """Play with transcoding's default bitrate is the cap, and force direct
     play does not reach that play, so the cap has a use with it on."""
@@ -526,6 +540,35 @@ def test_every_settings_button_names_a_registered_route():
         "%s -> mode=%s" % (owner, mode) for owner, mode in buttons if mode not in ROUTES
     )
     assert not unregistered
+
+
+def test_a_button_whose_route_writes_a_setting_closes_the_dialog_first():
+    """Backing out of an open settings dialog saves the dialog's own copy
+    over whatever a route wrote meanwhile; ``<close>true</close>`` saves and
+    shuts it before the route runs."""
+    import re
+    import xml.etree.ElementTree as etree
+
+    writers = {
+        "findservers",
+        "login",
+        "selectlibraries",
+        "whoshortlist",
+        "downloadsubscriptions",
+        "downloadshows",
+    }
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    seen, left_open = set(), []
+    for setting in root.iter("setting"):
+        for control in setting.iter("control"):
+            found = re.search(r"\?mode=([a-z]+)", control.findtext("data") or "")
+            if found and found.group(1) in writers:
+                seen.add(found.group(1))
+                if control.findtext("close") != "true":
+                    left_open.append(setting.get("id"))
+
+    assert seen == writers
+    assert left_open == []
 
 
 @pytest.mark.parametrize(

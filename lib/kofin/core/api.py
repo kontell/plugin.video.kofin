@@ -956,17 +956,22 @@ class Api:
 
     # -- offline downloads -----------------------------------------------------
 
-    def download_stream(self, item_id: str, start: int = 0) -> "StreamedResponse":
+    def download_stream(
+        self, item_id: str, start: int = 0, if_range: str = ""
+    ) -> "StreamedResponse":
         """/Items/{id}/Download as a resumable byte stream.
 
         The original file, Range-capable, gated server-side on the user's
         EnableContentDownloading policy: a 403 here means the admin turned
-        that off, and surfaces as Unauthorized.
+        that off, and surfaces as Unauthorized. The file is served with its
+        Last-Modified, and an If-Range naming an older one gets the whole
+        file back.
         """
         return self._http.stream(
             self._url("/Items/%s/Download" % item_id),
             headers=self._headers(),
             start=start,
+            if_range=if_range,
         )
 
     def subtitle_stream_url(

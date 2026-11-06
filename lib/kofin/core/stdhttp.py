@@ -126,6 +126,7 @@ class StdlibHttp(Http):
         headers: dict[str, str] | None = None,
         start: int = 0,
         timeout: tuple[float, float] | None = None,
+        if_range: str = "",
     ) -> StreamedResponse:
         raise RuntimeError("StdlibHttp does not stream; downloads run on the service")
 
