@@ -916,7 +916,7 @@ class SyncPlayManager:
 
         self._last_rejoin = now
         LOG.debug("Attempting SyncPlay rejoin of %s", self.last_group_id)
-        self._pending_local_queue = False  # as in join_group
+        self._pending_local_queue = False
 
         try:
             self._api_raw("syncplay_join", self.last_group_id, 2)
