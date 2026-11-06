@@ -65,11 +65,17 @@ def fetchable_of(item: JsonDict) -> dict[int, streams.Attachment]:
 
 def deferred_of(item: JsonDict) -> list[streams.Attachment]:
     """The tracks to chase without being asked: the one this play resolved
-    with and did not get inside the play route's budget."""
+    with and did not get inside the play route's budget, unless a chase has
+    attached it since (a claim a stopped generation handed over)."""
     fetchable = fetchable_of(item)
     payload = item.get("Streams") or {}
+    attached = set(payload.get("Attached") or [])
     wanted = [int(index) for index in payload.get("Deferred") or []]
-    return [fetchable[index] for index in wanted if index in fetchable]
+    return [
+        fetchable[index]
+        for index in wanted
+        if index in fetchable and index not in attached
+    ]
 
 
 class LateSubtitles:

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from kofin.core import state
@@ -6,6 +8,9 @@ from tests.unit.fakes import FakeAddon, FakeWindow
 
 
 class RecordingApi:
+    server = "http://s:8096"
+    user_id = "uid"
+
     def __init__(self):
         self.calls = []
         self.deleted = []
@@ -26,7 +31,7 @@ class RecordingApi:
         self.calls.append(("stopped", data))
 
     def close_transcode(self, device_id, play_session_id):
-        self.calls.append(("close_transcode", device_id))
+        self.calls.append(("close_transcode", (device_id, play_session_id)))
 
     def close_live_stream(self, live_stream_id):
         self.calls.append(("close_live_stream", live_stream_id))
@@ -273,13 +278,129 @@ def test_a_stopped_player_leaves_the_claim_to_the_live_one(monkeypatch):
     assert api.calls[0][0] == "playing"
 
 
+def handing_over(monkeypatch, url="http://s/stream", **extra):
+    """A generation stopped in the middle of a play it claimed; its api."""
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
+    old, api = make_player(monkeypatch, url=url)
+    queue_item(url=url, **extra)
+    old.onPlayBackStarted()
+    drain(old)
+    api.calls.clear()
+    old.stop_threads()
+    return api
+
+
+def adopting(monkeypatch, playing="http://s/stream"):
+    """The next generation's player, with Kodi playing ``playing``."""
+    new, api = make_player(monkeypatch, url=playing)
+    monkeypatch.setattr(new, "isPlaying", lambda: bool(playing))
+    return new, api
+
+
+def test_the_next_generation_reports_the_play_kodi_goes_on_with(monkeypatch):
+    """A restart (an add-on update, a sign-in, an sslVerify change) stops a
+    generation in the middle of a play. The next one reports it on, in the
+    same play session and never as a new play, since the server counts a
+    play when it starts; and its stop still names the live stream."""
+    old_api = handing_over(monkeypatch, LiveStreamId="ls1")
+    new, api = adopting(monkeypatch)
+
+    new.adopt()
+    drain(new)
+
+    assert new.current_item()["PlaySessionId"] == "ps1"
+    assert state.get_playing_id() == "m1"
+    assert [kind for kind, _data in api.calls] == ["progress"]
+    assert api.calls[0][1]["PositionTicks"] == 420_000_000  # where Kodi is
+    assert api.calls[0][1]["LiveStreamId"] == "ls1"
+
+    new.onPlayBackStopped()
+    drain(new)
+    assert api.calls[-1][0] == "stopped"
+    assert api.calls[-1][1]["PlaySessionId"] == "ps1"
+    assert api.calls[-1][1]["LiveStreamId"] == "ls1"
+    assert old_api.calls == []
+
+
+LIVE_CLOSED = [("close_live_stream", "ls1")]
+ENCODING_CLOSED = [("close_transcode", ("dev1", "ps1"))]
+
+
+@pytest.mark.parametrize(
+    "playing,user,method,calls",
+    [
+        # The play ended between the generations: nothing reports it now, so
+        # what the server holds open for it is closed.
+        ("", "uid", "DirectStream", LIVE_CLOSED),
+        ("http://s/other", "uid", "DirectStream", LIVE_CLOSED),
+        ("", "uid", "Transcode", LIVE_CLOSED + ENCODING_CLOSED),
+        ("http://s/other", "uid", "Transcode", LIVE_CLOSED + ENCODING_CLOSED),
+        # A sign-in to another account: not this login's to report or close.
+        ("http://s/stream", "someone-else", "DirectStream", []),
+        ("", "someone-else", "Transcode", []),
+    ],
+)
+def test_a_play_not_this_generations_to_report_is_dropped(
+    monkeypatch, playing, user, method, calls
+):
+    handing_over(monkeypatch, method=method, LiveStreamId="ls1")
+    new, api = adopting(monkeypatch, playing=playing)
+    monkeypatch.setattr(api, "user_id", user, raising=False)
+
+    new.adopt()
+    drain(new)
+
+    assert new.current_item() is None
+    assert api.calls == calls
+    assert not os.path.exists(state._handover_path())
+
+
+def test_a_generation_with_a_play_of_its_own_adopts_nothing(monkeypatch):
+    handing_over(monkeypatch)
+    new, api = adopting(monkeypatch, playing="http://s/next")
+    queue_item(url="http://s/next")
+    new.onPlayBackStarted()
+
+    new.adopt()
+
+    assert new.current_item()["Path"] == "http://s/next"
+    assert os.path.exists(state._handover_path())
+
+
+@pytest.mark.parametrize(
+    "user,calls",
+    [
+        ("uid", LIVE_CLOSED + ENCODING_CLOSED),
+        ("someone-else", []),
+    ],
+)
+def test_a_hand_over_never_taken_is_retired_before_it_is_replaced(
+    monkeypatch, user, calls
+):
+    """A generation that stops with a play of its own replaces the claim it
+    never took, whose play ended before its own began."""
+    handing_over(monkeypatch, method="Transcode", LiveStreamId="ls1")
+    new, api = adopting(monkeypatch, playing="http://s/next")
+    monkeypatch.setattr(api, "user_id", user, raising=False)
+    queue_item(url="http://s/next", PlaySessionId="ps2")
+    new.onPlayBackStarted()
+    new.adopt()
+    drain(new)
+    api.calls.clear()
+
+    new.stop_threads()
+
+    assert api.calls == calls
+    assert state.take_handed_over_play()["Claim"]["PlaySessionId"] == "ps2"
+
+
 def test_transcode_stop_closes_encoding(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item(method="Transcode")
     player.onPlayBackStarted()
     player.onPlayBackEnded()
     drain(player)
-    assert ("close_transcode", "dev1") in api.calls
+    assert ("close_transcode", ("dev1", "ps1")) in api.calls
 
 
 def test_pause_resume_report_state(monkeypatch):
@@ -740,6 +861,40 @@ def test_no_default_subtitle_turns_them_off(monkeypatch):
     player.onAVStarted()
     assert tracks.shown == [False]
     assert tracks.subtitle == []
+
+
+def test_a_downloaded_play_keeps_kodis_own_tracks(monkeypatch):
+    """The claim of a downloaded play carries no streams: the server's
+    defaults index a source's tracks, not the file's, so nothing is put over
+    Kodi's own choice, a forced or sidecar subtitle included."""
+    from kofin.plugin import play as play_module
+
+    local = "/storage/downloads/Movies/M (2019)/m.mkv"
+    state.push_play_item(
+        play_module.play_state(
+            {"Id": "m1", "Type": "Movie", "Name": "M"},
+            {"Id": "m1"},
+            local,
+            "DirectPlay",
+            "ps1",
+            "dev1",
+            0.0,
+            streams_menu=False,
+        )
+    )
+    player, _ = make_player(monkeypatch, url=local)
+    monkeypatch.setattr("kofin.service.player.downloaded_path", lambda path: True)
+    tracks = TrackRecorder()
+    monkeypatch.setattr(player, "setAudioStream", tracks.audio.append)
+    monkeypatch.setattr(player, "setSubtitleStream", tracks.subtitle.append)
+    monkeypatch.setattr(player, "showSubtitles", tracks.shown.append)
+    FakeAddon.store["honourJellyfinDefaultTracks"] = "true"
+
+    player.onPlayBackStarted()
+    assert player.current_item()["Id"] == "m1"
+    player.onAVStarted()
+
+    assert tracks.audio == [] and tracks.subtitle == [] and tracks.shown == []
 
 
 def test_the_setting_is_respected(monkeypatch):
