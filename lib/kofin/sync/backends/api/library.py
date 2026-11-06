@@ -861,7 +861,7 @@ class Library(threading.Thread):
         # Until the first page of the first kind arrives nothing is counted:
         # the libraries are asked for, the server's clock is read.
         bar.working(progress.PREPARING)
-        selected = settings.get_list("librarySelection")
+        selected = self._selection()
         supported = self._supported_views()
         self.settle_missing()
         # A library being rebuilt is listed when its old rows have left Kodi,
@@ -931,7 +931,7 @@ class Library(threading.Thread):
         # Enumeration takes minutes on a real catalogue. A library deselected
         # meanwhile is not published: its RemoveLibrary is already queued, and
         # publishing it here would import every item only to remove it again.
-        selected = settings.get_list("librarySelection")
+        selected = self._selection()
         committed = [library for library in fetched if library in selected]
         if not committed and not (complete and boxsets):
             if complete:
@@ -994,6 +994,19 @@ class Library(threading.Thread):
         self.publish_selection()
         # The playlists follow the catalogue they point into.
         self._playlists_due = True
+
+    @staticmethod
+    def _selection() -> list[str]:
+        """The selected libraries, for a listing to rely on. A settings store
+        Kodi has unregistered, or a settings document that did not load,
+        reads every string blank, so an empty selection counts only beside a
+        ``deviceId`` that answers (the settings applier's LOAD_CANARY), and
+        the listing fails otherwise: stamped, it would record a listing that
+        never ran and move the cursor past every change it was for."""
+        selected = settings.get_list("librarySelection")
+        if not selected and not settings.get_str("deviceId"):
+            raise RuntimeError("library selection not read: settings unavailable")
+        return selected
 
     def _collection_changes(
         self, boxsets: list[dict[str, Any]], complete: bool

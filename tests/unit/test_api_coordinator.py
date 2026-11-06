@@ -418,6 +418,37 @@ def test_a_complete_listing_with_nothing_to_publish_is_stamped(
     assert None not in ran
 
 
+@pytest.mark.parametrize(
+    "selections",
+    [
+        [[]],
+        # Read whole for the listing, blank at the read after it.
+        [[LIB], [LIB], []],
+    ],
+)
+def test_a_selection_the_settings_store_did_not_answer_for_is_no_listing(
+    store, monkeypatch, selections
+):
+    """A store Kodi has unregistered, or a settings document that did not
+    load, reads every string blank, deviceId included: the listing fails as
+    a server error does, with nothing published, the cursor where it was,
+    and the complete listing still due."""
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import unix_to_watermark
+
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=1000.0)
+    w = worker(store, Server({LIB: [movie()]}), selections, monkeypatch)
+    monkeypatch.setattr(library.settings, "get_str", lambda key: "")
+    w.command("UpdateLibrary", {})
+
+    with pytest.raises(RuntimeError):
+        w.refresh()
+
+    assert store.watermark() == (unix_to_watermark(500), 1000.0)
+    assert store.records(pinned=False) == {}
+    assert w._full_due
+
+
 def test_a_retention_overrun_is_listed_whole_on_the_next_tick(store, monkeypatch):
     from kofin.sync.backends.api import library
     from kofin.sync.changefeed import unix_to_watermark
