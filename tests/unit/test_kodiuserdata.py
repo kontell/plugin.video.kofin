@@ -136,12 +136,22 @@ class FakeStore:
     def __init__(self):
         self.edits = []
         self.echoes = set()
+        # The resume position the last pass filed on each item's row.
+        self.filed = {}
 
     def is_echo(self, item_id, field, value):
         return (item_id, field) in self.echoes
 
     def local(self, item_id, fields):
         self.edits.append((item_id, fields))
+
+    def mapping(self, item_id):
+        from kofin.sync.backends.api.store import Mapping
+
+        if item_id not in self.filed:
+            return None
+        userdata = {"playcount": 0, "resume": {"position": self.filed[item_id]}}
+        return Mapping(5910, {"userdata": userdata}, "Episode")
 
 
 @pytest.fixture
@@ -171,10 +181,24 @@ def test_the_echo_of_the_passs_own_write_is_not_an_edit(outbox):
     assert outbox.edits == []
 
 
-def test_a_reset_resume_records_kodis_own_bookmark(outbox, kodi_resume):
+@pytest.mark.parametrize("filed", [1200.0, 0.0])
+def test_a_reset_resume_records_kodis_own_bookmark(outbox, kodi_resume, filed):
+    """Filed 0 is a first play's row until a pass files the play: the
+    bookmark Kodi's player wrote at the stop is still the one reset."""
+    outbox.filed["jf-ep-1"] = filed
     kodi_resume["position"] = 0.0
     drain(RecordingApi(), [RESET_RESUME])
     assert outbox.edits == [("jf-ep-1", {"position": 0.0})]
+
+
+@pytest.mark.parametrize("filed", [1200.0, 0.0])
+def test_the_flat_shape_without_a_reset_is_no_edit(outbox, kodi_resume, filed):
+    """Kodi announces the flat shape for a change of art or title too, and a
+    row that lags the server would otherwise put its older position back."""
+    outbox.filed["jf-ep-1"] = filed
+    kodi_resume["position"] = 600.0
+    drain(RecordingApi(), [RESET_RESUME])
+    assert outbox.edits == []
 
 
 def test_an_unreadable_kodi_resume_writes_nothing(outbox, monkeypatch):

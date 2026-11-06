@@ -7,9 +7,13 @@ resume position" — write straight into MyVideos and announce
     play count   {"item": {"id": 5910, "type": "episode"}, "playcount": 1}
     resume reset {"id": 5910, "type": "episode"}
 
-The flat one carries identity and nothing else — Kodi only ever emits it from
-its resume-bookmark delete — so the position is read back out of Kodi rather
-than inferred from the shape.
+The flat one carries identity and nothing else, and Kodi emits it for a change
+of art or title as well as for its resume-bookmark delete
+(``UpdateArtForItem``, ``UpdateFanart``, ``UpdateMovieTitle``,
+``UpdateVideoSortTitle``). So the position is read back out of Kodi: a row
+that still holds one was not reset, and a row that holds none is queued as
+reset whatever kofin last filed on it, since Kodi's player writes its bookmark
+at a stop before the pass has filed the play.
 
 Kofin's own writes announce too: ``Store.is_echo`` filters them out, and the
 user's edits are queued durably in kofin.db for the server.
@@ -141,7 +145,7 @@ class KodiUserData:
             store.local(item_id, {"playcount": playcount})
         else:
             position = kodirpc.resume_seconds(kodi_id, media)
-            if position is None:
+            if position is None or position:
                 return
             if store.is_echo(item_id, "resume", {"position": position}):
                 return

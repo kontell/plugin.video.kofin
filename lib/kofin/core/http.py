@@ -317,6 +317,7 @@ class Http:
         headers: dict[str, str] | None = None,
         start: int = 0,
         timeout: tuple[float, float] | None = None,
+        if_range: str = "",
     ) -> StreamedResponse:
         """One streaming GET — deliberately no retry ladder.
 
@@ -324,13 +325,17 @@ class Http:
         multi-GB body is never the transport's call to make, and the
         manager's resume watermark decides where the next attempt starts.
         ``start`` resumes with a Range header; a 416 answer comes back as
-        ``already_complete`` rather than an error.
+        ``already_complete`` rather than an error. ``if_range`` rides with it
+        as If-Range: a server whose file no longer matches that validator
+        ignores the Range and answers with the whole file (200).
         """
         import requests
 
         sent = dict(headers or {})
         if start:
             sent["Range"] = "bytes=%d-" % start
+            if if_range:
+                sent["If-Range"] = if_range
         try:
             response = self.session().request(
                 "GET",

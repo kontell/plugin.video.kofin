@@ -1,8 +1,9 @@
 """Sidecar subtitles fetched to locally-named files.
 
 Every expectation here is pinned to what Kodi reads off a filename (see the
-module docstring): a name, a language, and ``forced`` -- and nothing else,
-because anything Kodi does not parse is rendered in the label instead.
+module docstring): a name, a language, ``forced`` and ``impaired`` -- and
+nothing else, because anything Kodi does not parse is rendered in the label
+instead, as the number of a second track named like the first is.
 """
 
 import os
@@ -95,6 +96,36 @@ def test_forced_is_a_token_kodi_reads_as_a_flag(monkeypatch):
         raising=False,
     )
     assert subtitles.filename_for(attachment(forced=True)) == "English.eng.forced.srt"
+
+
+def test_hearing_impaired_is_a_token_kodi_reads_as_a_flag(monkeypatch):
+    monkeypatch.setattr(
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
+    )
+    assert subtitles.filename_for(attachment(hearing_impaired=True)) == (
+        "English.eng.impaired.srt"
+    )
+    both = attachment(forced=True, hearing_impaired=True)
+    assert subtitles.filename_for(both, 2) == "English.eng.forced.impaired.2.srt"
+
+
+def test_a_name_already_taken_is_numbered(monkeypatch):
+    """A number is neither a flag nor a language to Kodi, so it stays in the
+    label and tells the two tracks apart. Compared case-blind, as a
+    case-insensitive filesystem would."""
+    monkeypatch.setattr(
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
+    )
+    taken = {"english.eng.srt"}
+    assert subtitles.unique_filename(attachment(), taken) == "English.eng.2.srt"
+    assert subtitles.unique_filename(attachment(), taken) == "English.eng.3.srt"
+    assert taken == {"english.eng.srt", "english.eng.2.srt", "english.eng.3.srt"}
 
 
 def test_the_language_code_stands_in_when_kodi_cannot_spell_it(monkeypatch):
@@ -196,6 +227,66 @@ def test_the_order_in_is_the_order_out(tmp_path, monkeypatch):
     localized = subtitles.localize(FakeHttp(), attached, directory=str(tmp_path))
     assert [item.stream_index for item, _path in localized.files] == [3, 6, 7]
     assert localized.files[1][1].endswith("English.ger.srt")
+
+
+class BodyByIndexHttp(FakeHttp):
+    """Answers each track's URL with a body of its own."""
+
+    def request(self, method, url, timeout=None, retries=0, **kwargs):
+        self.requests.append((method, url, timeout, retries))
+        index = url.split("/Subtitles/", 1)[1].split("/", 1)[0]
+        return type("Response", (), {"content": b"track " + index.encode()})()
+
+
+def track_url(index):
+    return "http://s:8096/Videos/m1/src1/Subtitles/%d/0/Stream.subrip?ApiKey=k" % index
+
+
+def test_tracks_named_alike_keep_a_file_each(tmp_path, monkeypatch):
+    """An English sidecar beside the embedded English track of a transcode,
+    and two untitled English sidecars, name themselves alike: each still
+    gets a file of its own, numbered in the order they came in."""
+    monkeypatch.setattr(
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
+    )
+    attached = [
+        attachment(stream_index=2, sidecar=False, url=track_url(2)),
+        attachment(stream_index=5, url=track_url(5)),
+        attachment(stream_index=6, url=track_url(6)),
+    ]
+
+    localized = subtitles.localize(BodyByIndexHttp(), attached, directory=str(tmp_path))
+
+    names = [os.path.basename(path) for _item, path in localized.files]
+    assert names == ["English.eng.srt", "English.eng.2.srt", "English.eng.3.srt"]
+    for item, path in localized.files:
+        with open(path, "rb") as handle:
+            assert handle.read() == b"track %d" % item.stream_index
+
+
+def test_a_late_track_leaves_the_files_the_playback_has(tmp_path, monkeypatch):
+    """The late chase writes into the directory the play route filled, where
+    the playback already holds a track this one names itself like."""
+    monkeypatch.setattr(
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
+    )
+    (tmp_path / "English.eng.srt").write_bytes(b"the sidecar")
+
+    path = subtitles.fetch_to(
+        BodyByIndexHttp(),
+        attachment(stream_index=4, sidecar=False, url=track_url(4)),
+        str(tmp_path),
+    )
+
+    assert os.path.basename(path) == "English.eng.2.srt"
+    assert (tmp_path / "English.eng.srt").read_bytes() == b"the sidecar"
+    assert (tmp_path / "English.eng.2.srt").read_bytes() == b"track 4"
 
 
 def test_only_so_many_are_worth_the_first_frame(tmp_path, monkeypatch):

@@ -1,7 +1,10 @@
 import pytest
 
 from kofin.core import settings
+from kofin.core.api import Api
+from kofin.core.http import Http
 from tests.unit.fakes import FakeAddon
+from tests.unit.transportserver import ScriptedServer
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +42,73 @@ def test_credentials_round_trip():
     assert loaded.server_name == "minipie"
     assert loaded.token == "tok1"
     assert loaded.is_logged_in is True
+
+
+def test_a_stored_address_loads_and_is_stored_as_a_sign_in_stores_it():
+    """The settings dialog shows what the setting holds, password included."""
+    FakeAddon.store["serverAddress"] = "https://bob:hunter2@minipie/"
+
+    assert settings.Credentials.load().server_address == "https://minipie"
+    assert FakeAddon.store["serverAddress"] == "https://minipie"
+
+
+def test_an_address_as_a_sign_in_stores_it_is_never_written(monkeypatch):
+    """Every write is a settings change the service hears, and every listing
+    loads the credentials."""
+    written = []
+
+    class CountingAddon(FakeAddon):
+        def setSetting(self, setting_id, value):
+            written.append(setting_id)
+            super().setSetting(setting_id, value)
+
+    monkeypatch.setattr("xbmcaddon.Addon", CountingAddon)
+    FakeAddon.store.update({"serverAddress": "http://minipie:8096", "deviceId": "d"})
+    assert settings.Credentials.load().server_address == "http://minipie:8096"
+    FakeAddon.store["serverAddress"] = ""
+    assert settings.Credentials.load().server_address == ""
+    assert written == []
+
+
+def test_an_address_no_request_can_use_loads_as_it_stands(monkeypatch):
+    """A port out of range or an unclosed IPv6 bracket is refused by urllib;
+    every client and the service load the credentials, so the load must not
+    raise, and the setting is left for Log in to name."""
+    written = []
+
+    class CountingAddon(FakeAddon):
+        def setSetting(self, setting_id, value):
+            written.append(setting_id)
+            super().setSetting(setting_id, value)
+
+    monkeypatch.setattr("xbmcaddon.Addon", CountingAddon)
+    for stored in ("192.168.1.10:80960", "http://[fe80::1:8096"):
+        FakeAddon.store.update({"serverAddress": stored, "deviceId": "d"})
+        assert settings.Credentials.load().server_address == stored
+    assert written == []
+
+
+def test_a_password_in_the_stored_address_never_replaces_the_token():
+    """The service builds its client on the loaded credentials over requests,
+    which sends a URL's user name and password as Basic auth in place of the
+    Authorization header, and the server answers every request 401."""
+    with ScriptedServer() as server:
+        server.answer("/Items", 200, json_body={"Items": []})
+        FakeAddon.store.update(
+            {
+                "serverAddress": server.url.replace("://", "://bob:hunter2@"),
+                "accessToken": "tok1",
+                "isLoggedIn": "true",
+            }
+        )
+        transport = Http()
+        try:
+            Api.from_credentials(transport, settings.Credentials.load()).get("/Items")
+        finally:
+            transport.close()
+
+    sent = server.requests[0][2]["Authorization"]
+    assert sent.startswith("MediaBrowser ") and 'Token="tok1"' in sent
 
 
 def test_clear_logs_out_but_keeps_server_address_and_device():
@@ -320,6 +390,20 @@ def test_the_downloads_category_stays_a_single_group():
     assert len(list(category.iter("group"))) == 1
 
 
+def test_the_download_location_offers_this_devices_folders_alone():
+    """Kodi's folder browser lists the network locations beside the local
+    drives unless a path setting names the local source alone."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    setting = next(
+        element
+        for element in root.iter("setting")
+        if element.get("id") == "downloadsPath"
+    )
+    assert [source.text for source in setting.iter("source")] == ["local"]
+
+
 def test_the_streaming_bitrate_cap_shows_under_force_direct_play():
     """Play with transcoding's default bitrate is the cap, and force direct
     play does not reach that play, so the cap has a use with it on."""
@@ -456,6 +540,35 @@ def test_every_settings_button_names_a_registered_route():
         "%s -> mode=%s" % (owner, mode) for owner, mode in buttons if mode not in ROUTES
     )
     assert not unregistered
+
+
+def test_a_button_whose_route_writes_a_setting_closes_the_dialog_first():
+    """Backing out of an open settings dialog saves the dialog's own copy
+    over whatever a route wrote meanwhile; ``<close>true</close>`` saves and
+    shuts it before the route runs."""
+    import re
+    import xml.etree.ElementTree as etree
+
+    writers = {
+        "findservers",
+        "login",
+        "selectlibraries",
+        "whoshortlist",
+        "downloadsubscriptions",
+        "downloadshows",
+    }
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    seen, left_open = set(), []
+    for setting in root.iter("setting"):
+        for control in setting.iter("control"):
+            found = re.search(r"\?mode=([a-z]+)", control.findtext("data") or "")
+            if found and found.group(1) in writers:
+                seen.add(found.group(1))
+                if control.findtext("close") != "true":
+                    left_open.append(setting.get("id"))
+
+    assert seen == writers
+    assert left_open == []
 
 
 @pytest.mark.parametrize(

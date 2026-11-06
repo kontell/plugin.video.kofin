@@ -4,10 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from kofin.sync.backends.api import library
+from kofin.sync.backends.api import library, removal
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
+    LIB2,
     SHOW,
+    SHOW2,
     Server,
     backend,
     episode,
@@ -270,6 +272,114 @@ def test_a_cleared_library_has_the_other_source_scanned_again(
     )
     rescans = [at for directories, at in scans if directories == ["/local/Shows/"]]
     assert rescans and rescans[0] > cleared
+
+
+def shared(store, backend, kodi, also=None):
+    """Our show filed, beside ``also`` when given, and sharing its row with
+    an episode of the other source /local/Shows/; returns that episode's
+    Kodi id."""
+    items = show_bundle()
+    if also:
+        items += show_bundle(also, prefix="f")
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    _, local = merge(kodi)
+    kodi.sources = [{"file": "/local/Shows/", "label": "Shows"}]
+    return local
+
+
+def test_a_clear_stopped_after_kodi_ran_it_still_has_the_other_source_scanned(
+    store, backend, kodi, monkeypatch
+):
+    """The clear is waited for when the pass is stopped, and the library is
+    cleared again by the next pass, which finds no shared row left to read
+    the other source from: the scan owed was recorded before the delete."""
+    shared(store, backend, kodi)
+    clear = removal.clear_library
+
+    def stopped(native, library, kinds, rows=0):
+        clear(native, library, kinds, rows)
+        raise InterruptedError("native sync stopped")
+
+    monkeypatch.setattr(removal, "clear_library", stopped)
+    store.publish([], library=LIB)
+    with pytest.raises(InterruptedError):
+        backend.reconcile()
+    assert "/local/Shows/" not in kodi.scanned
+    monkeypatch.setattr(removal, "clear_library", clear)
+    backend.reconcile()
+    assert "/local/Shows/" in kodi.scanned
+    assert not store.pending() and not store.owed_scans()
+
+
+def test_a_library_whose_shared_rows_cannot_be_read_stays_until_they_can(
+    store, backend, kodi, monkeypatch
+):
+    local = shared(store, backend, kodi)
+    foreign = backend.readback.foreign_episodes
+
+    def refused(tvshowid):
+        raise RuntimeError("Kodi refused VideoLibrary.GetEpisodes")
+
+    monkeypatch.setattr(backend.readback, "foreign_episodes", refused)
+    store.publish([], library=LIB)
+    with pytest.raises(RuntimeError, match="remain pending"):
+        backend.reconcile()
+    assert local in kodi.rows["Episode"]
+    assert SHOW in {i.item_id for i, _, _ in store.pending()}
+    monkeypatch.setattr(backend.readback, "foreign_episodes", foreign)
+    backend.reconcile()
+    assert local not in kodi.rows["Episode"]
+    assert "/local/Shows/" in kodi.scanned
+    assert not store.pending() and not store.owed_scans()
+
+
+def test_a_scan_owed_that_fails_is_made_by_the_next_pass(
+    store, backend, kodi, monkeypatch
+):
+    """The library is not cleared a second time for it."""
+    shared(store, backend, kodi)
+    scan = backend.scan
+
+    def refused(directories, scanner="video", **kwargs):
+        if directories == ["/local/Shows/"]:
+            raise RuntimeError("Kodi refused VideoLibrary.Scan")
+        return scan(directories, scanner, **kwargs)
+
+    monkeypatch.setattr(backend, "scan", refused)
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert store.owed_scans() == ["/local/Shows/"]
+    monkeypatch.setattr(backend, "scan", scan)
+    store.publish([movie()], library=LIB2)
+    backend.reconcile()
+    assert "/local/Shows/" in kodi.scanned
+    assert not store.owed_scans()
+
+
+def test_a_shared_show_removed_alone_and_stopped_still_has_the_scan_made(
+    store, backend, kodi, monkeypatch
+):
+    """Removed by its id, the show is confirmed only after the scan, so a
+    pass stopped during it leaves the removal for the next pass."""
+    shared(store, backend, kodi, also=SHOW2)
+    scan = backend.scan
+
+    def stopped(directories, scanner="video", **kwargs):
+        if directories == ["/local/Shows/"]:
+            raise InterruptedError("native sync stopped")
+        return scan(directories, scanner, **kwargs)
+
+    monkeypatch.setattr(backend, "scan", stopped)
+    store.publish(show_bundle(SHOW2, prefix="f"), library=LIB)
+    with pytest.raises(InterruptedError):
+        backend.reconcile()
+    assert SHOW in {i.item_id for i, _, _ in store.pending()}
+    monkeypatch.setattr(backend, "scan", scan)
+    backend.reconcile()
+    assert "/local/Shows/" in kodi.scanned
+    assert not store.pending() and not store.owed_scans()
 
 
 def test_a_library_with_no_shared_show_asks_no_sources(store, backend, kodi):

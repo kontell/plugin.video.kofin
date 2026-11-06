@@ -637,10 +637,16 @@ class Api:
         return self._get_list("/Items/%s/SpecialFeatures" % item_id, self._as_user())
 
     def adjacent_episodes(self, series_id: str, item_id: str) -> JsonDict:
-        """The episode window around ``item_id`` (next-episode resolution)."""
+        """The episode window around ``item_id`` (next-episode resolution).
+
+        Without ``isMissing`` the server answers by the account's "Display
+        missing episodes", and a missing episode has no file to play.
+        """
         return self.get(
             "/Shows/%s/Episodes" % series_id,
-            self._as_user({"adjacentTo": item_id, "Fields": "Overview"}),
+            self._as_user(
+                {"adjacentTo": item_id, "isMissing": False, "Fields": "Overview"}
+            ),
         )
 
     # -- SyncPlay --------------------------------------------------------------
@@ -950,17 +956,22 @@ class Api:
 
     # -- offline downloads -----------------------------------------------------
 
-    def download_stream(self, item_id: str, start: int = 0) -> "StreamedResponse":
+    def download_stream(
+        self, item_id: str, start: int = 0, if_range: str = ""
+    ) -> "StreamedResponse":
         """/Items/{id}/Download as a resumable byte stream.
 
         The original file, Range-capable, gated server-side on the user's
         EnableContentDownloading policy: a 403 here means the admin turned
-        that off, and surfaces as Unauthorized.
+        that off, and surfaces as Unauthorized. The file is served with its
+        Last-Modified, and an If-Range naming an older one gets the whole
+        file back.
         """
         return self._http.stream(
             self._url("/Items/%s/Download" % item_id),
             headers=self._headers(),
             start=start,
+            if_range=if_range,
         )
 
     def subtitle_stream_url(

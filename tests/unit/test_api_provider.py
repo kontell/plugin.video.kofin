@@ -109,6 +109,53 @@ def test_provider_lists_the_layout_and_answers_existence_offline(store, monkeypa
     assert rendered[-1][0][0] == tv
 
 
+def test_a_catalogue_that_cannot_be_read_answers_that_the_row_exists(
+    store, monkeypatch
+):
+    """Kodi's clean deletes the row of a probe that fails: a malformed
+    kofin.db is no word on a row, and the fault still propagates."""
+    import os
+    import sqlite3
+
+    import pytest
+
+    from kofin.plugin import router
+    from kofin.sync import private
+    from kofin.sync.backends.api import provider
+
+    store.publish([movie()] + show_bundle(), library=LIB)
+    path = private.resolve_path()
+    for leftover in (path + "-wal", path + "-shm"):
+        if os.path.exists(leftover):
+            os.remove(leftover)
+    with open(path, "wb") as broken:
+        broken.write(b"not a database " * 512)
+    resolved, ended = [], []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "setResolvedUrl",
+        lambda handle, ok, li: resolved.append((handle, ok)),
+    )
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "endOfDirectory",
+        lambda handle, succeeded=True, **_: ended.append((handle, succeeded)),
+    )
+    # A movie's file, and a show's folder (the stage after the files).
+    probes = (
+        (
+            paths.movie_dir(store.namespace, LIB, "a"),
+            "?mode=play&id=a&kodi_action=check_exists",
+        ),
+        (paths.show_dir(store.namespace, LIB, SHOW), "?kodi_action=check_exists"),
+    )
+    for url, query in probes:
+        with pytest.raises(sqlite3.DatabaseError):
+            router.dispatch([url, "7", query])
+    assert resolved == [(7, True), (7, True)]
+    assert ended == []
+
+
 def test_identity_lookups_cover_episodes_and_music_videos(
     store, backend, kodi, monkeypatch
 ):

@@ -269,3 +269,20 @@ def test_the_video_pool_also_claims_a_null_kind():
     assert store.claim(("song",)) is None
     claimed = store.claim(("movie", "episode", ""))
     assert claimed is not None and claimed.jellyfin_id == "odd1"
+
+
+def test_the_targets_under_a_folder_take_its_name_literally():
+    """LIKE's wildcards in a folder name match only themselves."""
+    for item_id, rel_path in (
+        ("a", "Music/50% Off_/01.flac"),
+        ("b", "Music/50x Offx/01.flac"),
+        ("c", "Music/50% Off_/CD1/01.flac"),
+        ("d", ""),
+    ):
+        store.queue(_movie(item_id))
+        store.record_target(item_id, rel_path, "flac")
+
+    assert sorted(store.targets_under("Music/50% Off_")) == [
+        ("a", "Music/50% Off_/01.flac"),
+        ("c", "Music/50% Off_/CD1/01.flac"),
+    ]

@@ -883,7 +883,14 @@ class Native:
             pending, entries = self._pending(repair)
             errors: list[Exception] = []
             self._remove(pending, entries, errors)
-            sets = self.store.records(kind="BoxSet")
+            # The pin can predate a collection's removal (store.pin keeps a
+            # pin an earlier pass left), and a collection read there would
+            # keep its set on its movies while finish_sets lets it go.
+            sets = {
+                item_id: record
+                for item_id, record in self.store.records(kind="BoxSet").items()
+                if item_id not in pending or pending[item_id][1] != "remove"
+            }
             boxsets = [r.item for r in sets.values()]
             collections = metadata.collections_of(boxsets)
             self.join_sets(pending, entries, sets, collections)

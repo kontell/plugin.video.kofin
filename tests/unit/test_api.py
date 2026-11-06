@@ -404,6 +404,18 @@ def test_next_up_with_a_parent_stays_inside_that_library(api):
     assert "fields" not in call["params"]
 
 
+def test_the_next_episode_is_never_a_missing_one(api):
+    """Left unsaid, the account's "Display missing episodes" decides, and Play
+    Next would offer and autoplay an episode with no file."""
+    client, transport = api
+    client.adjacent_episodes("show1", "ep1")
+    call = transport.calls[0]
+    assert call["url"] == "http://s:8096/Shows/show1/Episodes"
+    assert call["params"]["adjacentTo"] == "ep1"
+    assert call["params"]["isMissing"] is False
+    assert call["params"]["userId"] == "uid"
+
+
 def test_resume_asks_the_server_for_its_own_list(api):
     """Continue watching comes off /UserItems/Resume rather than an
     IsResumable filter, so what counts as in progress -- and in what order --

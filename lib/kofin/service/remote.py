@@ -170,7 +170,11 @@ class RemoteHandler:
         player = xbmc.Player()
         if command == "Stop":
             kodirpc.stop_player()  # not player.stop(); see kodirpc.stop_player
-        elif command in ("Pause", "Unpause", "PlayPause"):
+        elif command == "Pause":
+            kodirpc.pause_player()
+        elif command == "Unpause":
+            kodirpc.resume_player()
+        elif command == "PlayPause":
             player.pause()  # Kodi's pause() toggles
         elif command == "NextTrack":
             player.playnext()

@@ -178,9 +178,24 @@ def resume_player() -> bool:
 
     Returns True when the request went out (or no player was active).
     """
+    return _set_playing(True)
+
+
+def pause_player() -> bool:
+    """Set every active player *paused*, by intent as :func:`resume_player`
+    sets it playing: asking for paused while already paused is a no-op, where
+    ``xbmc.Player.pause()`` would resume it.
+
+    Returns True when the request went out (or no player was active).
+    """
+    return _set_playing(False)
+
+
+def _set_playing(play: bool) -> bool:
+    verb = "resume" if play else "pause"
     active = active_players()
     if not isinstance(active, list):
-        LOG.warning("could not read the active players to resume them: %r", active)
+        LOG.warning("could not read the active players to %s them: %r", verb, active)
         return False
 
     if not active:
@@ -190,10 +205,10 @@ def resume_player() -> bool:
         try:
             player_id = int(player["playerid"])
         except Exception as error:
-            LOG.warning("resume failed for player %r: %s", player, error)
+            LOG.warning("%s failed for player %r: %s", verb, player, error)
             continue
-        if call("Player.PlayPause", {"playerid": player_id, "play": True}) is FAILED:
-            LOG.warning("resume failed for player %r", player)
+        if call("Player.PlayPause", {"playerid": player_id, "play": play}) is FAILED:
+            LOG.warning("%s failed for player %r", verb, player)
 
     return True
 

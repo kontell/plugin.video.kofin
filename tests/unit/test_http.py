@@ -213,6 +213,22 @@ def test_stream_resumes_with_a_range_header(monkeypatch):
     assert kwargs["headers"]["Range"] == "bytes=1024-"
 
 
+def test_a_resume_names_the_file_it_resumes(monkeypatch):
+    """If-Range rides with the Range alone: a request from byte zero takes
+    the whole file whatever it is."""
+    stamp = "Mon, 02 Nov 2026 10:00:00 GMT"
+    transport, session = make_http(
+        monkeypatch, [FakeStreamResponse(206), FakeStreamResponse(200)]
+    )
+
+    transport.stream("http://s/Items/x/Download", start=1024, if_range=stamp)
+    transport.stream("http://s/Items/x/Download", if_range=stamp)
+
+    resumed, whole = (kwargs["headers"] for _, _, kwargs in session.calls)
+    assert resumed["If-Range"] == stamp
+    assert "If-Range" not in whole and "Range" not in whole
+
+
 def test_stream_416_means_already_complete(monkeypatch):
     """A resume offset at or past the end answers 416: for a download resume
     that is 'nothing left to fetch', not an error."""

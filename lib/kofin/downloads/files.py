@@ -12,6 +12,7 @@ import re
 import shutil
 import sys
 import unicodedata
+from collections.abc import Collection
 from typing import Any, Callable, Optional
 
 from kofin.core.log import Logger
@@ -194,6 +195,61 @@ def unique_dir(base: str, owner_id: str, taken: Callable[[str], bool]) -> str:
     return "%s [%s]" % (base, owner_id[:8])
 
 
+def stem(filename: str) -> str:
+    """A file name without its extension: what sidecars are named after, and
+    what a removal clears beside the file (every ``<stem>.*``)."""
+    return filename.rsplit(".", 1)[0]
+
+
+def stems_clash(first: str, second: str) -> bool:
+    """Whether files of these two stems can be taken for each other's: the
+    same stem, compared as FAT and exFAT compare names, or one that carries
+    on past a dot from the other, which a removal of the shorter matches."""
+    first, second = first.casefold(), second.casefold()
+    return first == second or _carries_on(first, second) or _carries_on(second, first)
+
+
+def _carries_on(longer: str, shorter: str) -> bool:
+    return longer.startswith(shorter + ".")
+
+
+# The last number unique_filename tries: past the discs of any album.
+MAX_NAME_NUMBER = 999
+
+
+def unique_filename(filename: str, held: Collection[str]) -> Optional[str]:
+    """``filename``, or a numbered form of it from 2 whose stem clashes with
+    none of the stems ``held``; None when no number up to
+    ``MAX_NAME_NUMBER`` gives one.
+
+    Two items of one directory can carry the same name: a track of each disc
+    of an album, which a server holds as ``CD1/01.flac`` and ``CD2/01.flac``,
+    or two transcoded tracks of one number and title. The number follows the
+    stem, ``01 (2).flac``, unless the stem carries on past a dot from a held
+    one (``01. Title`` beside ``01``), as every ``<stem> (n)`` then does too:
+    there the number leads, ``(2) 01. Title.flac``.
+    """
+    base = stem(filename)
+    extension = filename[len(base) :]
+    if not _clashes(base, held):
+        return filename
+    folded = base.casefold()
+    template = (
+        "({number}) {stem}"
+        if any(_carries_on(folded, other.casefold()) for other in held)
+        else "{stem} ({number})"
+    )
+    for number in range(2, MAX_NAME_NUMBER + 1):
+        candidate = template.format(stem=base, number=number)
+        if not _clashes(candidate, held):
+            return candidate + extension
+    return None
+
+
+def _clashes(candidate: str, held: Collection[str]) -> bool:
+    return any(stems_clash(candidate, other) for other in held)
+
+
 def free_bytes(root: str) -> int:
     """Bytes available to an unprivileged writer under ``root``, -1 unknown.
 
@@ -223,14 +279,22 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
     return free >= int(expected_bytes) + FREE_SPACE_RESERVE
 
 
+def on_this_device(root: str) -> bool:
+    """Whether ``root`` is a folder Python's own file calls reach. Kodi's
+    ``translatePath`` leaves a network location (``smb://``, ``nfs://``) as
+    it is, and ``os`` reads one as a folder under the working directory."""
+    return "://" not in root
+
+
 def absolute_path(root: str, rel_path: str) -> str:
     """The one spelling of a download's on-disk location.
 
-    Raises ValueError for a path outside ``root``. A row's path was built
-    from a server's answer, possibly to an earlier build, so it is checked
-    on every use and not only when it is chosen.
+    Raises ValueError for a path outside ``root``, and for any path under a
+    ``root`` not on this device. A row's path was built from a server's
+    answer, possibly to an earlier build, so it is checked on every use and
+    not only when it is chosen.
     """
-    if contained(rel_path):
+    if contained(rel_path) and on_this_device(root):
         absolute = os.path.join(root, rel_path)
         base = os.path.abspath(root)
         if os.path.commonpath([base, os.path.abspath(absolute)]) == base:

@@ -8,15 +8,17 @@ stopped in ``_shutdown`` with bounded joins — and fed by the guarded download
 IPC messages, whose handlers run on Kodi's notification thread and therefore
 only enqueue here (the ops queue) rather than touch a database or a socket.
 
-Stop discipline: the transport abort predicate bounds retries, the per-chunk
-check in ``StreamedResponse.chunks`` bounds a live body, and the read timeout
-bounds a dead one — so a stop request is honored within one chunk plus one
-read timeout, never a file's worth of transfer. A download a stop interrupts
-stays ``active`` and is re-queued by ``recover_interrupted`` at the next
-start, resuming originals from ``bytes_done`` with a Range.
+Stop discipline: the transport abort predicate bounds retries, a per-chunk
+check bounds a live body (``StreamedResponse.chunks`` hears the service's
+stop, and ``_write_body`` the manager's own, which the transport cannot), and
+the read timeout bounds a dead one — so a stop request is honored within one
+chunk plus one read timeout, never a file's worth of transfer. A download a
+stop interrupts stays ``active`` and is re-queued by ``recover_interrupted``
+at the next start, resuming originals from ``bytes_done`` with a Range.
 """
 
 import os
+import posixpath
 import threading
 import time
 from queue import Empty, Queue
@@ -31,7 +33,12 @@ from collections.abc import Iterable
 import xbmc
 
 from kofin.core import settings, state, toast
-from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
+from kofin.core.http import (
+    JellyfinError,
+    ServerUnreachable,
+    StreamedResponse,
+    Unauthorized,
+)
 from kofin.core.log import Logger
 from kofin.downloads import (
     downloads_root,
@@ -178,6 +185,10 @@ class DownloadManager:
         # are read and moved under this lock, by the workers and the sweep.
         self._root_lock = threading.Lock()
         self._root_memory: Optional[str] = None  # None: not read yet
+        # Held while a worker decides and records a target (_decide_target).
+        self._target_lock = threading.Lock()
+        # The network location last refused as the downloads folder.
+        self._refused_root = ""
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
@@ -610,6 +621,15 @@ class DownloadManager:
         )
 
         root = downloads_root()
+        if not files.on_this_device(root):
+            store.fail(item_id, "the downloads folder is not on this device")
+            if root != self._refused_root:
+                # Once per folder, not once per item of a request. The
+                # location itself can carry a password.
+                self._refused_root = root
+                LOG.warning("the downloads folder is a network location")
+                toast.show(settings.localized(30717), toast.WARNING)
+            return
         if row.rel_path and files.path_in(root, row.rel_path) is None:
             # A target an earlier build froze from a server's answer, outside
             # the folder: decided again, and nothing at the old path touched.
@@ -742,7 +762,7 @@ class DownloadManager:
             part_existing = files.part_path(root, rel_path)
             if os.path.exists(part_existing):
                 start = os.path.getsize(part_existing)
-        stream = api.download_stream(item_id, start=start)
+        stream = api.download_stream(item_id, start=start, if_range=row.validator)
         try:
             if not rel_path:
                 # First contact decides the name: the server states it in
@@ -754,6 +774,7 @@ class DownloadManager:
                     owner_id,
                     container,
                     stream.header("Content-Disposition"),
+                    root,
                 )
             absolute = files.absolute_path(root, rel_path)
             part = files.part_path(root, rel_path)
@@ -764,18 +785,28 @@ class DownloadManager:
             )
             if not stream.already_complete:
                 if stream.status == 200 and start:
-                    # The server ignored the range; write fresh.
+                    # The server ignored the range, or its file is no longer
+                    # the one the .part began from: write fresh.
                     start = 0
+                if not start:
+                    # Emptied before the validator is stored, so the .part
+                    # never holds bytes of a file its validator does not name.
+                    open(part, "wb").close()
+                    store.record_validator(item_id, _validator(stream))
                 self._write_body(stream, part, start, item_id)
         finally:
             stream.close()
 
         actual = os.path.getsize(part) if os.path.exists(part) else 0
         if expected_total and actual != expected_total:
+            mismatch = "size mismatch: %d of %d bytes" % (actual, expected_total)
+            if actual > expected_total:
+                # Longer than the whole file, so not a head of it: the next
+                # attempt starts from zero rather than resuming past its end.
+                _remove_quietly(part)
+                actual = 0
             store.record_progress(item_id, actual)
-            raise JellyfinError(
-                "size mismatch: %d of %d bytes" % (actual, expected_total)
-            )
+            raise JellyfinError(mismatch)
         return rel_path, actual
 
     def _pull_transcode(
@@ -818,6 +849,7 @@ class DownloadManager:
                         owner_id,
                         decision.container,
                         stream.header("Content-Disposition"),
+                        root,
                     )
                 absolute = files.absolute_path(root, rel_path)
                 part = files.part_path(root, rel_path)
@@ -899,17 +931,25 @@ class DownloadManager:
         owner_id: str,
         container: str,
         disposition: str,
+        root: str,
     ) -> str:
-        """Freeze the target path on first contact (files.py owns the rules)."""
+        """Freeze the target path on first contact (files.py owns the rules).
+        One worker decides at a time, so two transfers never take one name."""
         owning, leaf = files.item_dirs(item)
-        owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
-        directory = owning if leaf is None else "%s/%s" % (owning, leaf)
         fallback = files.default_filename(item, container)
         filename = files.filename_from_disposition(disposition, fallback)
-        rel_path = "%s/%s" % (directory, filename)
-        if not files.contained(rel_path):
-            raise JellyfinError("download path of %s leaves its folder" % item_id)
-        store.record_target(item_id, rel_path, container)
+        with self._target_lock:
+            owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
+            directory = owning if leaf is None else "%s/%s" % (owning, leaf)
+            unique = files.unique_filename(
+                filename, _held_stems(root, directory, item_id)
+            )
+            if unique is None:
+                raise JellyfinError("no free name for %s in %s" % (item_id, directory))
+            rel_path = "%s/%s" % (directory, unique)
+            if not files.contained(rel_path):
+                raise JellyfinError("download path of %s leaves its folder" % item_id)
+            store.record_target(item_id, rel_path, container)
         return rel_path
 
     def _write_body(
@@ -924,6 +964,8 @@ class DownloadManager:
                 for chunk in stream.chunks():
                     if self._cancelled(item_id):
                         raise _Cancelled()
+                    if self._should_stop():
+                        raise ServerUnreachable("stream abandoned while stopping")
                     handle.write(chunk)
                     written += len(chunk)
                     if written - synced >= SYNC_BYTES:
@@ -1374,7 +1416,13 @@ class DownloadManager:
         track is not a finished one), and the item currently playing is
         skipped — Kodi marks played at ~90%, and a sweep firing in a binge
         episode's last minutes would delete the file under the player.
-        Watched-ness is Kodi's own playcount — local truth, works offline.
+
+        Watched means watched since the download landed, from Kodi's own
+        state, which works offline: a play count, a last played later than
+        ``done_at``, and no resume point. A download of something already
+        watched carries the server's count and its earlier date, and Kodi
+        stamps the date of a play stopped part way too, leaving its resume
+        point.
         """
         try:
             if not settings.get_bool("downloadsDeleteAfterWatching"):
@@ -1387,6 +1435,12 @@ class DownloadManager:
                 if row.media_type not in store.VIDEO_MEDIA_TYPES:
                     continue
                 if not _watched_locally(row):
+                    continue
+                touched = _last_touch(row)
+                if touched is None:
+                    continue
+                last_played, resuming = touched
+                if resuming or last_played <= row.done_at:
                     continue
                 if self._playing_now(row):
                     continue
@@ -1628,6 +1682,15 @@ def _expected_total(stream: StreamedResponse, start: int, fallback: int) -> int:
     return int(fallback)
 
 
+def _validator(stream: StreamedResponse) -> str:
+    """What a resume's If-Range names the response's file by: its ETag, which
+    must not be a weak one there, else its Last-Modified; "" for neither."""
+    tag = stream.header("ETag")
+    if tag and not tag.startswith("W/"):
+        return tag
+    return stream.header("Last-Modified")
+
+
 def _userdata_json(userdata: Any) -> str:
     import json
 
@@ -1654,6 +1717,28 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
         return False
 
     return taken
+
+
+def _held_stems(root: str, directory: str, item_id: str) -> list[str]:
+    """The file stems ``directory`` holds already: another row's file's, and
+    those of the files there that no row names, which a download never
+    writes over. A ``.part`` counts only through its row: one with no row is
+    a stale transfer's, and is written over."""
+    folded = directory.casefold()
+    names = [
+        posixpath.basename(rel_path)
+        for other_id, rel_path in store.targets_under(directory)
+        if other_id != item_id and posixpath.dirname(rel_path).casefold() == folded
+    ]
+    absolute = files.path_in(root, directory)
+    if absolute is not None:
+        try:
+            names.extend(
+                name for name in os.listdir(absolute) if not name.endswith(".part")
+            )
+        except OSError:
+            pass  # not made yet
+    return [files.stem(name) for name in names]
 
 
 # The sweep's two reads of Kodi's own play state, as module functions so a

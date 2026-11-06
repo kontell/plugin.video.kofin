@@ -48,10 +48,10 @@ def login(request: Request) -> None:
         address_raw = xbmcgui.Dialog().input(_text(30052))
         if not address_raw:
             return
-    address = auth.normalize_address(address_raw)
 
     transport = plugin_transport(settings.get_bool("sslVerify"))
     try:
+        address = auth.normalize_address(address_raw)
         info = auth.public_info(transport, address)
     except HttpError as error:
         # A server that answered, badly. The description matters: a redirect
@@ -62,6 +62,13 @@ def login(request: Request) -> None:
         return
     except JellyfinError as error:
         LOG.warning("server ping failed for %s: %s", address, error)
+        _notification(_text(30018), toast.ERROR)
+        return
+    except ValueError as error:
+        # An address no request can be made to: urllib cannot split it (a
+        # port past 65535, an IPv6 literal without its brackets), or the IDNA
+        # codec refuses its host name.
+        LOG.warning("server address refused: %s", error)
         _notification(_text(30018), toast.ERROR)
         return
 
@@ -96,7 +103,7 @@ def login(request: Request) -> None:
 
     ipc.notify(ipc.AUTH_CHANGED)
     _notification(_text(30016) % result.user_name)
-    LOG.debug("signed in to %s as %s", server_name, result.user_name)
+    LOG.debug("signed in to %s", server_name)
 
 
 def _authenticate(
@@ -125,8 +132,15 @@ def _login_password(
     username = xbmcgui.Dialog().input(_text(30013))
     if not username:
         return None
-    password = xbmcgui.Dialog().input(_text(30014), option=xbmcgui.ALPHANUM_HIDE_INPUT)
-    return auth.authenticate_password(transport, address, header, username, password)
+    # Dialog.input answers "" both for a cancel and for an empty password,
+    # which a Jellyfin account may have; the keyboard says which it was.
+    keyboard = xbmc.Keyboard(heading=_text(30014), hidden=True)
+    keyboard.doModal()
+    if not keyboard.isConfirmed():
+        return None
+    return auth.authenticate_password(
+        transport, address, header, username, keyboard.getText()
+    )
 
 
 def _login_quick_connect(

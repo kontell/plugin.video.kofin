@@ -94,6 +94,48 @@ def test_unique_dir_suffixes_only_on_collision():
     )
 
 
+@pytest.mark.parametrize(
+    "held, filename, expected",
+    [
+        (set(), "01.flac", "01.flac"),
+        ({"01"}, "01.flac", "01 (2).flac"),
+        ({"01", "01 (2)"}, "01.flac", "01 (3).flac"),
+        ({"01"}, "01", "01 (2)"),
+        ({"02"}, "01.flac", "01.flac"),
+        ({"01. Title"}, "01.flac", "01 (2).flac"),
+        ({"Movie.en"}, "Movie.mkv", "Movie (2).mkv"),
+        # Every "<stem> (n)" carries on from the held stem past a dot.
+        ({"01"}, "01. Title.flac", "(2) 01. Title.flac"),
+        ({"movie"}, "Movie.en.mkv", "(2) Movie.en.mkv"),
+        ({"01", "(2) 01. Title"}, "01. Title.flac", "(3) 01. Title.flac"),
+    ],
+)
+def test_unique_filename_numbers_a_stem_already_held(held, filename, expected):
+    assert files.unique_filename(filename, held) == expected
+
+
+def test_unique_filename_has_none_past_its_last_number():
+    numbered = {"(%d) 01. Title" % n for n in range(2, files.MAX_NAME_NUMBER + 1)}
+    assert files.unique_filename("01. Title.flac", {"01"} | numbered) is None
+
+
+@pytest.mark.parametrize(
+    "first, second, clash",
+    [
+        ("01", "01", True),
+        ("Intro", "intro", True),  # one file on FAT and exFAT
+        ("Movie", "Movie.en", True),  # a sidecar, which removal takes with it
+        ("Movie.en", "Movie", True),
+        ("01", "01 (2)", False),
+        ("Movie", "Movies", False),
+    ],
+)
+def test_stems_clash_where_a_file_or_its_removal_reaches_the_other(
+    first, second, clash
+):
+    assert files.stems_clash(first, second) is clash
+
+
 Usage = namedtuple("Usage", "total used free")
 
 
@@ -215,6 +257,16 @@ def test_absolute_path_joins_what_stays_inside(tmp_path):
     expected = str(tmp_path / "dl" / "Movies" / "Film.mkv")
     assert files.absolute_path(root, "Movies/Film.mkv") == expected
     assert files.path_in(root, "Movies/Film.mkv") == expected
+
+
+@pytest.mark.parametrize("root", ["smb://nas/share", "nfs://nas/export/dl"])
+def test_nothing_is_inside_a_network_location(root):
+    """Kodi's translatePath leaves one as it is, and os would read it as a
+    folder under the working directory."""
+    assert not files.on_this_device(root)
+    with pytest.raises(ValueError):
+        files.absolute_path(root, "Movies/Film.mkv")
+    assert files.path_in(root, "Movies/Film.mkv") is None
 
 
 def test_default_filename_orders_directories():

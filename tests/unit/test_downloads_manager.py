@@ -4,12 +4,13 @@ Everything drives ``_process`` directly — no worker threads — with a fake
 Api and duck-typed streams; the library side is recorded, not executed
 (test_downloads_native_api covers it)."""
 
+import itertools
 import os
 import shutil
 
 import pytest
 
-from kofin.core.http import JellyfinError, Unauthorized
+from kofin.core.http import JellyfinError, ServerUnreachable, Unauthorized
 from kofin.downloads import files
 from kofin.downloads import manager as manager_module
 from kofin.downloads import store
@@ -131,6 +132,7 @@ class FakeManagerApi:
         self._playback = playback
         self._transcode_streams = list(transcode_streams)
         self.stream_calls = []
+        self.if_ranges = []
         self.transcode_urls = []
         self.closed_transcodes = []
         self.subtitle_payloads = {}
@@ -142,8 +144,9 @@ class FakeManagerApi:
             raise self._item
         return self._item
 
-    def download_stream(self, item_id, start=0):
+    def download_stream(self, item_id, start=0, if_range=""):
         self.stream_calls.append(start)
+        self.if_ranges.append(if_range)
         return self._streams.pop(0)
 
     def playback_info(self, item_id, profile, **kwargs):
@@ -436,11 +439,87 @@ def test_a_size_mismatch_requeues_with_the_watermark_then_fails(
     assert "size mismatch" in store.get("m1").error
 
 
+class ReplacedFile(FakeManagerApi):
+    """The download endpoint once the server's file was replaced in place, as
+    ASP.NET's PhysicalFile serves it: a Range is served from the new file
+    unless an If-Range names another Last-Modified, which gets all of it."""
+
+    def __init__(self, body, modified):
+        item = dict(MOVIE_DTO)
+        item["MediaSources"] = [dict(MOVIE_DTO["MediaSources"][0], Size=len(body))]
+        super().__init__(item, [])
+        self.body = body
+        self.modified = modified
+
+    def download_stream(self, item_id, start=0, if_range=""):
+        self.stream_calls.append(start)
+        self.if_ranges.append(if_range)
+        size = len(self.body)
+        headers = {"Last-Modified": self.modified} if self.modified else {}
+        if start and if_range in ("", self.modified):
+            if start >= size:
+                headers["Content-Range"] = "bytes */%d" % size
+                return FakeStream(416, [], headers, already_complete=True)
+            headers["Content-Range"] = "bytes %d-%d/%d" % (start, size - 1, size)
+            return FakeStream(206, [self.body[start:]], headers)
+        headers["Content-Length"] = str(size)
+        return FakeStream(200, [self.body], headers)
+
+
+def _cut_short(body, served, modified=""):
+    """A first attempt the connection drops after ``served`` bytes."""
+    headers = {"Content-Length": str(len(body)), "Content-Disposition": DISPOSITION}
+    if modified:
+        headers["Last-Modified"] = modified
+    stream = FakeStream(
+        200, [body[:served], ServerUnreachable("connection reset")], headers
+    )
+    return FakeManagerApi(MOVIE_DTO, [stream])
+
+
+def test_a_resume_names_the_file_its_part_began_from(tmp_path, repoints, monkeypatch):
+    """A file re-encoded in place under the same item must not be finished
+    as the old file's head on the new one's tail: the resume's If-Range
+    names the old file, and the server answers with all of the new one."""
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    old, new = "Mon, 02 Nov 2026 10:00:00 GMT", "Thu, 05 Nov 2026 09:00:00 GMT"
+    manager._process(_cut_short(b"OLDOLDOL", 4, modified=old), queue_row())
+    assert store.get("m1").bytes_done == 4
+
+    api = ReplacedFile(b"NEWNEW", new)
+    manager._process(api, store.claim())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"NEWNEW"
+    assert (api.stream_calls, api.if_ranges) == ([4], [old])
+    assert row.validator == new
+
+
+def test_a_part_longer_than_the_file_starts_over(tmp_path, repoints, monkeypatch):
+    """Without a validator to send, a file replaced by a smaller one answers
+    the resume with 416: the .part is no head of it, and goes."""
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    manager._process(_cut_short(b"OLDOLDOL", 6), queue_row())
+    api = ReplacedFile(b"NEW!", "")
+
+    manager._process(api, store.claim())
+    assert store.get("m1").state == store.QUEUED
+    manager._process(api, store.claim())
+
+    assert api.stream_calls == [6, 0]
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"NEW!"
+
+
 def test_unauthorized_fails_immediately_no_retry(repoints):
     manager, _ = make_manager(repoints)
 
     class Api403(FakeManagerApi):
-        def download_stream(self, item_id, start=0):
+        def download_stream(self, item_id, start=0, if_range=""):
             raise Unauthorized("GET -> 403")
 
     manager._process(Api403(MOVIE_DTO, []), queue_row())
@@ -576,6 +655,35 @@ def test_no_free_space_refuses_before_touching_the_network(repoints, monkeypatch
     row = store.get("m1")
     assert row.state == store.FAILED and "free space" in row.error
     assert api.stream_calls == []
+
+
+def test_a_network_downloads_folder_is_refused_and_said_once(
+    tmp_path, repoints, monkeypatch
+):
+    """A location an earlier build let the browser pick: nothing is fetched or
+    written under the working directory, and the folder is called unwritable
+    once, not once per item."""
+    monkeypatch.chdir(tmp_path)
+    FakeAddon.store["downloadsPath"] = "smb://user:secret@nas/share/"
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d" % i)
+    manager, _ = make_manager(repoints)
+    body = {"Content-Length": "8", "Content-Disposition": DISPOSITION}
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [FakeStream(200, [b"abcdefgh"], body), FakeStream(200, [b"abcdefgh"], body)],
+    )
+
+    manager._process(api, queue_row("m1"))
+    manager._process(api, queue_row("m2"))
+
+    assert api.stream_calls == []
+    assert not (tmp_path / "smb:").exists()
+    assert [store.get(item).state for item in ("m1", "m2")] == [store.FAILED] * 2
+    assert shown == ["L30717"]
 
 
 def test_reconcile_removes_missing_files_and_reasserts_present_ones(tmp_path, repoints):
@@ -885,6 +993,28 @@ def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
     manager._stop.clear()
     assert store.recover_interrupted() == 1
     assert store.get("m1").state == store.QUEUED
+
+
+def test_turning_downloads_off_ends_a_transfer_at_the_next_chunk(tmp_path, repoints):
+    """The manager's own stop is not the transport's abort, which hears the
+    service's alone. A transfer it stops stays active for the next manager to
+    resume, and no second writer meets this one in the .part."""
+    manager, _ = make_manager(repoints)
+    stream = FakeStream(
+        200,
+        [b"ab", b"cd", b"ef", b"gh"],
+        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+    )
+    stream.on_chunk = lambda index: manager._stop.set()
+    api = FakeManagerApi(MOVIE_DTO, [stream])
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.ACTIVE
+    assert row.bytes_done == 2
+    assert (tmp_path / "dl" / (row.rel_path + ".part")).read_bytes() == b"ab"
+    assert store.recover_interrupted() == 1
 
 
 def test_an_outage_releases_the_row_back_to_queued(tmp_path, repoints):
@@ -1202,6 +1332,140 @@ def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypat
     assert repoints.get("music_view") == [False]
 
 
+ALBUM = "Music/The Band/Greatest Hits"
+
+
+def _track_api(item_id, body, filename="01.flac"):
+    """A track of SONG_DTO's album that the server holds under ``filename``."""
+    item = dict(SONG_DTO, Id=item_id)
+    item["MediaSources"] = [dict(SONG_DTO["MediaSources"][0], Size=len(body))]
+    disposition = 'attachment; filename="%s"' % filename
+    stream = FakeStream(
+        200,
+        [body],
+        {"Content-Length": str(len(body)), "Content-Disposition": disposition},
+    )
+    return FakeManagerApi(item, [stream])
+
+
+def test_two_tracks_of_one_name_keep_a_file_each(tmp_path, repoints):
+    """A track of each disc, CD1/01.flac and CD2/01.flac on the server, lands
+    in one album directory: the second takes a numbered name, and each row
+    keeps its own file."""
+    manager, _ = make_manager(repoints)
+
+    manager._process(_track_api("d1t1", b"DISC-ONE"), queue_row("d1t1"))
+    manager._process(_track_api("d2t1", b"DISC-TWO"), queue_row("d2t1"))
+
+    one, two = store.get("d1t1"), store.get("d2t1")
+    assert (one.rel_path, two.rel_path) == (ALBUM + "/01.flac", ALBUM + "/01 (2).flac")
+    assert (tmp_path / "dl" / one.rel_path).read_bytes() == b"DISC-ONE"
+    assert (tmp_path / "dl" / two.rel_path).read_bytes() == b"DISC-TWO"
+
+
+def test_a_name_is_held_from_the_moment_a_transfer_records_it(tmp_path, repoints):
+    """Before a byte of it is on disk, as for a track another worker has
+    only just started."""
+    manager, _ = make_manager(repoints)
+    queue_row("d1t1")
+    store.record_details("d1t1", "song", "album1", 8, "")
+    store.record_target("d1t1", ALBUM + "/01.flac", "flac")
+
+    manager._process(_track_api("d2t1", b"DISC-TWO"), queue_row("d2t1"))
+
+    assert store.get("d2t1").rel_path == ALBUM + "/01 (2).flac"
+
+
+def test_a_file_no_download_names_is_never_written_over(tmp_path, repoints):
+    """A folder the downloads share can hold the user's own files in the same
+    layout. A .part no row names is a stale transfer's, and is reused."""
+    manager, _ = make_manager(repoints)
+    album = tmp_path / "dl" / ALBUM
+    album.mkdir(parents=True)
+    (album / "01.flac").write_bytes(b"MINE")
+    (album / "02.flac.part").write_bytes(b"stale")
+
+    manager._process(_track_api("t1", b"ONE"), queue_row("t1"))
+    manager._process(_track_api("t2", b"TWO", "02.flac"), queue_row("t2"))
+
+    assert store.get("t1").rel_path == ALBUM + "/01 (2).flac"
+    assert (album / "01.flac").read_bytes() == b"MINE"
+    assert store.get("t2").rel_path == ALBUM + "/02.flac"
+    assert (album / "02.flac").read_bytes() == b"TWO"
+
+
+MOVIE_DIR = "Movies/The Movie (2019)"
+
+
+def _movie_api(item_id, body, filename):
+    """MOVIE_DTO under ``item_id``, which the server holds under ``filename``."""
+    item = dict(MOVIE_DTO, Id=item_id)
+    item["MediaSources"] = [dict(MOVIE_DTO["MediaSources"][0], Size=len(body))]
+    disposition = 'attachment; filename="%s"' % filename
+    stream = FakeStream(
+        200,
+        [body],
+        {"Content-Length": str(len(body)), "Content-Disposition": disposition},
+    )
+    return FakeManagerApi(item, [stream])
+
+
+def _fail_an_endless_name_search(monkeypatch):
+    """A name search that never ends fails the test rather than hang it."""
+    clash, checks = files.stems_clash, itertools.count()
+
+    def counted(first, second):
+        assert next(checks) < 10_000, "the name search did not end"
+        return clash(first, second)
+
+    monkeypatch.setattr(files, "stems_clash", counted)
+
+
+@pytest.mark.parametrize(
+    "directory, make_api, mine, served, expected",
+    [
+        (ALBUM, _track_api, "01.flac", "01. Title.flac", "(2) 01. Title.flac"),
+        (ALBUM, _track_api, "01.cue", "01. Title.flac", "(2) 01. Title.flac"),
+        (ALBUM, _track_api, "01. Title.flac", "01.flac", "01 (2).flac"),
+        (MOVIE_DIR, _movie_api, "Movie.mkv", "Movie.en.mkv", "(2) Movie.en.mkv"),
+    ],
+)
+def test_a_name_never_carries_on_past_a_dot_from_a_file_beside_it(
+    tmp_path, repoints, monkeypatch, directory, make_api, mine, served, expected
+):
+    """A removal of 01.flac takes every 01.* beside it, and 01. Title (2).flac
+    is one: there the number leads."""
+    _fail_an_endless_name_search(monkeypatch)
+    manager, _ = make_manager(repoints)
+    folder = tmp_path / "dl" / directory
+    folder.mkdir(parents=True)
+    (folder / mine).write_bytes(b"MINE")
+
+    manager._process(make_api("i1", b"ONE", served), queue_row("i1"))
+
+    assert store.get("i1").rel_path == directory + "/" + expected
+    assert (folder / mine).read_bytes() == b"MINE"
+    assert (folder / expected).read_bytes() == b"ONE"
+
+
+def test_a_name_with_no_free_number_fails_the_download(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(files, "MAX_NAME_NUMBER", 2)
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    album = tmp_path / "dl" / ALBUM
+    album.mkdir(parents=True)
+    (album / "01.flac").write_bytes(b"MINE")
+    (album / "01 (2).flac").write_bytes(b"MINE TOO")
+
+    manager._process(_track_api("t1", b"ONE"), queue_row("t1"))
+    manager._process(_track_api("t1", b"ONE"), store.claim())
+    manager._process(_track_api("t1", b"ONE"), store.claim())
+
+    row = store.get("t1")
+    assert row.state == store.FAILED and "no free name" in row.error
+    assert sorted(os.listdir(album)) == ["01 (2).flac", "01.flac"]
+
+
 # -- the progress bar ---------------------------------------------------------
 
 
@@ -1301,7 +1565,10 @@ def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatc
 # -- retention and exported-metadata pruning ----------------------------------
 
 
-def seed_done(item_id, origin, queued_at=100):
+DAY = manager_module.SECONDS_PER_DAY
+
+
+def seed_done(item_id, origin, queued_at=100, done_at=0):
     store.queue(
         store.Download(
             jellyfin_id=item_id, media_type="movie", origin=origin, queued_at=queued_at
@@ -1309,7 +1576,9 @@ def seed_done(item_id, origin, queued_at=100):
     )
     store.claim()
     store.record_details(item_id, "movie", "", 0, "")
-    store.finish(item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1)
+    store.finish(
+        item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1, done_at=done_at
+    )
 
 
 def test_retention_sweeps_every_watched_download_in_the_silent_mode(
@@ -1317,12 +1586,16 @@ def test_retention_sweeps_every_watched_download_in_the_silent_mode(
 ):
     """The sweep is the backstop for what the end-of-playback offer misses,
     and takes a watched download whoever queued it."""
+    import time as time_module
+
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
-    seed_done("auto-watched", "auto:s1", queued_at=100)
-    seed_done("auto-fresh", "auto:s1", queued_at=101)
-    seed_done("user-watched", store.ORIGIN_USER, queued_at=102)
+    now = time_module.time()
+    landed = int(now - 2 * DAY)
+    seed_done("auto-watched", "auto:s1", queued_at=100, done_at=landed)
+    seed_done("auto-fresh", "auto:s1", queued_at=101, done_at=landed)
+    seed_done("user-watched", store.ORIGIN_USER, queued_at=102, done_at=landed)
 
     watched = {"auto-watched", "user-watched"}
     monkeypatch.setattr(
@@ -1330,11 +1603,41 @@ def test_retention_sweeps_every_watched_download_in_the_silent_mode(
         "_watched_locally",
         lambda row: row.jellyfin_id in watched,
     )
+    touches(monkeypatch, {item_id: (now - DAY, False) for item_id in watched})
     removed = []
     monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
 
     manager._retention_sweep()
     assert removed == ["auto-watched", "user-watched"]  # never the unwatched
+
+
+def test_retention_counts_only_a_play_since_the_download_landed(repoints, monkeypatch):
+    """A download of something already watched (a rewatch taken on a trip)
+    carries the server's play count from the start. It goes once Kodi has
+    counted a play after it landed, and not while a play stopped part way
+    has left a resume point."""
+    import time as time_module
+
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
+    manager, _ = make_manager(repoints)
+    now = time_module.time()
+    for item_id in ("rewatching", "seen-before", "seen-since", "unmapped"):
+        seed_done(item_id, store.ORIGIN_USER, done_at=int(now - 2 * DAY))
+    monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    touches(
+        monkeypatch,
+        {
+            "rewatching": (now - DAY, True),
+            "seen-before": (now - 30 * DAY, False),
+            "seen-since": (now - DAY, False),
+        },
+    )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._retention_sweep()
+    assert removed == ["seen-since"]
 
 
 def test_retention_stands_down_when_removal_is_a_question(repoints, monkeypatch):
@@ -1359,11 +1662,15 @@ def test_retention_stands_down_when_removal_is_a_question(repoints, monkeypatch)
 
 
 def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
+    import time as time_module
+
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
-    seed_done("auto-playing", "auto:s1")
+    now = time_module.time()
+    seed_done("auto-playing", "auto:s1", done_at=int(now - 2 * DAY))
     monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    touches(monkeypatch, {"auto-playing": (now - DAY, False)})
     monkeypatch.setattr(manager, "_playing_now", lambda row: True)
     removed = []
     monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
@@ -1373,9 +1680,6 @@ def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
 
 
 # -- the stale sweep ---------------------------------------------------------
-
-
-DAY = manager_module.SECONDS_PER_DAY
 
 
 def seed_stale(item_id, days_ago, media_type="movie"):

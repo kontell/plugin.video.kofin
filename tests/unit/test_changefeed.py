@@ -4,8 +4,9 @@ retention-overrun decisions."""
 
 import calendar
 
+import pytest
 
-from kofin.core.http import JellyfinError
+from kofin.core.http import HttpError, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.sync import changefeed
 from kofin.sync.changefeed import (
     KofinFeed,
@@ -20,7 +21,7 @@ from kofin.sync.changefeed import (
 
 class FakeApi:
     def __init__(self):
-        self.kofin_info_result = JellyfinError("404")
+        self.kofin_info_result = HttpError(404, "GET /Kofin/SyncQueue/Info -> 404")
         self.kofin_queue_result = {}
         self.kofin_queue_requests = []
         self.server_time_result = {"ServerDateTime": "2026-07-17T10:00:00Z"}
@@ -120,8 +121,34 @@ def test_detect_falls_to_official_when_kofin_absent():
 
 def test_detect_none_when_no_companion():
     api = FakeApi()
-    api.server_time_result = JellyfinError("404")
+    api.server_time_result = HttpError(
+        404, "GET /Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime -> 404"
+    )
     assert detect(api) is None
+
+
+@pytest.mark.parametrize("probe", ["kofin_info_result", "server_time_result"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ServerUnreachable("GET: timed out"),
+        Unauthorized("GET -> 401"),
+        HttpError(503, "GET -> 503"),
+    ],
+)
+def test_detect_raises_what_a_probe_could_not_say(probe, failure):
+    """Only a 404 says a plugin is absent. Read as absent, a probe that
+    timed out sent the catch-up to the save dates, which see no deletion."""
+    api = FakeApi()
+    setattr(api, probe, failure)
+    with pytest.raises(type(failure)):
+        detect(api)
+
+
+def test_detect_reads_an_info_that_is_not_an_object_as_another_protocol():
+    api = FakeApi()
+    api.kofin_info_result = []
+    assert isinstance(detect(api), LegacyFeed)
 
 
 # --- providers ----------------------------------------------------------------

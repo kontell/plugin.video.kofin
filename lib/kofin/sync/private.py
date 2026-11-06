@@ -221,7 +221,7 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         bytes_done INTEGER, userdata_json TEXT,
         queued_at INTEGER, done_at INTEGER, error TEXT,
         segments_json TEXT,
-        request_id TEXT, request_name TEXT)""")
+        request_id TEXT, request_name TEXT, validator TEXT)""")
     # CREATE IF NOT EXISTS never revisits an existing table: a new column goes
     # in the CREATE above *and* here.
     _ensure_columns(
@@ -231,6 +231,7 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
             "segments_json": "TEXT",
             "request_id": "TEXT",
             "request_name": "TEXT",
+            "validator": "TEXT",
         },
     )
 
