@@ -184,9 +184,9 @@ def manager():
     m._dispatcher.join(timeout=2)
 
 
-def join(manager, protocol_version=2, version=1):
+def join(manager, protocol_version=2, version=1, group_id="g1"):
     info = {
-        "GroupId": "g1",
+        "GroupId": group_id,
         "GroupName": "movie night",
         "State": "Idle",
         "Participants": ["alice", "bob"],
@@ -196,7 +196,12 @@ def join(manager, protocol_version=2, version=1):
         info["ProtocolVersion"] = protocol_version
 
     manager._handle_group_update(
-        {"GroupId": "g1", "Type": "GroupJoined", "Data": info, "StateVersion": version}
+        {
+            "GroupId": group_id,
+            "Type": "GroupJoined",
+            "Data": info,
+            "StateVersion": version,
+        }
     )
     # Don't let the real TimeSync thread run in unit tests.
     if manager.timesync is not None:
@@ -2576,6 +2581,41 @@ class TestGroupUpdateTables:
         manager.join_group("g1")
         join(manager, protocol_version=2)
         assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_a_rejoin_after_an_unconfirmed_new_group_proposes_nothing(
+        self, manager, paused_cond
+    ):
+        """The rejoin is of a group this member did not create: a New group
+        still waiting for GroupJoined must not hand it the local playback."""
+        manager.last_group_id = "g1"
+        manager._pending_local_queue = True  # a New group not confirmed yet
+        manager.player.playing = True
+        manager.player.item = {"Id": "my-own-show", "PlaySessionId": "s9"}
+
+        manager._attempt_rejoin(force=True)
+        join(manager, protocol_version=2)
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_a_new_group_made_from_inside_a_group_takes_the_local_playback(
+        self, manager, paused_cond, monkeypatch
+    ):
+        """The server leaves the current group before it creates the new one,
+        so the old group's GroupLeft arrives ahead of the GroupJoined that
+        hands the new group its creator's playback."""
+        monkeypatch.setattr(manager_module.utils, "later", lambda *a: None)
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = {"Id": "my-own-show", "PlaySessionId": "s9"}
+
+        assert manager.new_group("ours") is True
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "GroupLeft", "Data": "g1"}
+        )
+        join(manager, group_id="g2")
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert [call[1] for call in calls] == [["my-own-show"]]
 
     def test_group_does_not_exist_outside_a_group_is_quiet(self, manager, monkeypatch):
         attempts = []

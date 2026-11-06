@@ -637,10 +637,16 @@ class Api:
         return self._get_list("/Items/%s/SpecialFeatures" % item_id, self._as_user())
 
     def adjacent_episodes(self, series_id: str, item_id: str) -> JsonDict:
-        """The episode window around ``item_id`` (next-episode resolution)."""
+        """The episode window around ``item_id`` (next-episode resolution).
+
+        Without ``isMissing`` the server answers by the account's "Display
+        missing episodes", and a missing episode has no file to play.
+        """
         return self.get(
             "/Shows/%s/Episodes" % series_id,
-            self._as_user({"adjacentTo": item_id, "Fields": "Overview"}),
+            self._as_user(
+                {"adjacentTo": item_id, "isMissing": False, "Fields": "Overview"}
+            ),
         )
 
     # -- SyncPlay --------------------------------------------------------------

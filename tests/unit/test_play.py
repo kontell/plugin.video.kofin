@@ -769,6 +769,52 @@ def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
     assert resume_env["built"]["resume_seconds"] == 200.0
 
 
+def test_a_listing_resume_of_a_synced_item_starts_where_the_listing_said(
+    resume_env, monkeypatch
+):
+    """A kofin listing's row advertises the server's position with the
+    offset, and Kodi resumes it at the resolved item's point: the item being
+    synced, with a bookmark in Kodi's row, changes neither."""
+
+    def explode(kodi_id, media):  # pragma: no cover - must not be reached
+        raise AssertionError("a listing's play does not resume at Kodi's bookmark")
+
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.native_id_for", lambda item_id, media: 8956
+    )
+    monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", explode)
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 590.0
+    # Still linked to the library row it plays.
+    assert resume_env["li"].tag.dbid == 8956
+
+
+def test_a_library_url_resumes_at_kodis_bookmark(resume_env, monkeypatch):
+    """A library row's URL is the provider's and carries no dbid: the play
+    route finds the row by the item, and Kodi seeks to its bookmark."""
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import paths
+    from kofin.sync.backends.api.store import namespace
+
+    monkeypatch.setattr(play.Credentials, "server_id", "srv", raising=False)
+    monkeypatch.setattr(play.Credentials, "user_id", "usr", raising=False)
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.native_id_for", lambda item_id, media: 8956
+    )
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 200.0
+    )
+    folder = paths.show_dir(namespace("srv", "usr"), "f" * 32, "show1")
+
+    play.play(Request(folder, 1, {"mode": "play", "id": "ep1"}, True))
+
+    assert resume_env["api"].start_ticks == [200 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 200.0
+
+
 def test_library_resume_honours_a_cleared_bookmark(resume_env, monkeypatch):
     # Kodi will start at 0 whatever the server thinks; saying otherwise reports
     # a position nothing is at.
