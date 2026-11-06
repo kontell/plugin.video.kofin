@@ -146,7 +146,9 @@ def save_playlist(request: Request) -> None:
 
     translated = xbmcvfs.translatePath(path)
     try:
-        with open(translated, encoding="utf-8") as handle:
+        # Kodi writes a .m3u in the GUI's character set, only a .m3u8 in
+        # UTF-8. The lines that name kofin's rows are ASCII either way.
+        with open(translated, encoding="utf-8", errors="replace") as handle:
             text = handle.read()
     except OSError:
         LOG.exception("could not read playlist %s", path)

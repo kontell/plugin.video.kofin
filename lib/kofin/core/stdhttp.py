@@ -165,6 +165,10 @@ class StdlibHttp(Http):
         """
         existing = getattr(self._local, "conn", None)
         if existing is not None and getattr(self._local, "origin", None) == origin:
+            # The read budget is this call's, not the one the socket was
+            # opened with.
+            if existing.sock is not None:
+                existing.sock.settimeout(read_timeout)
             return existing, False
 
         self._drop()
@@ -240,17 +244,18 @@ class StdlibHttp(Http):
         A connection taken from the pool can have been closed by the server
         while it sat idle; the failure then happens before the request reaches
         anyone, so replaying it is safe for *any* method and must not spend the
-        caller's retry budget (which for POST is zero, deliberately). A failure
-        while reading the body is a different thing — the server did act — and
-        propagates.
+        caller's retry budget (which for POST is zero, deliberately). A timeout
+        is a different thing — the server may have the request and be slow
+        with it — and so is a failure while reading the body, where the server
+        did act: both propagate.
         """
         connection, fresh = self._connection(origin, connect_timeout, read_timeout)
         try:
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
-        except _TRANSPORT_ERRORS:
+        except _TRANSPORT_ERRORS as error:
             self._drop()
-            if fresh:
+            if fresh or isinstance(error, TimeoutError):
                 raise
             LOG.debug("pooled connection was dead; reconnecting for %s", url)
             connection, _ = self._connection(origin, connect_timeout, read_timeout)

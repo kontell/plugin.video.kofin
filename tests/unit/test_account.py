@@ -45,6 +45,28 @@ class FakeMonitor:
         return False
 
 
+class FakeKeyboard:
+    """Each keyboard opened takes the next (confirmed, text) answer."""
+
+    answers = []
+    opened = []
+
+    def __init__(self, line="", heading="", hidden=False):
+        FakeKeyboard.opened.append((heading, hidden))
+        self._answer = (
+            FakeKeyboard.answers.pop(0) if FakeKeyboard.answers else (False, "")
+        )
+
+    def doModal(self, autoclose=0):
+        pass
+
+    def isConfirmed(self):
+        return self._answer[0]
+
+    def getText(self):
+        return self._answer[1]
+
+
 # Strings used with %-formatting need placeholder-correct fakes.
 TEXTS = {
     30015: "code %s",
@@ -63,10 +85,13 @@ def kodi_fakes(monkeypatch):
     FakeDialog.selects = []
     FakeDialog.yesno_answer = True
     FakeDialog.notifications = []
+    FakeKeyboard.answers = []
+    FakeKeyboard.opened = []
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Dialog", FakeDialog)
     monkeypatch.setattr("xbmcgui.DialogProgress", FakeProgress)
     monkeypatch.setattr("xbmc.Monitor", FakeMonitor)
+    monkeypatch.setattr("xbmc.Keyboard", FakeKeyboard)
     monkeypatch.setattr(account, "_text", lambda sid: TEXTS.get(sid, "msg"))
     sent = []
     monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: sent.append(cmd))
@@ -91,7 +116,8 @@ REQ = Request("plugin://plugin.video.kofin/", -1, {})
 def test_login_password_happy_path(kodi_fakes, server, monkeypatch):
     monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
     settings.set_str("serverAddress", "minipie")
-    FakeDialog.inputs = ["conor", "secretpw"]
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "secretpw")]
 
     account.login(REQ)
 
@@ -102,6 +128,69 @@ def test_login_password_happy_path(kodi_fakes, server, monkeypatch):
     assert creds.server_name == "minipie"
     assert creds.display_user == "conor"
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)
+    # The password is typed on a hidden keyboard.
+    assert [hidden for _heading, hidden in FakeKeyboard.opened] == [True]
+
+
+def test_cancelling_the_password_sends_no_attempt(kodi_fakes, monkeypatch):
+    """Back out of the password keyboard is not an empty password: nothing
+    reaches the server, where a failed attempt counts toward a lockout and an
+    account without a password would be signed in."""
+    monkeypatch.setattr(
+        account.auth, "public_info", lambda h, a: {"ServerName": "minipie"}
+    )
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    attempts = []
+    monkeypatch.setattr(
+        account.auth,
+        "authenticate_password",
+        lambda h, a, hdr, u, p: attempts.append((u, p)),
+    )
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(False, "")]
+
+    account.login(REQ)
+
+    assert attempts == []
+    assert settings.Credentials.load().is_logged_in is False
+    assert not any("AuthChanged" in cmd for cmd in kodi_fakes)
+
+
+def test_an_empty_password_confirmed_is_sent(kodi_fakes, server, monkeypatch):
+    """A Jellyfin account may have no password, and OK on an empty keyboard
+    is that password."""
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    sent = []
+
+    def authenticate(h, a, hdr, u, p):
+        sent.append(p)
+        return auth.AuthResult("tok9", "uid9", u, "srv9")
+
+    monkeypatch.setattr(account.auth, "authenticate_password", authenticate)
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "")]
+
+    account.login(REQ)
+
+    assert sent == [""]
+    assert settings.Credentials.load().is_logged_in is True
+
+
+def test_sign_in_logs_no_user_name(kodi_fakes, server, monkeypatch):
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "secretpw")]
+
+    account.login(REQ)
+
+    assert settings.Credentials.load().is_logged_in is True
+    assert any("signed in to minipie" in line for line in lines)
+    assert not [line for line in lines if "conor" in line]
 
 
 def test_login_quick_connect_path(kodi_fakes, server, monkeypatch):
@@ -138,7 +227,8 @@ def test_login_wrong_password_leaves_logged_out(kodi_fakes, monkeypatch):
 
     monkeypatch.setattr(account.auth, "authenticate_password", raise_unauthorized)
     settings.set_str("serverAddress", "minipie")
-    FakeDialog.inputs = ["conor", "wrong"]
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "wrong")]
 
     account.login(REQ)
 
@@ -167,6 +257,110 @@ def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
 
     assert "https://minipie:8920/jellyfin" in FakeDialog.notifications[-1]
     assert FakeDialog.notifications[-1].startswith("server error")
+    assert settings.Credentials.load().is_logged_in is False
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_a_password_in_the_address_is_neither_sent_nor_logged(
+    kodi_fakes, monkeypatch, typed
+):
+    """A failed ping is logged at warning, with the address it tried. A stored
+    address is left without its password; a typed one is stored only by a
+    sign-in that succeeds."""
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    pinged = []
+
+    def unreachable(h, a):
+        pinged.append(a)
+        raise ServerUnreachable("GET %s/System/Info/Public: refused" % a)
+
+    monkeypatch.setattr(account.auth, "public_info", unreachable)
+    if typed:
+        FakeDialog.inputs = ["https://bob:hunter2@minipie"]
+    else:
+        settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+
+    account.login(REQ)
+
+    assert pinged == ["https://minipie"]
+    assert lines
+    assert not [line for line in lines if "hunter2" in line or "bob" in line]
+    assert settings.get_str("serverAddress") == ("" if typed else "https://minipie")
+
+
+def test_signed_in_the_stored_address_loses_its_password(kodi_fakes, monkeypatch):
+    """Log in while signed in asks the server nothing, and the settings
+    dialog shows the address."""
+    _logged_in()
+    settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+    pinged = []
+    monkeypatch.setattr(account.auth, "public_info", lambda h, a: pinged.append(a))
+
+    account.login(REQ)
+
+    assert pinged == []
+    assert settings.get_str("serverAddress") == "https://minipie"
+    assert settings.Credentials.load().is_logged_in is True
+
+
+@pytest.mark.parametrize("typed", ["192.168.1.10:80960", "fe80::1", "[fd00::1"])
+def test_login_names_an_address_urllib_cannot_split_unreachable(
+    kodi_fakes, monkeypatch, typed
+):
+    """A port past 65535, an IPv6 literal without its brackets or with one
+    missing: nothing is asked of the network, and the login fails with a
+    toast instead of a script error."""
+    asked = []
+    monkeypatch.setattr(account.auth, "public_info", lambda h, a: asked.append(a))
+    monkeypatch.setattr(account, "_text", lambda sid: {30018: "unreachable"}[sid])
+    settings.set_str("serverAddress", typed)
+
+    account.login(REQ)
+
+    assert asked == []
+    assert FakeDialog.notifications == ["unreachable"]
+    assert settings.Credentials.load().is_logged_in is False
+
+
+def test_login_names_a_host_the_transport_cannot_encode_unreachable(
+    kodi_fakes, monkeypatch
+):
+    def refuse(h, a):
+        raise UnicodeError("encoding with 'idna' codec failed: label empty")
+
+    monkeypatch.setattr(account.auth, "public_info", refuse)
+    monkeypatch.setattr(account, "_text", lambda sid: {30018: "unreachable"}[sid])
+    settings.set_str("serverAddress", "media..lan")
+
+    account.login(REQ)
+
+    assert FakeDialog.notifications == ["unreachable"]
+    assert settings.Credentials.load().is_logged_in is False
+
+
+@pytest.mark.parametrize("body", [b"<!doctype html><title>Router</title>", b"[]", b""])
+def test_login_names_a_ping_answered_by_something_else_a_server_error(
+    kodi_fakes, monkeypatch, body
+):
+    """A web page or any other body that is not a JSON object at the address
+    is a server that answered badly, as a redirect is."""
+    from kofin.core.stdhttp import Response
+
+    class Answering:
+        def request(self, method, url, **kwargs):
+            return Response(200, body, url)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(account, "plugin_transport", lambda verify: Answering())
+    settings.set_str("serverAddress", "192.168.1.1")
+
+    account.login(REQ)
+
+    assert FakeDialog.notifications[-1].startswith("server error")
+    assert "/System/Info/Public -> 200" in FakeDialog.notifications[-1]
     assert settings.Credentials.load().is_logged_in is False
 
 

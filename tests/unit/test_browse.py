@@ -1126,6 +1126,56 @@ def test_search_person_lists_what_they_are_in(monkeypatch, directory):
     assert directory["content"] == "videos"
 
 
+class CreditsApi(SearchApi):
+    """/Items over one person's credits, ordered by premiere date as the
+    SortOrder asks (Ascending when none is given) and cut at the Limit."""
+
+    def __init__(self, credits):
+        super().__init__()
+        self.credits = credits
+
+    def items(self, params):
+        self.queries.append(params)
+        newest_first = str(params.get("SortOrder", "")).startswith("Descending")
+        rows = sorted(
+            self.credits, key=lambda row: row["PremiereDate"], reverse=newest_first
+        )
+        return {"Items": rows[: params["Limit"]]}
+
+
+def test_search_person_keeps_the_newest_credits(monkeypatch, directory):
+    """A series lead has more episodes than the listing's limit: what it
+    leaves out is their oldest work, not their latest film."""
+    episodes = [
+        {
+            "Id": "e%03d" % index,
+            "Name": "Episode %d" % index,
+            "Type": "Episode",
+            "PremiereDate": "%d-01-%02dT00:00:00.0000000Z"
+            % (2001 + index // 28, 1 + index % 28),
+        }
+        for index in range(browse.SEARCH_LIMIT + 20)
+    ]
+    film = {
+        "Id": "m1",
+        "Name": "Latest Film",
+        "Type": "Movie",
+        "PremiereDate": "2024-06-01T00:00:00.0000000Z",
+    }
+    api = CreditsApi(episodes + [film])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.search(Request("plugin://x", 1, {"person": "p1"}))
+
+    listed = [
+        parse_qs(urlsplit(path).query)["id"][0]
+        for path, _li, _folder in directory["entries"]
+    ]
+    assert len(listed) == browse.SEARCH_LIMIT
+    assert listed[0] == "m1"
+    assert "e000" not in listed
+
+
 def test_search_failure_fails_the_fetch(monkeypatch, directory):
     monkeypatch.setattr(browse, "_api", lambda: SearchApi(fail=True))
 
@@ -1264,6 +1314,69 @@ def test_playlists_get_their_own_glyph_and_empty_content():
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Playlist"}]) == ""
     # A mixed listing still describes its media.
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Movie"}]) == "movies"
+
+
+class PlaylistApi:
+    """A playlist's two routes, as the server answers them: /Items gives its
+    items once each by name, the playlist route its entries in order."""
+
+    server = "http://server:8096"
+
+    def __init__(self, entries):
+        self.entries = entries
+        self.pages = []
+
+    def playlist_items(self, playlist_id, start_index=0, limit=100, fields=""):
+        self.pages.append((playlist_id, start_index, limit, fields))
+        return {
+            "Items": self.entries[start_index : start_index + limit],
+            "TotalRecordCount": len(self.entries),
+        }
+
+    def items(self, params):
+        once = {entry["Id"]: entry for entry in self.entries}
+        return {"Items": sorted(once.values(), key=lambda entry: entry["Name"])}
+
+
+def _playlist_entries():
+    return [
+        {"Id": "s2", "Name": "Zebra", "Type": "Audio", "PlaylistItemId": "e1"},
+        {"Id": "s1", "Name": "Aardvark", "Type": "Audio", "PlaylistItemId": "e2"},
+        {"Id": "s3", "Name": "Moth", "Type": "Audio", "PlaylistItemId": "e3"},
+        {"Id": "s2", "Name": "Zebra", "Type": "Audio", "PlaylistItemId": "e4"},
+    ]
+
+
+def _listed_ids(directory):
+    return [
+        parse_qs(urlsplit(path).query)["id"][0]
+        for path, _li, _folder in directory["entries"]
+    ]
+
+
+def test_a_playlist_lists_its_entries_in_its_own_order(monkeypatch, directory):
+    """Its order, an item added twice listed twice, on the slim field list
+    an unbounded listing takes."""
+    api = PlaylistApi(_playlist_entries())
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.browse(Request("plugin://x", 1, {"type": "playlist", "folder": "pl1"}))
+
+    assert _listed_ids(directory) == ["s2", "s1", "s3", "s2"]
+    assert directory["content"] == "songs"
+    assert directory["succeeded"] is True
+    assert [(page[0], page[3]) for page in api.pages] == [("pl1", browse.BROWSE_FIELDS)]
+
+
+def test_a_playlist_longer_than_a_page_is_listed_whole(monkeypatch, directory):
+    api = PlaylistApi(_playlist_entries())
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    monkeypatch.setattr(browse, "PLAYLIST_PAGE", 3)
+
+    browse.browse(Request("plugin://x", 1, {"type": "playlist", "folder": "pl1"}))
+
+    assert _listed_ids(directory) == ["s2", "s1", "s3", "s2"]
+    assert [page[1] for page in api.pages] == [0, 3]
 
 
 # --- the nextepisodes node target --------------------------------------------

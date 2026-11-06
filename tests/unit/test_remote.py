@@ -36,6 +36,7 @@ class FakePlaylist:
 class FakePlayer:
     played = []
     actions = []
+    paused = False
 
     def play(self, item=None, listitem=None, windowed=False, startpos=-1):
         FakePlayer.played.append(item)
@@ -45,6 +46,7 @@ class FakePlayer:
 
     def pause(self):
         FakePlayer.actions.append("pause")
+        FakePlayer.paused = not FakePlayer.paused
 
     def playnext(self):
         FakePlayer.actions.append("next")
@@ -62,6 +64,7 @@ def fakes(monkeypatch):
     FakePlaylist.types = []
     FakePlayer.played = []
     FakePlayer.actions = []
+    FakePlayer.paused = False
     monkeypatch.setattr("xbmc.PlayList", FakePlaylist)
     monkeypatch.setattr("xbmc.Player", FakePlayer)
     rpc = []
@@ -69,13 +72,18 @@ def fakes(monkeypatch):
     def answer(query):
         payload = json.loads(query)
         rpc.append(payload)
-        # A Stop goes over JSON-RPC, not through player.stop(), so the seam
-        # answers the player lookup it makes.
+        # A Stop, a Pause and an Unpause go over JSON-RPC, not through the
+        # Player binding, so the seam answers the player lookup they make.
         if payload["method"] == "Player.GetActivePlayers":
             return json.dumps({"result": [{"playerid": 1, "type": "video"}]})
         if payload["method"] == "Player.Stop":
             FakePlayer.actions.append("stop")
             return json.dumps({"result": "OK"})
+        if payload["method"] == "Player.PlayPause":
+            play = payload["params"]["play"]
+            FakePlayer.actions.append(("playpause", play))
+            FakePlayer.paused = not play
+            return json.dumps({"result": {"speed": 0 if FakePlayer.paused else 1}})
         return "{}"
 
     monkeypatch.setattr("xbmc.executeJSONRPC", answer)
@@ -109,7 +117,30 @@ def test_playstate_commands(fakes):
     handler.handle("Playstate", {"Command": "Stop"})
     handler.handle("Playstate", {"Command": "Pause"})
     handler.handle("Playstate", {"Command": "Seek", "SeekPositionTicks": 300_000_000})
-    assert FakePlayer.actions == ["stop", "pause", ("seek", 30.0)]
+    assert FakePlayer.actions == ["stop", ("playpause", False), ("seek", 30.0)]
+
+
+@pytest.mark.parametrize(
+    "paused, command, after",
+    [
+        (True, "Pause", True),
+        (False, "Pause", True),
+        (False, "Unpause", False),
+        (True, "Unpause", False),
+        (False, "PlayPause", True),
+        (True, "PlayPause", False),
+    ],
+)
+def test_pause_and_unpause_ask_for_a_state_and_only_play_pause_toggles(
+    fakes, paused, command, after
+):
+    """jellyfin-web sends Pause and Unpause from media keys and the system's
+    media controls, whatever Kodi is doing."""
+    FakePlayer.paused = paused
+
+    RemoteHandler().handle("Playstate", {"Command": command})
+
+    assert FakePlayer.paused is after
 
 
 def test_general_volume_and_navigation(fakes):

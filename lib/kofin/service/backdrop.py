@@ -15,6 +15,9 @@ URL, so no cache needs invalidating.
 * **The write is atomic.** Kodi may be reading the file to cache it; a
   partial write would cache a truncated image under a name that says it is
   complete.
+* **Only the current image is kept.** No write replaces an earlier image, so
+  once the state names a new one every other, and any write cut short, is
+  deleted.
 
 :meth:`Api.splashscreen` records why the image is taken as WebP.
 """
@@ -22,6 +25,7 @@ URL, so no cache needs invalidating.
 import hashlib
 import json
 import os
+import re
 from typing import Optional
 
 from kofin.core import settings
@@ -39,6 +43,9 @@ STATE_NAME = "backdrop.json"
 # Floor between fetches. The splashscreen is a collage the server rebuilds as
 # the library changes, so it does move — just never faster than this matters.
 REFRESH_INTERVAL_SECONDS = 24 * 60 * 60
+
+# A server backdrop in addon_data, or a write of one cut short.
+IMAGE_NAME = re.compile(r"fanart-[0-9a-f]{64}\.webp(\.part)?")
 
 
 def _state_path() -> str:
@@ -121,3 +128,14 @@ def _apply_profile(api: Optional[Api], now: float, force: bool) -> None:
     with open(state_path + ".part", "w", encoding="utf-8") as handle:
         json.dump({"profile_hash": digest, "fetched": now}, handle)
     os.replace(state_path + ".part", state_path)
+    _remove_others(directory, os.path.basename(target))
+
+
+def _remove_others(directory: str, keep: str) -> None:
+    for name in os.listdir(directory):
+        if name == keep or not IMAGE_NAME.fullmatch(name):
+            continue
+        try:
+            os.remove(os.path.join(directory, name))
+        except OSError as error:
+            LOG.debug("old backdrop %s not removed: %s", name, error)

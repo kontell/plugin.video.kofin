@@ -112,6 +112,20 @@ def test_version_and_extras_urls_round_trip():
     assert paths.describe(url) == "movies movie a extras"
 
 
+def test_an_extra_reaches_the_router_whole_whatever_its_title_holds():
+    """Kodi ends a plugin URL's path at the first of ?;#| and hands the
+    rest over as options, so a stem holding one would reach the router as
+    a file the catalogue does not name."""
+    for name in ("Interview; Director", "Q&A?", "Take #2", "A|B", "100% Real"):
+        feature = {"Id": "x1", "Name": name, "Container": "mkv"}
+        ((stem, _),) = paths.extra_stems([feature])
+        url = paths.extra_url(KEY, LIB, "a", stem, feature)
+        cut = [url.find(c, len("plugin://")) for c in "?;#|"]
+        path = url[: min([at for at in cut if at >= 0], default=len(url))]
+        location = paths.parse(path)
+        assert location is not None and location.extra == stem, name
+
+
 def test_extras_with_one_title_get_stems_of_their_own_in_id_order():
     """The stem is the extra's whole identity (Kodi names it by the path), so
     two features titled alike, or alike once sanitized, cannot share one."""

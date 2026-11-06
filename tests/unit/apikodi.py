@@ -215,9 +215,10 @@ class Kodi:
 
     def scan(self, directory):
         self.scanned.append(directory)
-        if directory == native.NOWHERE:
-            # A directory that is not there: nothing is walked, and the scan
-            # ends with the announcement all the same.
+        if directory == native.NOWHERE or paths.parse(directory) is None:
+            # A directory that is not there, or another source's, whose rows
+            # are not modelled: nothing is walked, and the scan ends with the
+            # announcement all the same.
             self.monitor.finished += 1
             return
         self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
@@ -528,6 +529,8 @@ class Kodi:
     def _scan_folder(self, library, folder):
         directory = paths.music_dir(self.key, library, folder)
         listed = self._listing(library, folder)
+        # The provider records a listing it hands over.
+        self.store.note_listed(library, folder)
         # RemoveSongsFromPath, exact: this directory's songs go, remembered
         # by file name for id and userdata reuse.
         previous = {

@@ -1156,6 +1156,25 @@ def test_a_set_a_removed_library_emptied_goes_with_it(store, backend, kodi):
     assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Solo"]
 
 
+def test_a_collection_removed_under_a_pin_an_earlier_pass_kept_leaves(
+    store, backend, kodi
+):
+    """A pass that ends while Kodi still scans keeps its pin, and the next
+    pass reads the catalogue there, where a collection removed since is
+    still a member: its movies let go of the set all the same."""
+    store.publish(
+        [movie(), movie("b"), boxset("box", "Trilogy", ["a", "b"])], library=LIB
+    )
+    backend.reconcile()
+    assert kodi.owned("Movie")["a"]["set"] == "Trilogy"
+    store.pin()
+    store.publish([], removed=["box"])
+    backend.reconcile()
+    assert [kodi.owned("Movie")[i]["set"] for i in ("a", "b")] == ["", ""]
+    assert not kodi.rows["BoxSet"]
+    assert not store.pending()
+
+
 def test_episodes_of_a_show_whose_removal_fails_stay_pending(store, backend, kodi):
     store.publish(
         show_bundle(episodes=2) + show_bundle(SHOW2, episodes=1, prefix="f"),

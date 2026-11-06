@@ -197,6 +197,7 @@ def test_a_listing_that_leaves_nothing_to_apply_ends_the_update(store, monkeypat
 
 
 def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeypatch):
+    from kofin.sync.backends.api.library import CATCHUP_OVERLAP
     from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
 
     server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
@@ -222,7 +223,7 @@ def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeyp
     assert store.state("b").operation == "remove"
     assert records["ea11"].library == LIB2 and records[SHOW].library == LIB2
     assert "zz" not in records
-    assert store.watermark()[0] == unix_to_watermark(1200)
+    assert store.watermark()[0] == unix_to_watermark(1200 - CATCHUP_OVERLAP)
     assert feed.asked[0][1] == (
         "movies",
         "tvshows",
@@ -268,6 +269,74 @@ def test_catch_up_without_a_companion_uses_the_save_date(store, monkeypatch):
     assert unix_to_watermark(0) < store.watermark()[0]
 
 
+def test_a_record_written_after_a_catch_up_read_past_its_stamp_is_still_read(
+    store, monkeypatch
+):
+    """The sync queue can write a record after a catch-up has read past the
+    time the record is stamped with: the next catch-up still asks from
+    before it."""
+    from kofin.sync.changefeed import (
+        ChangeRecord,
+        unix_to_watermark,
+        watermark_to_unix,
+    )
+
+    class Queue(Feed):
+        """Serves the records written by then, stamped after the cursor."""
+
+        def __init__(self):
+            super().__init__([])
+            self.written = []
+
+        def changes(self, last_sync, include, libraries=None):
+            since = watermark_to_unix(last_sync)
+            self.records = [r for stamp, r in self.written if stamp > since]
+            return super().changes(last_sync, include, libraries)
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie()], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Queue()
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    feed.server_time = 1000
+    w.catch_up()
+    # Changed at 998, and written once that catch-up had read the queue.
+    feed.written.append((998, ChangeRecord("b", "Added", library_ids=[LIB])))
+    feed.server_time = 1100
+    w.catch_up()
+    assert "b" in store.records(pinned=False)
+
+
+def test_a_catch_up_whose_probe_could_not_say_reads_no_save_dates(store, monkeypatch):
+    """Only a 404 says the server has no companion. Read as none, a probe
+    that timed out had the catch-up take the save dates, which see no
+    deletion, and move the cursor past the feed's removals."""
+    from kofin.core.http import HttpError, ServerUnreachable
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import detect
+
+    server = Server({LIB: [movie(DateLastSaved="2026-10-09T00:00:00Z")]})
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
+    w = worker(store, server, [LIB], monkeypatch)
+    monkeypatch.setattr(library.changefeed, "detect", detect)
+
+    def timed_out():
+        raise ServerUnreachable("GET /Kofin/SyncQueue/Info: timed out")
+
+    def absent():
+        raise HttpError(404, "GET /Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime")
+
+    server.kofin_sync_info = timed_out
+    server.server_time = absent
+    with pytest.raises(ServerUnreachable):
+        w.catch_up()
+    assert store.watermark()[0] == "2026-10-08T00:00:00Z"
+    assert store.records(pinned=False) == {}
+    # A complete listing needs only a clock, and takes Kodi's.
+    w.full_sync()
+    assert set(store.records(pinned=False)) == {"a"}
+
+
 @pytest.mark.parametrize(
     "days, age, full",
     [(0, 30, False), (1, 0.5, False), (1, 1.5, True), (7, 2, False), (7, 8, True)],
@@ -293,6 +362,107 @@ def test_the_scheduled_full_update_follows_the_setting(
     monkeypatch.setattr(w, "catch_up", lambda: ran.append("catch-up"))
     w.refresh()
     assert ran == (["full"] if full else ["catch-up"])
+
+
+def test_a_complete_listing_that_fails_is_tried_again_half_a_minute_on(
+    store, monkeypatch
+):
+    """Not on every failed tick; and a viewer's request is not held by the
+    wait."""
+    from kofin.sync.backends.api import library
+
+    server = Server({LIB: [movie()]})
+    w = worker(store, server, [LIB], monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    asked = []
+
+    def away(include_hidden=False):
+        asked.append(clock[0])
+        raise OSError("server away")
+
+    server.views = away
+
+    def tick():
+        try:
+            w.refresh()
+        except OSError:
+            pass
+
+    for _ in range(11):
+        tick()
+        # A failed tick waits five seconds, then half a second.
+        clock[0] += 5.5
+    assert asked == [100.0, 133.0]
+    w.command("UpdateLibrary", {})
+    tick()
+    assert asked == [100.0, 133.0, 160.5]
+
+
+@pytest.mark.parametrize("selection", [[], ["0" * 32]])
+def test_a_complete_listing_with_nothing_to_publish_is_stamped(
+    store, monkeypatch, selection
+):
+    """Nothing selected (the only library unticked before its first import
+    finished), or a selection naming another server's libraries: the
+    listing is complete all the same, and not asked for again."""
+    server = Server({LIB: [movie()]})
+    server.gone = {"0" * 32}
+    w = worker(store, server, selection, monkeypatch)
+    w.refresh()
+    assert store.watermark()[1]
+    ran = []
+    monkeypatch.setattr(w, "full_sync", lambda libraries=None: ran.append(libraries))
+    for _ in range(5):
+        w.refresh()
+    assert None not in ran
+
+
+@pytest.mark.parametrize(
+    "selections",
+    [
+        [[]],
+        # Read whole for the listing, blank at the read after it.
+        [[LIB], [LIB], []],
+    ],
+)
+def test_a_selection_the_settings_store_did_not_answer_for_is_no_listing(
+    store, monkeypatch, selections
+):
+    """A store Kodi has unregistered, or a settings document that did not
+    load, reads every string blank, deviceId included: the listing fails as
+    a server error does, with nothing published, the cursor where it was,
+    and the complete listing still due."""
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import unix_to_watermark
+
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=1000.0)
+    w = worker(store, Server({LIB: [movie()]}), selections, monkeypatch)
+    monkeypatch.setattr(library.settings, "get_str", lambda key: "")
+    w.command("UpdateLibrary", {})
+
+    with pytest.raises(RuntimeError):
+        w.refresh()
+
+    assert store.watermark() == (unix_to_watermark(500), 1000.0)
+    assert store.records(pinned=False) == {}
+    assert w._full_due
+
+
+def test_a_retention_overrun_is_listed_whole_on_the_next_tick(store, monkeypatch):
+    from kofin.sync.backends.api import library
+    from kofin.sync.changefeed import unix_to_watermark
+
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed([], server_time=9000, retention=8000)
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch, feed=feed)
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+    ran = []
+    monkeypatch.setattr(w, "full_sync", lambda libraries=None: ran.append(libraries))
+    w.refresh()
+    assert len(feed.asked) == 1 and ran == []
+    w.refresh()
+    assert ran == [None]
 
 
 def test_the_listing_asks_for_a_movie_s_original_title(store, monkeypatch):
@@ -1127,3 +1297,153 @@ def test_an_edit_the_server_refuses_stays_and_does_not_hold_the_others_back(
         w.flush_local()
     assert server.updated == [("b", {"Played": True})]
     assert store.local_pending() == [("a", {"playcount": 2})]
+
+
+@pytest.mark.parametrize("refusal", ["unreachable", "unauthorized"])
+def test_a_server_out_of_reach_ends_the_outbox_round_at_its_first_edit(
+    store, monkeypatch, refusal
+):
+    """Every edit behind the first would fail alike, each after a connect
+    timeout of its own: they wait for the next round."""
+    from kofin.core.http import ServerUnreachable, Unauthorized
+
+    failure = {
+        "unreachable": ServerUnreachable("POST /UserItems/a/UserData: timed out"),
+        "unauthorized": Unauthorized("POST /UserItems/a/UserData -> 401"),
+    }[refusal]
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 0})
+    sent = []
+
+    def refuse(item_id, payload):
+        sent.append(item_id)
+        raise failure
+
+    monkeypatch.setattr(server, "update_user_data", refuse)
+    with pytest.raises(type(failure)):
+        w.flush_local()
+    assert len(sent) == 1
+    assert sorted(store.local_pending()) == [
+        ("a", {"playcount": 1}),
+        ("b", {"playcount": 0}),
+    ]
+
+
+def test_an_item_whose_reading_back_times_out_does_not_hold_the_others_back(
+    store, monkeypatch
+):
+    """The write went through, so the server is there: the failure is the
+    item's, and the edits behind it still go."""
+    from kofin.core.http import ServerUnreachable
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 1})
+    item = server.item
+
+    def hangs(item_id):
+        if item_id == "a":
+            raise ServerUnreachable("GET /Items/a: read timed out")
+        return item(item_id)
+
+    monkeypatch.setattr(server, "item", hangs)
+    with pytest.raises(ServerUnreachable):
+        w.flush_local()
+    assert sorted(server.updated) == [("a", {"Played": True}), ("b", {"Played": True})]
+    assert store.local_pending() == [("a", {"playcount": 1})]
+
+
+def _stopping(w):
+    """The stop flag, raised by appending to the list returned."""
+    raised: list = []
+    w._stop_event = SimpleNamespace(is_set=lambda: bool(raised), wait=lambda s: False)
+    return raised
+
+
+def test_a_stop_ends_the_outbox_round_between_edits(store, monkeypatch):
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+    store.local("b", {"playcount": 1})
+    stop = _stopping(w)
+    update = server.update_user_data
+
+    def update_then_stop(item_id, payload):
+        update(item_id, payload)
+        stop.append(True)
+
+    monkeypatch.setattr(server, "update_user_data", update_then_stop)
+    with pytest.raises(InterruptedError):
+        w.flush_local()
+    assert len(server.updated) == 1 and len(store.local_pending()) == 1
+
+
+def test_a_stop_ends_a_large_fetch_between_its_requests(store, monkeypatch):
+    """Fifty items a request, and one more for each movie with extras."""
+    ids = ["m%03d" % n for n in range(120)]
+    server = Server({LIB: [movie(i, SpecialFeatureCount=1) for i in ids]})
+    w = worker(store, server, [LIB], monkeypatch)
+    stop = _stopping(w)
+    asked = []
+    items = server.items
+
+    def listing(params):
+        asked.append("items")
+        return items(params)
+
+    def features(item_id):
+        asked.append(item_id)
+        stop.append(True)
+        return []
+
+    server.items = listing
+    server.special_features = features
+    with pytest.raises(InterruptedError):
+        w.fetch_items(ids)
+    assert asked == ["items", "items", "items", "m000"]
+
+    stop.clear()
+    asked.clear()
+    server.special_features = lambda item_id: []
+
+    def listing_then_stop(params):
+        stop.append(True)
+        return listing(params)
+
+    server.items = listing_then_stop
+    with pytest.raises(InterruptedError):
+        w.fetch_items(ids)
+    assert asked == ["items"]
+
+
+def test_a_stop_ends_the_placement_of_new_items_between_its_requests(
+    store, monkeypatch
+):
+    """A record that names no library has its item's ancestors asked for."""
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+
+    ids = ["n%03d" % n for n in range(5)]
+    server = Server({LIB: [movie(i) for i in ids]})
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed([ChangeRecord(i, "Added") for i in ids], server_time=900)
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    stop = _stopping(w)
+    asked = []
+    ancestors = server.ancestors
+
+    def ancestors_then_stop(item_id):
+        asked.append(item_id)
+        stop.append(True)
+        return ancestors(item_id)
+
+    server.ancestors = ancestors_then_stop
+    with pytest.raises(InterruptedError):
+        w.catch_up()
+    assert asked == ["n000"]
+    assert store.watermark()[0] == unix_to_watermark(500)

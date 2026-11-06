@@ -141,8 +141,9 @@ _EXTRAS_SUB = re.compile(
 # request and the entry stays gone (Native._forget_listing).
 FORGET = "kofin_forget"
 
-# What an extra's title may not carry into a URL path or past Kodi's parsing.
-_UNSAFE = re.compile(r"[/\\?#%|\x00-\x1f]+")
+# What an extra's title may not carry into a URL path or past Kodi's parsing,
+# which ends a plugin URL's path at the first of ?;#| (CURL::Parse).
+_UNSAFE = re.compile(r"[/\\?;#%|\x00-\x1f]+")
 
 _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
