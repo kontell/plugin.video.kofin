@@ -228,6 +228,26 @@ def test_stop_player_survives_an_unreadable_player_list(monkeypatch):
     assert kodirpc.stop_player() is False
 
 
+def test_pause_and_resume_ask_each_active_player_for_a_state(monkeypatch):
+    """An explicit ``play`` flag sets a state, where the binding's pause()
+    toggles."""
+    sent = []
+
+    def answer(query):
+        payload = json.loads(query)
+        sent.append(payload)
+        if payload["method"] == "Player.GetActivePlayers":
+            return json.dumps({"result": [{"playerid": 0, "type": "audio"}]})
+        return json.dumps({"result": {"speed": 0}})
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+
+    assert kodirpc.pause_player() is True
+    assert kodirpc.resume_player() is True
+    asks = [q["params"] for q in sent if q["method"] == "Player.PlayPause"]
+    assert asks == [{"playerid": 0, "play": False}, {"playerid": 0, "play": True}]
+
+
 # --- clearing the bookmark Kodi keeps for a plugin path ----------------------
 
 

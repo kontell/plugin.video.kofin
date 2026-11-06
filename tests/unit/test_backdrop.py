@@ -81,3 +81,21 @@ def test_backdrop_writes_only_profile_and_keeps_install_immutable(env, monkeypat
     assert backdrop.profile_path() == ""
     assert live(env) == DEFAULT_BYTES
     assert not list(env["data"].glob("*.part"))
+
+
+def test_a_new_backdrop_leaves_no_other_behind(env):
+    """Each image has a name of its own, so nothing else replaces the last."""
+    from pathlib import Path
+
+    cut_short = "fanart-" + "0" * 64 + ".webp.part"
+    (env["data"] / cut_short).write_bytes(b"half an image")
+    (env["data"] / "fanart.jpg").write_bytes(b"not a server backdrop")
+    api = FakeApi()
+    backdrop.apply(api, 1000)
+    api.splash = OTHER_SPLASH
+    backdrop.apply(api, 2000, force=True)
+
+    current = Path(backdrop.profile_path()).name
+    assert sorted(path.name for path in env["data"].iterdir()) == sorted(
+        [backdrop.STATE_NAME, current, "fanart.jpg"]
+    )

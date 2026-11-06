@@ -427,6 +427,50 @@ def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
     assert notified == [(actions.ipc.SYNC_PLAYLISTS, {"Id": "p" * 32})]
 
 
+def test_save_playlist_reads_a_m3u_kodi_wrote_in_another_charset(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """Kodi writes a .m3u in the GUI's character set: a title or a local
+    path outside ASCII is not UTF-8 there, and the songs are still sent."""
+    from kofin.plugin import actions
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import identity
+
+    backend.setup()
+    store.publish(album_bundle(songs=2), library=LIB2)
+    backend.reconcile()
+    resolver = api_playlists.Resolver(store)
+    songs = [
+        resolver.entry(song_item(item_id, "Song", track), "Audio").path
+        for track, item_id in enumerate(("tc31", "tc32"), 1)
+    ]
+    playlist = tmp_path / "Mine.m3u"
+    playlist.write_bytes(
+        (
+            "#EXTM3U\n#EXTINF:180,Beyoncé - Déjà Vu\n"
+            + "\n".join(songs)
+            + "\n/home/user/Música/local.mp3\n"
+        ).encode("cp1252")
+    )
+    created = []
+
+    class Api:
+        def create_playlist(self, name, ids, media_type):
+            created.append((name, ids, media_type))
+            return {"Id": "p" * 32}
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    monkeypatch.setattr(actions, "_api", lambda: Api())
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: path)
+    monkeypatch.setattr(actions.ipc, "notify", lambda kind, data: None)
+
+    actions.save_playlist(
+        Request("plugin://plugin.video.kofin/", 1, {"path": str(playlist)})
+    )
+
+    assert created == [("Mine", ["tc31", "tc32"], "Audio")]
+
+
 def test_save_playlist_replaces_only_its_own_sides_playlist_of_that_name(
     store, backend, kodi, tmp_path, monkeypatch
 ):

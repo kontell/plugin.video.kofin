@@ -441,7 +441,11 @@ def worker(store, server, selected, monkeypatch, feed=None):
         return last[0]
 
     monkeypatch.setattr(library.settings, "get_list", get_list)
-    monkeypatch.setattr(library.settings, "get_str", lambda _: "")
+    # A logged-in profile's store answers: deviceId is never empty after a
+    # login, and an empty selection is believed only beside it.
+    monkeypatch.setattr(
+        library.settings, "get_str", lambda key: "device" if key == "deviceId" else ""
+    )
     monkeypatch.setattr(library.settings, "set_str", lambda *_: None)
     monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": []})
     monkeypatch.setattr(library.private, "save_sync", lambda state: None)

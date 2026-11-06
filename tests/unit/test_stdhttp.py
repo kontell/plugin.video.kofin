@@ -282,6 +282,59 @@ def test_a_dead_pooled_socket_is_retried_once_for_any_method(monkeypatch):
     assert len(made) == 2  # reconnected rather than failing the POST
 
 
+def test_a_pooled_socket_closed_before_the_answer_is_retried_for_free(monkeypatch):
+    """A stale keep-alive usually takes the request and closes before any
+    answer: http.client raises RemoteDisconnected from getresponse."""
+    made = []
+
+    class Stale(FakeConnection):
+        def getresponse(self):
+            if self is made[0] and len(self.requests) > 1:
+                raise http.client.RemoteDisconnected("bye")
+            return super().getresponse()
+
+    def make(host, port, timeout=None, context=None):
+        connection = Stale(host, port, timeout, context)
+        made.append(connection)
+        return connection
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPSConnection", make)
+    transport = stdhttp.StdlibHttp()
+
+    transport.request("GET", "https://s/first")
+    response = transport.request("POST", "https://s/second", json_body={})
+
+    assert response.status_code == 200
+    assert len(made) == 2
+
+
+def test_a_pooled_socket_that_times_out_is_not_sent_the_request_again(monkeypatch):
+    """The server may have the request and be slow with it: sent again, a
+    POST acts twice. The caller's budget decides, and for POST it is 0."""
+    made = []
+
+    class Slow(FakeConnection):
+        def getresponse(self):
+            if self.requests[-1][0] == "POST":
+                raise TimeoutError("timed out")
+            return super().getresponse()
+
+    def make(host, port, timeout=None, context=None):
+        connection = Slow(host, port, timeout, context)
+        made.append(connection)
+        return connection
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPSConnection", make)
+    transport = stdhttp.StdlibHttp()
+    transport.request("GET", "https://s/first")
+
+    with pytest.raises(http_module.ServerUnreachable):
+        transport.request("POST", "https://s/Playlists", json_body={"Name": "x"})
+
+    posts = [sent for each in made for sent in each.requests if sent[0] == "POST"]
+    assert len(posts) == 1
+
+
 def test_a_fresh_connection_failure_is_not_retried_for_free(monkeypatch):
     """Only the *pooled* socket gets the free replay: a brand-new connection
     that fails has no such guarantee, so the caller's budget applies (POST: 0)."""
@@ -328,6 +381,28 @@ def test_the_timeout_tuple_splits_connect_from_read():
     connection = TimingConnection.instances[-1]
     assert connection.timeout == 3.05  # connect
     assert settings == [30.0]  # read
+
+
+def test_a_pooled_connection_reads_on_each_call_s_own_budget(monkeypatch):
+    settings = []
+
+    class RecordingSock:
+        def settimeout(self, value):
+            settings.append(value)
+
+    class TimingConnection(FakeConnection):
+        def __init__(self, host, port, timeout=None, context=None):
+            super().__init__(host, port, timeout, context)
+            self.sock = RecordingSock()
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPSConnection", TimingConnection)
+    transport = stdhttp.StdlibHttp()
+
+    transport.request("GET", "https://s/a", timeout=(3.05, 1.0))
+    transport.request("GET", "https://s/b", timeout=(3.05, 30.0))
+
+    assert len(TimingConnection.instances) == 1
+    assert settings[-1] == 30.0
 
 
 def test_a_close_flagged_response_drops_the_connection():

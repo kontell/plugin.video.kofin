@@ -26,6 +26,8 @@ _PATTERNS: list[tuple["re.Pattern[str]", str]] = [
         re.compile(r'("(?:AccessToken|Pw|Password|Secret)"\s*:\s*")[^"]*(")'),
         r"\g<1>" + REDACTED + r"\g<2>",
     ),
+    # A URL's user name and password, up to the authority's last "@".
+    (re.compile(r"(://)[^/?#\s\"']*@"), r"\g<1>" + REDACTED + "@"),
 ]
 
 _secrets: dict[str, str] = {}

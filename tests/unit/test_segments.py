@@ -843,6 +843,33 @@ def test_syncplay_group_withholds_play_next(engine):
     assert overlay.next_label == ""
 
 
+def test_a_group_joined_after_arming_withholds_the_near_end_prompt(engine):
+    """The prompt is armed once the runtime is known; a group joined later
+    still owns what plays next, and leaving it gives the offer back."""
+    engine.arm([], next_episode=NEXT_EPISODE)
+    engine.tick(100.0)
+    assert engine.segments._near_end_at == 1470.0
+    engine.player.syncplay_group_active = True
+    engine.tick(1470.2)
+    assert engine.overlays == []
+    engine.player.syncplay_group_active = False
+    engine.tick(1471.0)
+    assert engine.overlay is not None
+    assert engine.overlay.next_label == "string-30486"
+
+
+def test_a_group_joined_during_the_countdown_withholds_the_autoplay(engine):
+    """Otherwise this member alone would start the next episode."""
+    FakeAddon.store["playNextAutoplay"] = "true"
+    engine.arm([], next_episode=NEXT_EPISODE)
+    engine.tick(1470.2)
+    overlay = engine.overlay
+    engine.player.syncplay_group_active = True
+    engine.tick(1499.2)
+    assert overlay.closed
+    assert not any("id=ep2" in builtin for builtin in engine.builtins)
+
+
 def test_movie_never_offers_play_next(engine):
     engine.arm([seg("Credits", 1400, 1470)], item_type="Movie")
     engine.tick(1400.2)

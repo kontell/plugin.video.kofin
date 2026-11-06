@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import xbmc
 
 from kofin.core import memory, settings, toast
-from kofin.core.http import HttpError, JellyfinError
+from kofin.core.http import HttpError, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, kofindb, private
@@ -97,6 +97,12 @@ CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 # (fullUpdateInterval, in days, 0 for none). Without the sync queue the
 # catch-up reads save dates and cannot see a deletion.
 CATCHUP_INTERVAL = 1800
+# A catch-up's cursor is stored this many seconds behind the clock it read:
+# a feed can write a record after a catch-up has read past the time the
+# record is stamped with, and without a companion the cursor is Kodi's clock
+# against the server's save dates. A change read twice costs only its
+# re-fetch.
+CATCHUP_OVERLAP = 300
 DAY = 86400
 # A selected library the server stopped listing leaves once GET
 # /Items/{id} has answered 404 twice this far apart (settle_missing).
@@ -648,6 +654,8 @@ class Library(threading.Thread):
             or not watermark
             or self._schedule_due(enumerated)
         ):
+            if time.monotonic() < self._catchup_due:
+                return
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
             self._catchup_due = time.monotonic() + 30
@@ -678,7 +686,10 @@ class Library(threading.Thread):
                 )
                 self.full_sync(stale)
             self.catch_up()
-            self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
+            # A retention overrun (catch_up) owes the complete listing now.
+            self._catchup_due = (
+                0.0 if self._full_due else time.monotonic() + CATCHUP_INTERVAL
+            )
 
     def stale_listings(self) -> list[str]:
         """The synced, selected libraries whose last published listing asked
@@ -794,12 +805,12 @@ class Library(threading.Thread):
             return kofindb.JellyfinDatabase(db.cursor).view_names()
 
     def _changefeed(self) -> Any:
+        """The change feed, or None for a server without a companion; raises
+        when the server could not say (changefeed.detect). Taken for none, a
+        catch-up reads the save dates, which see no deletion, and moves the
+        cursor past the feed's removals."""
         if self.changefeed is None:
-            try:
-                self.changefeed = changefeed.detect(self.api)
-            except Exception as error:
-                LOG.debug("no change-feed companion detected (%s)", error)
-                self.changefeed = None
+            self.changefeed = changefeed.detect(self.api)
             # For the status dialog: a found feed is kept for the thread's
             # life, a missing one is looked for again on every call, and the
             # record moves with the answer.
@@ -811,16 +822,16 @@ class Library(threading.Thread):
         return self.changefeed
 
     def _server_now(self) -> int:
-        feed = self._changefeed()
-        if feed is not None:
-            try:
+        try:
+            feed = self._changefeed()
+            if feed is not None:
                 now: int = feed.server_now()
                 return now
-            except Exception as error:
-                LOG.warning("server clock unavailable: %s", error)
+        except Exception as error:
+            LOG.warning("server clock unavailable: %s", error)
         # Without a companion the catch-up is MinDateLastSaved against the
-        # local clock; a few minutes of overlap costs nothing but re-fetches.
-        return int(time.time()) - 300
+        # local clock.
+        return int(time.time()) - CATCHUP_OVERLAP
 
     def _bar(self) -> "progress.Progress":
         """The enumeration's progress bar, made on first use."""
@@ -850,7 +861,7 @@ class Library(threading.Thread):
         # Until the first page of the first kind arrives nothing is counted:
         # the libraries are asked for, the server's clock is read.
         bar.working(progress.PREPARING)
-        selected = settings.get_list("librarySelection")
+        selected = self._selection()
         supported = self._supported_views()
         self.settle_missing()
         # A library being rebuilt is listed when its old rows have left Kodi,
@@ -920,9 +931,16 @@ class Library(threading.Thread):
         # Enumeration takes minutes on a real catalogue. A library deselected
         # meanwhile is not published: its RemoveLibrary is already queued, and
         # publishing it here would import every item only to remove it again.
-        selected = settings.get_list("librarySelection")
+        selected = self._selection()
         committed = [library for library in fetched if library in selected]
         if not committed and not (complete and boxsets):
+            if complete:
+                # Complete with nothing to publish, and stamped as such:
+                # refresh lists the whole profile until it is.
+                self.store.set_watermark(
+                    watermark=changefeed.unix_to_watermark(started),
+                    enumerated=time.time(),
+                )
             return
         items: list[dict] = []
         membership: dict[str, str] = {}
@@ -976,6 +994,19 @@ class Library(threading.Thread):
         self.publish_selection()
         # The playlists follow the catalogue they point into.
         self._playlists_due = True
+
+    @staticmethod
+    def _selection() -> list[str]:
+        """The selected libraries, for a listing to rely on. A settings store
+        Kodi has unregistered, or a settings document that did not load,
+        reads every string blank, so an empty selection counts only beside a
+        ``deviceId`` that answers (the settings applier's LOAD_CANARY), and
+        the listing fails otherwise: stamped, it would record a listing that
+        never ran and move the cursor past every change it was for."""
+        selected = settings.get_list("librarySelection")
+        if not selected and not settings.get_str("deviceId"):
+            raise RuntimeError("library selection not read: settings unavailable")
+        return selected
 
     def _collection_changes(
         self, boxsets: list[dict[str, Any]], complete: bool
@@ -1043,7 +1074,9 @@ class Library(threading.Thread):
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
-                watermark=changefeed.unix_to_watermark(change_set.envelope.server_time)
+                watermark=changefeed.unix_to_watermark(
+                    change_set.envelope.server_time - CATCHUP_OVERLAP
+                )
             )
 
     def _catch_up_by_date(
@@ -1052,7 +1085,7 @@ class Library(threading.Thread):
         selected: Iterable[str],
         supported: dict[str, dict[str, Any]],
     ) -> None:
-        started = int(time.time()) - 300
+        started = int(time.time()) - CATCHUP_OVERLAP
         items: list[dict] = []
         membership: dict[str, str] = {}
         for library in sorted(selected):
@@ -1097,6 +1130,8 @@ class Library(threading.Thread):
         result: list[dict] = []
         ids = list(ids)
         for start in range(0, len(ids), IDS_PER_REQUEST):
+            if self._stop_event.is_set():
+                raise InterruptedError("item fetch stopped")
             chunk = ids[start : start + IDS_PER_REQUEST]
             page = self.api.items(
                 {"userId": self.api.user_id, "Ids": ",".join(chunk), "Fields": FIELDS}
@@ -1109,7 +1144,7 @@ class Library(threading.Thread):
                 for i in rows
                 if isinstance(i, dict) and i.get("Id") and i.get("Name")
             )
-        attach_extras(self.api, result)
+        attach_extras(self.api, result, self._stop_event.is_set)
         return result
 
     def _library_of(
@@ -1133,6 +1168,8 @@ class Library(threading.Thread):
             parent = self.store.entry(item["AlbumId"])
             if parent is not None and parent.library in selected:
                 return parent.library
+        if self._stop_event.is_set():
+            raise InterruptedError("item placement stopped")
         for ancestor in self.api.ancestors(item["Id"]):
             if isinstance(ancestor, dict) and ancestor.get("Id") in selected:
                 found: str = ancestor["Id"]
@@ -1421,6 +1458,7 @@ class Library(threading.Thread):
                 # follows in this tick lists every selected library, this
                 # one among them.
                 self._full_due = True
+                self._catchup_due = 0
                 return
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
             return
@@ -1456,6 +1494,7 @@ class Library(threading.Thread):
             else []
         )
         self._full_due = True
+        self._catchup_due = 0
         # A rebuild's first pass only removes; the pass after the complete
         # enumeration that follows is the repair (full_sync).
         self._repair = self._repair or (command == "RepairLibrary" and not rebuilt)
@@ -1627,14 +1666,25 @@ class Library(threading.Thread):
 
         Each edit on its own: an edit of an item the server does not have
         (404) is dropped, and any other failure is raised once the rest have
-        been delivered.
+        been delivered. A write that cannot reach the server, or that the
+        server refuses for the account, is raised at once: every edit behind
+        it would fail alike, and they wait for the next round.
         """
         failure: Optional[Exception] = None
         for item_id, values in self.store.local_pending():
+            if self._stop_event.is_set():
+                raise InterruptedError("play state delivery stopped")
+            written = False
             try:
-                self._deliver_local(item_id, values)
+                self._write_local(item_id, values)
+                written = True
+                self._read_back_local(item_id, values)
             except InterruptedError:
                 raise
+            except (ServerUnreachable, Unauthorized) as error:
+                if not written:
+                    raise
+                failure = failure or error
             except HttpError as error:
                 if error.status == 404:
                     LOG.debug(
@@ -1649,7 +1699,7 @@ class Library(threading.Thread):
         if failure is not None:
             raise failure
 
-    def _deliver_local(self, item_id: str, values: dict[str, Any]) -> None:
+    def _write_local(self, item_id: str, values: dict[str, Any]) -> None:
         payload: dict[str, Any] = {}
         if "playcount" in values:
             # The watched mark and never the count: the server and Kodi each
@@ -1660,10 +1710,12 @@ class Library(threading.Thread):
         # The partial setter is idempotent across an interrupted reply;
         # MarkPlayed would increment the server count again on retry.
         self.api.update_user_data(item_id, payload)
+
+    def _read_back_local(self, item_id: str, values: dict[str, Any]) -> None:
         # Re-fetch the authoritative full DTO before acknowledging the
         # local outbox; a failed read remains replayable.
         item = metadata.compact(self.api.item(item_id))
-        attach_extras(self.api, [item])
+        attach_extras(self.api, [item], self._stop_event.is_set)
         if self.store.entry(item_id) is not None:
             self.publish([item])
         self.store.local_done(item_id, values)

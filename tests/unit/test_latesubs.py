@@ -135,6 +135,12 @@ def test_a_payload_from_another_version_is_ignored():
     assert latesubs.deferred_of(payload) == []
 
 
+def test_a_track_attached_since_is_not_chased_again():
+    """A claim a stopped generation handed over carries what its chase
+    attached; asked again, Kodi would list the track twice."""
+    assert latesubs.deferred_of(item(deferred=[2], attached=[2])) == []
+
+
 def test_a_play_with_nothing_outstanding_chases_nothing():
     assert latesubs.deferred_of(item()) == []
     # ...though the track is still there to be asked for.

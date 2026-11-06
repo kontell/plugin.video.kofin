@@ -322,6 +322,10 @@ class Service(xbmc.Monitor):
             self._start_library()
 
     def _tick(self) -> None:
+        # On every tick, not once at the start: after an add-on update the
+        # generation before this one hands its play over only once its own
+        # teardown reaches the player.
+        self.player.adopt()
         self._maybe_announce_lost()
         if self._verify_online:
             self._verify_connection()
