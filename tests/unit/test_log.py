@@ -24,6 +24,14 @@ def test_authorization_header_token_masked():
     assert 'Token="***"' in masked
 
 
+def test_url_user_name_and_password_masked_without_registration():
+    masked = log.mask("GET https://bob:p@ss@host/Items?by=a@b -> 401")
+    assert masked == "GET https://***@host/Items?by=a@b -> 401"
+    assert log.mask("smb://nas/share and plugin://x/?a@b") == (
+        "smb://nas/share and plugin://x/?a@b"
+    )
+
+
 def test_json_credential_fields_masked():
     for field in ("AccessToken", "Pw", "Password", "Secret"):
         masked = log.mask('{"%s": "hunter2"}' % field)

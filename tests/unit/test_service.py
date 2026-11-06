@@ -660,6 +660,45 @@ def test_broken_syncplay_never_suppresses_the_sync_kick():
     assert service.library.commands == ["FastSync"]
 
 
+def test_a_restart_leaves_the_play_to_the_next_generation(monkeypatch):
+    """A sign-in or an sslVerify change restarts the service in the middle of
+    a play, and the teardown clears the live state before the next
+    generation exists. Its first tick reports the play Kodi goes on with."""
+    FakeAddon.store.update(
+        serverAddress="http://fixture.invalid", userId="user", accessToken="fixture"
+    )
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
+    claim = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Path": "http://fixture.invalid/Videos/m1/stream.mkv?static=true",
+        "PlayMethod": "DirectStream",
+        "PlaySessionId": "ps1",
+        "MediaSourceId": "m1",
+        "DeviceId": "dev1",
+        "Runtime": 0,
+        "CurrentPosition": 10.0,
+    }
+    old = Service()
+    old.player._item = dict(claim)
+    old._shutdown()
+
+    new = Service()
+    reported = []
+    monkeypatch.setattr(new.api, "session_progress", reported.append)
+    monkeypatch.setattr(new.player, "isPlaying", lambda: True)
+    monkeypatch.setattr(new.player, "getPlayingFile", lambda: claim["Path"])
+    monkeypatch.setattr(new.player, "getTime", lambda: 42.0)
+    monkeypatch.setattr(new.player, "_start_ticker", lambda: None)
+    try:
+        new._tick()
+        assert new.player._reporter.flush(5)
+        assert new.player.current_item()["PlaySessionId"] == "ps1"
+        assert [data["PositionTicks"] for data in reported] == [420_000_000]
+    finally:
+        new._shutdown()
+
+
 def test_shutdown_stops_syncplay():
     service = Service()
     manager = RecordingSyncPlay()

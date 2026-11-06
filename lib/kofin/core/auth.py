@@ -7,7 +7,7 @@ kofin.plugin.account; this module only talks to the server.
 from typing import Any
 from urllib.parse import quote, urlsplit
 
-from kofin.core.http import Http
+from kofin.core.http import Http, HttpError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -39,7 +39,9 @@ def normalize_address(text: str) -> str:
     """'host', 'host:port' or a full URL -> canonical base URL, no trailing /.
 
     A bare host gets http on port 8096; explicit schemes and ports pass
-    through (https without a port stays portless, i.e. 443).
+    through (https without a port stays portless, i.e. 443). A user name and
+    password are dropped: the Authorization header is the only credential a
+    request carries, and the address is logged and stored.
     """
     address = text.strip().rstrip("/")
     if not address:
@@ -47,7 +49,8 @@ def normalize_address(text: str) -> str:
     if "://" not in address:
         address = "http://" + address
     parts = urlsplit(address)
-    netloc = parts.netloc
+    # The last "@", as urlsplit takes it: a password may hold one.
+    netloc = parts.netloc.rpartition("@")[2]
     # ``parts.port`` rather than a ":" test: an IPv6 literal is full of
     # colons.
     if parts.port is None and parts.scheme == "http" and not netloc.endswith(":"):
@@ -77,8 +80,21 @@ def build_auth_header(
 
 
 def public_info(http: Http, address: str) -> dict[str, Any]:
-    response = http.request("GET", address + "/System/Info/Public", retries=1)
-    info: dict[str, Any] = response.json()
+    """The server's public info. Whatever else answers at the address (a web
+    page, a captive portal) sends a body that is not a JSON object, which is
+    an HttpError like any other bad answer."""
+    url = address + "/System/Info/Public"
+    response = http.request("GET", url, retries=1)
+    try:
+        info = response.json()
+    except ValueError:
+        info = None
+    if not isinstance(info, dict):
+        raise HttpError(
+            response.status_code,
+            "GET %s -> %d with a body that is not a JSON object"
+            % (url, response.status_code),
+        )
     return info
 
 

@@ -4,10 +4,10 @@ The pure half of the sidecar-subtitle work, shared by the play route
 (``plugin/subtitles.localize``) and the late-subtitle chase
 (``service/latesubs``): the cache directory every play writes into and
 sweeps, the delivery URL with an extension Kodi has a parser for, and the
-``<name>.<language>[.forced].<ext>`` filename Kodi reads the label back
-from. One implementation for both, so a track that arrives late is labelled
-exactly as it would have been on time; ``plugin/subtitles.py`` keeps the
-route-facing surface and re-exports these names.
+``<name>.<language>[.forced][.impaired].<ext>`` filename Kodi reads the
+label back from. One implementation for both, so a track that arrives late
+is labelled exactly as it would have been on time; ``plugin/subtitles.py``
+keeps the route-facing surface and re-exports these names.
 """
 
 import os
@@ -105,15 +105,37 @@ def display_name(attachment: streams.Attachment) -> str:
     return "Subtitle"
 
 
-def filename_for(attachment: streams.Attachment) -> str:
-    """``<name>.<language>[.forced].<ext>`` — the shape Kodi reads back."""
+def filename_for(attachment: streams.Attachment, ordinal: int = 1) -> str:
+    """``<name>.<language>[.forced][.impaired][.<n>].<ext>`` — the shape Kodi
+    reads back. ``forced`` and ``impaired`` are flags to Kodi; a number past
+    the first is neither, so Kodi shows it as part of the name."""
     parts = [display_name(attachment).translate(_UNSAFE).strip() or "Subtitle"]
     if attachment.language:
         parts.append(attachment.language.translate(_UNSAFE))
     if attachment.forced:
         parts.append("forced")
+    if attachment.hearing_impaired:
+        parts.append("impaired")
+    if ordinal > 1:
+        parts.append(str(ordinal))
     parts.append(extension_of(delivery_url(attachment.url)) or DEFAULT_EXTENSION)
     return ".".join(parts)
+
+
+def unique_filename(attachment: streams.Attachment, taken: set[str]) -> str:
+    """The first of ``filename_for``'s names not in ``taken``, added to it.
+
+    Two tracks can name themselves alike, as a sidecar and the embedded track
+    of one language do, and one path would hold whichever was written last.
+    Compared case-blind, as a case-insensitive filesystem would.
+    """
+    ordinal = 1
+    while True:
+        name = filename_for(attachment, ordinal)
+        if name.lower() not in taken:
+            taken.add(name.lower())
+            return name
+        ordinal += 1
 
 
 def _cache_dir() -> str:
@@ -147,7 +169,11 @@ def fetch_to(
     directory: Optional[str] = None,
     timeout: Optional[tuple[float, float]] = None,
 ) -> str:
-    """One subtitle to a named local file, or '' — the service's way in."""
+    """One subtitle to a named local file, or '' — the service's way in.
+
+    The file takes a name no file in the directory has: the play route's
+    files for the running playback are there, and this track can name itself
+    like one of them."""
     return _fetch(http, attachment, directory or _cache_dir(), timeout)
 
 
@@ -156,8 +182,12 @@ def _fetch(
     attachment: streams.Attachment,
     directory: str,
     timeout: Optional[tuple[float, float]] = None,
+    name: str = "",
 ) -> str:
-    """One subtitle to a named local file, or '' if anything at all went wrong."""
+    """One subtitle to a named local file, or '' if anything at all went wrong.
+
+    ``name`` is one the caller reserved (``unique_filename``); without one
+    the file takes the first name the directory does not hold."""
     try:
         # exist_ok: concurrent fetches race this check, and a lost race must
         # not read as a failed subtitle.
@@ -168,7 +198,10 @@ def _fetch(
             timeout=timeout or (TIMEOUT if attachment.sidecar else EMBEDDED_TIMEOUT),
             retries=0,
         )
-        target = os.path.join(directory, filename_for(attachment))
+        if not name:
+            held = {entry.lower() for entry in os.listdir(directory)}
+            name = unique_filename(attachment, held)
+        target = os.path.join(directory, name)
         with open(target, "wb") as handle:
             handle.write(response.content)
         return target

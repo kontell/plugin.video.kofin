@@ -71,6 +71,9 @@ def expand(api: Api, item: JsonDict, shuffle: bool) -> list[JsonDict]:
         return []
 
     query: JsonDict = {
+        # Songs alone. Jellyfin keeps an AudioBook in a books library, under
+        # no album; one that names an artist or a genre is a book, not that
+        # artist's or genre's music. A playlist plays what it holds.
         "IncludeItemTypes": "Audio",
         "Recursive": True,
         "Fields": TRACK_FIELDS,
@@ -112,7 +115,7 @@ def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> list[JsonDict
         dedupe=False,
         what="playlist %s" % playlist_id,
     ):
-        if row.get("Type") == "Audio":
+        if row.get("Type") in listitems.AUDIO_TYPES:
             tracks.append(row)
         if len(tracks) >= QUEUE_LIMIT:
             break

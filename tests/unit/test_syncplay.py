@@ -220,7 +220,7 @@ class TestTimesyncWebSocket:
         )
         connects = []
 
-        def create_connection(url, timeout, header):
+        def create_connection(url, timeout, header, class_):
             connects.append((url, timeout, header))
             return sock
 
@@ -318,3 +318,23 @@ class TestTimesyncWebSocket:
         TimeSync(manager, verify_ssl=True)._ws_socket()
         assert captured["sslopt"]["cert_reqs"] == ssl.CERT_REQUIRED
         assert captured["sslopt"]["check_hostname"] is True
+
+    def test_a_redirected_handshake_takes_the_token_nowhere_else(self):
+        """websocket-client follows a redirected handshake with every header,
+        the Authorization header included."""
+        from tests.unit.transportserver import ScriptedServer
+
+        with ScriptedServer() as server, ScriptedServer() as elsewhere:
+            moved = elsewhere.url.replace("http://", "ws://") + "/SyncPlay/TimeSync"
+            server.answer("/SyncPlay/TimeSync", 301, headers={"Location": moved})
+            manager = FakeTimesyncManager(
+                ws_target=(
+                    server.url.replace("http://", "ws://") + "/SyncPlay/TimeSync",
+                    'MediaBrowser Token="tok"',
+                )
+            )
+
+            assert TimeSync(manager)._ws_socket() is None
+
+        assert [path for _, path, _, _ in server.requests] == ["/SyncPlay/TimeSync"]
+        assert [h.get("Authorization") for _, _, h, _ in elsewhere.requests] == []

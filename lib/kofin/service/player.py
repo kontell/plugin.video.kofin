@@ -458,12 +458,97 @@ class Player(xbmc.Player):
             LOG.debug("closed the live streams of unclaimed plays: %s", closed)
 
     def stop_threads(self) -> None:
-        """Service shutdown: stop the ticker and checker without reporting."""
+        """Service shutdown: stop the ticker and checker without reporting.
+
+        A play still claimed goes on in Kodi, so its claim is handed to the
+        next generation (``adopt``), once the last report queued here has
+        gone. A claim handed over earlier and never taken is of a play that
+        ended before this one's began, and is retired before this one
+        replaces it."""
         self._stopped = True
         self.segments.reset()
         self._stop_ticker()
         self._stop_late_subtitles()
+        item = self.current_item()
+        if item is not None:
+            superseded = self._take_handed_over()
+            if superseded is not None:
+                LOG.debug(
+                    "handed-over play of %s dropped: another play followed it",
+                    superseded["Id"],
+                )
+                self._retire(superseded)
         self._reporter.stop()
+        if item is not None:
+            state.hand_over_play(
+                {"Claim": item, "Server": self.api.server, "UserId": self.api.user_id}
+            )
+
+    def _take_handed_over(self) -> JsonDict | None:
+        """The claim a stopped generation handed over, when it is this
+        login's; taken from the file either way."""
+        handed = state.take_handed_over_play()
+        claim = handed.get("Claim")
+        if not isinstance(claim, dict) or not claim.get("Id"):
+            return None
+        if (
+            handed.get("Server") != self.api.server
+            or handed.get("UserId") != self.api.user_id
+        ):
+            LOG.debug("handed-over play of %s dropped: another login's", claim["Id"])
+            return None
+        return claim
+
+    def _retire(self, claim: JsonDict) -> None:
+        """Close what the server holds open for a play nothing reports any
+        more, as its stop would have: the live stream, whose tuner only a
+        report naming it or a close frees, and a transcode's encoding."""
+        live_stream_id = claim.get("LiveStreamId")
+        if live_stream_id:
+            self._reporter.submit(lambda: self.api.close_live_stream(live_stream_id))
+        if claim.get("PlayMethod") == "Transcode":
+            self._reporter.submit(
+                lambda: self.api.close_transcode(
+                    claim.get("DeviceId", ""), claim["PlaySessionId"]
+                )
+            )
+
+    def adopt(self) -> None:
+        """Report the play a stopped generation handed over, when it is this
+        login's and Kodi is still playing its file; drop it otherwise.
+
+        Reported on from where Kodi is, with a progress report and never a
+        start: the server counts a play when it starts. A play that ended
+        between the generations goes unreported, since how long ago is
+        unknown and a stop that late could overwrite a resume point set
+        since; it is only retired."""
+        if self._stopped or self.current_item() is not None:
+            return
+        claim = self._take_handed_over()
+        if claim is None:
+            return
+        playing, position = "", 0.0
+        try:
+            if self.isPlaying():
+                playing = self.getPlayingFile()
+                position = max(float(self.getTime()), 0.0)
+        except RuntimeError:  # it stopped meanwhile
+            playing = ""
+        if not playing or not state.same_file(playing, str(claim.get("Path") or "")):
+            LOG.debug("handed-over play of %s dropped: it has ended", claim["Id"])
+            self._retire(claim)
+            return
+        claim["CurrentPosition"] = position
+        claim["Paused"] = bool(xbmc.getCondVisibility("Player.Paused"))
+        with self._lock:
+            self._item = claim
+        state.set_playing_id(claim["Id"])
+        self._publish_streams(claim)
+        LOG.debug("--> adopted %s (%s)", claim["Id"], claim.get("PlayMethod"))
+        self._report(self.api.session_progress, event="timeupdate")
+        self._start_ticker()
+        self._start_segment_engine(claim)
+        self._start_late_subtitles(claim)
 
     # -- delete after watching -------------------------------------------------
 
@@ -624,7 +709,11 @@ class Player(xbmc.Player):
             LOG.exception("applying Jellyfin default tracks failed")
 
     def _apply_default_tracks(self, item: JsonDict) -> None:
-        payload = item.get("Streams") or {}
+        payload = item.get("Streams")
+        if not payload:
+            # A downloaded play: the server's defaults index the tracks of a
+            # source, not of the file playing, so Kodi's own choice stands.
+            return
         media_streams = payload.get("MediaStreams") or []
         attached = payload.get("Attached") or []
         method = str(item.get("PlayMethod") or "")

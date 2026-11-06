@@ -11,7 +11,7 @@ import xbmc
 import xbmcaddon
 import xbmcvfs
 
-from kofin.core import log
+from kofin.core import auth, log
 
 LOG = log.Logger(__name__)
 
@@ -237,8 +237,19 @@ class Credentials:
         addon = get_addon()
         if addon is None:
             return cls()
+        # Every client is built on the address as a sign-in stores it, and the
+        # setting is put back to that: requests sends a URL's user name and
+        # password as Basic auth, in place of the token's Authorization
+        # header, and the settings dialog shows what the setting holds.
+        stored_address = addon.getSetting("serverAddress")
+        try:
+            server_address = auth.normalize_address(stored_address)
+        except ValueError:
+            # An address no request can be made to is left as it stands, for
+            # Log in to name (plugin/account.py).
+            server_address = stored_address
         creds = cls(
-            server_address=addon.getSetting("serverAddress"),
+            server_address=server_address,
             server_name=addon.getSetting("serverName"),
             server_id=addon.getSetting("serverId"),
             user_id=addon.getSetting("userId"),
@@ -247,6 +258,8 @@ class Credentials:
             device_id=addon.getSetting("deviceId"),
             is_logged_in=addon.getSettingBool("isLoggedIn"),
         )
+        if creds.server_address != stored_address:
+            set_str("serverAddress", creds.server_address)
         if not creds.device_id:
             creds.device_id = uuid.uuid4().hex
             set_str("deviceId", creds.device_id)

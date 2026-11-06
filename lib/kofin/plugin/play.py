@@ -29,6 +29,7 @@ from kofin.core.urls import (
     STREAM_REQUEST_PARAMS,
 )
 from kofin.plugin import listitems, subtitles
+from kofin.plugin.listitems import AUDIO_TYPES
 from kofin.sync import private
 from kofin.plugin.router import Request
 
@@ -62,8 +63,6 @@ MIME_BY_CONTAINER = {
     "wav": "audio/wav",
 }
 HLS_MIME = "application/x-mpegURL"
-
-AUDIO_TYPES = frozenset({"Audio"})
 
 # Kodi's STREAM_PROPERTY_ISREALTIMESTREAM, which every input stream reads
 # (CDVDInputStream): the source is live, as a PVR client marks live TV.
@@ -409,15 +408,17 @@ def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
 def resume_start_ticks(item: JsonDict, dbid: str) -> int:
     """Where a resume actually starts, in ticks.
 
-    For a library row that is the bookmark in Kodi's own database, taken
-    verbatim. Kodi seeks a library item to that bookmark and ignores what the
-    resolved item says, so any other answer is a number nothing acts on. It
-    is also the time Kodi's resume prompt just quoted at the user.
+    For a library row, whose ``dbid`` the caller passes, that is the bookmark
+    in Kodi's own database, taken verbatim. Kodi seeks a library item to that
+    bookmark and ignores what the resolved item says, so any other answer is a
+    number nothing acts on. It is also the time Kodi's resume prompt just
+    quoted at the user.
 
-    Everything else — a plugin listing, a row kofin cannot read — has no Kodi
-    bookmark to seek to. There the resolved item's resume point is the only one
-    in play, so the server's position (offset applied here) is both the answer
-    and what Kodi will act on.
+    Everything else — a plugin listing, synced item or not, a row kofin cannot
+    read — is not seeked to a Kodi bookmark. There the resolved item's resume
+    point is the only one in play, so the server's position with the offset
+    applied, which is the point a listing advertises, is both the answer and
+    what Kodi will act on.
 
     A readable row whose bookmark is 0 answers 0: Kodi will start at the
     beginning whatever the server thinks, and saying so is the honest report.
@@ -615,6 +616,11 @@ def play(request: Request) -> None:
     if key and key != namespace(creds.server_id, creds.user_id):
         _fail(request)
         return
+    # A play from a library row: its URL is the provider's, or names the row
+    # outright. Only such a play resumes at Kodi's bookmark
+    # (resume_start_ticks); the native id found below is stamped on every
+    # synced item's resolved tag, a listing's included.
+    from_library = bool(key) or request.params.get("dbid", "").isdigit()
 
     # Before any transport is built: offline, everything below is a wait
     # with a known answer.
@@ -667,7 +673,7 @@ def play(request: Request) -> None:
         dbid = request.params.get("dbid", "")
         start_ticks = 0
         if request.resume and not from_start:
-            start_ticks = resume_start_ticks(item, dbid)
+            start_ticks = resume_start_ticks(item, dbid if from_library else "")
         # An explicit start position wins over resume/fromstart: SyncPlay
         # group starts say exactly where the group timeline is.
         try:

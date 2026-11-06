@@ -8,7 +8,7 @@ import xbmcgui
 import xbmcplugin
 
 from kofin.core import settings, state
-from kofin.core.api import Api
+from kofin.core.api import Api, paged
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -183,6 +183,9 @@ SEARCH_ICONS = {
 # Search results are bounded on purpose: the caller is waiting on this fetch,
 # and a hundred rows is already past what anyone reads.
 SEARCH_LIMIT = 100
+
+# A playlist is listed whole, a page at a time; most fit in one.
+PLAYLIST_PAGE = 500
 
 CONTENT_TYPES = {
     "movies": "movies",
@@ -950,7 +953,10 @@ def _search_person_items(request: Request, api: Api, person_id: str) -> None:
                 "IncludeItemTypes": "Movie,Series,Episode",
                 "Fields": bounded_fields(),
                 "ImageTypeLimit": 1,
+                # Newest first, so what SEARCH_LIMIT leaves out is the oldest
+                # credits rather than a series lead's latest work.
                 "SortBy": "PremiereDate,SortName",
+                "SortOrder": "Descending,Ascending",
                 "Limit": SEARCH_LIMIT,
             }
         ).get("Items", [])
@@ -1274,8 +1280,23 @@ def _list_items(
             }
         )
         return result.get("Items", []), "songs"
+    if item_type == "playlist":
+        # /Items answers a playlist's items once each, in the order SortBy
+        # names; the playlist's own route answers its entries in its order,
+        # an item added twice included.
+        entries = list(
+            paged(
+                lambda start, limit: api.playlist_items(
+                    folder, start_index=start, limit=limit, fields=BROWSE_FIELDS
+                ),
+                PLAYLIST_PAGE,
+                dedupe=False,
+                what="playlist %s" % folder,
+            )
+        )
+        return entries, _guess_content(entries)
 
-    # Generic container (boxset, playlist, folder, photo album, view children).
+    # Generic container (boxset, folder, photo album, view children).
     parent = folder if folder != "children" else view_id
     result = api.items(
         {"ParentId": parent, "Fields": BROWSE_FIELDS, "SortBy": "SortName"}
