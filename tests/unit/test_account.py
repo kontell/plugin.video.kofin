@@ -178,6 +178,21 @@ def test_an_empty_password_confirmed_is_sent(kodi_fakes, server, monkeypatch):
     assert settings.Credentials.load().is_logged_in is True
 
 
+def test_sign_in_logs_no_user_name(kodi_fakes, server, monkeypatch):
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: False)
+    settings.set_str("serverAddress", "minipie")
+    FakeDialog.inputs = ["conor"]
+    FakeKeyboard.answers = [(True, "secretpw")]
+
+    account.login(REQ)
+
+    assert settings.Credentials.load().is_logged_in is True
+    assert any("signed in to minipie" in line for line in lines)
+    assert not [line for line in lines if "conor" in line]
+
+
 def test_login_quick_connect_path(kodi_fakes, server, monkeypatch):
     monkeypatch.setattr(account.auth, "quick_connect_enabled", lambda h, a, hdr: True)
     monkeypatch.setattr(
@@ -243,6 +258,50 @@ def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
     assert "https://minipie:8920/jellyfin" in FakeDialog.notifications[-1]
     assert FakeDialog.notifications[-1].startswith("server error")
     assert settings.Credentials.load().is_logged_in is False
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_a_password_in_the_address_is_neither_sent_nor_logged(
+    kodi_fakes, monkeypatch, typed
+):
+    """A failed ping is logged at warning, with the address it tried. A stored
+    address is left without its password; a typed one is stored only by a
+    sign-in that succeeds."""
+    lines = []
+    monkeypatch.setattr("xbmc.log", lambda msg, level=0: lines.append(msg))
+    pinged = []
+
+    def unreachable(h, a):
+        pinged.append(a)
+        raise ServerUnreachable("GET %s/System/Info/Public: refused" % a)
+
+    monkeypatch.setattr(account.auth, "public_info", unreachable)
+    if typed:
+        FakeDialog.inputs = ["https://bob:hunter2@minipie"]
+    else:
+        settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+
+    account.login(REQ)
+
+    assert pinged == ["https://minipie"]
+    assert lines
+    assert not [line for line in lines if "hunter2" in line or "bob" in line]
+    assert settings.get_str("serverAddress") == ("" if typed else "https://minipie")
+
+
+def test_signed_in_the_stored_address_loses_its_password(kodi_fakes, monkeypatch):
+    """Log in while signed in asks the server nothing, and the settings
+    dialog shows the address."""
+    _logged_in()
+    settings.set_str("serverAddress", "https://bob:hunter2@minipie")
+    pinged = []
+    monkeypatch.setattr(account.auth, "public_info", lambda h, a: pinged.append(a))
+
+    account.login(REQ)
+
+    assert pinged == []
+    assert settings.get_str("serverAddress") == "https://minipie"
+    assert settings.Credentials.load().is_logged_in is True
 
 
 @pytest.mark.parametrize("typed", ["192.168.1.10:80960", "fe80::1", "[fd00::1"])

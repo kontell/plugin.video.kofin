@@ -103,7 +103,7 @@ def login(request: Request) -> None:
 
     ipc.notify(ipc.AUTH_CHANGED)
     _notification(_text(30016) % result.user_name)
-    LOG.debug("signed in to %s as %s", server_name, result.user_name)
+    LOG.debug("signed in to %s", server_name)
 
 
 def _authenticate(

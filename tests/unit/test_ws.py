@@ -1,14 +1,22 @@
 """The websocket client's connection edges.
 
-Only the callback bookkeeping is exercised — the socket itself is never
-opened. What matters here is that one real drop produces exactly one
-disconnect callback, because ``run_forever(reconnect=...)`` retries on its
-own and calls back repeatedly while a server stays down.
+Apart from the handshake, which runs against loopback servers, only the
+callback bookkeeping is exercised — the socket itself is never opened. What
+matters here is that one real drop produces exactly one disconnect callback,
+because ``run_forever(reconnect=...)`` retries on its own and calls back
+repeatedly while a server stays down.
 """
+
+import base64
+import hashlib
+import re
+import socket
+import threading
 
 import pytest
 
 from kofin.core.ws import WSClient, socket_url, sslopt
+from tests.unit.transportserver import ScriptedServer
 
 
 @pytest.fixture
@@ -148,7 +156,7 @@ def test_run_forever_keeps_pings_but_never_a_pong_deadline(monkeypatch):
         def waitForAbort(self, seconds):
             return True
 
-    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module, "NoRedirectApp", FakeApp)
     monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", timeouts.append)
     monkeypatch.setattr(ws_module.xbmc, "Monitor", StopMonitor)
 
@@ -196,7 +204,7 @@ def test_no_monitor_is_alive_while_the_socket_runs(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module, "NoRedirectApp", FakeApp)
     monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", lambda seconds: None)
     monkeypatch.setattr(ws_module.xbmc, "Monitor", Monitor)
 
@@ -235,7 +243,7 @@ def test_wss_honours_ssl_verify(monkeypatch):
         def waitForAbort(self, seconds):
             return True
 
-    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module, "NoRedirectApp", FakeApp)
     monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", lambda *_a: None)
     monkeypatch.setattr(ws_module.xbmc, "Monitor", StopMonitor)
 
@@ -251,6 +259,112 @@ def test_wss_honours_ssl_verify(monkeypatch):
     assert captured["ping_interval"] == 10
     assert captured["sslopt"]["cert_reqs"] == ssl.CERT_NONE
     assert captured["sslopt"]["check_hostname"] is False
+
+
+class _OneUpgrade:
+    """A loopback server that completes one websocket handshake, sends one
+    short text frame and a close frame, and waits for the client's close."""
+
+    GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+    def __init__(self, text):
+        self._text = text.encode("utf-8")
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        self._listener.settimeout(10)
+        self.url = "http://127.0.0.1:%d" % self._listener.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._thread.join(timeout=10)
+        self._listener.close()
+
+    def _serve(self):
+        conn, _ = self._listener.accept()
+        with conn:
+            conn.settimeout(10)
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(4096)
+            key = re.search(rb"Sec-WebSocket-Key: *(\S+)", request, re.I).group(1)
+            accept = base64.b64encode(hashlib.sha1(key + self.GUID).digest())
+            conn.sendall(
+                b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                b"Connection: Upgrade\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n"
+            )
+            conn.sendall(bytes([0x81, len(self._text)]) + self._text + b"\x88\x00")
+            conn.recv(4096)
+
+
+def _run_once(monkeypatch, client):
+    """One connection attempt of ``client.run()`` on websocket-client's real
+    app, with its default timeout put back after."""
+    from kofin.core import ws as ws_module
+
+    class StopMonitor:
+        def waitForAbort(self, seconds):
+            return True
+
+    class NoKeepAlive:
+        def __init__(self, app, client):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(ws_module.xbmc, "Monitor", StopMonitor)
+    monkeypatch.setattr(ws_module, "_KeepAlive", NoKeepAlive)
+    previous = ws_module.websocket.getdefaulttimeout()
+    try:
+        client.run()
+    finally:
+        ws_module.websocket.setdefaulttimeout(previous)
+
+
+def test_a_redirected_handshake_takes_the_token_nowhere_else(monkeypatch):
+    """websocket-client follows a redirected handshake with every header,
+    the Authorization header included, and run_forever takes no option to
+    stop it."""
+    connected = []
+
+    with ScriptedServer() as server, ScriptedServer() as elsewhere:
+        moved = elsewhere.url.replace("http://", "ws://") + "/socket"
+        server.answer("/socket", 301, headers={"Location": moved})
+        client = WSClient(
+            server.url,
+            'MediaBrowser Token="tok"',
+            on_event=lambda message_type, data: None,
+            on_connected=lambda: connected.append(1),
+        )
+        _run_once(monkeypatch, client)
+
+    assert [path for _, path, _, _ in server.requests] == ["/socket"]
+    assert [h.get("Authorization") for _, _, h, _ in elsewhere.requests] == []
+    assert connected == []
+
+
+def test_an_upgrade_connects_and_delivers(monkeypatch):
+    events = []
+    edges = []
+
+    with _OneUpgrade('{"MessageType": "LibraryChanged", "Data": {}}') as server:
+        client = WSClient(
+            server.url,
+            'MediaBrowser Token="tok"',
+            on_event=lambda message_type, data: events.append(message_type),
+            on_connected=lambda: edges.append("connected"),
+            on_disconnected=lambda: edges.append("disconnected"),
+        )
+        _run_once(monkeypatch, client)
+
+    assert edges == ["connected", "disconnected"]
+    assert events == ["LibraryChanged"]
 
 
 def _liveness_client(events=None):
@@ -436,7 +550,7 @@ def test_each_attempt_builds_a_fresh_app(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(ws_mod.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_mod, "NoRedirectApp", FakeApp)
     monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, seconds=0: False)
 
     client = WSClient(

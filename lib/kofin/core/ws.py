@@ -8,6 +8,7 @@ import json
 import ssl
 import threading
 import time
+from http import HTTPStatus
 from typing import Any, Callable, Optional
 
 import xbmc
@@ -45,6 +46,48 @@ def sslopt(verify: bool) -> dict[str, Any]:
     if verify:
         return {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
     return {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+
+
+class NoRedirectSocket(websocket.WebSocket):
+    """A websocket whose handshake follows no redirect.
+
+    websocket-client follows up to three redirects of a handshake by default
+    and sends every header to each new address, the Authorization header
+    included. With ``redirect_limit=0`` it follows none, but reports the
+    redirect as a connected socket.
+    """
+
+    def connect(self, url: str, **options: Any) -> None:
+        super().connect(url, **dict(options, redirect_limit=0))
+        status = self.getstatus()
+        if status != HTTPStatus.SWITCHING_PROTOCOLS:
+            location = (self.getheaders() or {}).get("location")
+            self.shutdown()
+            raise websocket.WebSocketException(
+                "handshake answered %s (to %s); a redirect is not followed"
+                % (status, location)
+            )
+
+
+class NoRedirectApp(websocket.WebSocketApp):
+    """A WebSocketApp whose sockets are NoRedirectSockets.
+
+    run_forever builds a plain websocket.WebSocket, assigns it to ``sock``
+    and connects it, with no redirect option to pass; the assignment makes
+    it a NoRedirectSocket first, which holds no state of its own.
+    """
+
+    _socket: Optional[websocket.WebSocket] = None
+
+    @property
+    def sock(self) -> Optional[websocket.WebSocket]:
+        return self._socket
+
+    @sock.setter
+    def sock(self, value: Optional[websocket.WebSocket]) -> None:
+        if value is not None:
+            value.__class__ = NoRedirectSocket
+        self._socket = value
 
 
 class WSClient(threading.Thread):
@@ -126,7 +169,7 @@ class WSClient(threading.Thread):
         LOG.debug("websocket thread exit")
 
     def _build_app(self) -> "websocket.WebSocketApp":
-        return websocket.WebSocketApp(
+        return NoRedirectApp(
             self._url,
             header={"Authorization": self._header},
             on_open=self._handle_open,
