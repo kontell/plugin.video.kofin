@@ -351,6 +351,76 @@ class TestCommandGating:
         )
         assert len(scheduled) == 1
 
+    def test_a_transport_command_is_not_applied_to_a_held_local_start(self, manager):
+        """A member that opens a new video over the group holds its start
+        while it proposes it; the player is on the new file, but the queue
+        still names the old item, so the old item's Unpause/Seek matches
+        current_playlist_item_id. It must not reach the held file — its
+        position goes to the group with the proposal."""
+        join(manager)
+        manager.current_playlist_item_id = "pl-1"
+        manager.holds._hold = {
+            "transition": True,
+            "proposed": False,
+            "item_id": None,
+            "at": utils.local_ms(),
+        }
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+
+        for name in ("Unpause", "Seek", "Pause"):
+            manager._handle_command(
+                {
+                    "Command": name,
+                    "When": now_iso(200),
+                    "EmittedAt": now_iso(),
+                    "PositionTicks": 9_000_000_000,  # the old item's position
+                    "PlaylistItemId": "pl-1",
+                }
+            )
+        assert scheduled == []
+
+        # A group Stop still reaches the player: it is not a position command,
+        # and the held file is not spared a real stop.
+        manager._handle_command(
+            {
+                "Command": "Stop",
+                "When": now_iso(100),
+                "EmittedAt": now_iso(),
+                "PositionTicks": 0,
+                "PlaylistItemId": "pl-1",
+            }
+        )
+        assert len(scheduled) == 1
+
+    def test_a_held_command_for_another_item_still_reconciles(self, manager):
+        """The hold guard only spares the item being replaced. A command for a
+        different queue item while a start is held is still a missed queue
+        update: it reconciles via a snapshot rather than being swallowed, so
+        the member cannot stay split from the group."""
+        join(manager)
+        manager.current_playlist_item_id = "pl-1"
+        manager.holds._hold = {
+            "transition": True,
+            "proposed": False,
+            "item_id": None,
+            "at": utils.local_ms(),
+        }
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+
+        manager._handle_command(
+            {
+                "Command": "Unpause",
+                "When": now_iso(200),
+                "EmittedAt": now_iso(),
+                "PositionTicks": 0,
+                "PlaylistItemId": "pl-OTHER",
+            }
+        )
+        assert scheduled == []
+        assert manager._api.named("syncplay_snapshot")
+
 
 class TestPlayQueue:
     @staticmethod
