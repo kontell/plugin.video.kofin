@@ -393,6 +393,34 @@ class TestCommandGating:
         )
         assert len(scheduled) == 1
 
+    def test_a_held_command_for_another_item_still_reconciles(self, manager):
+        """The hold guard only spares the item being replaced. A command for a
+        different queue item while a start is held is still a missed queue
+        update: it reconciles via a snapshot rather than being swallowed, so
+        the member cannot stay split from the group."""
+        join(manager)
+        manager.current_playlist_item_id = "pl-1"
+        manager.holds._hold = {
+            "transition": True,
+            "proposed": False,
+            "item_id": None,
+            "at": utils.local_ms(),
+        }
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+
+        manager._handle_command(
+            {
+                "Command": "Unpause",
+                "When": now_iso(200),
+                "EmittedAt": now_iso(),
+                "PositionTicks": 0,
+                "PlaylistItemId": "pl-OTHER",
+            }
+        )
+        assert scheduled == []
+        assert manager._api.named("syncplay_snapshot")
+
 
 class TestPlayQueue:
     @staticmethod
