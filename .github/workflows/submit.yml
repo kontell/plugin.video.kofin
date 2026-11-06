@@ -1,8 +1,9 @@
-# Submits a published release to the official Kodi repository: its install
+# Prepares a published release for the official Kodi repository: its install
 # zip, committed as "[plugin.video.kofin] <version>" to the
-# plugin.video.kofin@piers branch of the kontell/repo-plugins fork and opened
-# as a pull request against xbmc/repo-plugins:piers. Run by hand (Actions ->
-# Submit to Kodi -> Run workflow) with the release's tag, once it is published.
+# plugin.video.kofin@piers branch of the kontell/repo-plugins fork. The pull
+# request against xbmc/repo-plugins:piers is opened from that branch by hand.
+# Run by hand (Actions -> Submit to Kodi -> Run workflow) with the release's
+# tag, once it is published.
 #
 # Kodi's submitter action packs a tag with git archive, which needs
 # export-ignore attributes, and those would also strip tools/ from the git
@@ -10,8 +11,8 @@
 # build from. So this submits the zip tools/build.py made for the release.
 #
 # Needs two repository secrets: GH_TOKEN, a classic token with public_repo
-# scope, which updates the fork and opens the pull request; and EMAIL, the
-# address the submission commit is authored with.
+# scope, which updates the fork; and EMAIL, the address the submission commit
+# is authored with.
 name: Submit to Kodi
 
 on:
@@ -114,25 +115,3 @@ jobs:
             commit -q -m "[$ADDON_ID] ${TAG#v}"
           git push -q -f origin "$branch"
 
-      - name: Open or update the pull request
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GH_USERNAME: ${{ github.actor }}
-        run: |
-          branch="$ADDON_ID@$KODI_BRANCH"
-          title="[$ADDON_ID] ${TAG#v}"
-          {
-            awk -v RS= 'NR==1' "release/tree/$ADDON_ID/changelog.txt"
-            echo
-            echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
-          } > body.md
-          number="$(gh pr list --repo "xbmc/$KODI_REPO" --state open --head "$branch" \
-            --json number,headRepositoryOwner \
-            --jq "map(select(.headRepositoryOwner.login == \"$GH_USERNAME\"))[0].number // empty")"
-          if [[ -n "$number" ]]; then
-            gh api -X PATCH "repos/xbmc/$KODI_REPO/pulls/$number" \
-              -f title="$title" -F body=@body.md --jq .html_url
-          else
-            gh pr create --repo "xbmc/$KODI_REPO" --base "$KODI_BRANCH" \
-              --head "$GH_USERNAME:$branch" --title "$title" --body-file body.md
-          fi
