@@ -173,10 +173,11 @@ def safe_filename(name: str) -> str:
     """File stem from a Jellyfin playlist name (extension added by caller).
 
     A name the filesystem encoding cannot carry folds to ASCII, as a
-    download's does (``downloads/files.sanitize``), and a long one is cut
-    to MAX_STEM_BYTES.
+    download's does (``downloads/files.sanitize``), before the unsafe
+    characters go: the fold makes some of them (``／`` is ``/``). A long
+    name is cut to MAX_STEM_BYTES.
     """
-    cleaned = _UNSAFE.sub("_", (name or "").strip())
+    cleaned = (name or "").strip()
     try:
         cleaned.encode(sys.getfilesystemencoding() or "utf-8")
     except UnicodeEncodeError:
@@ -186,6 +187,7 @@ def safe_filename(name: str) -> str:
             .decode("ascii")
             .strip()
         )
+    cleaned = _UNSAFE.sub("_", cleaned)
     cleaned = cleaned.encode("utf-8")[:MAX_STEM_BYTES].decode("utf-8", "ignore")
     cleaned = cleaned.rstrip(" .")
     return cleaned or "playlist"
@@ -441,9 +443,10 @@ def write_playlist_file(
     taken: set[str],
     stored_filename: str | None = None,
 ) -> tuple[str, bool]:
-    """Write one .m3u8. Returns (filename, written)."""
+    """Write one .m3u8. Returns (filename, written); ValueError for a name
+    that is no entry of ``directory``."""
     filename = assign_playlist_filename(name, taken, stored_filename)
-    path = os.path.join(directory, filename)
+    path = fs.entry(directory, filename)
     return filename, _write_text(path, render_m3u8(entries))
 
 

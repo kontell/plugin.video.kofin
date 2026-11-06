@@ -378,6 +378,33 @@ def test_a_title_the_filesystem_encoding_cannot_carry_folds_to_ascii(monkeypatch
     assert playlists.safe_filename("Road Trip") == "Road Trip"
 
 
+@pytest.mark.parametrize(
+    "title, stem",
+    [
+        ("映画／アクション", "_"),
+        ("Best／Hits", "Best_Hits"),
+        ("‥／‥／‥／outside", ".._.._.._outside"),
+        ("A：B", "A_B"),
+    ],
+)
+def test_a_title_folded_to_ascii_holds_no_unsafe_character(monkeypatch, title, stem):
+    """The fold makes them out of compatibility punctuation: a fullwidth
+    solidus is a separator, a two-dot leader is "..", a fullwidth colon a
+    character Windows refuses."""
+    monkeypatch.setattr(sys, "getfilesystemencoding", lambda: "ascii")
+    assert playlists.safe_filename(title) == stem
+
+
+def test_a_name_that_leaves_the_folder_is_never_written(tmp_path, monkeypatch):
+    root = tmp_path / "music" / "Kofin"
+    root.mkdir(parents=True)
+    monkeypatch.setattr(playlists, "safe_filename", lambda name: name)
+
+    with pytest.raises(ValueError):
+        playlists.write_playlist_file(str(root), "../outside", [], set())
+    assert not (tmp_path / "music" / "outside.m3u8").exists()
+
+
 def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
     """A membership rewrite must overwrite Name.m3u8, not mint Name (2).m3u8,
     and a plugin row's line is the file name alone (video_playlist_line)."""
