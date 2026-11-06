@@ -37,22 +37,15 @@ FOLDER_TYPES = frozenset(
     }
 )
 
-PLAYABLE_TYPES = frozenset(
-    {
-        "Movie",
-        "Episode",
-        "MusicVideo",
-        "Video",
-        "Trailer",
-        "Audio",
-        "AudioBook",
-        "Recording",
-    }
+# Jellyfin's AudioBook is an Audio item.
+AUDIO_TYPES = frozenset({"Audio", "AudioBook"})
+
+PLAYABLE_TYPES = (
+    frozenset({"Movie", "Episode", "MusicVideo", "Video", "Trailer", "Recording"})
+    | AUDIO_TYPES
 )
 
-MUSIC_TYPES = frozenset(
-    {"Audio", "AudioBook", "MusicAlbum", "MusicArtist", "MusicGenre"}
-)
+MUSIC_TYPES = AUDIO_TYPES | {"MusicAlbum", "MusicArtist", "MusicGenre"}
 
 # Kodi's media type for each Jellyfin item type a tag can carry.
 MEDIATYPE = {

@@ -197,11 +197,14 @@ def test_an_artist_is_a_link_target_and_a_genre_a_filter(monkeypatch):
     assert artist.items_params[0]["ArtistIds"] == "ar1"
     assert "ParentId" not in artist.items_params[0]
     assert artist.items_params[0]["SortBy"].startswith("ProductionYear,Album,")
+    # Their songs, not the audiobooks they are credited on.
+    assert artist.items_params[0]["IncludeItemTypes"] == "Audio"
 
     genre = ContainerApi({"Id": "g1", "Type": "MusicGenre"}, TRACKS)
     _play(monkeypatch, genre)
     assert genre.items_params[0]["GenreIds"] == "g1"
     assert genre.items_params[0]["SortBy"].startswith("AlbumArtist,Album,")
+    assert genre.items_params[0]["IncludeItemTypes"] == "Audio"
 
 
 def test_a_playlist_keeps_the_servers_order_and_its_audio_only(monkeypatch):
@@ -219,6 +222,24 @@ def test_a_playlist_keeps_the_servers_order_and_its_audio_only(monkeypatch):
         "plugin://plugin.video.kofin/?mode=play&id=t1",
         "plugin://plugin.video.kofin/?mode=play&id=t3",
     ]
+
+
+def test_a_playlist_of_audiobooks_queues_them(monkeypatch, kodi):
+    """Jellyfin's AudioBook is an Audio item, so a playlist of them is an audio
+    playlist, and the menu offers it Play all."""
+    rows = [track(1, "AudioBook"), track(2, "AudioBook")]
+    api = ContainerApi({"Id": "p1", "Type": "Playlist", "MediaType": "Audio"}, rows)
+
+    _play(monkeypatch, api)
+
+    assert FakePlaylist.instances, "nothing was queued"
+    playlist = FakePlaylist.instances[-1]
+    assert playlist.kind == xbmc.PLAYLIST_MUSIC
+    assert [url for url, _li in playlist.entries] == [
+        "plugin://plugin.video.kofin/?mode=play&id=t1",
+        "plugin://plugin.video.kofin/?mode=play&id=t2",
+    ]
+    assert kodi[:2] == ["stop", "StartQueue"]
 
 
 def test_a_playlist_shuffles_here_because_the_server_cannot(monkeypatch):
