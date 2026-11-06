@@ -203,6 +203,9 @@ class Store(Catalogue):
                 namespace TEXT NOT NULL, library TEXT NOT NULL, position INTEGER NOT NULL,
                 folder TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(namespace,library,position));
+            CREATE TABLE IF NOT EXISTS api_listed(
+                namespace TEXT NOT NULL, library TEXT NOT NULL, folder TEXT NOT NULL,
+                PRIMARY KEY(namespace,library,folder));
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
@@ -214,6 +217,7 @@ class Store(Catalogue):
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS api_held(
                 setting TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_rescan(source TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS api_library(
                 namespace TEXT NOT NULL, library TEXT NOT NULL,
                 scanner INTEGER NOT NULL,
@@ -442,6 +446,33 @@ class Store(Catalogue):
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("DELETE FROM api_held WHERE setting=?", (setting,))
+
+    # -- video sources a removal owes a scan ---------------------------------
+
+    def owe_scans(self, sources: Iterable[str]) -> None:
+        """Record the video sources whose rows a removal is about to delete
+        with ours: Kodi forgets their folders' hashes as it deletes, and only
+        a scan of the source files them again. Recorded before the delete,
+        the scan is owed whatever stops the pass after it."""
+        rows = [(source,) for source in sources]
+        if not rows:
+            return
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.executemany("INSERT OR IGNORE INTO api_rescan VALUES (?)", rows)
+
+    def owed_scans(self) -> list[str]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT source FROM api_rescan ORDER BY source"
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def settle_scan(self, source: str) -> None:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("DELETE FROM api_rescan WHERE source=?", (source,))
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -1344,12 +1375,17 @@ class Store(Catalogue):
         """The album directories a scan of the library is to visit, in order,
         each with the label it is listed under. The pass writes the plan
         before the scan and the provider lists it a part at a time
-        (``walk_part``), reading no payload."""
+        (``walk_part``), reading no payload. A new plan has had none of its
+        directories listed (``listed``)."""
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("BEGIN IMMEDIATE")
             db.cursor.execute(
                 "DELETE FROM api_walk WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            )
+            db.cursor.execute(
+                "DELETE FROM api_listed WHERE namespace=? AND library=?",
                 (self.namespace, library),
             )
             db.cursor.executemany(
@@ -1380,6 +1416,37 @@ class Store(Catalogue):
                 (self.namespace, library),
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def note_listed(self, library: str, folder: str) -> None:
+        """Record that Kodi is handed the catalogue's listing of a directory
+        the library's plan names (the provider, before the handover). A
+        directory outside the plan, or one already recorded, writes
+        nothing."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            owed = db.cursor.execute(
+                """SELECT 1 FROM api_walk w WHERE w.namespace=? AND w.library=?
+                AND w.folder=? AND NOT EXISTS (SELECT 1 FROM api_listed l
+                    WHERE l.namespace=w.namespace AND l.library=w.library
+                    AND l.folder=w.folder)""",
+                (self.namespace, library, folder),
+            ).fetchone()
+            if owed:
+                db.cursor.execute(
+                    "INSERT OR IGNORE INTO api_listed VALUES (?,?,?)",
+                    (self.namespace, library, folder),
+                )
+
+    def listed(self, library: str) -> set[str]:
+        """The directories of the library's plan whose listing Kodi has been
+        handed since the plan was written."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT folder FROM api_listed WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            ).fetchall()
+        return {row[0] for row in rows}
 
     def bump_salt(self, folder: str) -> int:
         with Database() as db:

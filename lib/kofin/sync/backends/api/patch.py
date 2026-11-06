@@ -353,11 +353,14 @@ class Applier:
         if kind == "MusicArtist":
             # An artist no live album credits -- a guest on a track, or one
             # whose albums are outside the selection -- has no row of ours to
-            # find by name; one whose albums have rows but whose name Kodi
-            # spells otherwise has none either.
+            # find by name, and one whose albums have rows but whose name
+            # Kodi spells otherwise has none either. One whose album the
+            # scanner has not filed yet is waiting for its row.
             if record.item_id not in self.native.music.credited(record.library):
                 return True
-            return self.row_for(record) is None
+            if self.row_for(record) is not None:
+                return False
+            return self.native.music.albums_filed(record.library, record.item_id)
         if kind == "BoxSet":
             name = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
             return not any(
@@ -680,12 +683,11 @@ class Applier:
             applied["tag"] = self.native.music.tag_hash(record)
             applied["dir"] = record.parent_id
             applied["userdata"] = metadata.userdata(record.item)
-            if previous.get("tag") not in (None, applied["tag"]) and not (
-                (record.library, record.parent_id) in self.native.music.rescanned
-                or (record.library, "*") in self.native.music.rescanned
+            if previous.get("tag") not in (None, applied["tag"]) and (
+                (record.library, record.parent_id) not in self.native.music.listed
             ):
-                # The tags moved and the directory was not re-listed this
-                # pass: the row still carries the old ones.
+                # The tags moved and Kodi was not handed the directory's
+                # listing this pass: the row still carries the old ones.
                 raise RuntimeError("song awaits its directory's rescan")
         elif kind == "MusicAlbum":
             owner = self.native.music.album_owner(kodi_id)

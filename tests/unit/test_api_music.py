@@ -233,6 +233,26 @@ def test_album_and_artist_art_is_written_before_any_play_count(store, backend, k
     assert not store.pending()
 
 
+def test_an_artist_whose_album_is_not_filed_yet_waits_for_its_row(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi makes an artist's row from the songs it files: a scan that filed
+    none of the album leaves the artist pending, not settled without a row,
+    so its art and biography arrive with the album."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    scan_folder = kodi._scan_folder
+    monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
+    with pytest.raises(RuntimeError, match="remain pending"):
+        backend.reconcile()
+    assert store.state(ARTIST).status == "pending"
+    monkeypatch.setattr(kodi, "_scan_folder", scan_folder)
+    backend.reconcile()
+    assert not store.pending()
+    (row,) = kodi.artists.values()
+    assert row["description"] == "About the band"
+    assert store.mapping(ARTIST).kodi_id == row["artistid"]
+
+
 def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, kodi):
     store.publish(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
@@ -256,6 +276,37 @@ def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, k
     assert not methods(kodi, "AudioLibrary.SetSongDetails")
     assert store.local_pending() == [("tc31", {"playcount": 7})]
     assert {i.item_id for i, _, _ in store.pending()} == {"tc31"}
+
+
+def test_a_renamed_song_waits_for_a_scan_that_reads_its_directory(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi announces the end of a scan it was told to stop like any other,
+    and a stopped scan never asks for the directories it had not reached:
+    a song whose tags moved is acknowledged only once Kodi was handed its
+    directory's listing, which the provider records."""
+    store.publish(
+        album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
+    )
+    backend.reconcile()
+    assert LIB in backend.music_checked
+    before = store.mapping("tc31").applied["tag"]
+    store.publish([song("tc31", ALBUM, 1, Name="Renamed")])
+    scan_folder = kodi._scan_folder
+    monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
+    with pytest.raises(RuntimeError, match="remain pending"):
+        backend.reconcile()
+    assert store.state("tc31").status == "pending"
+    assert store.mapping("tc31").applied["tag"] == before
+    # Only a compare of every song finds what an unread directory holds.
+    assert LIB not in backend.music_checked
+    monkeypatch.setattr(kodi, "_scan_folder", scan_folder)
+    kodi.music_folders.clear()
+    backend.reconcile()
+    assert kodi.music_folders == [ALBUM]
+    assert owned_songs(kodi)["tc31"]["title"] == "Renamed"
+    assert not store.pending()
+    assert LIB in backend.music_checked
 
 
 def test_server_userdata_patches_without_a_rescan(store, backend, kodi):
@@ -1424,6 +1475,49 @@ def test_music_folder_waits_for_a_proven_listing(store, monkeypatch):
     monkeypatch.setattr(provider, "_wait", lambda s: True)
     provider.serve(Request(paths.music_dir(store.namespace, LIB, ALBUM), 1, {}))
     assert rendered == [] and ended == []
+
+
+def test_the_provider_records_the_planned_listings_it_hands_over(store, monkeypatch):
+    """The pass's word that Kodi read a directory: recorded before the
+    catalogue's listing is handed over, for a directory the plan names, and
+    never for Kodi's own rows listed back."""
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    store.publish(
+        album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB
+    )
+    handed = []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, entries, n: handed.append(store.listed(LIB)),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda h, **k: None)
+    store.plan_walk(LIB, [(ALBUM, "a")])
+    for folder in (ALBUM, ALBUM2):
+        provider.serve(Request(paths.music_dir(store.namespace, LIB, folder), 1, {}))
+    assert handed == [{ALBUM}, {ALBUM}]
+    # A new plan has had nothing listed.
+    store.plan_walk(LIB, [(ALBUM2, "b")])
+    assert store.listed(LIB) == set()
+    monkeypatch.setattr(
+        provider.Store,
+        "records",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("locked")),
+    )
+    kept = {
+        "file": paths.playback_url(store.namespace, "Audio", LIB, "ud41", ALBUM2),
+        "title": "Kept",
+    }
+    monkeypatch.setattr(
+        provider.kodirpc,
+        "call",
+        lambda m, p=None: {"songs": [kept], "limits": {"total": 1}},
+    )
+    provider.serve(Request(paths.music_dir(store.namespace, LIB, ALBUM2), 1, {}))
+    assert handed[-1] == set()
 
 
 def test_container_of_takes_the_first_name_kodi_knows():

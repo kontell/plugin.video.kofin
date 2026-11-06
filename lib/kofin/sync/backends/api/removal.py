@@ -15,7 +15,6 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
-import functools
 import threading
 import time
 from collections.abc import Callable, Collection, Iterable
@@ -323,25 +322,52 @@ def remove(
     """Apply every tombstone but the sets'; returns the libraries cleared whole.
 
     In order: whole video libraries go in one call each; music leaves by its
-    directories; the remaining rows are gathered, removed one by one and
-    confirmed by readback; and the other sources' shows are scanned once
-    the rows they shared are gone.
+    directories; the remaining rows are gathered and removed one by one; the
+    other sources whose rows went with them are scanned (``scan_owed``); and
+    the rows are confirmed by readback. A scan an earlier pass still owes is
+    made whether or not anything is removed.
     """
     removals = {i for i, (_, op, _) in pending.items() if op == "remove"}
     if not removals:
+        scan_owed(native)
         return set()
     placement: dict[str, Entry] = dict(entries)
     placement.update(tombstones)
     cleared = _clear_whole_libraries(native, pending, placement, removals, errors)
     remove_music(native, pending, placement, removals, errors)
     rows, children = _gather_rows(native, pending, placement, removals, cleared)
-    attempted, rescan = _remove_rows(native, pending, rows, children, errors)
+    attempted = _remove_rows(native, pending, rows, children, errors)
+    # Before the confirmation, which forgets what it confirms: stopped
+    # during the scans, the pass leaves those removals pending.
+    scan_owed(native)
     _confirm_rows(native, pending, attempted, children, errors)
-    if rescan:
-        _owed(
-            "", "the other sources' shows", lambda: native.scan(sorted(rescan), "video")
-        )
     return cleared
+
+
+def scan_owed(native: "Native") -> None:
+    """Scan every video source a removal owes a scan (``Store.owe_scans``),
+    each settled once its scan has run.
+
+    One that cannot be scanned now stays owed to the next pass, and is no
+    reason to keep a removal pending: the library would be cleared a second
+    time. A stop leaves every scan not yet made owed.
+    """
+    unscanned: list[Exception] = []
+    for source in native.store.owed_scans():
+        try:
+            native.scan([source], "video")
+        except InterruptedError:
+            raise
+        except Exception as error:
+            unscanned.append(error)
+            continue
+        native.store.settle_scan(source)
+    if unscanned:
+        LOG.warning(
+            "%d video source(s) owed a scan are left to the next pass: %s",
+            len(unscanned),
+            unscanned[0],
+        )
 
 
 def _clear_whole_libraries(
@@ -375,13 +401,14 @@ def _clear_whole_libraries(
         except InterruptedError:
             raise
         except Exception as error:
-            LOG.warning(
-                "library %s: rows shared with other sources not read: %s",
-                library,
-                error,
-            )
+            # Cleared unread, their rows would go with ours and no scan
+            # would file them again.
+            for item_id in members:
+                _fail(store, pending, item_id, error, errors)
+            continue
         try:
             began = time.monotonic()
+            store.owe_scans(others)
             # The clear finds a movie by the file its row lists, which for a
             # movie grouped with another source's copy is theirs: each goes by
             # its id, their copy with it, and their source files it again.
@@ -408,12 +435,9 @@ def _clear_whole_libraries(
                 _fail(store, pending, item_id, error, errors)
             continue
         _owed(library, "its event", native.library_event)
-        if others:
-            _owed(
-                library,
-                "the other sources' shows",
-                functools.partial(native.scan, others, "video"),
-            )
+        # Before the library is forgotten: stopped during the scans, the
+        # pass leaves the library to be cleared again.
+        scan_owed(native)
         # One transaction for the whole library.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
         cleared.add(library)
@@ -487,13 +511,13 @@ def _remove_rows(
     rows: list[tuple[str, Entry]],
     children: dict[str, list[str]],
     errors: list[Exception],
-) -> tuple[list[tuple[str, Entry]], set[str]]:
+) -> list[tuple[str, Entry]]:
     """One removal call per row, by the id the scoped readback holds now;
-    returns the rows attempted and the other sources of the shows about to
-    go, scanned once they have."""
+    returns the rows attempted. The other sources a row's removal takes
+    rows of are owed a scan first (``scan_owed``), and a row whose other
+    sources cannot be read stays."""
     store = native.store
     attempted: list[tuple[str, Entry]] = []
-    rescan: set[str] = set()
     for item_id, placed in rows:
         table = KINDS[placed.kind]
         if table.remove is None:
@@ -512,17 +536,12 @@ def _remove_rows(
             if row is None:
                 _forget_with_children(store, pending, children, item_id)
                 continue
-            try:
-                if placed.kind == "Series":
-                    rescan.update(sources_of(native, {row["tvshowid"]}))
-                elif placed.kind == "Movie" and not native.readback.own_file(
-                    placed.library, item_id, row
-                ):
-                    rescan.update(sources_holding([row.get("file") or ""]))
-            except InterruptedError:
-                raise
-            except Exception as error:
-                LOG.warning("%s: other sources not read: %s", item_id, error)
+            if placed.kind == "Series":
+                store.owe_scans(sources_of(native, {row["tvshowid"]}))
+            elif placed.kind == "Movie" and not native.readback.own_file(
+                placed.library, item_id, row
+            ):
+                store.owe_scans(sources_holding([row.get("file") or ""]))
             rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
@@ -537,7 +556,7 @@ def _remove_rows(
             raise
         except Exception as error:
             _fail_with_children(store, pending, children, item_id, error, errors)
-    return attempted, rescan
+    return attempted
 
 
 def _confirm_rows(
