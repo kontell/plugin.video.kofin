@@ -804,6 +804,28 @@ class SyncPlayManager:
 
             return
 
+        if self.holds.holding() and command.get("Command") in (
+            "Unpause",
+            "Pause",
+            "Seek",
+        ):
+            # A local start is held, and this command is for the current
+            # item -- a command for any other item was reconciled just above.
+            # The player has swapped off that item onto the one being
+            # proposed, which still carries this PlaylistItemId (the queue has
+            # not moved), so the command would seek or pause the held file to
+            # the item being replaced. The held file's position reaches the
+            # group with the proposal (holds.forward). The counterpart to
+            # on_seek's hold guard: a scrub of a held file is not the group's,
+            # and a group command for the item being replaced is not the held
+            # file's. After the mismatch check above, so a missed queue update
+            # still reconciles.
+            LOG.debug(
+                "[ syncplay/%s ] not applied: a local start is held",
+                command.get("Command"),
+            )
+            return
+
         self.playback.schedule(command)
 
     def _on_group_joined(self, info: dict[str, Any], version: Optional[int]) -> None:

@@ -108,6 +108,12 @@ class LocalStarts:
         self._hold = None
         self.manager.playback.ensure_playing()
 
+    def holding(self) -> bool:
+        """Whether a local start is held — the player has moved off the
+        group's item onto the one being proposed, so the group's item is no
+        longer what is loaded."""
+        return self._hold is not None
+
     # -- the proposal ----------------------------------------------------------
 
     def on_kodi_play(self, data: dict[str, Any]) -> None:
