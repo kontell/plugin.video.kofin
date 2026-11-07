@@ -8,6 +8,7 @@ sites in ``main.py``, and ``Service`` itself where it hands ``self`` to
 """
 
 import threading
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any, Callable, Optional, Protocol
 from collections.abc import Iterable
 
@@ -105,8 +106,11 @@ class ServiceHooks(Protocol):
 
     _restart_requested: bool
     _online: bool
+    _stopping: threading.Event
     library: Optional[LibraryPort]
     syncplay: Optional[SyncPlayPort]
+
+    def modal(self, kind: str) -> AbstractContextManager[None]: ...
 
     def _start_library(self) -> None: ...
 
@@ -131,6 +135,11 @@ def forward(manager: Optional[object], name: str, *args: Any) -> None:
         getattr(manager, name)(*args)
     except Exception:
         LOG.exception("SyncPlay %s hook failed", name)
+
+
+def no_modal(kind: str) -> AbstractContextManager[None]:
+    """The dialog record of a player or picker built without a service."""
+    return nullcontext()
 
 
 def spawn_once(
