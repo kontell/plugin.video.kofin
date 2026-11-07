@@ -16,13 +16,14 @@ from typing import Any, Optional
 
 import xbmc
 
-from kofin.core import ipc, settings, state, toast
+from kofin.core import ipc, state
 from kofin.core.api import Api, paged
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin import listitems
 from kofin.plugin.context import stop_current_playback
+from kofin.plugin import feedback
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -172,7 +173,7 @@ def play_all(request: Request) -> None:
         tracks = expand(api, item, shuffle)
     except JellyfinError as error:
         LOG.warning("play all failed for %s: %s", item_id, error)
-        toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
+        feedback.failed(error)
         return
     if not tracks:
         LOG.debug("play all: nothing playable under %s", item_id)

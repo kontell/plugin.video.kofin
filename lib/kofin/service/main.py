@@ -179,6 +179,8 @@ class Service(xbmc.Monitor):
         self.syncplay: Optional[SyncPlayPort] = None
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
+        # Whether this generation has announced a refused session.
+        self._session_rejected = False
         self._backdrop: Optional[threading.Thread] = None
         # Post-connect worker (see _on_ws_connected): the pending event is
         # how a reconnect that lands mid-run asks for one more pass.
@@ -720,8 +722,31 @@ class Service(xbmc.Monitor):
             on_connected=self._on_ws_connected,
             on_disconnected=self._on_ws_disconnected,
             verify_ssl=settings.get_bool("sslVerify"),
+            on_rejected=self._on_session_rejected,
         )
         self.ws.start()
+
+    def _on_session_rejected(self) -> None:
+        """The server answers but refuses this session (a password change, a
+        disabled user, the device removed): said once, in a toast that names
+        the way back in and in the Library status, while the server itself
+        still counts as reachable."""
+        if self._session_rejected:
+            return
+        self._session_rejected = True
+        self._connection_toast(30022, level=toast.ERROR)
+        try:
+            from kofin.sync.backends.api import status as apistatus
+            from kofin.sync.backends.api.store import namespace
+
+            apistatus.write(
+                settings.localized(30022),
+                namespace=namespace(
+                    self.credentials.server_id, self.credentials.user_id
+                ),
+            )
+        except Exception:
+            LOG.debug("rejected session not recorded in the library status")
 
     def _connection_toast(
         self, string_id: int, *args: Any, level: str = toast.INFO
@@ -800,10 +825,10 @@ class Service(xbmc.Monitor):
             self._down_since = None
             if self._abort_transport():
                 return
-            if self._announce_next_connect:
-                # A restart or shutdown notice already explained this
-                # downtime; a second adverse toast would make Restarting,
-                # Lost, Connected an edge pair again.
+            if self._announce_next_connect or self._session_rejected:
+                # A restart or shutdown notice, or the refused session,
+                # already explained this downtime; a second adverse toast
+                # would make Restarting, Lost, Connected an edge pair again.
                 return
             self._announce_next_connect = True
             # Toasts leave no trace in kodi.log; this line does.

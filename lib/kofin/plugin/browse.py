@@ -13,7 +13,7 @@ from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.core.urls import plugin_url
-from kofin.plugin import listitems
+from kofin.plugin import feedback, listitems
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -596,7 +596,14 @@ def listing(request: Request, build: Builder, what: str) -> None:
         build(request, api)
     except JellyfinError as error:
         LOG.warning("%s failed %s: %s", what, dict(request.params), error)
+        _announce_failure(error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+
+
+def _announce_failure(error: Exception) -> None:
+    """One toast for a listing that failed: the viewer asked for this
+    folder, and an empty one says nothing about why."""
+    feedback.failed(error)
 
 
 StructuralRow = tuple[str, str, dict[str, str]]
@@ -688,6 +695,15 @@ def root(request: Request) -> None:
         except JellyfinError as error:
             LOG.warning("views unavailable: %s", error)
             views = []
+            # The libraries are missing for a reason, and the row says
+            # which; it opens the settings, where the Account tab is.
+            entries.append(
+                structural_row(
+                    feedback.message(error),
+                    "DefaultIconError.png",
+                    {"mode": "settings"},
+                )
+            )
         for view in views:
             if view.get("CollectionType") == "livetv":
                 continue  # live TV is pvr.kofin's job
@@ -962,6 +978,7 @@ def _search_person_items(request: Request, api: Api, person_id: str) -> None:
         ).get("Items", [])
     except JellyfinError as error:
         LOG.warning("person listing failed (%s): %s", person_id, error)
+        _announce_failure(error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
         return
 

@@ -1882,6 +1882,33 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
         sync_db.reset_overrides()
 
 
+def test_a_refused_session_is_announced_once_with_the_way_back_in(monkeypatch):
+    """The websocket's 403 is the one sure sign of a revoked session: one
+    toast naming the Account tab, one Library status line, no repeat."""
+    service = Service()
+    toasts, written = [], []
+    monkeypatch.setattr(
+        service,
+        "_connection_toast",
+        lambda sid, *a, level=None: toasts.append((sid, level)),
+    )
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.status.write",
+        lambda state, listing=(), namespace="", earlier=False: written.append(
+            (state, namespace)
+        ),
+    )
+    monkeypatch.setattr("kofin.core.settings.localized", lambda sid: "S%d" % sid)
+    service.credentials.server_id = "srv"
+    service.credentials.user_id = "usr"
+
+    service._on_session_rejected()
+    service._on_session_rejected()
+
+    assert toasts == [(30022, "error")]
+    assert len(written) == 1 and written[0][0] == "S30022" and written[0][1]
+
+
 def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):
     """A device booted away from the server was never online, so _go_offline
     never runs and the flag would stay absent — which every user-facing

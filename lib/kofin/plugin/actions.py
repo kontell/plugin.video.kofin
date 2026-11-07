@@ -12,6 +12,7 @@ from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.listitems import play_path
+from kofin.plugin import feedback
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -31,6 +32,7 @@ def watched(request: Request) -> None:
         _api().mark_played(item_id)
     except JellyfinError as error:
         LOG.warning("mark played failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -41,6 +43,7 @@ def unwatched(request: Request) -> None:
         _api().mark_unplayed(item_id)
     except JellyfinError as error:
         LOG.warning("mark unplayed failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -82,6 +85,7 @@ def _set_favorite(request: Request, value: bool) -> None:
         _api().set_favorite(item_id, value)
     except JellyfinError as error:
         LOG.warning("favorite toggle failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -560,7 +564,7 @@ def download(request: Request) -> None:
         return
     except JellyfinError as error:
         LOG.warning("download expansion failed for %s: %s", item_id, error)
-        toast.show(settings.localized(30018), toast.ERROR)
+        feedback.failed(error)
         return
 
     wanted = [

@@ -1039,3 +1039,28 @@ def test_update_libraries_declined_sends_nothing(monkeypatch):
 
     assert sent == []
     assert dialog.multiselects == []
+
+
+def test_a_failed_watched_mark_says_so(monkeypatch):
+    class Api:
+        def mark_played(self, item_id):
+            raise JellyfinError("refused")
+
+        def mark_unplayed(self, item_id):
+            raise JellyfinError("refused")
+
+        def set_favorite(self, item_id, value):
+            raise JellyfinError("refused")
+
+    monkeypatch.setattr(actions, "_api", lambda: Api())
+    shown = []
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, *a, **k: shown.append(message)
+    )
+    monkeypatch.setattr(actions.settings, "localized", lambda sid: "S%d" % sid)
+
+    actions.watched(Request("plugin://x", 1, {"id": "m1"}))
+    actions.unwatched(Request("plugin://x", 1, {"id": "m1"}))
+    actions.favorite(Request("plugin://x", 1, {"id": "m1"}))
+
+    assert shown == ["S30507", "S30507", "S30507"]
