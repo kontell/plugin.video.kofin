@@ -364,6 +364,58 @@ def test_login_names_a_ping_answered_by_something_else_a_server_error(
     assert settings.Credentials.load().is_logged_in is False
 
 
+def test_logout_with_libraries_selected_says_what_becomes_of_them(
+    kodi_fakes, monkeypatch
+):
+    creds = settings.Credentials.load()
+    creds.server_name = "minipie"
+    creds.token = "tok9"
+    creds.is_logged_in = True
+    creds.save()
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    monkeypatch.setattr(account.auth, "logout", lambda h, a, hdr: None)
+    monkeypatch.setattr(
+        account,
+        "_text",
+        lambda sid: {30019: "Log out from %s?", 30896: "STAY"}.get(sid, "msg"),
+    )
+    asked = []
+    monkeypatch.setattr(
+        FakeDialog,
+        "yesno",
+        lambda self, heading, message: asked.append(message) or True,
+    )
+
+    account.logout(REQ)
+
+    assert asked == ["Log out from minipie?\nSTAY"]
+
+
+def test_logout_with_nothing_selected_asks_plainly(kodi_fakes, monkeypatch):
+    creds = settings.Credentials.load()
+    creds.server_name = "minipie"
+    creds.token = "tok9"
+    creds.is_logged_in = True
+    creds.save()
+    FakeAddon.store["librarySelection"] = ""
+    monkeypatch.setattr(account.auth, "logout", lambda h, a, hdr: None)
+    monkeypatch.setattr(
+        account,
+        "_text",
+        lambda sid: {30019: "Log out from %s?", 30896: "STAY"}.get(sid, "msg"),
+    )
+    asked = []
+    monkeypatch.setattr(
+        FakeDialog,
+        "yesno",
+        lambda self, heading, message: asked.append(message) or True,
+    )
+
+    account.logout(REQ)
+
+    assert asked == ["Log out from minipie?"]
+
+
 def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     creds = settings.Credentials.load()
     creds.server_address = "http://minipie:8096"

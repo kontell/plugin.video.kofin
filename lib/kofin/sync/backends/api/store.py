@@ -499,6 +499,16 @@ class Store(Catalogue):
             db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             db.conn.execute("VACUUM")
 
+    @classmethod
+    def owner(cls) -> Optional[str]:
+        """The namespace the setup row names, whoever asks."""
+        with Database() as db:
+            cls._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT namespace FROM api_setup WHERE id=1"
+            ).fetchone()
+        return str(row[0]) if row else None
+
     def prepared(self) -> Optional[str]:
         with Database() as db:
             self._prepare(db.cursor)
@@ -969,6 +979,53 @@ class Store(Catalogue):
                 (self.namespace, kind, library, generation, generation),
             ).fetchall()
         return [row[0] for row in rows if row[0]]
+
+    def all_libraries(self) -> list[str]:
+        """Every library with a live item, whatever its kind."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT DISTINCT library FROM api_entry WHERE namespace=? AND removed IS NULL",
+                (self.namespace,),
+            ).fetchall()
+        return sorted(row[0] for row in rows if row[0])
+
+    def unfinished_removals(self) -> int:
+        """Tombstones no pass has confirmed yet."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT COUNT(*) FROM api_item WHERE namespace=? AND operation='remove' AND status='pending'",
+                (self.namespace,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def adopt(self, owner: str) -> None:
+        """Take the catalogue over from ``owner``: its rows go from every
+        namespaced table and the setup row names this namespace. Only for
+        an owner whose rows have left Kodi (Native.retire)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            tables = [
+                row[0]
+                for row in db.cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'api_%'"
+                ).fetchall()
+            ]
+            for table in tables:
+                columns = [
+                    row[1]
+                    for row in db.cursor.execute(
+                        "PRAGMA table_info(%s)" % table
+                    ).fetchall()
+                ]
+                if "namespace" in columns and table != "api_setup":
+                    db.cursor.execute(
+                        "DELETE FROM %s WHERE namespace=?" % table, (owner,)
+                    )
+            db.cursor.execute(
+                "UPDATE api_setup SET namespace=? WHERE id=1", (self.namespace,)
+            )
 
     def libraries(self, kind: str) -> list[str]:
         """The libraries with a live item of ``kind``."""

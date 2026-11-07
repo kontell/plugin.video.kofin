@@ -2071,3 +2071,7 @@ msgstr ""
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr ""
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr ""
