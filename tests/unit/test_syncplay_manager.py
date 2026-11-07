@@ -172,7 +172,10 @@ def test_stop_without_leave_hands_the_group_to_the_next_generation(
     assert manager.group is None
 
 
-def test_stop_that_leaves_clears_the_handed_group(manager, monkeypatch):
+def test_stop_that_leaves_still_hands_the_group_over(manager, monkeypatch):
+    """A disable or an update stops the service like a quit; the courtesy
+    leave is sent and the group id is still handed to the generation that
+    starts seconds later in the same Kodi process."""
     join(manager)
     monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
     published = []
@@ -186,6 +189,20 @@ def test_stop_that_leaves_clears_the_handed_group(manager, monkeypatch):
     manager.stop()
 
     assert len(manager._api_raw.named("syncplay_leave")) == 1
+    assert published == ["g1"]
+
+
+def test_stop_outside_a_group_clears_the_handed_group(manager, monkeypatch):
+    published = []
+    monkeypatch.setattr(
+        manager_module.state, "publish_syncplay_group", published.append
+    )
+    monkeypatch.setattr(
+        manager_module.state, "clear_syncplay_group", lambda: published.append("")
+    )
+
+    manager.stop()
+
     assert published == [""]
 
 

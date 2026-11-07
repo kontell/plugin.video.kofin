@@ -134,22 +134,21 @@ class SyncPlayManager:
     def stop(self, leave: bool = True) -> None:
         # The leave is a courtesy to the group, not something teardown waits
         # on: this runs inside Service.stop, which Kodi gives five seconds.
-        # Skipped when the service knows the server is away; otherwise sent on
-        # the short budget syncplay_leave carries. A service restarted in
-        # place does not leave: the membership is the server's and the next
-        # generation picks it up (state.PROP_SYNCPLAY_GROUP).
+        # Skipped when the service knows the server is away, and when the
+        # service is restarted in place; otherwise sent on the short budget
+        # syncplay_leave carries. The group is handed to the next generation
+        # either way (state.PROP_SYNCPLAY_GROUP): an add-on disabled and
+        # enabled again, or updated, stops like a Kodi quit and starts again
+        # seconds later, and the property dies with Kodi's process, so only
+        # a generation of the same process ever reads it.
         kept = ""
         if self.in_group():
-            if leave:
-                if not state.is_offline():
-                    try:
-                        self._api_raw("syncplay_leave")
-                    except Exception:
-                        pass
-            else:
-                kept = str(
-                    (self.group or {}).get("GroupId") or self.last_group_id or ""
-                )
+            kept = str((self.group or {}).get("GroupId") or self.last_group_id or "")
+            if leave and not state.is_offline():
+                try:
+                    self._api_raw("syncplay_leave")
+                except Exception:
+                    pass
 
         self._running = False
         self._inbox.put(None)
@@ -166,7 +165,8 @@ class SyncPlayManager:
     def adopt_group(self, group_id: str) -> None:
         """The group the previous service generation was in: rejoined on the
         first websocket connect (_on_ws_connected), where the group's answer
-        can reach this member."""
+        can reach this member. A group the generation left as a courtesy is
+        joined again, which the server allows."""
         if not group_id:
             return
         LOG.debug(
