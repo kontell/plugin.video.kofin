@@ -149,6 +149,72 @@ def test_stop_skips_the_leave_when_the_server_is_away(manager, monkeypatch):
     assert manager.group is None  # left locally all the same
 
 
+def test_stop_without_leave_hands_the_group_to_the_next_generation(
+    manager, monkeypatch
+):
+    """A service restarted in place keeps its membership: no leave is sent
+    and the group id is published for the next generation; a stop that
+    leaves clears it."""
+    join(manager)
+    monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
+    published = []
+    monkeypatch.setattr(
+        manager_module.state, "publish_syncplay_group", published.append
+    )
+    monkeypatch.setattr(
+        manager_module.state, "clear_syncplay_group", lambda: published.append("")
+    )
+
+    manager.stop(leave=False)
+
+    assert manager._api_raw.named("syncplay_leave") == []
+    assert published == ["g1"]
+    assert manager.group is None
+
+
+def test_stop_that_leaves_clears_the_handed_group(manager, monkeypatch):
+    join(manager)
+    monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
+    published = []
+    monkeypatch.setattr(
+        manager_module.state, "publish_syncplay_group", published.append
+    )
+    monkeypatch.setattr(
+        manager_module.state, "clear_syncplay_group", lambda: published.append("")
+    )
+
+    manager.stop()
+
+    assert len(manager._api_raw.named("syncplay_leave")) == 1
+    assert published == [""]
+
+
+def test_an_adopted_group_is_rejoined_on_the_first_connect(manager, monkeypatch):
+    manager.adopt_group("g9")
+    monkeypatch.setattr(manager, "list_groups", lambda: [{"GroupId": "g9"}])
+
+    manager._on_ws_connected()
+
+    joins = manager._api_raw.named("syncplay_join")
+    assert len(joins) == 1 and joins[0][1] == "g9"
+    # Once: the next connect of this generation is an ordinary one.
+    manager._on_ws_connected()
+    assert len(manager._api_raw.named("syncplay_join")) == 1
+
+
+def test_an_adopted_group_that_is_gone_is_said(manager, monkeypatch):
+    toasts = []
+    manager._toast = lambda message, **kw: toasts.append(message)
+    monkeypatch.setattr(manager_module.settings, "localized", lambda sid: "S%d" % sid)
+    manager.adopt_group("g9")
+    monkeypatch.setattr(manager, "list_groups", lambda: [])
+
+    manager._on_ws_connected()
+
+    assert manager._api_raw.named("syncplay_join") == []
+    assert toasts == ["S30571"]
+
+
 def test_stop_survives_a_refused_leave(manager, monkeypatch):
     join(manager)
     monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
@@ -981,6 +1047,44 @@ class TestForwardLocalPlay:
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
         assert calls[0][1] == ["item-1"]
+
+    def test_a_new_item_over_the_group_is_proposed_at_its_own_start(self, manager):
+        """The player clock can still read the item being replaced (a paused
+        group's position); a new item goes out where its own play began."""
+        join(manager)
+        manager.current_item_id = "item-0"
+        manager.player.playing = True
+        manager.player.position = 917.0
+        manager.player.item = {
+            "Id": "item-1",
+            "Type": "Movie",
+            "RunTimeTicks": 60_000_000_000,
+            "CurrentPosition": 0.0,
+        }
+
+        manager.holds.forward()
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert len(calls) == 1
+        assert calls[0][1] == ["item-1"]
+        assert calls[0][3] == 0
+
+    def test_a_new_item_resumed_is_proposed_at_its_resume_point(self, manager):
+        join(manager)
+        manager.current_item_id = "item-0"
+        manager.player.playing = True
+        manager.player.position = 917.0
+        manager.player.item = {
+            "Id": "item-1",
+            "Type": "Movie",
+            "RunTimeTicks": 60_000_000_000,
+            "CurrentPosition": 120.0,
+        }
+
+        manager.holds.forward()
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert calls[0][3] == 1_200_000_000
 
     def test_live_claim_proposes_from_zero(self, manager):
         # A live claim's player position is session time on this member's

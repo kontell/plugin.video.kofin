@@ -94,6 +94,8 @@ class SyncPlayManager:
 
         self.join_local_ms = 0.0
         self.last_group_id: Optional[str] = None
+        # A group handed over by the last generation, to rejoin on connect.
+        self._rejoin_owed = False
         self.last_snapshot_at = 0.0
         self._last_rejoin = 0.0
         self._last_snapshot_request = 0.0
@@ -129,23 +131,49 @@ class SyncPlayManager:
     # Plumbing
     # ------------------------------------------------------------------
 
-    def stop(self) -> None:
+    def stop(self, leave: bool = True) -> None:
         # The leave is a courtesy to the group, not something teardown waits
         # on: this runs inside Service.stop, which Kodi gives five seconds.
         # Skipped when the service knows the server is away; otherwise sent on
-        # the short budget syncplay_leave carries.
-        if self.in_group() and not state.is_offline():
-            try:
-                self._api_raw("syncplay_leave")
-            except Exception:
-                pass
+        # the short budget syncplay_leave carries. A service restarted in
+        # place does not leave: the membership is the server's and the next
+        # generation picks it up (state.PROP_SYNCPLAY_GROUP).
+        kept = ""
+        if self.in_group():
+            if leave:
+                if not state.is_offline():
+                    try:
+                        self._api_raw("syncplay_leave")
+                    except Exception:
+                        pass
+            else:
+                kept = str(
+                    (self.group or {}).get("GroupId") or self.last_group_id or ""
+                )
 
         self._running = False
         self._inbox.put(None)
         self._leave_locally()
+        if kept:
+            LOG.debug("SyncPlay group %s handed to the next service generation", kept)
+            state.publish_syncplay_group(kept)
+        else:
+            state.clear_syncplay_group()
         self._dispatcher.join(timeout=5)
         if self._dispatcher.is_alive():  # pragma: no cover - watchdog only
             LOG.warning("syncplay dispatcher did not stop within deadline")
+
+    def adopt_group(self, group_id: str) -> None:
+        """The group the previous service generation was in: rejoined on the
+        first websocket connect (_on_ws_connected), where the group's answer
+        can reach this member."""
+        if not group_id:
+            return
+        LOG.debug(
+            "SyncPlay group %s adopted from the last service generation", group_id
+        )
+        self.last_group_id = group_id
+        self._rejoin_owed = True
 
     def on_notification(self, method: str, data: dict[str, Any]) -> None:
         """Entry point from the websocket routing; returns immediately."""
@@ -1000,6 +1028,11 @@ class SyncPlayManager:
         arrives. v1 servers end the session on any socket close: probe
         GET /SyncPlay/List and re-join, or stop pretending."""
         if not self.in_group():
+            if self._rejoin_owed:
+                # The group the last generation stayed in: join it again,
+                # or hear that it is gone.
+                self._rejoin_owed = False
+                self._kicked_probe()
             return
 
         if self.timesync is not None:
