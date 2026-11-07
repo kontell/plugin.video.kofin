@@ -1959,3 +1959,7 @@ msgstr "Niet meer op de server"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s staat niet meer op de server en is uit de bibliotheek verwijderd"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s van %s nummers in de wachtrij gezet"

@@ -1959,3 +1959,7 @@ msgstr "Ei enää palvelimella"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s ei ole enää palvelimella, ja se poistettiin kirjastosta"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s/%s kappaletta jonossa"

@@ -1959,3 +1959,7 @@ msgstr "Больше нет на сервере"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Библиотеки %s больше нет на сервере, она удалена из Kodi"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "В очередь добавлено %s из %s треков"

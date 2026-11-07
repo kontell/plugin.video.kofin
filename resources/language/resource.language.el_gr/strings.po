@@ -1959,3 +1959,7 @@ msgstr "Δεν υπάρχει πλέον στον διακομιστή"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Η βιβλιοθήκη %s δεν υπάρχει πλέον στον διακομιστή και αφαιρέθηκε από το Kodi"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "Προστέθηκαν %s από %s κομμάτια στην ουρά"

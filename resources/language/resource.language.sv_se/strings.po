@@ -1959,3 +1959,7 @@ msgstr "Finns inte längre på servern"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s finns inte längre på servern och har tagits bort från biblioteket"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s av %s spår köade"

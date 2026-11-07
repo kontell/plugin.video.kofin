@@ -429,5 +429,6 @@
   "#30892": "Når Kodi har startet på nytt, åpner du Kofin igjen, velger Versjoner og velger den nyeste versjonen. Logg deretter inn og velg bibliotekene som skal synkroniseres.",
   "#30893": "Du kan også lukke Kodi og slette video- og musikkdatabasene manuelt, slik Kofin-wikien beskriver:",
   "#30894": "Finnes ikke lenger på serveren",
-  "#30895": "%s finnes ikke lenger på serveren og er fjernet fra biblioteket"
+  "#30895": "%s finnes ikke lenger på serveren og er fjernet fra biblioteket",
+  "#30897": "%s av %s spor lagt i kø"
 }

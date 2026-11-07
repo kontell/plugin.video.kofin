@@ -1959,3 +1959,7 @@ msgstr "サーバーにありません"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s はサーバーにないため、ライブラリから削除されました"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s / %s トラックをキューに追加しました"

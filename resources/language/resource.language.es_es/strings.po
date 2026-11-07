@@ -1959,3 +1959,7 @@ msgstr "Ya no está en el servidor"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s ya no está en el servidor y se ha quitado de la biblioteca"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s de %s pistas en cola"

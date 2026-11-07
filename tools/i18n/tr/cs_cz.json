@@ -429,5 +429,6 @@
   "#30892": "Po restartu Kodi znovu otevřete Kofin, vyberte Verze a zvolte nejnovější verzi. Pak se přihlaste a vyberte knihovny k synchronizaci.",
   "#30893": "Případně zavřete Kodi a smažte jeho databáze videa a hudby ručně, jak popisuje wiki Kofin:",
   "#30894": "Již není na serveru",
-  "#30895": "Knihovna %s již není na serveru a byla odebrána z Kodi"
+  "#30895": "Knihovna %s již není na serveru a byla odebrána z Kodi",
+  "#30897": "Zařazeno %s z %s skladeb"
 }

@@ -1959,3 +1959,7 @@ msgstr "已不在服务器上"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s 已不在服务器上，已从媒体库中移除"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "已将 %s / %s 首曲目加入队列"

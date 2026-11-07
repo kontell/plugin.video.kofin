@@ -1959,3 +1959,7 @@ msgstr "Nu mai este pe server"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s din %s piese puse în coadă"

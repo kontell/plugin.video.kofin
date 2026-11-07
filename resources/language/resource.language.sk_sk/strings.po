@@ -1959,3 +1959,7 @@ msgstr "Už nie je na serveri"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Knižnica %s už nie je na serveri a bola odstránená z Kodi"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "Zaradených %s z %s skladieb"
