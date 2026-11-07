@@ -1009,19 +1009,20 @@ class Store(Catalogue):
             tables = [
                 row[0]
                 for row in db.cursor.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'api_%'"
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name LIKE 'api\\_%' ESCAPE '\\'"
                 ).fetchall()
             ]
             for table in tables:
                 columns = [
                     row[1]
                     for row in db.cursor.execute(
-                        "PRAGMA table_info(%s)" % table
+                        'PRAGMA table_info("%s")' % table
                     ).fetchall()
                 ]
                 if "namespace" in columns and table != "api_setup":
                     db.cursor.execute(
-                        "DELETE FROM %s WHERE namespace=?" % table, (owner,)
+                        'DELETE FROM "%s" WHERE namespace=?' % table, (owner,)
                     )
             db.cursor.execute(
                 "UPDATE api_setup SET namespace=? WHERE id=1", (self.namespace,)

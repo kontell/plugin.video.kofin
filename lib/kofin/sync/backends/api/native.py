@@ -258,6 +258,9 @@ class Native:
         other = Native(old, self.abort, bar=self.progress)
         for library in old.all_libraries():
             old.publish([], library=library)
+        # Its collections too: a set whose last movie left before the
+        # switch is still an empty row of Kodi's to take out.
+        old.publish([], complete_boxsets=True)
         # A removal is confirmed by a readback, and a music directory's by the
         # scan that re-listed it: a pass that confirms some rows and not the
         # rest is run again while it makes progress.

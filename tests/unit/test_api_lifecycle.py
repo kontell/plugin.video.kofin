@@ -963,12 +963,20 @@ def test_a_login_under_another_namespace_retires_the_previous_owner(
         for item in show_bundle(show_id) + [movie("m" + library[0])]:
             items.append(item)
             membership[item["Id"]] = library
-    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    collection = boxset("set1", "Set One", ["m" + LIB[0]])
+    store.publish(
+        items + [collection],
+        membership=membership,
+        complete_libraries=[LIB, LIB2],
+        complete_boxsets=True,
+    )
     backend.reconcile()
     assert len(kodi.owned("Series")) == 2 and len(kodi.owned("Movie")) == 2
+    assert kodi.rows["BoxSet"]
     kodi.calls.clear()
     other = Native(Store(namespace("another", "user")))
     other.setup()
+    assert not kodi.rows["BoxSet"]
     clears = methods(kodi, "VideoLibrary.SetSourceContent")
     assert sorted(c["path"] for c in clears) == sorted(
         paths.library_root(store.namespace, lib) for lib in (LIB, LIB2)
