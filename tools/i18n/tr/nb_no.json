@@ -348,7 +348,7 @@
   "#30803": "Når en synkronisering legger til flere nye album enn dette på én gang, lastes ingen av dem ned. Telles i album, ikke spor.",
   "#30810": "Krever %s, bare %s ledig",
   "#30804": "Slett alle nedlastinger",
-  "#30805": "Slett hver nedlastede fil fra denne enheten. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen.",
+  "#30805": "Slett hver nedlastede fil fra denne enheten og slutt å holde spillelister og musikkbiblioteker synkronisert. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen.",
   "#30806": "Slette alle %s nedlasting(er) og frigjøre ca. %s?",
   "#30807": "Det finnes ingen nedlastinger å slette",
   "#30808": "Pause nedlastinger under avspilling",

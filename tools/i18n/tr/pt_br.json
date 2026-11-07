@@ -348,7 +348,7 @@
   "#30803": "Quando uma sincronização adiciona mais álbuns novos do que este valor de uma vez, nenhum deles é baixado. Contam-se álbuns, não faixas.",
   "#30810": "Precisa de %s, só %s livres",
   "#30804": "Excluir todos os downloads",
-  "#30805": "Exclui deste dispositivo todos os arquivos baixados. Os itens continuam na sua biblioteca e voltam a ser reproduzidos a partir do servidor.",
+  "#30805": "Exclui deste dispositivo todos os arquivos baixados e deixa de manter playlists e bibliotecas de música sincronizadas. Os itens continuam na sua biblioteca e voltam a ser reproduzidos a partir do servidor.",
   "#30806": "Excluir os %s download(s), liberando cerca de %s?",
   "#30807": "Não há downloads para excluir",
   "#30808": "Pausar downloads durante a reprodução",

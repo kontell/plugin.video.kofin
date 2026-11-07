@@ -1882,6 +1882,26 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
         sync_db.reset_overrides()
 
 
+def test_a_keep_in_sync_request_with_nothing_synced_goes_to_the_download_manager(
+    monkeypatch,
+):
+    service = Service()
+    service.library = None
+    monkeypatch.setattr(service, "_start_library", lambda: None)
+    seen = []
+
+    class Downloads:
+        def reconcile_subscriptions(self, playlist_id=""):
+            seen.append(playlist_id)
+
+    monkeypatch.setattr(service, "_downloads_for", lambda name: Downloads())
+
+    service._ipc_library_command("SyncPlaylists", {"Id": "p1"})
+    service._ipc_library_command("SyncPlaylists", {})
+
+    assert seen == ["p1", ""]
+
+
 def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):
     """A device booted away from the server was never online, so _go_offline
     never runs and the flag would stay absent — which every user-facing

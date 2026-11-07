@@ -348,7 +348,7 @@
   "#30803": "Når en synkronisering tilføjer flere nye album end dette på én gang, hentes ingen af dem. Tælles i album, ikke spor.",
   "#30810": "Kræver %s, kun %s ledig",
   "#30804": "Slet alle downloads",
-  "#30805": "Slet alle hentede filer fra denne enhed. Elementerne bliver i dit bibliotek og afspilles fra serveren igen.",
+  "#30805": "Slet alle hentede filer fra denne enhed, og stop med at holde playlister og musikbiblioteker synkroniseret. Elementerne bliver i dit bibliotek og afspilles fra serveren igen.",
   "#30806": "Slet alle %s download(s), og frigør ca. %s?",
   "#30807": "Der er ingen downloads at slette",
   "#30808": "Pause downloads under afspilning",

@@ -348,7 +348,7 @@
   "#30803": "Cuando una sincronización añade más álbumes nuevos que esto de una vez, no se descarga ninguno. Se cuentan álbumes, no pistas.",
   "#30810": "Necesita %s, solo %s libres",
   "#30804": "Eliminar todas las descargas",
-  "#30805": "Elimina de este dispositivo todos los archivos descargados. Los elementos siguen en tu biblioteca y vuelven a reproducirse desde el servidor.",
+  "#30805": "Elimina de este dispositivo todos los archivos descargados y deja de mantener sincronizadas las listas de reproducción y las bibliotecas de música. Los elementos siguen en tu biblioteca y vuelven a reproducirse desde el servidor.",
   "#30806": "¿Eliminar las %s descargas y liberar unos %s?",
   "#30807": "No hay descargas que eliminar",
   "#30808": "Pausar las descargas durante la reproducción",

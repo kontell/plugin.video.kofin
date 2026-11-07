@@ -74,6 +74,8 @@ class DownloadsPort(Protocol):
 
     def remove_all(self) -> None: ...
 
+    def reconcile_subscriptions(self, playlist_id: str = ...) -> None: ...
+
 
 class SyncPlayPort(Protocol):
     """What the service drives on the SyncPlay manager — directly, and the

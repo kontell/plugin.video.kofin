@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Șterge toate descărcările"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Șterge de pe acest dispozitiv fiecare fișier descărcat. Elementele rămân în bibliotecă și se redau din nou de pe server."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Șterge de pe acest dispozitiv fiecare fișier descărcat și nu mai păstrează listele de redare și bibliotecile de muzică sincronizate. Elementele rămân în bibliotecă și se redau din nou de pe server."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"

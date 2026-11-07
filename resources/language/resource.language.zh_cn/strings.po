@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "删除所有下载"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "从本设备删除每一个已下载的文件。这些项目仍保留在媒体库中，可以再次从服务器播放。"
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "从本设备删除每一个已下载的文件，并停止保持播放列表和音乐库同步。这些项目仍保留在媒体库中，可以再次从服务器播放。"
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
