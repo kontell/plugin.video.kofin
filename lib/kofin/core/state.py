@@ -67,6 +67,13 @@ PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
 # lets the next resume, or the next generation, put 1.0 back. Not cleared by
 # clear_all for exactly that reason.
 PROP_SYNCPLAY_PULSE = "kofin.syncplay.pulse"
+# The SyncPlay group a service generation was in when it was restarted in
+# place (a settings change): written by the manager's stop when it keeps the
+# membership instead of leaving, read once by the next generation, which
+# rejoins. The group is the server's and outlives the generation, so the id
+# must too; a Kodi quit leaves the group and clears it. Not cleared by
+# clear_all for the same reason as the pulse.
+PROP_SYNCPLAY_GROUP = "kofin.syncplay.group"
 # Whether this Kodi has the tempo feature (capabilities, "tempo"). Earns its
 # place because settings.xml greys the fine-sync settings on a Kodi without
 # it, and a setting's dependency can read another setting or an InfoBool,
@@ -552,6 +559,19 @@ def syncplay_pulse() -> dict[str, Any]:
 
 def clear_syncplay_pulse() -> None:
     _window().clearProperty(PROP_SYNCPLAY_PULSE)
+
+
+def publish_syncplay_group(group_id: str) -> None:
+    """The group the stopping generation stays in, for the next one."""
+    _window().setProperty(PROP_SYNCPLAY_GROUP, group_id)
+
+
+def syncplay_group() -> str:
+    return _window().getProperty(PROP_SYNCPLAY_GROUP)
+
+
+def clear_syncplay_group() -> None:
+    _window().clearProperty(PROP_SYNCPLAY_GROUP)
 
 
 def set_feature_tempo(on: bool) -> None:

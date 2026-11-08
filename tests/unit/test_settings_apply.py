@@ -1,6 +1,9 @@
 """Library picker round-trip and the settings diff engine's add/remove
 dispatch against a fake library manager."""
 
+import threading
+from contextlib import contextmanager
+
 import pytest
 
 from kofin.plugin import librarypicker
@@ -39,6 +42,8 @@ class FakeService:
     def __init__(self):
         self._online = True
         self._restart_requested = False
+        self._stopping = threading.Event()
+        self.dialogs = []
         self.library = FakeLibraryManager()
         self.reregistered = 0
         self.backdrop_refreshes = []
@@ -65,6 +70,11 @@ class FakeService:
 
     def _on_ws_connected(self):
         self.reregistered += 1
+
+    @contextmanager
+    def modal(self, kind):
+        self.dialogs.append(kind)
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -262,6 +272,33 @@ def test_removal_declined_restores_selection(monkeypatch):
     # Snapshot follows the restore: a further no-op apply dispatches nothing.
     applier.apply()
     assert service.library.commands == []
+
+
+def test_a_confirmation_closed_by_a_stopped_service_restores_and_starts_nothing(
+    monkeypatch,
+):
+    """Kodi closes the dialog when the add-on goes, and the closed dialog
+    answers no: for a service that has stopped that is not a decline, so the
+    selection is left as the viewer saved it and no library work starts."""
+    seed_views(("v-movies", "Movies", "movies"))
+    seed_whitelist("v-movies")
+    FakeAddon.store["librarySelection"] = "v-movies"
+    service = FakeService()
+    applier = ready_applier(service)
+
+    class ClosedByKodi:
+        def yesno(self, heading, message):
+            service._stopping.set()
+            return False
+
+    monkeypatch.setattr("xbmcgui.Dialog", ClosedByKodi)
+    FakeAddon.store["librarySelection"] = ""
+    applier.apply()
+    applier.join_removal()
+
+    assert service.dialogs == ["yesnodialog"]
+    assert service.library.commands == []
+    assert FakeAddon.store["librarySelection"] == ""
 
 
 # --- the confirmation off the callback thread ---------------------------------

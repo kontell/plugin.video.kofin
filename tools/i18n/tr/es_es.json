@@ -348,7 +348,7 @@
   "#30803": "Cuando una sincronización añade más álbumes nuevos que esto de una vez, no se descarga ninguno. Se cuentan álbumes, no pistas.",
   "#30810": "Necesita %s, solo %s libres",
   "#30804": "Eliminar todas las descargas",
-  "#30805": "Elimina de este dispositivo todos los archivos descargados. Los elementos siguen en tu biblioteca y vuelven a reproducirse desde el servidor.",
+  "#30805": "Elimina de este dispositivo todos los archivos descargados y deja de mantener sincronizadas las listas de reproducción y las bibliotecas de música. Los elementos siguen en tu biblioteca y vuelven a reproducirse desde el servidor.",
   "#30806": "¿Eliminar las %s descargas y liberar unos %s?",
   "#30807": "No hay descargas que eliminar",
   "#30808": "Pausar las descargas durante la reproducción",
@@ -429,5 +429,7 @@
   "#30892": "Cuando Kodi se haya reiniciado, abre Kofin de nuevo, selecciona Versiones y elige la versión más reciente. Después inicia sesión y elige las bibliotecas a sincronizar.",
   "#30893": "También puedes cerrar Kodi y eliminar sus bases de datos de vídeo y música a mano, como explica la wiki de Kofin:",
   "#30894": "Ya no está en el servidor",
-  "#30895": "%s ya no está en el servidor y se ha quitado de la biblioteca"
+  "#30895": "%s ya no está en el servidor y se ha quitado de la biblioteca",
+  "#30896": "Las bibliotecas sincronizadas se quedan en Kodi hasta que vuelvas a iniciar sesión; otra cuenta las elimina.",
+  "#30897": "%s de %s pistas en cola"
 }

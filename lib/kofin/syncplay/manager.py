@@ -94,6 +94,8 @@ class SyncPlayManager:
 
         self.join_local_ms = 0.0
         self.last_group_id: Optional[str] = None
+        # A group handed over by the last generation, to rejoin on connect.
+        self._rejoin_owed = False
         self.last_snapshot_at = 0.0
         self._last_rejoin = 0.0
         self._last_snapshot_request = 0.0
@@ -129,23 +131,49 @@ class SyncPlayManager:
     # Plumbing
     # ------------------------------------------------------------------
 
-    def stop(self) -> None:
+    def stop(self, leave: bool = True) -> None:
         # The leave is a courtesy to the group, not something teardown waits
         # on: this runs inside Service.stop, which Kodi gives five seconds.
-        # Skipped when the service knows the server is away; otherwise sent on
-        # the short budget syncplay_leave carries.
-        if self.in_group() and not state.is_offline():
-            try:
-                self._api_raw("syncplay_leave")
-            except Exception:
-                pass
+        # Skipped when the service knows the server is away, and when the
+        # service is restarted in place; otherwise sent on the short budget
+        # syncplay_leave carries. The group is handed to the next generation
+        # either way (state.PROP_SYNCPLAY_GROUP): an add-on disabled and
+        # enabled again, or updated, stops like a Kodi quit and starts again
+        # seconds later, and the property dies with Kodi's process, so only
+        # a generation of the same process ever reads it.
+        kept = ""
+        if self.in_group():
+            kept = str((self.group or {}).get("GroupId") or self.last_group_id or "")
+            if leave and not state.is_offline():
+                try:
+                    self._api_raw("syncplay_leave")
+                except Exception:
+                    pass
 
         self._running = False
         self._inbox.put(None)
         self._leave_locally()
+        if kept:
+            LOG.debug("SyncPlay group %s handed to the next service generation", kept)
+            state.publish_syncplay_group(kept)
+        else:
+            state.clear_syncplay_group()
         self._dispatcher.join(timeout=5)
         if self._dispatcher.is_alive():  # pragma: no cover - watchdog only
             LOG.warning("syncplay dispatcher did not stop within deadline")
+
+    def adopt_group(self, group_id: str) -> None:
+        """The group the previous service generation was in: rejoined on the
+        first websocket connect (_on_ws_connected), where the group's answer
+        can reach this member. A group the generation left as a courtesy is
+        joined again, which the server allows."""
+        if not group_id:
+            return
+        LOG.debug(
+            "SyncPlay group %s adopted from the last service generation", group_id
+        )
+        self.last_group_id = group_id
+        self._rejoin_owed = True
 
     def on_notification(self, method: str, data: dict[str, Any]) -> None:
         """Entry point from the websocket routing; returns immediately."""
@@ -864,7 +892,11 @@ class SyncPlayManager:
         self.player.syncplay_group_active = True
 
         if self.timesync is None:
-            self.timesync = TimeSync(self, verify_ssl=settings.get_bool("sslVerify"))
+            self.timesync = TimeSync(
+                self,
+                verify_ssl=settings.get_bool("sslVerify"),
+                user_agent=settings.user_agent(),
+            )
             self.timesync.start()
         else:
             self.timesync.force_update()
@@ -1000,6 +1032,11 @@ class SyncPlayManager:
         arrives. v1 servers end the session on any socket close: probe
         GET /SyncPlay/List and re-join, or stop pretending."""
         if not self.in_group():
+            if self._rejoin_owed:
+                # The group the last generation stayed in: join it again,
+                # or hear that it is gone.
+                self._rejoin_owed = False
+                self._kicked_probe()
             return
 
         if self.timesync is not None:

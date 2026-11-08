@@ -7,6 +7,8 @@ lives on the objects rebuilt each pass.
 
 import json
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 import time
 from typing import Any, Optional
 
@@ -24,7 +26,7 @@ from kofin.core import (
     toast,
 )
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import Http, HttpError, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
@@ -168,10 +170,14 @@ class Service(xbmc.Monitor):
         # This generation is tearing down: an Event owned by this generation.
         self._stopping = threading.Event()
         self.credentials = Credentials.load()
-        self.http = Http(settings.get_bool("sslVerify"), abort=self._abort_transport)
+        self.http = Http(
+            settings.get_bool("sslVerify"),
+            abort=self._abort_transport,
+            user_agent=settings.user_agent(),
+        )
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
-        self.player = Player(self.api)
+        self.player = Player(self.api, modal=self.modal)
         self.remote = RemoteHandler()
         self.kodi_userdata = KodiUserData(self.api)
         self.library: Optional[LibraryPort] = None
@@ -179,6 +185,13 @@ class Service(xbmc.Monitor):
         self.syncplay: Optional[SyncPlayPort] = None
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
+        # The modal dialogs of ours that are open, by Kodi's window name
+        # (Dialog.Close), counted: shutdown closes them so that no worker
+        # waits on an answer for a generation that has gone.
+        self._dialogs: dict[str, int] = {}
+        self._dialogs_lock = threading.Lock()
+        # Whether this generation has announced a refused session.
+        self._session_rejected = False
         self._backdrop: Optional[threading.Thread] = None
         # Post-connect worker (see _on_ws_connected): the pending event is
         # how a reconnect that lands mid-run asks for one more pass.
@@ -512,6 +525,8 @@ class Service(xbmc.Monitor):
         """Start the sync manager when there is anything to sync or resume.
         Import and failures are contained: playback and remote control must
         survive a broken sync stack (degrade, don't die)."""
+        if self._stopping.is_set():
+            return
         if not getattr(self, "_api_interfaces", False):
             return
         self._reap_library()
@@ -538,6 +553,8 @@ class Service(xbmc.Monitor):
         """Build the download manager when enabled. Contained like the library
         manager: playback and sync must survive a broken downloads stack
         (degrade, don't die)."""
+        if self._stopping.is_set():
+            return
         if self.downloads is not None:
             return
         if not settings.get_bool("downloadsEnabled"):
@@ -582,7 +599,11 @@ class Service(xbmc.Monitor):
         the teardown.
         """
         return Api.from_credentials(
-            Http(settings.get_bool("sslVerify"), abort=self._abort_transport),
+            Http(
+                settings.get_bool("sslVerify"),
+                abort=self._abort_transport,
+                user_agent=settings.user_agent(),
+            ),
             Credentials.load(),
         )
 
@@ -604,6 +625,8 @@ class Service(xbmc.Monitor):
         """Build the SyncPlay manager when enabled. Contained like the
         library manager: playback and remote control must survive a broken
         SyncPlay stack (degrade, don't die)."""
+        if self._stopping.is_set():
+            return
         if self.syncplay is not None:
             return
         if not settings.get_bool("syncPlayEnabled"):
@@ -617,6 +640,10 @@ class Service(xbmc.Monitor):
                 self.api, self.player, providers=jellyfin_registry(self.api)
             )
             self.syncplay = manager
+            handed = state.syncplay_group()
+            if handed:
+                state.clear_syncplay_group()
+                manager.adopt_group(handed)
             self.player.syncplay = manager
             self.remote.syncplay = manager
             # The announce is what tells provider add-ons to (re)register
@@ -635,7 +662,11 @@ class Service(xbmc.Monitor):
         self.player.syncplay = None
         self.remote.syncplay = None
         try:
-            manager.stop()
+            # Restarted in place, the service keeps its group for the next
+            # generation; stopped for good, it leaves.
+            manager.stop(
+                leave=not (self._restart_requested and not self.abortRequested())
+            )
         except Exception:
             LOG.exception("SyncPlay manager failed to stop")
         # The mirror must not outlive the engine it describes; the ping
@@ -684,7 +715,7 @@ class Service(xbmc.Monitor):
         from kofin.service import whoswatching
 
         try:
-            whoswatching.show_picker(self.api, self.credentials)
+            whoswatching.show_picker(self.api, self.credentials, modal=self.modal)
         except Exception:
             LOG.exception("who's-watching picker failed")
 
@@ -695,6 +726,8 @@ class Service(xbmc.Monitor):
         the result — a backdrop that lands a few seconds into the session is
         indistinguishable from one that was always there.
         """
+        if self._stopping.is_set():
+            return
         spawned = spawn_once(
             self._backdrop, self._run_backdrop, "kofin-backdrop", force
         )
@@ -720,8 +753,32 @@ class Service(xbmc.Monitor):
             on_connected=self._on_ws_connected,
             on_disconnected=self._on_ws_disconnected,
             verify_ssl=settings.get_bool("sslVerify"),
+            user_agent=settings.user_agent(),
+            on_rejected=self._on_session_rejected,
         )
         self.ws.start()
+
+    def _on_session_rejected(self) -> None:
+        """The server answers but refuses this session (a password change, a
+        disabled user, the device removed): said once, in a toast that names
+        the way back in and in the Library status, while the server itself
+        still counts as reachable."""
+        if self._session_rejected:
+            return
+        self._session_rejected = True
+        self._connection_toast(30022, level=toast.ERROR)
+        try:
+            from kofin.sync.backends.api import status as apistatus
+            from kofin.sync.backends.api.store import namespace
+
+            apistatus.write(
+                settings.localized(30022),
+                namespace=namespace(
+                    self.credentials.server_id, self.credentials.user_id
+                ),
+            )
+        except Exception:
+            LOG.debug("rejected session not recorded in the library status")
 
     def _connection_toast(
         self, string_id: int, *args: Any, level: str = toast.INFO
@@ -800,10 +857,10 @@ class Service(xbmc.Monitor):
             self._down_since = None
             if self._abort_transport():
                 return
-            if self._announce_next_connect:
-                # A restart or shutdown notice already explained this
-                # downtime; a second adverse toast would make Restarting,
-                # Lost, Connected an edge pair again.
+            if self._announce_next_connect or self._session_rejected:
+                # A restart or shutdown notice, or the refused session,
+                # already explained this downtime; a second adverse toast
+                # would make Restarting, Lost, Connected an edge pair again.
                 return
             self._announce_next_connect = True
             # Toasts leave no trace in kodi.log; this line does.
@@ -905,6 +962,24 @@ class Service(xbmc.Monitor):
                     self.api.update_user_data(row.jellyfin_id, payload)
                     LOG.debug("replayed userdata for %s: %s", row.jellyfin_id, payload)
                 pending.remove(row.jellyfin_id)
+            except HttpError as error:
+                if error.status == 404:
+                    # The server no longer has the item: nothing to replay,
+                    # and the rows behind it must not wait on it.
+                    LOG.debug(
+                        "parked userdata for %s dropped: the server no longer has it",
+                        row.jellyfin_id,
+                    )
+                    pending.remove(row.jellyfin_id)
+                    continue
+                attempts = pending.record_attempt(row.jellyfin_id)
+                LOG.warning(
+                    "userdata replay failed for %s (attempt %d): %s",
+                    row.jellyfin_id,
+                    attempts,
+                    error,
+                )
+                return  # the server is unwell; the rest keeps for next time
             except JellyfinError as error:
                 attempts = pending.record_attempt(row.jellyfin_id)
                 LOG.warning(
@@ -1190,6 +1265,13 @@ class Service(xbmc.Monitor):
     def _ipc_library_command(self, name: str, payload: dict[str, Any]) -> None:
         self._start_library()
         if self.library is None:
+            if name == ipc.SYNC_PLAYLISTS:
+                # Nothing synced, so no library thread: the download orders
+                # are the download manager's to bring up to date.
+                downloads = self._downloads_for(name)
+                if downloads is not None:
+                    downloads.reconcile_subscriptions(str(payload.get("Id") or ""))
+                return
             LOG.warning("library command %s ignored: manager not running", name)
             return
         self.library.enqueue_command(name, payload)
@@ -1220,10 +1302,36 @@ class Service(xbmc.Monitor):
         current = ipc.nonce()
         return bool(current) and current != self._ipc_nonce
 
+    @contextmanager
+    def modal(self, kind: str) -> Iterator[None]:
+        """A dialog of ours is open while the block runs. The caller reads
+        ``_stopping`` after the dialog returns: an answer that arrived once
+        the service stopped is Kodi closing the dialog, not the viewer."""
+        with self._dialogs_lock:
+            self._dialogs[kind] = self._dialogs.get(kind, 0) + 1
+        try:
+            yield
+        finally:
+            with self._dialogs_lock:
+                left = self._dialogs.get(kind, 1) - 1
+                if left > 0:
+                    self._dialogs[kind] = left
+                else:
+                    self._dialogs.pop(kind, None)
+
+    def _close_dialogs(self) -> None:
+        with self._dialogs_lock:
+            kinds = list(self._dialogs)
+        for kind in kinds:
+            LOG.debug("closing the open %s at shutdown", kind)
+            xbmc.executebuiltin("Dialog.Close(%s,true)" % kind)
+
     def _shutdown(self) -> None:
         # The Event is what this generation's HTTP transports check between
-        # retries.
+        # retries, and what every start method and dialog worker reads: no
+        # work starts once it is set.
         self._stopping.set()
+        self._close_dialogs()
         self._stop_syncplay()
         # The websocket goes down before the library, not after: every event
         # it dispatches lands in the Library's queues — or, for UserDataChanged,

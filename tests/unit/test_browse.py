@@ -1422,3 +1422,60 @@ def test_next_episodes_fails_the_listing_when_the_server_is_down(
 
     assert directory["succeeded"] is False
     assert directory["entries"] == []
+
+
+def test_a_failed_listing_says_so(monkeypatch, directory):
+    api = ExtrasApi(fail=True)
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    said = []
+    monkeypatch.setattr(
+        browse.feedback,
+        "failed",
+        lambda error, time_ms=4000: said.append(type(error).__name__),
+    )
+
+    browse.extras(Request("plugin://x", 1, {"mode": "extras", "id": "series1"}))
+
+    assert said == ["JellyfinError"]
+    assert directory["succeeded"] is False
+
+
+def test_the_root_says_why_its_libraries_are_missing(monkeypatch, directory):
+    """With the libraries' request refused, the root carries one more row
+    than with an empty answer: the reason, which opens the settings."""
+    from kofin.core.http import Unauthorized
+
+    class Api:
+        server = "http://s"
+
+        def __init__(self, fail):
+            self.fail = fail
+
+        def views(self, include_hidden=False):
+            if self.fail:
+                raise Unauthorized("rejected")
+            return {"Items": []}
+
+    monkeypatch.setattr("kofin.service.whoswatching.is_enabled", lambda: False)
+    said = []
+    monkeypatch.setattr(
+        browse.feedback,
+        "message",
+        lambda error: said.append(type(error).__name__) or "why",
+    )
+
+    monkeypatch.setattr(browse, "_api", lambda: Api(fail=False))
+    browse.root(Request("plugin://x", 1, {}))
+    plain = [url for url, _item, _folder in directory["entries"]]
+    directory["entries"].clear()
+
+    monkeypatch.setattr(browse, "_api", lambda: Api(fail=True))
+    browse.root(Request("plugin://x", 1, {}))
+    refused = [url for url, _item, _folder in directory["entries"]]
+
+    assert said == ["Unauthorized"]
+    assert len(refused) == len(plain) + 1
+    assert (
+        sum("mode=settings" in url for url in refused)
+        == sum("mode=settings" in url for url in plain) + 1
+    )

@@ -341,6 +341,8 @@ class SettingsApplier:
             # refused with a log line.
             def confirm_and_dispatch() -> None:
                 confirmed = self._confirm_removals(removal_entries, selection)
+                if self.service._stopping.is_set():
+                    return
                 self._dispatch_selection(confirmed, additions)
 
             worker = spawn_once(
@@ -396,10 +398,16 @@ class SettingsApplier:
                 view = db.get_view(entry.replace("Mixed:", ""))
                 names.append(view.name if view else entry)
 
-        confirmed = xbmcgui.Dialog().yesno(
-            settings.localized(30264),
-            settings.localized(30265) % ", ".join(names),
-        )
+        with self.service.modal("yesnodialog"):
+            confirmed = xbmcgui.Dialog().yesno(
+                settings.localized(30264),
+                settings.localized(30265) % ", ".join(names),
+            )
+        if self.service._stopping.is_set():
+            # Kodi closed the dialog for a service that has stopped: not an
+            # answer, and nothing starts work for a generation that is gone.
+            LOG.debug("library removal confirmation dropped: the service stopped")
+            return []
         if confirmed:
             return removal_entries
 

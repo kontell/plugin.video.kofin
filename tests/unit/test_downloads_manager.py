@@ -2406,27 +2406,26 @@ def test_wake_lets_every_worker_recheck_immediately(tmp_path, repoints):
 
 
 @pytest.fixture
-def vanished(monkeypatch):
-    """The two halves of "mark it watched", recorded rather than performed:
-    the local leg is the port's, and the push needs a server."""
-    seen = {"local": [], "pushed": []}
-    monkeypatch.setattr(
-        DownloadManager,
-        "_mark_local_watched",
-        lambda self, row: seen["local"].append(row.jellyfin_id),
-    )
-    monkeypatch.setattr(
-        DownloadManager,
-        "_push_played",
-        lambda self, row: seen["pushed"].append(row.jellyfin_id),
-    )
+def vanished(monkeypatch, repoints):
+    """What a vanished file must never do: mark the item watched, locally
+    (the port) or on the server (a parked or pushed Played)."""
+    seen = {"local": repoints["native"].calls.setdefault("watched", []), "pushed": []}
+
+    def parked(
+        jellyfin_id, media_type="", played=None, position_ticks=None, snapshot=None
+    ):
+        if played:
+            seen["pushed"].append(jellyfin_id)
+
+    monkeypatch.setattr("kofin.downloads.pending.enqueue", parked)
     return seen
 
 
 def test_a_vanished_file_is_cleaned_up(tmp_path, repoints, vanished):
     """A vanished file goes through the removal path: the sidecars, the
     empty directory, the tag and the badge go with the row, or the item
-    would go on advertising itself as downloaded."""
+    would go on advertising itself as downloaded. Nothing is marked watched:
+    a deleted file says nothing about a viewing."""
     manager, _refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     rel = "Shows/The Show/Season 01/S01E01.mkv"
@@ -2442,7 +2441,7 @@ def test_a_vanished_file_is_cleaned_up(tmp_path, repoints, vanished):
     assert repoints["unbadge"] == ["e1"]
     assert not (root / rel).parent.exists()  # sidecar swept, directories pruned
     assert root.exists()
-    assert vanished["local"] == ["e1"] and vanished["pushed"] == ["e1"]
+    assert vanished["local"] == [] and vanished["pushed"] == []
 
 
 def test_a_vanished_song_is_cleaned_up_but_not_marked_watched(
@@ -2483,7 +2482,7 @@ def test_the_sweep_notices_a_file_deleted_after_the_service_started(
     manager._sweep_vanished()
 
     assert store.get("m1") is None
-    assert vanished["pushed"] == ["m1"]
+    assert vanished["pushed"] == [] and vanished["local"] == []
     assert refreshes == [["video"]]
 
 
@@ -2639,17 +2638,18 @@ def test_the_first_download_of_an_upgrade_keeps_the_folder_it_found(
     assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "gone", "m1"}
 
     manager._sweep_vanished()
-    assert vanished["local"] == ["gone"]
+    assert vanished["local"] == [] and vanished["pushed"] == []
     assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"kept", "m1"}
 
 
-def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
+def test_a_download_into_the_mount_point_of_a_missing_drive_takes_the_folder(
     tmp_path, repoints, vanished
 ):
     """The drive is out, its mount point is an empty folder at the
-    remembered path, and downloads land there. None is finished, or the
-    next one would find its file and mark the empty mount; each file stays
-    where it landed, and the sweep still reads the drive as not mounted."""
+    remembered path, and a download lands there. An empty remembered folder
+    without its marker is an emptied one: the drive's rows leave, badges
+    with them, the mount point is marked and the download is tracked. The
+    sweep alone still leaves an empty mount point as it is."""
     manager, _refreshes = make_manager(repoints)
     root = tmp_path / "dl"
     _done(root, "Shows/S/Season 01/S01E01.mkv", "e1", "episode")
@@ -2657,17 +2657,16 @@ def test_a_download_into_the_mount_point_of_a_missing_drive_marks_nothing(
     manager._sweep_vanished()
     shutil.move(str(root), str(tmp_path / "unplugged"))
     root.mkdir()
+    manager._sweep_vanished()
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2"}
 
     _new_download(manager, item_id="m1", name="First")
-    _new_download(manager, item_id="m2", name="Second")
     manager._sweep_vanished()
 
-    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"e1", "e2"}
-    assert store.get("m1") is None and store.get("m2") is None
+    assert {row.jellyfin_id for row in store.rows(store.DONE)} == {"m1"}
+    assert sorted(repoints["unbadge"]) == ["e1", "e2"]
     assert vanished["pushed"] == [] and vanished["local"] == []
-    assert not (root / files.MARKER).exists()
-    landed = [name for _, _, names in os.walk(root) for name in names]
-    assert sorted(landed) == ["First (2019).mkv", "Second (2019).mkv"]
+    assert (root / files.MARKER).exists()
 
 
 def test_a_folder_that_goes_during_the_walk_stops_counting_deletions(
@@ -2724,20 +2723,6 @@ def test_the_sweep_leaves_the_file_being_played_alone(
     manager._sweep_vanished()
 
     assert store.get("m1").state == store.DONE
-
-
-def test_an_offline_played_push_is_parked_for_replay(tmp_path, repoints, monkeypatch):
-    """Deleting a file is exactly the thing someone does on a plane."""
-    from kofin.downloads import pending
-
-    manager, _refreshes = make_manager(repoints)
-    FakeWindow.store["kofin.online"] = "false"
-    queue_row("m1", media_type="movie")
-    store.finish("m1", "Movies/Gone/gone.mkv", "mkv", 1)
-
-    manager._push_played(store.get("m1"))
-
-    assert [(row.jellyfin_id, row.played) for row in pending.rows()] == [("m1", True)]
 
 
 def test_a_music_worker_cannot_swallow_a_video_workers_wake(tmp_path, repoints):
@@ -2890,3 +2875,103 @@ def test_a_cancel_during_the_sidecars_is_superseded_and_cleared(
     assert store.get("m1") is None
     manager._process(_one_movie_api(), queue_row())
     assert store.get("m1").state == store.DONE
+
+
+def test_a_folder_that_cannot_take_the_marker_fails_the_download_before_a_byte(
+    tmp_path, repoints, monkeypatch
+):
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    monkeypatch.setattr(manager_module.files, "write_marker", lambda folder: False)
+    toasts = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: toasts.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda sid: "S%d" % sid)
+
+    _new_download(manager)
+    _new_download(manager, item_id="m2", name="Another")
+
+    assert store.get("m1").state == store.FAILED
+    assert store.get("m2").state == store.FAILED
+    assert not (root / "Movies").exists()
+    assert toasts == ["S30717"]  # once per folder, not per item
+
+
+def test_an_emptied_downloads_folder_is_taken_over_by_the_next_download(
+    tmp_path, repoints, vanished
+):
+    """The remembered folder with neither its marker nor any of its files
+    has been wiped: the rows of what it held leave, badges with them, and
+    the folder is marked again for the download that lands."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    _done(root, "Movies/Old (2019)/Old (2019).mkv", "old1")
+    manager._sweep_vanished()
+    assert manager_module.files.has_marker(str(root))
+
+    shutil.rmtree(root)
+    root.mkdir()
+    _new_download(manager)
+
+    assert store.get("old1") is None
+    assert repoints["unbadge"] == ["old1"]
+    assert store.get("m1").state == store.DONE
+    assert manager_module.files.has_marker(str(root))
+    assert vanished["pushed"] == [] and vanished["local"] == []
+
+
+def test_remove_all_ends_the_standing_subscriptions(tmp_path, repoints):
+    from kofin.downloads import subscriptions
+
+    manager, _refreshes = make_manager(repoints)
+    _done_row(tmp_path, "t1", "Music/Band/Album/01.opus")
+    subscriptions.save(subscriptions.PLAYLIST_SETTING, ["p1"])
+    subscriptions.save(subscriptions.LIBRARY_SETTING, ["l1"])
+
+    manager._apply_remove_all()
+
+    assert store.rows() == []
+    assert subscriptions.subscribed(subscriptions.PLAYLIST_SETTING) == []
+    assert subscriptions.subscribed(subscriptions.LIBRARY_SETTING) == []
+
+
+def test_the_subscriptions_op_reconciles_from_the_manager(repoints, monkeypatch):
+    """A keep-in-sync request with no library thread to run it (nothing
+    synced) is brought up to date by the manager itself."""
+    from kofin.downloads import subscriptions
+
+    closed = []
+
+    class Api:
+        def close(self):
+            closed.append(True)
+
+    manager = DownloadManager(
+        api_factory=lambda: Api(),
+        refresh=lambda databases: None,
+        stopping=threading.Event(),
+    )
+    seen = []
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_playlist_direct",
+        lambda api, pid: seen.append(("one", pid)),
+    )
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_playlists_direct",
+        lambda api: seen.append(("playlists", "")),
+    )
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_music_libraries",
+        lambda api: seen.append(("libraries", "")),
+    )
+
+    manager.reconcile_subscriptions("p1")
+    manager.reconcile_subscriptions()
+    manager._drain_ops()
+
+    assert seen == [("one", "p1"), ("libraries", ""), ("playlists", "")]
+    assert closed == [True, True]

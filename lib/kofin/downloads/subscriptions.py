@@ -174,6 +174,14 @@ def _batches(item_ids: Iterable[str]) -> Iterable[list[str]]:
         yield ordered[start : start + 500]
 
 
+def release_all() -> None:
+    """Every standing order ends: the settings and the claims both."""
+    save(PLAYLIST_SETTING, ())
+    save(LIBRARY_SETTING, ())
+    with Database("kofin") as opened:
+        opened.cursor.execute("DELETE FROM download_subscription")
+
+
 def release(owner_id: str) -> None:
     """Stop mirroring but leave already downloaded files on the device."""
     with Database("kofin") as opened:

@@ -348,7 +348,7 @@
   "#30803": "Når en synkronisering legger til flere nye album enn dette på én gang, lastes ingen av dem ned. Telles i album, ikke spor.",
   "#30810": "Krever %s, bare %s ledig",
   "#30804": "Slett alle nedlastinger",
-  "#30805": "Slett hver nedlastede fil fra denne enheten. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen.",
+  "#30805": "Slett hver nedlastede fil fra denne enheten og slutt å holde spillelister og musikkbiblioteker synkronisert. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen.",
   "#30806": "Slette alle %s nedlasting(er) og frigjøre ca. %s?",
   "#30807": "Det finnes ingen nedlastinger å slette",
   "#30808": "Pause nedlastinger under avspilling",
@@ -429,5 +429,7 @@
   "#30892": "Når Kodi har startet på nytt, åpner du Kofin igjen, velger Versjoner og velger den nyeste versjonen. Logg deretter inn og velg bibliotekene som skal synkroniseres.",
   "#30893": "Du kan også lukke Kodi og slette video- og musikkdatabasene manuelt, slik Kofin-wikien beskriver:",
   "#30894": "Finnes ikke lenger på serveren",
-  "#30895": "%s finnes ikke lenger på serveren og er fjernet fra biblioteket"
+  "#30895": "%s finnes ikke lenger på serveren og er fjernet fra biblioteket",
+  "#30896": "De synkroniserte bibliotekene blir i Kodi til du logger inn igjen; en annen konto fjerner dem.",
+  "#30897": "%s av %s spor lagt i kø"
 }

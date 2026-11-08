@@ -348,7 +348,7 @@
   "#30803": "Keď synchronizácia pridá naraz viac nových albumov, než je toto číslo, nestiahne sa žiadny z nich. Počíta sa v albumoch, nie v skladbách.",
   "#30810": "Vyžaduje %s, voľných len %s",
   "#30804": "Odstrániť všetky stiahnuté súbory",
-  "#30805": "Odstráni z tohto zariadenia každý stiahnutý súbor. Položky zostanú vo vašej knižnici a budú sa opäť prehrávať zo servera.",
+  "#30805": "Odstráni z tohto zariadenia každý stiahnutý súbor a prestane udržiavať playlisty a hudobné knižnice synchronizované. Položky zostanú vo vašej knižnici a budú sa opäť prehrávať zo servera.",
   "#30806": "Odstrániť všetkých %s stiahnutých súborov a uvoľniť asi %s?",
   "#30807": "Nie sú žiadne stiahnuté súbory na odstránenie",
   "#30808": "Pozastaviť sťahovanie počas prehrávania",
@@ -429,5 +429,7 @@
   "#30892": "Po reštarte Kodi znova otvorte Kofin, vyberte Verzie a zvoľte najnovšiu verziu. Potom sa prihláste a vyberte knižnice na synchronizáciu.",
   "#30893": "Prípadne zatvorte Kodi a odstráňte jeho databázy videa a hudby ručne, ako popisuje wiki Kofin:",
   "#30894": "Už nie je na serveri",
-  "#30895": "Knižnica %s už nie je na serveri a bola odstránená z Kodi"
+  "#30895": "Knižnica %s už nie je na serveri a bola odstránená z Kodi",
+  "#30896": "Synchronizované knižnice zostanú v Kodi, kým sa znova neprihlásiš; iný účet ich odstráni.",
+  "#30897": "Zaradených %s z %s skladieb"
 }
