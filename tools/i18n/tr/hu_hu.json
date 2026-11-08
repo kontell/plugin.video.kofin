@@ -429,5 +429,6 @@
   "#30892": "Miután a Kodi újraindult, nyissa meg ismét a Kofint, válassza a Verziók gombot, majd a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat.",
   "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:",
   "#30894": "Már nincs a kiszolgálón",
-  "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból"
+  "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból",
+  "#30896": "A szinkronizált könyvtárak a Kodiban maradnak, amíg újra be nem jelentkezel; egy másik fiók eltávolítja őket."
 }

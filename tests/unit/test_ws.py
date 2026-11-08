@@ -327,6 +327,24 @@ def _run_once(monkeypatch, client):
         ws_module.websocket.setdefaulttimeout(previous)
 
 
+def test_the_handshake_carries_the_user_agent(monkeypatch):
+    """websocket-client sends no User-Agent of its own."""
+    with ScriptedServer() as server:
+        server.answer("/socket", 404)
+        client = WSClient(
+            server.url,
+            'MediaBrowser Token="tok"',
+            on_event=lambda message_type, data: None,
+            on_connected=lambda: None,
+            user_agent="Kodi/23.0 (X11; Linux x86_64)",
+        )
+        _run_once(monkeypatch, client)
+
+    assert [h.get("User-Agent") for _, _, h, _ in server.requests] == [
+        "Kodi/23.0 (X11; Linux x86_64)"
+    ]
+
+
 def test_a_redirected_handshake_takes_the_token_nowhere_else(monkeypatch):
     """websocket-client follows a redirected handshake with every header,
     the Authorization header included, and run_forever takes no option to

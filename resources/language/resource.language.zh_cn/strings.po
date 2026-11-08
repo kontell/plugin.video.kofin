@@ -1959,3 +1959,7 @@ msgstr "已不在服务器上"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s 已不在服务器上，已从媒体库中移除"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "已同步的媒体库会保留在 Kodi 中，直到你再次登录；使用其他账户登录会将其移除。"

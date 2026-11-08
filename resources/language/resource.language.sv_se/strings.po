@@ -1959,3 +1959,7 @@ msgstr "Finns inte längre på servern"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s finns inte längre på servern och har tagits bort från biblioteket"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "De synkroniserade biblioteken finns kvar i Kodi tills du loggar in igen; ett annat konto tar bort dem."

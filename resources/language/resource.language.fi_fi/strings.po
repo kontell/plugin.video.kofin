@@ -1959,3 +1959,7 @@ msgstr "Ei enää palvelimella"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s ei ole enää palvelimella, ja se poistettiin kirjastosta"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne."

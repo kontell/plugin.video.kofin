@@ -149,6 +149,10 @@ class VideoScan(NamedTuple):
     movie_folders: list[str]
 
 
+# Passes a previous account's removal gets while each confirms more than the last.
+RETIRE_PASSES = 3
+
+
 class Native:
     SCAN_POLL = SCAN_POLL
 
@@ -219,9 +223,8 @@ class Native:
         """
         owner = self.store.prepared()
         if owner and owner != self.key:
-            raise BackendMismatch(
-                "native library belongs to another server/user; use a fresh profile"
-            )
+            self.retire(owner)
+            return
         if owner == self.key:
             return
         for method, rule in LEFTOVERS:
@@ -238,6 +241,48 @@ class Native:
                     "Kodi still holds a library an earlier Kofin filed"
                 )
         self.store.prepare_empty()
+
+    def retire(self, owner: str) -> None:
+        """Another account owns the catalogue: its libraries leave Kodi before
+        this one's sync starts, and the catalogue is then this account's.
+
+        The previous account's rows are keyed to its namespace, so nothing
+        this account syncs could own or remove them, and a row under the
+        add-on's root that no catalogue names would be read as an earlier
+        Kofin's by the gate. Every library of the owner's catalogue is
+        tombstoned and a pass of the owner's own removes and confirms the
+        rows, with this pass's bar; what that pass could not remove keeps the
+        catalogue the owner's, and sync off, with the reason.
+        """
+        old = Store(owner)
+        other = Native(old, self.abort, bar=self.progress)
+        for library in old.all_libraries():
+            old.publish([], library=library)
+        # Its collections too: a set whose last movie left before the
+        # switch is still an empty row of Kodi's to take out.
+        old.publish([], complete_boxsets=True)
+        # A removal is confirmed by a readback, and a music directory's by the
+        # scan that re-listed it: a pass that confirms some rows and not the
+        # rest is run again while it makes progress.
+        left = old.unfinished_removals()
+        for _ in range(RETIRE_PASSES):
+            if not left or self.abort():
+                break
+            try:
+                other.reconcile()
+            except Exception as error:
+                LOG.warning("the previous account's removal did not finish: %s", error)
+            still = old.unfinished_removals()
+            if still >= left:
+                left = still
+                break
+            left = still
+        if left or old.all_libraries():
+            raise BackendMismatch(
+                "the previous account's library could not be removed from Kodi "
+                "(%d rows still to confirm); retry, or use a fresh profile" % left
+            )
+        self.store.adopt(owner)
 
     # -- waits ---------------------------------------------------------------
 

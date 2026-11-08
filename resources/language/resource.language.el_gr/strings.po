@@ -1959,3 +1959,7 @@ msgstr "Δεν υπάρχει πλέον στον διακομιστή"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Η βιβλιοθήκη %s δεν υπάρχει πλέον στον διακομιστή και αφαιρέθηκε από το Kodi"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Οι συγχρονισμένες βιβλιοθήκες μένουν στο Kodi μέχρι να συνδεθείς ξανά· ένας άλλος λογαριασμός τις αφαιρεί."
