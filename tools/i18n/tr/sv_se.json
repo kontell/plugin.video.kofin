@@ -348,7 +348,7 @@
   "#30803": "När en synk lägger till fler nya album än så här på en gång hämtas inget av dem. Räknas i album, inte spår.",
   "#30810": "Kräver %s, bara %s ledigt",
   "#30804": "Ta bort alla hämtningar",
-  "#30805": "Ta bort varje hämtad fil från den här enheten. Objekten finns kvar i ditt bibliotek och spelas upp från servern igen.",
+  "#30805": "Ta bort varje hämtad fil från den här enheten och sluta hålla spellistor och musikbibliotek synkroniserade. Objekten finns kvar i ditt bibliotek och spelas upp från servern igen.",
   "#30806": "Ta bort alla %s hämtning(ar) och frigöra cirka %s?",
   "#30807": "Inga hämtningar att ta bort",
   "#30808": "Pausa hämtningar under uppspelning",

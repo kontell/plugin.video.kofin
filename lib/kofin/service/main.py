@@ -1217,6 +1217,13 @@ class Service(xbmc.Monitor):
     def _ipc_library_command(self, name: str, payload: dict[str, Any]) -> None:
         self._start_library()
         if self.library is None:
+            if name == ipc.SYNC_PLAYLISTS:
+                # Nothing synced, so no library thread: the download orders
+                # are the download manager's to bring up to date.
+                downloads = self._downloads_for(name)
+                if downloads is not None:
+                    downloads.reconcile_subscriptions(str(payload.get("Id") or ""))
+                return
             LOG.warning("library command %s ignored: manager not running", name)
             return
         self.library.enqueue_command(name, payload)

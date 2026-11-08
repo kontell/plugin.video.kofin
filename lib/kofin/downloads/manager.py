@@ -50,6 +50,7 @@ from kofin.downloads import (
     progress,
     quality,
     store,
+    subscriptions,
 )
 
 LOG = Logger(__name__)
@@ -320,6 +321,12 @@ class DownloadManager:
         )
         self._wake_all()
 
+    def reconcile_subscriptions(self, playlist_id: str = "") -> None:
+        """Bring the standing download orders to the server's listing from
+        here, for a service that runs no library thread (nothing synced)."""
+        self._ops.put(_Op("subscriptions", playlist_id))
+        self._wake_all()
+
     def remove_all(self) -> None:
         """The settings button: every download, finished or not.
 
@@ -420,6 +427,8 @@ class DownloadManager:
                     )
                 elif entry.op == "removeall":
                     self._apply_remove_all()
+                elif entry.op == "subscriptions":
+                    self._apply_subscriptions(entry.item_id)
             except Exception:
                 LOG.exception("download op %s failed for %s", entry.op, entry.item_id)
         if queued:
@@ -518,6 +527,17 @@ class DownloadManager:
             self._removed.append(_display_name(row))
         LOG.debug("download removed: %s", item_id)
 
+    def _apply_subscriptions(self, playlist_id: str) -> None:
+        api = self._api_factory()
+        try:
+            if playlist_id:
+                subscriptions.reconcile_playlist_direct(api, playlist_id)
+            else:
+                subscriptions.reconcile_music_libraries(api)
+                subscriptions.reconcile_playlists_direct(api)
+        finally:
+            api.close()
+
     def _apply_remove_all(self) -> None:
         """Every download goes: finished rows through the full remove path,
         unfinished ones cancelled in place (an active transfer aborts off the
@@ -543,6 +563,9 @@ class DownloadManager:
 
         if not stopped:
             sweep_category_dirs(downloads_root())
+            # A playlist or library kept in sync would download the lot
+            # again on its next pass.
+            subscriptions.release_all()
         LOG.debug("removed all %d download(s)", len(rows))
         self._flush_refresh(force=True)
         self._flush_removed()
@@ -642,6 +665,15 @@ class DownloadManager:
                 self._toast(30715, item.get("Name", item_id))
             return
 
+        if not self._claim_root(root):
+            # Decided before a byte moves: a folder that cannot carry the
+            # marker cannot carry a download either.
+            store.fail(item_id, "the downloads folder cannot be written")
+            if root != self._refused_root:
+                self._refused_root = root
+                toast.show(settings.localized(30717), toast.WARNING)
+            return
+
         owner_id = group_id or item_id
         if original:
             rel_path, actual = self._pull_original(
@@ -681,13 +713,10 @@ class DownloadManager:
             store.remove(item_id)
             return
         if not self._claim_root(root):
-            LOG.warning(
-                "download of %s landed in %s, which holds no download and no "
-                "marker (a drive that is not mounted); not tracked",
-                item_id,
-                root,
-            )
-            store.remove(item_id)
+            # The marker went while this downloaded (the folder emptied, or
+            # unmounted and mounted again); the file is where it landed, and
+            # the row says why it is not a download.
+            store.fail(item_id, "the downloads folder cannot be written")
             return
         store.finish(item_id, rel_path, container, actual)
         # Spent: a cancel that arrived after the check above completed
@@ -1216,17 +1245,13 @@ class DownloadManager:
         """A downloaded file deleted behind Kodi's back — a file manager, a
         card pulled and cleaned up on a computer, another app.
 
-        It goes through the removal path proper, and the item is marked
-        watched. Deleting a file by hand is how people finish with something,
-        and the alternative reading — that they wanted it re-downloaded — is
-        the one the automatic arms would act on.
+        It goes through the removal path proper: the row, the sidecars and
+        the badge go, and nothing else moves. A deleted file says nothing
+        about whether the item was watched, and a watched mark reaches every
+        client of the account.
         """
-        LOG.warning(
-            "downloaded file missing for %s; cleaning up and marking it watched",
-            row.jellyfin_id,
-        )
+        LOG.warning("downloaded file missing for %s; cleaning up", row.jellyfin_id)
         self._remove_row(row)
-        self._mark_watched(row)
         self._mark_dirty(row.media_type)
         if row.media_type == "song":
             self._mark_playlist_dirty(row.jellyfin_id)
@@ -1257,48 +1282,62 @@ class DownloadManager:
         return False
 
     def _claim_root(self, root: str) -> bool:
-        """Remember ``root``, which a download has just landed in, before its
-        row is done; False when the download must not be finished there.
+        """Remember ``root``, which a download is about to land in; False
+        when the download must not go there.
 
         A done row whose file is not there was downloaded to the folder the
         location named before. It leaves without being marked watched, since
         once the folder is remembered the sweep would read it as deleted.
         With no folder remembered yet, a ``root`` that already holds a done
         row's file is the folder of a build from before the marker, and keeps
-        its rows.
+        its rows. The remembered folder found with neither its marker nor
+        any of its files has been emptied: the rows of what it held leave the
+        same way and the folder is marked again.
         """
         if not settings.available():
             return True
+        try:
+            os.makedirs(root, exist_ok=True)
+        except OSError as error:
+            LOG.debug("downloads folder %s cannot be made: %s", root, error)
+            return False
         with self._root_lock:
             remembered = self._remembered_root()
             if remembered is not None and _same_folder(remembered, root):
                 if files.has_marker(root):
                     return True
-                # The marker lives on the volume. With none of the done rows'
-                # files here either, this is the mount point of a drive that
-                # is not mounted: a marker would make every row a deletion, and
-                # a row finished here would be one once the drive is back.
-                if self._holds_a_download(root) or not store.rows(store.DONE):
-                    files.write_marker(root)
-                    return True
-                return False
+                if not self._holds_a_download(root):
+                    self._drop_absent(root, store.rows(store.DONE), emptied=True)
+                return files.write_marker(root)
             if remembered is not None or not self._holds_a_download(root):
-                for row in store.rows(store.DONE):
-                    if _present(root, row):
-                        continue
-                    LOG.debug(
-                        "download of %s is not in %s; no longer tracked",
-                        row.jellyfin_id,
-                        root,
-                    )
-                    store.remove(row.jellyfin_id)
-                    self.native.detached(row)
-                    self._mark_dirty(row.media_type)
-                    if row.media_type == "song":
-                        self._mark_playlist_dirty(row.jellyfin_id)
-            if files.write_marker(root):
-                self._remember_root(root)
+                self._drop_absent(root, store.rows(store.DONE))
+            if not files.write_marker(root):
+                return False
+            self._remember_root(root)
             return True
+
+    def _drop_absent(
+        self, root: str, rows: Iterable["store.Download"], emptied: bool = False
+    ) -> None:
+        """Forget the done rows whose files are not in ``root``: their badges
+        go, their files are wherever they were downloaded to."""
+        absent = [row for row in rows if not _present(root, row)]
+        if emptied and absent:
+            LOG.warning(
+                "downloads folder %s holds none of %d download(s) and no marker; "
+                "taken as emptied, their rows dropped",
+                root,
+                len(absent),
+            )
+        for row in absent:
+            LOG.debug(
+                "download of %s is not in %s; no longer tracked", row.jellyfin_id, root
+            )
+            store.remove(row.jellyfin_id)
+            self.native.detached(row)
+            self._mark_dirty(row.media_type)
+            if row.media_type == "song":
+                self._mark_playlist_dirty(row.jellyfin_id)
 
     @staticmethod
     def _holds_a_download(root: str) -> bool:
@@ -1327,49 +1366,6 @@ class DownloadManager:
         except OSError as error:
             LOG.warning("could not record the downloads folder: %s", error)
         self._root_memory = folder
-
-    def _mark_watched(self, row: "store.Download") -> None:
-        """Mark a vanished download watched, here and on the server.
-
-        The two halves are independent and neither gates the other: a local
-        row kofin cannot find (an item removed from the library since) does
-        not make the server's copy wrong, and a server that cannot be
-        reached does not make Kodi's wrong.
-
-        Songs are excluded.
-        """
-        if row.media_type not in store.VIDEO_MEDIA_TYPES:
-            return
-        self._mark_local_watched(row)
-        self._push_played(row)
-
-    def _mark_local_watched(self, row: "store.Download") -> None:
-        self.native.mark_watched(row)
-
-    def _push_played(self, row: "store.Download") -> None:
-        """Tell the server, or park it for the next connect.
-
-        Parked rather than dropped when offline: deleting a file is exactly
-        the thing someone does on a plane, and the replay path already exists
-        for watching one there (downloads/pending.py).
-        """
-        from kofin.downloads import pending
-
-        if state.is_offline():
-            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
-            return
-        api = self._api_factory()
-        try:
-            api.mark_played(row.jellyfin_id)
-        except Exception as error:
-            LOG.debug(
-                "played push failed for %s (%s); parking it for replay",
-                row.jellyfin_id,
-                error,
-            )
-            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
-        finally:
-            api.close()
 
     def _sweep_vanished(self) -> None:
         """The presence check on the maintenance beat: ``_reconcile_once``

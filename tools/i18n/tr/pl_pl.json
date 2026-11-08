@@ -348,7 +348,7 @@
   "#30803": "Gdy synchronizacja dodaje naraz więcej nowych albumów niż podana liczba, żaden z nich nie jest pobierany. Liczone w albumach, nie w utworach.",
   "#30810": "Wymaga %s, wolne tylko %s",
   "#30804": "Usuń wszystkie pobrania",
-  "#30805": "Usuwa z tego urządzenia każdy pobrany plik. Pozycje pozostają w bibliotece i będą znów odtwarzane z serwera.",
+  "#30805": "Usuwa z tego urządzenia każdy pobrany plik i przestaje utrzymywać synchronizację playlist i bibliotek muzycznych. Pozycje pozostają w bibliotece i będą znów odtwarzane z serwera.",
   "#30806": "Usunąć wszystkie pobrane pliki (%s), zwalniając około %s?",
   "#30807": "Nie ma pobrań do usunięcia",
   "#30808": "Wstrzymaj pobieranie podczas odtwarzania",

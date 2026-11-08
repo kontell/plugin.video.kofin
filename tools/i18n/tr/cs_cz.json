@@ -348,7 +348,7 @@
   "#30803": "Když synchronizace přidá najednou více nových alb, než je tato hodnota, nestáhne se žádné z nich. Počítá se v albech, ne ve skladbách.",
   "#30810": "Potřebuje %s, volné jen %s",
   "#30804": "Smazat všechna stažení",
-  "#30805": "Smaže z tohoto zařízení každý stažený soubor. Položky zůstanou ve vaší knihovně a budou se opět přehrávat ze serveru.",
+  "#30805": "Smaže z tohoto zařízení každý stažený soubor a přestane udržovat playlisty a hudební knihovny synchronizované. Položky zůstanou ve vaší knihovně a budou se opět přehrávat ze serveru.",
   "#30806": "Smazat všechna stažení (%s) a uvolnit asi %s?",
   "#30807": "Nejsou žádná stažení ke smazání",
   "#30808": "Pozastavit stahování při přehrávání",

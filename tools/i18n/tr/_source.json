@@ -406,7 +406,7 @@
   "#30803": "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks.",
   "#30810": "Needs %s, only %s free",
   "#30804": "Delete all downloads",
-  "#30805": "Delete every downloaded file from this device. The items stay in your library and play from the server again.",
+  "#30805": "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again.",
   "#30806": "Delete all %s download(s), freeing about %s?",
   "#30807": "There are no downloads to delete",
   "#30808": "Pause downloads during playback",

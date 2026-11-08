@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Elimina tutti i download"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Elimina da questo dispositivo ogni file scaricato. Gli elementi restano nella tua libreria e tornano a essere riprodotti dal server."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Elimina da questo dispositivo ogni file scaricato e smette di tenere sincronizzate playlist e librerie musicali. Gli elementi restano nella tua libreria e tornano a essere riprodotti dal server."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"

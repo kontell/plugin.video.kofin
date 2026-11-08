@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Összes letöltés törlése"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Minden letöltött fájl törlése erről az eszközről. Az elemek megmaradnak a médiatárban, és újra a kiszolgálóról játszódnak le."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Minden letöltött fájl törlése erről az eszközről, és a lejátszási listák és zenei médiatárak szinkronban tartásának leállítása. Az elemek megmaradnak a médiatárban, és újra a kiszolgálóról játszódnak le."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
