@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import xbmc
 
-from kofin.core import ipc, state
+from kofin.core import ipc, settings, state, toast
 from kofin.core.api import Api, paged
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -63,13 +63,22 @@ def _api() -> Optional[Api]:
 
 def expand(api: Api, item: JsonDict, shuffle: bool) -> list[JsonDict]:
     """The tracks under a container, in playing order; [] for anything else."""
+    return expand_counted(api, item, shuffle)[0]
+
+
+def expand_counted(
+    api: Api, item: JsonDict, shuffle: bool
+) -> tuple[list[JsonDict], int]:
+    """The tracks under a container, in playing order, and how many the
+    container holds: more than were taken when the queue bound cut the
+    listing. ([], 0) for anything else."""
     item_type = item.get("Type", "")
     item_id = item.get("Id", "")
     if item_type == "Playlist":
         return _playlist_tracks(api, item_id, shuffle)
     if item_type not in SORT_BY:
         LOG.warning("play all: %s is a %s, which has no tracks", item_id, item_type)
-        return []
+        return [], 0
 
     query: JsonDict = {
         # Songs alone. Jellyfin keeps an AudioBook in a books library, under
@@ -101,13 +110,18 @@ def expand(api: Api, item: JsonDict, shuffle: bool) -> list[JsonDict]:
             total,
             len(rows),
         )
-    return rows
+    return rows, max(total, len(rows))
 
 
-def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> list[JsonDict]:
+def _playlist_tracks(
+    api: Api, playlist_id: str, shuffle: bool
+) -> tuple[list[JsonDict], int]:
     """A playlist's audio entries in the server's order, shuffled here if
-    asked: the playlist route has no SortBy, and the order is the playlist."""
+    asked: the playlist route has no SortBy, and the order is the playlist.
+    Cut at the queue bound, the count is what the playlist holds."""
     tracks: list[JsonDict] = []
+    seen = 0
+    cut = False
     for row in paged(
         lambda start, limit: api.playlist_items(
             playlist_id, start_index=start, limit=limit, fields=TRACK_FIELDS
@@ -116,13 +130,19 @@ def _playlist_tracks(api: Api, playlist_id: str, shuffle: bool) -> list[JsonDict
         dedupe=False,
         what="playlist %s" % playlist_id,
     ):
+        seen += 1
         if row.get("Type") in listitems.AUDIO_TYPES:
             tracks.append(row)
         if len(tracks) >= QUEUE_LIMIT:
+            cut = True
             break
+    total = len(tracks)
+    if cut:
+        body = api.playlist_items(playlist_id, start_index=0, limit=1, fields="")
+        total = max(int(body.get("TotalRecordCount") or 0), seen)
     if shuffle:
         random.shuffle(tracks)
-    return tracks
+    return tracks, total
 
 
 def queue_and_play(tracks: list[JsonDict], server: str) -> None:
@@ -170,7 +190,7 @@ def play_all(request: Request) -> None:
         return
     try:
         item = api.item(item_id)
-        tracks = expand(api, item, shuffle)
+        tracks, total = expand_counted(api, item, shuffle)
     except JellyfinError as error:
         LOG.warning("play all failed for %s: %s", item_id, error)
         feedback.failed(error)
@@ -185,3 +205,9 @@ def play_all(request: Request) -> None:
         "shuffled" if shuffle else "in order",
     )
     queue_and_play(tracks, api.server)
+    if total > len(tracks):
+        # The bound cut the listing: the viewer is told what was queued of
+        # what there is, in the words Kodi uses for the count.
+        toast.show(
+            settings.localized(30897) % (len(tracks), total), toast.INFO, time_ms=5000
+        )

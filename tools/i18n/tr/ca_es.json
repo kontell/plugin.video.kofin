@@ -430,5 +430,6 @@
   "#30893": "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:",
   "#30894": "Ja no és al servidor",
   "#30895": "%s ja no és al servidor i s'ha eliminat de la biblioteca",
-  "#30896": "Les biblioteques sincronitzades es mantenen a Kodi fins que tornis a iniciar sessió; un altre compte les elimina."
+  "#30896": "Les biblioteques sincronitzades es mantenen a Kodi fins que tornis a iniciar sessió; un altre compte les elimina.",
+  "#30897": "S'han posat a la cua %s de %s pistes"
 }

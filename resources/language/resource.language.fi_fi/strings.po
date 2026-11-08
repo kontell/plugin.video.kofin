@@ -1963,3 +1963,7 @@ msgstr "%s ei ole enää palvelimella, ja se poistettiin kirjastosta"
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s/%s kappaletta jonossa"

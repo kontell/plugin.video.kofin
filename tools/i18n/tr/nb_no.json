@@ -430,5 +430,6 @@
   "#30893": "Du kan også lukke Kodi og slette video- og musikkdatabasene manuelt, slik Kofin-wikien beskriver:",
   "#30894": "Finnes ikke lenger på serveren",
   "#30895": "%s finnes ikke lenger på serveren og er fjernet fra biblioteket",
-  "#30896": "De synkroniserte bibliotekene blir i Kodi til du logger inn igjen; en annen konto fjerner dem."
+  "#30896": "De synkroniserte bibliotekene blir i Kodi til du logger inn igjen; en annen konto fjerner dem.",
+  "#30897": "%s av %s spor lagt i kø"
 }

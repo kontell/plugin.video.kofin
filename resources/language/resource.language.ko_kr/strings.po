@@ -1963,3 +1963,7 @@ msgstr "%s이(가) 더 이상 서버에 없어 라이브러리에서 제거되�
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "동기화된 라이브러리는 다시 로그인할 때까지 Kodi에 남아 있으며, 다른 계정으로 로그인하면 제거됩니다."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s / %s곡을 대기열에 추가했습니다"

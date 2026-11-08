@@ -430,5 +430,6 @@
   "#30893": "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:",
   "#30894": "Nu mai este pe server",
   "#30895": "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi",
-  "#30896": "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou; un alt cont le elimină."
+  "#30896": "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou; un alt cont le elimină.",
+  "#30897": "%s din %s piese puse în coadă"
 }

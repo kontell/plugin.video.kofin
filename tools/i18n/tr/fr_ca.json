@@ -430,5 +430,6 @@
   "#30893": "Vous pouvez aussi fermer Kodi et supprimer manuellement ses bases de données vidéo et musique, comme l'explique le wiki de Kofin :",
   "#30894": "N'est plus sur le serveur",
   "#30895": "La bibliothèque %s n'est plus sur le serveur et a été retirée de Kodi",
-  "#30896": "Les bibliothèques synchronisées restent dans Kodi jusqu'à votre prochaine connexion; un autre compte les supprime."
+  "#30896": "Les bibliothèques synchronisées restent dans Kodi jusqu'à votre prochaine connexion; un autre compte les supprime.",
+  "#30897": "%s pistes sur %s mises en file d'attente"
 }

@@ -485,5 +485,6 @@
   "#30893": "Alternatively, close Kodi and delete its video and music databases by hand, as the Kofin wiki describes:",
   "#30894": "No longer on the server",
   "#30895": "%s is no longer on the server and was removed from the library",
-  "#30896": "The synced libraries stay in Kodi until you log in again; a different account removes them."
+  "#30896": "The synced libraries stay in Kodi until you log in again; a different account removes them.",
+  "#30897": "Queued %s of %s tracks"
 }

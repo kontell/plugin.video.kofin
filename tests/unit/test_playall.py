@@ -270,6 +270,57 @@ def test_a_long_playlist_is_paged_up_to_the_cap(monkeypatch):
     assert len(FakePlaylist.instances[-1].entries) == 250
 
 
+def test_a_container_cut_by_the_bound_says_how_many_were_queued(monkeypatch, kodi):
+    """The server holds more than the queue takes: the viewer is told what
+    was queued of what there is, after the queue starts."""
+    api = ContainerApi({"Id": "ar1", "Type": "MusicArtist"}, TRACKS, total=1336)
+    shown = []
+    monkeypatch.setattr(
+        playall.toast, "show", lambda message, *a, **k: shown.append(message)
+    )
+    monkeypatch.setattr(
+        playall.settings,
+        "localized",
+        lambda sid: "%s of %s" if sid == 30897 else "S%d" % sid,
+    )
+
+    _play(monkeypatch, api)
+
+    assert len(FakePlaylist.instances[-1].entries) == 3
+    assert shown == ["3 of 1336"]
+
+
+def test_a_container_that_fits_says_nothing(monkeypatch, kodi):
+    api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
+    shown = []
+    monkeypatch.setattr(
+        playall.toast, "show", lambda message, *a, **k: shown.append(message)
+    )
+
+    _play(monkeypatch, api)
+
+    assert shown == []
+
+
+def test_a_playlist_cut_by_the_bound_counts_what_it_holds(monkeypatch, kodi):
+    rows = [track(index) for index in range(1, playall.QUEUE_LIMIT + 51)]
+    api = ContainerApi({"Id": "p1", "Type": "Playlist", "MediaType": "Audio"}, rows)
+    shown = []
+    monkeypatch.setattr(
+        playall.toast, "show", lambda message, *a, **k: shown.append(message)
+    )
+    monkeypatch.setattr(
+        playall.settings,
+        "localized",
+        lambda sid: "%s of %s" if sid == 30897 else "S%d" % sid,
+    )
+
+    _play(monkeypatch, api)
+
+    assert len(FakePlaylist.instances[-1].entries) == playall.QUEUE_LIMIT
+    assert shown == ["%d of %d" % (playall.QUEUE_LIMIT, playall.QUEUE_LIMIT + 50)]
+
+
 def test_nothing_playable_queues_nothing(monkeypatch, kodi):
     api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, [])
     _play(monkeypatch, api)

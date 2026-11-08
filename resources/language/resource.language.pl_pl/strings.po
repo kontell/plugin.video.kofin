@@ -1963,3 +1963,7 @@ msgstr "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi"
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "Zsynchronizowane biblioteki pozostają w Kodi do ponownego zalogowania; inne konto je usuwa."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "Dodano do kolejki %s z %s utworów"

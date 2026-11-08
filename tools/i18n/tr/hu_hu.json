@@ -430,5 +430,6 @@
   "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:",
   "#30894": "Már nincs a kiszolgálón",
   "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból",
-  "#30896": "A szinkronizált könyvtárak a Kodiban maradnak, amíg újra be nem jelentkezel; egy másik fiók eltávolítja őket."
+  "#30896": "A szinkronizált könyvtárak a Kodiban maradnak, amíg újra be nem jelentkezel; egy másik fiók eltávolítja őket.",
+  "#30897": "%s / %s szám sorba állítva"
 }

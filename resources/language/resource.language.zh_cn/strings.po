@@ -1963,3 +1963,7 @@ msgstr "%s 已不在服务器上，已从媒体库中移除"
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "已同步的媒体库会保留在 Kodi 中，直到你再次登录；使用其他账户登录会将其移除。"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "已将 %s / %s 首曲目加入队列"

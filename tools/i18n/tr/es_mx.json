@@ -430,5 +430,6 @@
   "#30893": "También puedes cerrar Kodi y eliminar sus bases de datos de video y música a mano, como explica la wiki de Kofin:",
   "#30894": "Ya no está en el servidor",
   "#30895": "%s ya no está en el servidor y se quitó de la biblioteca",
-  "#30896": "Las bibliotecas sincronizadas se quedan en Kodi hasta que vuelvas a iniciar sesión; otra cuenta las elimina."
+  "#30896": "Las bibliotecas sincronizadas se quedan en Kodi hasta que vuelvas a iniciar sesión; otra cuenta las elimina.",
+  "#30897": "%s de %s pistas en cola"
 }

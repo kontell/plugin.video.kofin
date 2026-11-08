@@ -430,5 +430,6 @@
   "#30893": "Prípadne zatvorte Kodi a odstráňte jeho databázy videa a hudby ručne, ako popisuje wiki Kofin:",
   "#30894": "Už nie je na serveri",
   "#30895": "Knižnica %s už nie je na serveri a bola odstránená z Kodi",
-  "#30896": "Synchronizované knižnice zostanú v Kodi, kým sa znova neprihlásiš; iný účet ich odstráni."
+  "#30896": "Synchronizované knižnice zostanú v Kodi, kým sa znova neprihlásiš; iný účet ich odstráni.",
+  "#30897": "Zaradených %s z %s skladieb"
 }

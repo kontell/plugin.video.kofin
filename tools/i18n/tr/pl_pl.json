@@ -430,5 +430,6 @@
   "#30893": "Możesz też zamknąć Kodi i ręcznie usunąć jego bazy danych wideo i muzyki, jak opisuje wiki Kofina:",
   "#30894": "Już nie ma na serwerze",
   "#30895": "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi",
-  "#30896": "Zsynchronizowane biblioteki pozostają w Kodi do ponownego zalogowania; inne konto je usuwa."
+  "#30896": "Zsynchronizowane biblioteki pozostają w Kodi do ponownego zalogowania; inne konto je usuwa.",
+  "#30897": "Dodano do kolejki %s z %s utworów"
 }

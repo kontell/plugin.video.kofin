@@ -1963,3 +1963,7 @@ msgstr "Η βιβλιοθήκη %s δεν υπάρχει πλέον στον δ�
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "Οι συγχρονισμένες βιβλιοθήκες μένουν στο Kodi μέχρι να συνδεθείς ξανά· ένας άλλος λογαριασμός τις αφαιρεί."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "Προστέθηκαν %s από %s κομμάτια στην ουρά"

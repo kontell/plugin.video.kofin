@@ -1963,3 +1963,7 @@ msgstr "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi"
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou; un alt cont le elimină."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s din %s piese puse în coadă"

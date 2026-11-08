@@ -2075,3 +2075,7 @@ msgstr ""
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr ""
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr ""

@@ -1963,3 +1963,7 @@ msgstr "Медіатеки %s більше немає на сервері, її 
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "Синхронізовані бібліотеки залишаються в Kodi до повторного входу; інший обліковий запис їх видаляє."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "До черги додано %s із %s треків"

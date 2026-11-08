@@ -430,5 +430,6 @@
   "#30893": "Voit myös sulkea Kodin ja poistaa sen video- ja musiikkitietokannat käsin Kofin-wikin ohjeiden mukaan:",
   "#30894": "Ei enää palvelimella",
   "#30895": "%s ei ole enää palvelimella, ja se poistettiin kirjastosta",
-  "#30896": "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne."
+  "#30896": "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne.",
+  "#30897": "%s/%s kappaletta jonossa"
 }

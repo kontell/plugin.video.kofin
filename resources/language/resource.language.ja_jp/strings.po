@@ -1963,3 +1963,7 @@ msgstr "%s はサーバーにないため、ライブラリから削除されま
 msgctxt "#30896"
 msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr "同期したライブラリは再ログインまで Kodi に残ります。別のアカウントでログインすると削除されます。"
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s / %s トラックをキューに追加しました"
