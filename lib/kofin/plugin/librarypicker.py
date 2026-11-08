@@ -15,6 +15,7 @@ from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
+from kofin.plugin import feedback
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -51,9 +52,9 @@ def select_libraries(request: Request) -> None:
         views = api.views(include_hidden=True).get("Items", [])
     except JellyfinError as error:
         LOG.warning("library picker: views unavailable: %s", error)
-        # Not "No libraries available" (30269): the server could not be
-        # reached, so whether it has libraries is unknown.
-        toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
+        # Not "No libraries available" (30269): the request failed, so
+        # whether the server has libraries is unknown.
+        feedback.failed(error)
         return
 
     candidates = syncable_views(views)

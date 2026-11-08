@@ -141,6 +141,11 @@ What remains is kofin's own:
 - **`sslVerify` is one setting for every TLS socket**, HTTP and WSS. websocket-client 1.6.4 injects
   `CERT_REQUIRED` when `sslopt` is omitted, so a self-signed server with verify off listed fine and
   the websocket never came up. `WSClient` and the SyncPlay time-sync socket pass `sslopt` on `wss://`.
+- **Every request and websocket handshake carries `settings.user_agent()`**, Kodi's own, passed
+  into both transports, `WSClient` and `TimeSync` where they are built. One built without it sends
+  its library's (none from `http.client` and websocket-client, `python-requests/<version>` from
+  requests), and a proxy that screens user agents then refuses the add-on while Kodi's player,
+  which sends Kodi's, still streams.
 - **`ATTACH_SUBTITLE` is in `ipc.GUARDED`.** It is tens of seconds of server-side ffmpeg on the
   playing session; the dialogs (`PRECACHE_ART`, `SYNCPLAY_MENU`, `WHO_IS_WATCHING`) stay unguarded
   on purpose.

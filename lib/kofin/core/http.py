@@ -152,7 +152,7 @@ def run_ladder(
     raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
-def plugin_transport(verify_ssl: bool = True) -> Http:
+def plugin_transport(verify_ssl: bool = True, user_agent: str = "") -> Http:
     """The transport for the *plugin* process.
 
     Standard library rather than ``requests``, because the requests import is
@@ -163,7 +163,7 @@ def plugin_transport(verify_ssl: bool = True) -> Http:
     """
     from kofin.core.stdhttp import StdlibHttp
 
-    return StdlibHttp(verify_ssl)
+    return StdlibHttp(verify_ssl, user_agent)
 
 
 class StreamedResponse:
@@ -229,13 +229,19 @@ class Http:
     """A lazily created, kept-alive requests session."""
 
     def __init__(
-        self, verify_ssl: bool = True, abort: Callable[[], bool] | None = None
+        self,
+        verify_ssl: bool = True,
+        abort: Callable[[], bool] | None = None,
+        user_agent: str = "",
     ) -> None:
         self._verify_ssl = verify_ssl
         # Asked between retries: True means give up rather than replay. Passed
         # in rather than read here so this module keeps its no-Kodi-imports
         # property; the service wires its stop flag in (service/main.py).
         self._abort = abort
+        # settings.user_agent(), passed in for the same reason. Empty leaves
+        # the library's own.
+        self._user_agent = user_agent
         self._session: requests.Session | None = None
 
     def session(self) -> requests.Session:
@@ -244,6 +250,8 @@ class Http:
         if self._session is None:
             session = requests.Session()
             session.verify = self._verify_ssl
+            if self._user_agent:
+                session.headers["User-Agent"] = self._user_agent
             if not self._verify_ssl:
                 # The user turned verification off deliberately (a private CA,
                 # a self-signed box); urllib3 would otherwise write a warning

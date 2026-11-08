@@ -12,6 +12,7 @@ from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.listitems import play_path
+from kofin.plugin import feedback
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -31,6 +32,7 @@ def watched(request: Request) -> None:
         _api().mark_played(item_id)
     except JellyfinError as error:
         LOG.warning("mark played failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -41,6 +43,7 @@ def unwatched(request: Request) -> None:
         _api().mark_unplayed(item_id)
     except JellyfinError as error:
         LOG.warning("mark unplayed failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -82,6 +85,7 @@ def _set_favorite(request: Request, value: bool) -> None:
         _api().set_favorite(item_id, value)
     except JellyfinError as error:
         LOG.warning("favorite toggle failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
@@ -560,7 +564,7 @@ def download(request: Request) -> None:
         return
     except JellyfinError as error:
         LOG.warning("download expansion failed for %s: %s", item_id, error)
-        toast.show(settings.localized(30018), toast.ERROR)
+        feedback.failed(error)
         return
 
     wanted = [
@@ -752,9 +756,18 @@ def library_status(request: Request) -> None:
     doing. The report and its dialog are status.py's; the button carries no
     ``<close>``, so reading it returns to the settings."""
     from kofin.sync.backends.api import status
-    from kofin.sync.backends.api.identity import current_store
+    from kofin.sync.backends.api.identity import current_store, owner_store
 
-    status.show(current_store())
+    if Credentials.load().is_logged_in:
+        status.show(current_store())
+        return
+    # Logged out, the rows stay keyed to the account that filed them, and
+    # the report is theirs, with what becomes of them said first.
+    store = owner_store()
+    if store is None:
+        toast.show(settings.localized(30026), toast.WARNING)
+        return
+    status.show(store, logged_out=True)
 
 
 def download_size(request: Request) -> None:

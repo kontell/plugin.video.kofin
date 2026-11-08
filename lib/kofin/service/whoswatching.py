@@ -19,7 +19,8 @@ The picker runs in the **service**, like SyncPlay's menu; the route handlers
 stay in ``plugin/adduser.py`` and call into this module.
 """
 
-from typing import Any, Optional
+from contextlib import AbstractContextManager
+from typing import Any, Callable, Optional
 from collections.abc import Sequence
 
 import xbmc
@@ -29,6 +30,7 @@ from kofin.core import settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
+from kofin.service.ports import no_modal
 from kofin.core.settings import Credentials
 
 LOG = Logger(__name__)
@@ -247,9 +249,14 @@ def _publish_from_server(api: Api, device_id: str) -> None:
         state.set_watching_names(session_watching_names(sessions[0]))
 
 
-def show_picker(api: Api, creds: Credentials) -> None:
+def show_picker(
+    api: Api,
+    creds: Credentials,
+    modal: Callable[[str], AbstractContextManager[None]] = no_modal,
+) -> None:
     """Toggle additional users on this device's session. Blocks on a dialog —
-    the service runs it on a dedicated worker thread."""
+    the service runs it on a dedicated worker thread, and ``modal`` is the
+    service's record of the dialog, closed at shutdown."""
     tokens = shortlist_setting()
     if not is_enabled(tokens):
         # Checked before the round trips: the route gates this too, but the IPC
@@ -290,7 +297,8 @@ def show_picker(api: Api, creds: Credentials) -> None:
     ]
 
     title = settings.localized(30047) % (creds.display_user or "")
-    chosen = xbmcgui.Dialog().multiselect(title, names, preselect=preselect)
+    with modal("selectdialog"):
+        chosen = xbmcgui.Dialog().multiselect(title, names, preselect=preselect)
     if chosen is None:
         return  # cancelled; the session and the saved set are left as-is
 

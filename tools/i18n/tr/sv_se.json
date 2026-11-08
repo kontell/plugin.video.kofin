@@ -348,7 +348,7 @@
   "#30803": "När en synk lägger till fler nya album än så här på en gång hämtas inget av dem. Räknas i album, inte spår.",
   "#30810": "Kräver %s, bara %s ledigt",
   "#30804": "Ta bort alla hämtningar",
-  "#30805": "Ta bort varje hämtad fil från den här enheten. Objekten finns kvar i ditt bibliotek och spelas upp från servern igen.",
+  "#30805": "Ta bort varje hämtad fil från den här enheten och sluta hålla spellistor och musikbibliotek synkroniserade. Objekten finns kvar i ditt bibliotek och spelas upp från servern igen.",
   "#30806": "Ta bort alla %s hämtning(ar) och frigöra cirka %s?",
   "#30807": "Inga hämtningar att ta bort",
   "#30808": "Pausa hämtningar under uppspelning",
@@ -429,5 +429,7 @@
   "#30892": "När Kodi har startat om öppnar du Kofin igen, väljer Versioner och väljer den senaste versionen. Logga sedan in och välj bibliotek att synka.",
   "#30893": "Du kan också stänga Kodi och ta bort dess video- och musikdatabaser för hand, som Kofin-wikin beskriver:",
   "#30894": "Finns inte längre på servern",
-  "#30895": "%s finns inte längre på servern och har tagits bort från biblioteket"
+  "#30895": "%s finns inte längre på servern och har tagits bort från biblioteket",
+  "#30896": "De synkroniserade biblioteken finns kvar i Kodi tills du loggar in igen; ett annat konto tar bort dem.",
+  "#30897": "%s av %s spår köade"
 }

@@ -636,7 +636,7 @@ def test_who_is_watching_ipc_runs_picker_thread(monkeypatch):
     service = Service()
     shown = []
     monkeypatch.setattr(
-        whoswatching, "show_picker", lambda api, creds: shown.append(api)
+        whoswatching, "show_picker", lambda api, creds, modal=None: shown.append(api)
     )
 
     service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
@@ -652,7 +652,7 @@ def test_who_is_watching_picker_failure_is_contained(monkeypatch):
 
     service = Service()
 
-    def boom(api, creds):
+    def boom(api, creds, modal=None):
         raise RuntimeError("dialog exploded")
 
     monkeypatch.setattr(whoswatching, "show_picker", boom)
@@ -1925,6 +1925,117 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
         assert row.attempts == 1
     finally:
         sync_db.reset_overrides()
+
+
+def test_a_replay_of_an_item_the_server_lost_is_dropped_and_the_rest_sent(
+    monkeypatch, tmp_path
+):
+    """A 404 is the item's, not the server's: its row leaves and the rows
+    behind it are replayed in the same pass."""
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+    from kofin.core.http import HttpError
+    from kofin.downloads import pending
+    from kofin.sync import private as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        pending.enqueue("gone", played=True)
+        pending.enqueue("kept", played=True)
+        service = Service()
+        sent = []
+
+        class LostOneApi:
+            def item(self, item_id):
+                if item_id == "gone":
+                    raise HttpError(404, "Not Found")
+                return {"UserData": {}}
+
+            def update_user_data(self, item_id, payload):
+                sent.append(item_id)
+
+        service.api = LostOneApi()
+        service._replay_pending_userdata()
+
+        assert sent == ["kept"]
+        assert pending.rows() == []
+    finally:
+        sync_db.reset_overrides()
+
+
+def test_a_keep_in_sync_request_with_nothing_synced_goes_to_the_download_manager(
+    monkeypatch,
+):
+    service = Service()
+    service.library = None
+    monkeypatch.setattr(service, "_start_library", lambda: None)
+    seen = []
+
+    class Downloads:
+        def reconcile_subscriptions(self, playlist_id=""):
+            seen.append(playlist_id)
+
+    monkeypatch.setattr(service, "_downloads_for", lambda name: Downloads())
+
+    service._ipc_library_command("SyncPlaylists", {"Id": "p1"})
+    service._ipc_library_command("SyncPlaylists", {})
+
+    assert seen == ["p1", ""]
+
+
+def test_shutdown_closes_the_dialogs_the_service_has_open(monkeypatch):
+    service = Service()
+    builtins = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda command: builtins.append(command))
+    with service.modal("yesnodialog"):
+        with service.modal("selectdialog"):
+            service._close_dialogs()
+    service._close_dialogs()  # nothing open: nothing closed
+
+    assert sorted(builtins) == [
+        "Dialog.Close(selectdialog,true)",
+        "Dialog.Close(yesnodialog,true)",
+    ]
+
+
+def test_nothing_starts_once_the_service_is_stopping(monkeypatch):
+    service = Service()
+    service._stopping.set()
+    service._api_interfaces = True
+    service._start_library()
+    service._start_downloads()
+    service._start_syncplay()
+    service._start_backdrop()
+
+    assert service.library is None and service.downloads is None
+    assert service.syncplay is None and service._backdrop is None
+
+
+def test_a_refused_session_is_announced_once_with_the_way_back_in(monkeypatch):
+    """The websocket's 403 is the one sure sign of a revoked session: one
+    toast naming the Account tab, one Library status line, no repeat."""
+    service = Service()
+    toasts, written = [], []
+    monkeypatch.setattr(
+        service,
+        "_connection_toast",
+        lambda sid, *a, level=None: toasts.append((sid, level)),
+    )
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.status.write",
+        lambda state, listing=(), namespace="", earlier=False: written.append(
+            (state, namespace)
+        ),
+    )
+    monkeypatch.setattr("kofin.core.settings.localized", lambda sid: "S%d" % sid)
+    service.credentials.server_id = "srv"
+    service.credentials.user_id = "usr"
+
+    service._on_session_rejected()
+    service._on_session_rejected()
+
+    assert toasts == [(30022, "error")]
+    assert len(written) == 1 and written[0][0] == "S30022" and written[0][1]
 
 
 def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):

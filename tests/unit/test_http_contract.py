@@ -201,3 +201,47 @@ def test_401_is_unauthorized_on_both(server, client):
 
     with pytest.raises(Unauthorized):
         api.get("/Items")
+
+
+UA = "Kodi/23.0 (X11; Linux x86_64) Version/23.0"
+
+
+@pytest.mark.parametrize("transport_name", ["requests", "stdlib"])
+def test_the_user_agent_given_is_the_one_sent_on_both(server, transport_name):
+    """Left to themselves, http.client sends no User-Agent and requests sends
+    python-requests/<version>."""
+    transport = (
+        http_module.Http(user_agent=UA)
+        if transport_name == "requests"
+        else stdhttp.StdlibHttp(user_agent=UA)
+    )
+    api = Api(transport, server.url, "Kodi", "dev1", "0.1.0", token="tok")
+    server.answer("/Items", 200, json_body={"Items": []}, repeat=True)
+
+    try:
+        api.get("/Items")
+        api.post("/Items", {"x": 1})
+    finally:
+        transport.close()
+
+    assert [(m, h.get("User-Agent")) for m, _, h, _ in server.requests] == [
+        ("GET", UA),
+        ("POST", UA),
+    ]
+
+
+def test_the_plugin_client_sends_kodis_user_agent(server, monkeypatch):
+    from kofin.core.settings import Credentials
+
+    monkeypatch.setattr("xbmc.getUserAgent", lambda: UA)
+    server.answer("/Items", 200, json_body={"Items": []})
+    api = Api.for_plugin(
+        Credentials(server_address=server.url, token="tok", device_id="dev1")
+    )
+
+    try:
+        api.get("/Items")
+    finally:
+        api.close()
+
+    assert server.requests[0][2].get("User-Agent") == UA
