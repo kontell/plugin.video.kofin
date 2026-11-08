@@ -792,3 +792,96 @@ def test_the_monitor_hears_which_rows_kodi_removed():
         ("MusicVideo", 6),
     }
     assert monitor.removed == 4
+
+
+def test_a_tick_stage_failing_the_same_way_backs_off_and_is_logged_once(
+    store, monkeypatch
+):
+    """An outbox edit the server cannot take fails every tick: the wait
+    before the next try doubles up to the catch-up interval, the traceback
+    is logged the first time only, and new work ends the wait."""
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    clock = [100.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    waited = []
+
+    def wait(seconds):
+        waited.append(seconds)
+        clock[0] += seconds
+        return False
+
+    monkeypatch.setattr(w._stop_event, "wait", wait)
+    logged = []
+    monkeypatch.setattr(
+        library,
+        "LOG",
+        SimpleNamespace(
+            exception=lambda *a: logged.append("exception"),
+            debug=lambda *a: logged.append("debug"),
+        ),
+    )
+    error = RuntimeError("Connection refused")
+    delays = []
+    for _ in range(4):
+        w._note_work_failure(error)
+        w._log_failure("API video sync will retry", error)
+        delays.append(w._work_delay)
+        w._wait_out_work_failure()
+
+    assert delays == [5.0, 10.0, 20.0, 40.0]
+    assert logged == ["exception", "debug", "debug", "debug"]
+    # The whole delay was waited out, a second at a time.
+    assert sum(waited) == sum(delays)
+
+    # New work (a command queued) ends the wait at once.
+    w._note_work_failure(error)
+    waited.clear()
+    w._queue.put(("UpdateLibrary", {}))
+    w._wait_out_work_failure()
+    assert waited == [1]
+
+    for _ in range(12):
+        w._note_work_failure(error)
+    assert w._work_delay == library.RETRY_MAX
+
+
+def test_a_failure_that_differs_only_in_an_object_address_is_the_same_failure(
+    store, monkeypatch
+):
+    """A transport's message names the connection object, whose address
+    changes on every attempt; the backoff still counts it as a repeat."""
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    first = RuntimeError("HTTPConnection object at 0x7f1a2b3c: Connection refused")
+    second = RuntimeError("HTTPConnection object at 0x7f9e8d7c: Connection refused")
+    w._note_work_failure(first)
+    w._note_work_failure(second)
+    assert w._work_delay == 10.0
+    assert w._repeated is second
+
+
+def test_two_stages_failing_in_turn_keep_their_own_backoff(store, monkeypatch):
+    """The outbox fails every tick and the catch-up fails when it is due:
+    the catch-up's first failure is logged whole but does not put the
+    outbox's wait back to five seconds."""
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    outbox = RuntimeError("POST /UserData: Connection refused")
+    catch_up = RuntimeError("GET /Items: Connection refused")
+    logged = []
+    monkeypatch.setattr(
+        library,
+        "LOG",
+        SimpleNamespace(
+            exception=lambda *a: logged.append("exception"),
+            debug=lambda *a: logged.append("debug"),
+        ),
+    )
+    for _ in range(3):
+        w._note_work_failure(outbox)
+        w._log_failure("API video sync will retry", outbox)
+    assert w._work_delay == 20.0
+    w._note_work_failure(catch_up)
+    w._log_failure("API video sync will retry", catch_up)
+    assert w._work_delay == 20.0  # the longer wait stands
+    w._note_work_failure(outbox)
+    assert w._work_delay == 40.0
+    assert logged == ["exception", "debug", "debug", "exception"]

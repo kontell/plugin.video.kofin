@@ -13,6 +13,7 @@ import collections
 import functools
 import queue
 import threading
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Collection, Iterable, Sequence
@@ -398,6 +399,13 @@ RETRY_FIRST = 5.0
 RETRY_MAX = float(CATCHUP_INTERVAL)
 
 
+def _signature(error: BaseException) -> str:
+    """What makes two failures the same one: the type and the text, less
+    the object addresses a transport's message carries (``<HTTPConnection
+    object at 0x7f…>``), which differ on every attempt."""
+    return re.sub(r"0x[0-9a-fA-F]+", "0x?", "%s: %s" % (type(error).__name__, error))
+
+
 class Library(threading.Thread):
     def __init__(
         self, api: "Api", player: Optional["Player"], api_factory: Callable[[], "Api"]
@@ -455,6 +463,11 @@ class Library(threading.Thread):
         self._failure: Optional[str] = None
         self._failure_delay = 0.0
         self._retry_at = 0.0
+        # The tick's own backoff, for a stage (the outbox, a command, the
+        # playlists) that fails the same way each time (_note_work_failure).
+        self._work_failures: dict[str, float] = {}
+        self._work_delay = RETRY_FIRST
+        self._work_failed_with: tuple[Any, ...] = ()
         self._failed_with: Optional[tuple[int, int]] = None
         # The failure the last pass raised when it repeated the one before.
         self._repeated: Optional[BaseException] = None
@@ -583,12 +596,17 @@ class Library(threading.Thread):
                 except InterruptedError:
                     return
                 except Exception as error:
+                    self._note_work_failure(error)
                     self._log_failure("API video sync will retry", error)
                     self._status(settings.localized(30403))
                     failed = True
             self.settle_progress(failed)
-            if failed and self._stop_event.wait(5):
-                break
+            if failed:
+                if self._wait_out_work_failure():
+                    break
+            else:
+                self._work_failures = {}
+                self._work_delay = RETRY_FIRST
             if monitor.waitForAbort(0.5):
                 break
 
@@ -1524,8 +1542,51 @@ class Library(threading.Thread):
             error,
         )
 
+    def _note_work_failure(self, error: BaseException) -> None:
+        """A tick's stage failed: the same failure again waits twice as long
+        before the next try, up to the catch-up interval, and is logged whole
+        only the first time (_log_failure reads ``_repeated``). Failures are
+        told apart by signature, so two stages failing in turn (the outbox
+        every tick, the catch-up when it is due) each keep their own count
+        and the tick waits for the longer."""
+        signature = _signature(error)
+        repeated = signature in self._work_failures
+        delay = (
+            min(self._work_failures[signature] * 2, RETRY_MAX)
+            if repeated
+            else RETRY_FIRST
+        )
+        self._work_failures[signature] = delay
+        self._work_delay = max(self._work_failures.values())
+        self._failure_delay = self._work_delay
+        self._repeated = error if repeated else None
+        self._work_failed_with = self._work_signature()
+
+    def _work_signature(self) -> tuple[Any, ...]:
+        """What a stage could have new to do: the pending rows, the outbox
+        and the command queue. A change in any is tried at once."""
+        try:
+            return (
+                self.store.pending_signature(),
+                len(self.store.local_pending()),
+                self._queue.qsize(),
+            )
+        except Exception:
+            return (None, None, self._queue.qsize())
+
+    def _wait_out_work_failure(self) -> bool:
+        """Wait the failure's delay in one-second steps, ending early for
+        new work; True when the thread was told to stop."""
+        deadline = time.monotonic() + self._work_delay
+        while time.monotonic() < deadline:
+            if self._stop_event.wait(1):
+                return True
+            if self._work_signature() != self._work_failed_with:
+                return False
+        return False
+
     def _note_failure(self, error: BaseException) -> None:
-        signature = "%s: %s" % (type(error).__name__, error)
+        signature = _signature(error)
         repeated = signature == self._failure
         self._failure_delay = (
             min(self._failure_delay * 2, RETRY_MAX) if repeated else RETRY_FIRST

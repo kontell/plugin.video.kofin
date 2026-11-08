@@ -924,14 +924,6 @@ SQL_BUILD = "plugin://plugin.video.kofin/" + LIB + "/"
                 "file": "http://server:8096/Audio/s1/stream.mp3?static=true",
             },
         ),
-        # A row of an earlier catalogue of this build, its kofin.db gone.
-        (
-            "Movie",
-            {
-                "movieid": 900,
-                "file": paths.BASE + "f" * 32 + "/" + LIB + "/movies/a/a.mkv",
-            },
-        ),
     ],
 )
 def test_first_run_gate_refuses_what_an_earlier_kofin_filed(
@@ -947,6 +939,32 @@ def test_first_run_gate_refuses_what_an_earlier_kofin_filed(
     held.clear()
     backend.setup()
     assert store.prepared() == store.namespace
+
+
+def test_first_run_gate_adopts_rows_under_the_profiles_own_key(store, backend, kodi):
+    """kofin.db lost with Kodi's rows kept: the rows under this account's
+    own key are this profile's, and the import files them again in place."""
+    kodi.rows["Movie"][900] = {
+        "movieid": 900,
+        "file": paths.BASE + store.namespace + "/" + LIB + "/movies/a/a.mkv",
+        "uniqueid": {},
+    }
+    backend.setup()
+    assert store.prepared() == store.namespace
+
+
+def test_first_run_gate_refuses_another_accounts_rows_with_its_own_message(
+    store, backend, kodi
+):
+    kodi.rows["Movie"][900] = {
+        "movieid": 900,
+        "file": paths.BASE + "f" * 32 + "/" + LIB + "/movies/a/a.mkv",
+        "uniqueid": {},
+    }
+    with pytest.raises(BackendMismatch, match="another account") as raised:
+        backend.setup()
+    assert not isinstance(raised.value, EarlierLibrary)
+    assert not store.prepared()
 
 
 def test_a_login_under_another_namespace_retires_the_previous_owner(

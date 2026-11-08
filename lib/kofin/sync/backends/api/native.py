@@ -70,6 +70,12 @@ SQL_STREAMED = {
         {"field": "filename", "operator": "contains", "value": "static=true"},
     ]
 }
+
+
+def _under(prefix: str) -> dict[str, Any]:
+    return {"field": "path", "operator": "startswith", "value": prefix}
+
+
 LEFTOVERS = (
     ("VideoLibrary.GetMovies", KOFIN_FILED),
     ("VideoLibrary.GetTVShows", KOFIN_FILED),
@@ -227,19 +233,39 @@ class Native:
             return
         if owner == self.key:
             return
+        own = 0
         for method, rule in LEFTOVERS:
-            # One row and the count, never a zero-width page (_count).
-            reply = rpc(method, {"filter": rule, "limits": {"start": 0, "end": 1}})
-            if not isinstance(reply, dict) or not isinstance(
-                reply.get("limits", {}).get("total"), int
-            ):
-                raise RuntimeError(
-                    "cannot tell whether an earlier Kofin library is in Kodi"
-                )
-            if reply["limits"]["total"]:
+            total = self._filed(method, rule)
+            if not total:
+                continue
+            if rule is SQL_STREAMED:
                 raise EarlierLibrary(
                     "Kodi still holds a library an earlier Kofin filed"
                 )
+            # Rows under the provider root are this build's: this profile's
+            # own, when their key is this account's (a catalogue lost with
+            # Kodi's rows kept), and the import files them again in place.
+            # Another key's rows are another account's, which no catalogue
+            # here can take out; anything else under the plugin root is the
+            # SQL build's.
+            native = self._filed(method, _under(paths.BASE))
+            mine = self._filed(method, _under(paths.root(self.key)))
+            if total - native:
+                raise EarlierLibrary(
+                    "Kodi still holds a library an earlier Kofin filed"
+                )
+            if native - mine:
+                raise BackendMismatch(
+                    "Kodi holds a library of another account; log in as that "
+                    "account to remove it, or use a fresh profile"
+                )
+            own += mine
+        if own:
+            LOG.warning(
+                "%d rows this profile filed before its catalogue was lost; "
+                "importing over them",
+                own,
+            )
         self.store.prepare_empty()
 
     def retire(self, owner: str) -> None:
@@ -283,6 +309,19 @@ class Native:
                 "(%d rows still to confirm); retry, or use a fresh profile" % left
             )
         self.store.adopt(owner)
+
+    @staticmethod
+    def _filed(method: str, rule: dict[str, Any]) -> int:
+        """How many rows ``method`` lists under ``rule``: one row and the
+        count, never a zero-width page (_count)."""
+        reply = rpc(method, {"filter": rule, "limits": {"start": 0, "end": 1}})
+        if not isinstance(reply, dict) or not isinstance(
+            reply.get("limits", {}).get("total"), int
+        ):
+            raise RuntimeError(
+                "cannot tell whether an earlier Kofin library is in Kodi"
+            )
+        return int(reply["limits"]["total"])
 
     # -- waits ---------------------------------------------------------------
 
