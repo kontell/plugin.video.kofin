@@ -8,6 +8,7 @@ sites in ``main.py``, and ``Service`` itself where it hands ``self`` to
 """
 
 import threading
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any, Callable, Optional, Protocol
 from collections.abc import Iterable
 
@@ -74,12 +75,16 @@ class DownloadsPort(Protocol):
 
     def remove_all(self) -> None: ...
 
+    def reconcile_subscriptions(self, playlist_id: str = ...) -> None: ...
+
 
 class SyncPlayPort(Protocol):
     """What the service drives on the SyncPlay manager — directly, and the
     hook names ``forward`` reaches by string (on_wake/on_sleep/on_kodi_play)."""
 
-    def stop(self) -> None: ...
+    def stop(self, leave: bool = ...) -> None: ...
+
+    def adopt_group(self, group_id: str) -> None: ...
 
     def on_notification(self, method: str, data: Any) -> None: ...
 
@@ -105,8 +110,11 @@ class ServiceHooks(Protocol):
 
     _restart_requested: bool
     _online: bool
+    _stopping: threading.Event
     library: Optional[LibraryPort]
     syncplay: Optional[SyncPlayPort]
+
+    def modal(self, kind: str) -> AbstractContextManager[None]: ...
 
     def _start_library(self) -> None: ...
 
@@ -131,6 +139,11 @@ def forward(manager: Optional[object], name: str, *args: Any) -> None:
         getattr(manager, name)(*args)
     except Exception:
         LOG.exception("SyncPlay %s hook failed", name)
+
+
+def no_modal(kind: str) -> AbstractContextManager[None]:
+    """The dialog record of a player or picker built without a service."""
+    return nullcontext()
 
 
 def spawn_once(

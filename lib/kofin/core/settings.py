@@ -162,6 +162,16 @@ def device_name() -> str:
     return xbmc.getInfoLabel("System.FriendlyName") or "Kodi"
 
 
+def user_agent() -> str:
+    """The User-Agent of every request and websocket handshake: Kodi's own,
+    the one Kodi's player sends when it fetches the streams. Left to the
+    libraries, the plugin's ``http.client`` and websocket-client send none and
+    the service's requests sends ``python-requests/<version>``, and
+    Cloudflare's Browser Integrity Check, on by default, challenges a request
+    with no User-Agent or a non-standard one."""
+    return xbmc.getUserAgent()
+
+
 def resume_offset() -> float:
     """Seconds a resume point is rewound by (Advanced tab, stored negative).
 

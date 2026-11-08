@@ -42,6 +42,7 @@ def test_the_play_route_imports_no_pipeline_module():
         ("kofin.sync.backends.api.paths", "key_from_url", "play"),
         ("kofin.sync.backends.api.store", "namespace", "play"),
         ("kofin.sync.backends.api.identity", "native_id_for", "play"),
+        ("kofin.sync.backends.api.identity", "current_store", "catalogue_item"),
     }
 
     script = (
@@ -674,6 +675,7 @@ def resume_env(monkeypatch):
     class Creds:
         is_logged_in = True
         device_id = "dev1"
+        server_address = "http://s"
 
         @classmethod
         def load(cls):
@@ -1153,6 +1155,78 @@ def test_the_downloaded_play_claims_the_playback(downloaded_env):
     assert "Streams" not in queued
 
 
+def test_a_synced_download_plays_without_asking_the_server(downloaded_env, monkeypatch):
+    """The catalogue's copy of the item is DTO enough: no item fetch, no
+    PlaybackInfo, the file resolved and the play claimed with its name."""
+    from kofin.core import state
+
+    api = downloaded_env["api"]
+    fetched = []
+    original = api.item
+    monkeypatch.setattr(
+        api, "item", lambda item_id: fetched.append(item_id) or original(item_id)
+    )
+    monkeypatch.setattr(
+        play,
+        "catalogue_item",
+        lambda item_id: {
+            "Id": "ep1",
+            "Type": "Episode",
+            "Name": "An Episode",
+            "RunTimeTicks": 1500 * 10_000_000,
+            "UserData": {"PlaybackPositionTicks": 600 * 10_000_000},
+        },
+    )
+
+    run_play({"id": "ep1"}, resume=True)
+
+    assert fetched == []
+    assert downloaded_env["li"].path == "/dl/ep1.mp4"
+    assert downloaded_env["resolved"] == [downloaded_env["li"]]
+    queued = state.claim_play_item("/dl/ep1.mp4")
+    assert queued["Id"] == "ep1" and queued["Name"] == "An Episode"
+    assert downloaded_env["built"]["resume_seconds"] == 600.0
+
+
+def test_a_download_plays_when_the_item_fetch_fails(downloaded_env, monkeypatch):
+    """A server that stopped answering, unnoticed yet: the fetch fails and
+    the download plays on what its row knows, claimed."""
+    from kofin.core import state
+    from kofin.core.http import ServerUnreachable
+
+    def refuse(item_id):
+        raise ServerUnreachable("timed out")
+
+    monkeypatch.setattr(downloaded_env["api"], "item", refuse)
+    monkeypatch.setattr(play, "catalogue_item", lambda item_id: None)
+
+    run_play({"id": "ep1"}, resume=False)
+
+    assert downloaded_env["li"].path == "/dl/ep1.mp4"
+    assert downloaded_env["resolved"] == [downloaded_env["li"]]
+    queued = state.claim_play_item("/dl/ep1.mp4")
+    assert queued["Id"] == "ep1" and queued["PlayMethod"] == "DirectPlay"
+
+
+def test_a_failed_fetch_without_a_download_still_fails_the_play(
+    downloaded_env, monkeypatch
+):
+    from kofin.core.http import ServerUnreachable
+
+    def refuse(item_id):
+        raise ServerUnreachable("timed out")
+
+    monkeypatch.setattr(downloaded_env["api"], "item", refuse)
+    monkeypatch.setattr(play, "downloaded_file", lambda item_id: None)
+    toasts = []
+    monkeypatch.setattr(play.toast, "show", lambda *a, **k: toasts.append(a[0]))
+
+    run_play({"id": "ep1"}, resume=False)
+
+    assert downloaded_env["li"].path != "/dl/ep1.mp4"
+    assert toasts
+
+
 def test_the_downloaded_play_starts_where_the_group_is(downloaded_env):
     """A group start states its position; the resolved item has to carry it,
     or the follower starts the file at zero."""
@@ -1212,6 +1286,35 @@ def offline_env(tmp_path, monkeypatch):
     sync_db.reset_overrides()
 
 
+def test_a_logged_out_play_says_so(monkeypatch):
+    """Logged out, a play of a synced row fails with "Not logged in", not
+    with a server that is said to be unreachable."""
+    from kofin.plugin import play as play_module
+    from kofin.plugin.router import Request
+
+    class Creds:
+        is_logged_in = False
+
+        @classmethod
+        def load(cls):
+            return cls()
+
+    monkeypatch.setattr(play_module, "Credentials", Creds)
+    resolved, toasts = [], []
+    monkeypatch.setattr(
+        play_module.xbmcplugin,
+        "setResolvedUrl",
+        lambda handle, ok, li: resolved.append(ok),
+    )
+    monkeypatch.setattr(play_module.toast, "show", lambda *a, **k: toasts.append(a[0]))
+    monkeypatch.setattr(play_module.settings, "localized", lambda sid: sid)
+
+    play_module.play(Request("plugin://x", 1, {"id": "abc"}))
+
+    assert resolved == [False]
+    assert toasts == [30026]
+
+
 def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch):
     """Offline, an item that is not downloaded is refused before any
     transport is built."""
@@ -1228,7 +1331,7 @@ def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch
     monkeypatch.setattr(play_module.toast, "show", lambda *a, **k: toasts.append(a[0]))
     built = []
     monkeypatch.setattr(
-        "kofin.core.api.plugin_transport", lambda verify: built.append(1)
+        "kofin.core.api.plugin_transport", lambda *_a, **_k: built.append(1)
     )
 
     play_module.play(Request("plugin://x", 1, {"id": "nope"}))
@@ -1272,12 +1375,52 @@ def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
         "setResolvedUrl",
         lambda handle, ok, li: resolved.append(ok),
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
 
     play_module.play(Request("plugin://x", 1, {"id": "m1"}))
 
     assert resolved == [True]
     assert built["path"].endswith("Movies/M (2019)/m.mkv")
+
+
+def test_offline_a_synced_download_is_claimed(offline_env, monkeypatch):
+    """Offline, the catalogue's copy claims the play as an online play of
+    the download would, so the service reports it and parks what the
+    server misses."""
+    from kofin.core import state
+    from kofin.plugin import play as play_module
+    from kofin.plugin.router import Request
+
+    _offline_download(offline_env)
+    monkeypatch.setattr(
+        play_module,
+        "catalogue_item",
+        lambda item_id: {"Id": "m1", "Type": "Movie", "Name": "M", "RunTimeTicks": 10},
+    )
+    built = {}
+    monkeypatch.setattr(
+        play_module.listitems,
+        "build",
+        lambda item, server, resume_seconds=None: built.setdefault(
+            "li", play_module.xbmcgui.ListItem()
+        ),
+    )
+    resolved = []
+    monkeypatch.setattr(
+        play_module.xbmcplugin, "setResolvedUrl", lambda h, ok, li: resolved.append(ok)
+    )
+    state.clear_play_queue()
+
+    play_module.play(Request("plugin://x", 1, {"id": "m1"}))
+
+    assert resolved == [True]
+    path = offline_env / "dl" / "Movies" / "M (2019)" / "m.mkv"
+    queued = state.claim_play_item(str(path))
+    assert (
+        queued is not None
+        and queued["Id"] == "m1"
+        and queued["PlayMethod"] == "DirectPlay"
+    )
 
 
 def _offline_download(offline_env, item_id="m1", media_type="movie"):
@@ -1315,7 +1458,7 @@ def _stamp_play(play_module, monkeypatch, params, resume=False):
     monkeypatch.setattr(
         play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
     from kofin.plugin.router import Request
 
     play_module.play(Request("plugin://x", 1, params, resume))
@@ -1406,7 +1549,7 @@ def test_offline_without_a_kodi_bookmark_stamps_nothing(offline_env, monkeypatch
     monkeypatch.setattr(
         play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
 
     play_module.play(Request("plugin://x", 1, {"id": "s1", "dbid": "7"}))
 

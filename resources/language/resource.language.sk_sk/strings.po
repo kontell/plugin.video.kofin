@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Odstrániť všetky stiahnuté súbory"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Odstráni z tohto zariadenia každý stiahnutý súbor. Položky zostanú vo vašej knižnici a budú sa opäť prehrávať zo servera."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Odstráni z tohto zariadenia každý stiahnutý súbor a prestane udržiavať playlisty a hudobné knižnice synchronizované. Položky zostanú vo vašej knižnici a budú sa opäť prehrávať zo servera."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,11 @@ msgstr "Už nie je na serveri"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Knižnica %s už nie je na serveri a bola odstránená z Kodi"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Synchronizované knižnice zostanú v Kodi, kým sa znova neprihlásiš; iný účet ich odstráni."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "Zaradených %s z %s skladieb"

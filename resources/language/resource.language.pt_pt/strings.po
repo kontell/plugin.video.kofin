@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Eliminar todas as transferências"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Elimina deste dispositivo todos os ficheiros transferidos. Os itens permanecem na sua biblioteca e voltam a ser reproduzidos a partir do servidor."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Elimina deste dispositivo todos os ficheiros transferidos e deixa de manter listas de reprodução e bibliotecas de música sincronizadas. Os itens permanecem na sua biblioteca e voltam a ser reproduzidos a partir do servidor."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,11 @@ msgstr "Já não está no servidor"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "A biblioteca %s já não está no servidor e foi removida do Kodi"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "As bibliotecas sincronizadas ficam no Kodi até voltares a iniciar sessão; outra conta remove-as."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "%s de %s faixas em fila"

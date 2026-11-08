@@ -25,8 +25,6 @@ class Native(Protocol):
 
     def detached(self, row: Any) -> None: ...
 
-    def mark_watched(self, row: Any) -> None: ...
-
     def watched_locally(self, row: Any) -> bool: ...
 
     def last_touch(self, row: Any) -> Optional[tuple[float, bool]]: ...
@@ -107,12 +105,6 @@ class NativeApi:
             LOG.exception(
                 "download state of %s not handed to the pass", row.jellyfin_id
             )
-
-    def mark_watched(self, row: Any) -> None:
-        # The server is told (manager._push_played) and its answer reaches
-        # Kodi's row through the pass, online now or when parked userdata is
-        # replayed; a setter here would start the userdata echo cycle.
-        return None
 
     def _row(self, row: Any, properties: list[str]) -> Optional[dict]:
         from kofin.core import kodirpc

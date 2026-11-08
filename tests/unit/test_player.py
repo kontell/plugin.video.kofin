@@ -192,6 +192,57 @@ def test_a_failed_stop_report_closes_the_live_stream(monkeypatch):
     assert ("close_live_stream", "ls1") in api.calls
 
 
+def test_a_failed_stop_past_the_watched_share_parks_a_played_mark(monkeypatch):
+    """The server's own stop rule marks a play past the watched share Played
+    with no resume point; the parked stop says the same, so the replay cannot
+    put a finished item into Continue Watching."""
+    player, api = make_player(monkeypatch)
+    queue_item(Runtime=1245 * 10_000_000)
+    player.onPlayBackStarted()
+    monkeypatch.setattr(player, "getTime", lambda: 1240.0)
+    player.report_progress()
+    drain(player)
+
+    def refuse(data):
+        raise RuntimeError("server unreachable")
+
+    api.session_stopped = refuse
+    parked = []
+    monkeypatch.setattr(
+        "kofin.downloads.pending.enqueue", lambda *a, **k: parked.append((a, k))
+    )
+    player.onPlayBackStopped()
+    drain(player)
+
+    ((args, kwargs),) = parked
+    assert args[0] == "m1"
+    assert kwargs["played"] is True and kwargs["position_ticks"] == 0
+
+
+def test_a_failed_stop_short_of_the_watched_share_parks_the_position(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(Runtime=1245 * 10_000_000)
+    player.onPlayBackStarted()
+    monkeypatch.setattr(player, "getTime", lambda: 600.0)
+    player.report_progress()
+    drain(player)
+
+    def refuse(data):
+        raise RuntimeError("server unreachable")
+
+    api.session_stopped = refuse
+    parked = []
+    monkeypatch.setattr(
+        "kofin.downloads.pending.enqueue", lambda *a, **k: parked.append((a, k))
+    )
+    player.onPlayBackStopped()
+    drain(player)
+
+    ((args, kwargs),) = parked
+    assert kwargs.get("played") is None
+    assert kwargs["position_ticks"] == 6_000_000_000
+
+
 def test_the_sweep_closes_the_live_streams_of_plays_kodi_never_started(
     monkeypatch, tmp_path
 ):

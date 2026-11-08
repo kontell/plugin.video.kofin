@@ -319,6 +319,25 @@ class TestTimesyncWebSocket:
         assert captured["sslopt"]["cert_reqs"] == ssl.CERT_REQUIRED
         assert captured["sslopt"]["check_hostname"] is True
 
+    def test_the_handshake_carries_the_user_agent(self):
+        from tests.unit.transportserver import ScriptedServer
+
+        with ScriptedServer() as server:
+            server.answer("/SyncPlay/TimeSync", 404)
+            manager = FakeTimesyncManager(
+                ws_target=(
+                    server.url.replace("http://", "ws://") + "/SyncPlay/TimeSync",
+                    'MediaBrowser Token="tok"',
+                )
+            )
+
+            sync = TimeSync(manager, user_agent="Kodi/23.0 (X11; Linux x86_64)")
+            assert sync._ws_socket() is None
+
+        assert [h.get("User-Agent") for _, _, h, _ in server.requests] == [
+            "Kodi/23.0 (X11; Linux x86_64)"
+        ]
+
     def test_a_redirected_handshake_takes_the_token_nowhere_else(self):
         """websocket-client follows a redirected handshake with every header,
         the Authorization header included."""

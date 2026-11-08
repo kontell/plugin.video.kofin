@@ -711,6 +711,41 @@ def test_manage_download_shows_keeps_the_ticked(download_wired, monkeypatch):
     assert dialog.multiselects[0][1] == ["s1", "s2", "s3"]
 
 
+def test_library_status_logged_out_reads_the_owners_catalogue(monkeypatch):
+    class Creds:
+        is_logged_in = False
+
+    shown = []
+    owner = object()
+    monkeypatch.setattr(actions.Credentials, "load", classmethod(lambda cls: Creds()))
+    monkeypatch.setattr("kofin.sync.backends.api.identity.owner_store", lambda: owner)
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.status.show",
+        lambda store, logged_out=False: shown.append((store, logged_out)),
+    )
+
+    actions.library_status(Request("plugin://plugin.video.kofin/", 1, {}))
+
+    assert shown == [(owner, True)]
+
+
+def test_library_status_logged_out_with_no_catalogue_says_not_logged_in(monkeypatch):
+    class Creds:
+        is_logged_in = False
+
+    toasts = []
+    monkeypatch.setattr(actions.Credentials, "load", classmethod(lambda cls: Creds()))
+    monkeypatch.setattr("kofin.sync.backends.api.identity.owner_store", lambda: None)
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, *a, **k: toasts.append(message)
+    )
+    monkeypatch.setattr(actions.settings, "localized", lambda sid: "S%d" % sid)
+
+    actions.library_status(Request("plugin://plugin.video.kofin/", 1, {}))
+
+    assert toasts == ["S30026"]
+
+
 def test_the_show_picker_names_shows_from_the_catalogue(monkeypatch):
     """A show the catalogue holds is named by its payload, and one it does
     not hold, or holds without a name, by its id."""
@@ -1039,3 +1074,28 @@ def test_update_libraries_declined_sends_nothing(monkeypatch):
 
     assert sent == []
     assert dialog.multiselects == []
+
+
+def test_a_failed_watched_mark_says_so(monkeypatch):
+    class Api:
+        def mark_played(self, item_id):
+            raise JellyfinError("refused")
+
+        def mark_unplayed(self, item_id):
+            raise JellyfinError("refused")
+
+        def set_favorite(self, item_id, value):
+            raise JellyfinError("refused")
+
+    monkeypatch.setattr(actions, "_api", lambda: Api())
+    shown = []
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, *a, **k: shown.append(message)
+    )
+    monkeypatch.setattr(actions.settings, "localized", lambda sid: "S%d" % sid)
+
+    actions.watched(Request("plugin://x", 1, {"id": "m1"}))
+    actions.unwatched(Request("plugin://x", 1, {"id": "m1"}))
+    actions.favorite(Request("plugin://x", 1, {"id": "m1"}))
+
+    assert shown == ["S30507", "S30507", "S30507"]

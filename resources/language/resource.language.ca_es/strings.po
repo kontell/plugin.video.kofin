@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Suprimeix totes les baixades"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Suprimeix tots els fitxers baixats d'aquest dispositiu. Els elements es mantenen a la vostra biblioteca i es tornen a reproduir des del servidor."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Suprimeix tots els fitxers baixats d'aquest dispositiu i deixa de mantenir sincronitzades les llistes de reproducció i les biblioteques de música. Els elements es mantenen a la vostra biblioteca i es tornen a reproduir des del servidor."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,11 @@ msgstr "Ja no és al servidor"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s ja no és al servidor i s'ha eliminat de la biblioteca"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Les biblioteques sincronitzades es mantenen a Kodi fins que tornis a iniciar sessió; un altre compte les elimina."
+
+msgctxt "#30897"
+msgid "Queued %s of %s tracks"
+msgstr "S'han posat a la cua %s de %s pistes"

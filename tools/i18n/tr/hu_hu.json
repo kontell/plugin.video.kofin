@@ -348,7 +348,7 @@
   "#30803": "Ha egy szinkronizálás ennél több új albumot ad hozzá egyszerre, egyik sem töltődik le. Albumban számolva, nem számokban.",
   "#30810": "%s kell, csak %s szabad",
   "#30804": "Összes letöltés törlése",
-  "#30805": "Minden letöltött fájl törlése erről az eszközről. Az elemek megmaradnak a médiatárban, és újra a kiszolgálóról játszódnak le.",
+  "#30805": "Minden letöltött fájl törlése erről az eszközről, és a lejátszási listák és zenei médiatárak szinkronban tartásának leállítása. Az elemek megmaradnak a médiatárban, és újra a kiszolgálóról játszódnak le.",
   "#30806": "Töröl %s letöltést, kb. %s felszabadul. Folytatja?",
   "#30807": "Nincs törölhető letöltés",
   "#30808": "Letöltések szüneteltetése lejátszás közben",
@@ -429,5 +429,7 @@
   "#30892": "Miután a Kodi újraindult, nyissa meg ismét a Kofint, válassza a Verziók gombot, majd a legújabb verziót. Ezután jelentkezzen be, és válassza ki a szinkronizálandó médiatárakat.",
   "#30893": "Másik lehetőségként zárja be a Kodit, és törölje kézzel a videó- és zenei adatbázisait, ahogy a Kofin wiki leírja:",
   "#30894": "Már nincs a kiszolgálón",
-  "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból"
+  "#30895": "%s már nincs a kiszolgálón, ezért el lett távolítva a médiatárból",
+  "#30896": "A szinkronizált könyvtárak a Kodiban maradnak, amíg újra be nem jelentkezel; egy másik fiók eltávolítja őket.",
+  "#30897": "%s / %s szám sorba állítva"
 }

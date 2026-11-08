@@ -967,13 +967,69 @@ def test_first_run_gate_refuses_another_accounts_rows_with_its_own_message(
     assert not store.prepared()
 
 
-def test_first_run_gate_refuses_another_namespace(store, backend, kodi):
+def test_a_login_under_another_namespace_retires_the_previous_owner(
+    store, backend, kodi
+):
+    """Another account's catalogue is not refused: its libraries leave Kodi
+    through the normal whole-library removal, its rows leave kofin.db, and
+    the setup row names the new account, whose sync then starts on an empty
+    Kodi."""
     backend.setup()
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id) + [movie("m" + library[0])]:
+            items.append(item)
+            membership[item["Id"]] = library
+    collection = boxset("set1", "Set One", ["m" + LIB[0]])
+    store.publish(
+        items + [collection],
+        membership=membership,
+        complete_libraries=[LIB, LIB2],
+        complete_boxsets=True,
+    )
+    backend.reconcile()
+    assert len(kodi.owned("Series")) == 2 and len(kodi.owned("Movie")) == 2
+    assert kodi.rows["BoxSet"]
+    kodi.calls.clear()
     other = Native(Store(namespace("another", "user")))
-    with pytest.raises(BackendMismatch, match="another") as raised:
+    other.setup()
+    assert not kodi.rows["BoxSet"]
+    clears = methods(kodi, "VideoLibrary.SetSourceContent")
+    assert sorted(c["path"] for c in clears) == sorted(
+        paths.library_root(store.namespace, lib) for lib in (LIB, LIB2)
+    )
+    assert all(c["clearmode"] == "remove" for c in clears)
+    assert not kodi.owned("Series") and not kodi.owned("Movie")
+    assert store.all_libraries() == [] and not store.pending()
+    assert other.store.prepared() == other.key
+    # The new account's own gate now sees an empty Kodi and keeps the catalogue.
+    other.setup()
+    assert other.store.prepared() == other.key
+
+
+def test_a_previous_owner_whose_rows_stay_keeps_the_catalogue(
+    store, backend, kodi, monkeypatch
+):
+    """A removal that fails leaves the rows in place: the catalogue stays
+    the previous account's and the new account's sync is off with the reason."""
+    from kofin.sync.backends.api import removal
+
+    backend.setup()
+    store.publish([movie("m1")], membership={"m1": LIB}, complete_libraries=[LIB])
+    backend.reconcile()
+    assert kodi.owned("Movie")
+
+    def failing(*args, **kwargs):
+        raise RuntimeError("Failed to execute method.")
+
+    monkeypatch.setattr(removal, "remove", failing)
+    other = Native(Store(namespace("another", "user")))
+    with pytest.raises(BackendMismatch, match="previous account"):
         other.setup()
-    # Not a library the migration instructions would help with.
-    assert not isinstance(raised.value, EarlierLibrary)
+    assert store.prepared() == store.namespace
+    assert kodi.owned("Movie")
+    assert store.has_pending()
 
 
 def test_a_library_that_is_not_kofins_is_no_reason_to_refuse(store, backend, kodi):
