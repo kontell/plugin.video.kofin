@@ -20,6 +20,9 @@ LOG = Logger(__name__)
 
 KEEPALIVE_SECONDS = 30
 RECONNECT_SECONDS = 10
+# Between attempts once the server has refused the session: the token is
+# what fails, and only a new login changes it.
+REJECTED_RETRY_SECONDS = 300
 # The half-open verdict: a healthy socket never goes this long without an
 # inbound frame, because the server echoes every KeepAlive _KeepAlive sends
 # (and pushes ForceKeepAlive on its own). Two missed echoes plus grace.
@@ -109,8 +112,14 @@ class WSClient(threading.Thread):
         on_disconnected: Optional[ConnectedCallback] = None,
         verify_ssl: bool = True,
         user_agent: str = "",
+        on_rejected: Optional[ConnectedCallback] = None,
     ) -> None:
         super().__init__(name="kofin-ws")
+        self._on_rejected = on_rejected
+        # The server refused the handshake for the session (401, 403): a
+        # password change, a disabled user, the device removed. Set until a
+        # handshake succeeds.
+        self.rejected = False
         self._url = socket_url(server_address)
         self._user_agent = user_agent
         self._header = auth_header
@@ -175,7 +184,8 @@ class WSClient(threading.Thread):
             # the socket is up, and every Python thread in Kodi walks that
             # queue on each of its own waits
             # (RetardedAsyncCallbackHandler::makePendingCalls).
-            if self._stop or xbmc.Monitor().waitForAbort(RECONNECT_SECONDS):
+            wait = REJECTED_RETRY_SECONDS if self.rejected else RECONNECT_SECONDS
+            if self._stop or xbmc.Monitor().waitForAbort(wait):
                 break
         LOG.debug("websocket thread exit")
 
@@ -226,6 +236,7 @@ class WSClient(threading.Thread):
             LOG.warning("websocket thread did not stop within deadline")
 
     def _handle_open(self, app: "websocket.WebSocketApp") -> None:
+        self.rejected = False
         if self._stop:
             # A connect completing while stop() tears the client down must
             # not restart the machinery: the keepalive it would spawn has no
@@ -323,6 +334,21 @@ class WSClient(threading.Thread):
 
     def _handle_error(self, app: "websocket.WebSocketApp", error: Exception) -> None:
         LOG.debug("websocket error: %s", error)
+        status = getattr(error, "status_code", None)
+        if (
+            isinstance(error, websocket.WebSocketBadStatusException)
+            and status in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
+            and not self.rejected
+        ):
+            self.rejected = True
+            LOG.warning(
+                "the server refused the session (%s); waiting for a new login", status
+            )
+            if self._on_rejected is not None:
+                try:
+                    self._on_rejected()
+                except Exception:
+                    LOG.exception("rejected-session callback failed")
 
 
 class _KeepAlive(threading.Thread):

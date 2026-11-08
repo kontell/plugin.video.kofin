@@ -106,7 +106,7 @@ def kodi(monkeypatch):
 
     monkeypatch.setattr(playall.ipc, "notify_now", notify_now)
     monkeypatch.setattr(playall, "stop_current_playback", lambda: events.append("stop"))
-    monkeypatch.setattr(playall.toast, "show", lambda *a, **k: events.append("toast"))
+    monkeypatch.setattr("kofin.core.toast.show", lambda *a, **k: events.append("toast"))
     return events
 
 
