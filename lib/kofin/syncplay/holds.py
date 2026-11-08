@@ -180,6 +180,18 @@ class LocalStarts:
                 return
 
         position = None
+        if (
+            item_id != manager.current_item_id
+            and info.get("CurrentPosition") is not None
+            and not utils.claim_is_live(info)
+        ):
+            # A new item over the group, with kofin's own claim: proposed
+            # where its play began (a resume, or 0). The player clock is not
+            # read for it, since it can still show the item being replaced:
+            # a group paused at 917 s had its next film proposed, and
+            # started, at 917 s. A claim without a position (a provider's)
+            # leaves the clock as the only reading.
+            position = _start_of(info)
         if utils.claim_is_live(info):
             # A live claim (zero runtime): the player's position is session
             # time on this member's own stream, meaningless to the group.

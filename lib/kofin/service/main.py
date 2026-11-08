@@ -640,6 +640,10 @@ class Service(xbmc.Monitor):
                 self.api, self.player, providers=jellyfin_registry(self.api)
             )
             self.syncplay = manager
+            handed = state.syncplay_group()
+            if handed:
+                state.clear_syncplay_group()
+                manager.adopt_group(handed)
             self.player.syncplay = manager
             self.remote.syncplay = manager
             # The announce is what tells provider add-ons to (re)register
@@ -658,7 +662,11 @@ class Service(xbmc.Monitor):
         self.player.syncplay = None
         self.remote.syncplay = None
         try:
-            manager.stop()
+            # Restarted in place, the service keeps its group for the next
+            # generation; stopped for good, it leaves.
+            manager.stop(
+                leave=not (self._restart_requested and not self.abortRequested())
+            )
         except Exception:
             LOG.exception("SyncPlay manager failed to stop")
         # The mirror must not outlive the engine it describes; the ping

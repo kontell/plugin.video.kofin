@@ -521,7 +521,7 @@ class RecordingSyncPlay:
     def on_notification(self, message_type, data):
         self.events.append((message_type, data))
 
-    def stop(self):
+    def stop(self, leave=True):
         self.stopped = True
 
 
@@ -545,6 +545,51 @@ def test_syncplay_enabled_builds_and_attaches():
     assert service.syncplay is None
     assert service.player.syncplay is None
     assert service.remote.syncplay is None
+
+
+def test_a_restart_keeps_the_syncplay_group_and_the_next_generation_adopts_it(
+    monkeypatch,
+):
+    service = Service()
+    stopped = []
+
+    class Manager:
+        def stop(self, leave=True):
+            stopped.append(leave)
+
+    service.syncplay = Manager()
+    service._restart_requested = True
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+    service._stop_syncplay()
+    assert stopped == [False]
+
+    service.syncplay = Manager()
+    service._restart_requested = False
+    service._stop_syncplay()
+    assert stopped == [False, True]
+
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    adopted = []
+
+    class Built:
+        def adopt_group(self, group_id):
+            adopted.append(group_id)
+
+        def publish_session_state(self, announce=False):
+            pass
+
+        def stop(self, leave=True):
+            pass
+
+    monkeypatch.setattr("kofin.syncplay.SyncPlayManager", lambda *a, **k: Built())
+    monkeypatch.setattr("kofin.core.state.syncplay_group", lambda: "g7")
+    cleared = []
+    monkeypatch.setattr(
+        "kofin.core.state.clear_syncplay_group", lambda: cleared.append(True)
+    )
+    service._start_syncplay()
+    assert adopted == ["g7"] and cleared == [True]
+    service._stop_syncplay()
 
 
 def test_syncplay_toggle_applies_live():
