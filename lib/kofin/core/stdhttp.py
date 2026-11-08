@@ -91,8 +91,8 @@ class StdlibHttp(Http):
     so the reply one reads is not its own.
     """
 
-    def __init__(self, verify_ssl: bool = True) -> None:
-        super().__init__(verify_ssl)
+    def __init__(self, verify_ssl: bool = True, user_agent: str = "") -> None:
+        super().__init__(verify_ssl, user_agent=user_agent)
         self._local = threading.local()
         # Every connection this transport has opened, so close() can release
         # the ones belonging to threads that have since finished.
@@ -209,6 +209,8 @@ class StdlibHttp(Http):
         connect_timeout, read_timeout = timeout or DEFAULT_TIMEOUT
         origin, target = _split(url, params)
         body, send_headers = _body(json_body, headers)
+        if self._user_agent:
+            send_headers.setdefault("User-Agent", self._user_agent)
 
         def attempt() -> Response:
             return self._exchange(

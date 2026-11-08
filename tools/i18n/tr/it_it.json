@@ -429,5 +429,6 @@
   "#30892": "Quando Kodi si è riavviato, riapri Kofin, seleziona Versioni e scegli la versione più recente. Poi accedi e scegli le librerie da sincronizzare.",
   "#30893": "In alternativa, chiudi Kodi ed elimina manualmente i suoi database video e musicali, come spiega la wiki di Kofin:",
   "#30894": "Non più sul server",
-  "#30895": "La libreria %s non è più sul server ed è stata rimossa da Kodi"
+  "#30895": "La libreria %s non è più sul server ed è stata rimossa da Kodi",
+  "#30896": "Le librerie sincronizzate restano in Kodi finché non accedi di nuovo; un altro account le rimuove."
 }

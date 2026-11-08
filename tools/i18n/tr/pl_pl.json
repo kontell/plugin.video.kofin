@@ -429,5 +429,6 @@
   "#30892": "Gdy Kodi uruchomi się ponownie, otwórz Kofin jeszcze raz, wybierz Wersje, a potem najnowszą wersję. Następnie zaloguj się i wybierz biblioteki do synchronizacji.",
   "#30893": "Możesz też zamknąć Kodi i ręcznie usunąć jego bazy danych wideo i muzyki, jak opisuje wiki Kofina:",
   "#30894": "Już nie ma na serwerze",
-  "#30895": "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi"
+  "#30895": "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi",
+  "#30896": "Zsynchronizowane biblioteki pozostają w Kodi do ponownego zalogowania; inne konto je usuwa."
 }

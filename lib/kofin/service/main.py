@@ -168,7 +168,11 @@ class Service(xbmc.Monitor):
         # This generation is tearing down: an Event owned by this generation.
         self._stopping = threading.Event()
         self.credentials = Credentials.load()
-        self.http = Http(settings.get_bool("sslVerify"), abort=self._abort_transport)
+        self.http = Http(
+            settings.get_bool("sslVerify"),
+            abort=self._abort_transport,
+            user_agent=settings.user_agent(),
+        )
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
@@ -582,7 +586,11 @@ class Service(xbmc.Monitor):
         the teardown.
         """
         return Api.from_credentials(
-            Http(settings.get_bool("sslVerify"), abort=self._abort_transport),
+            Http(
+                settings.get_bool("sslVerify"),
+                abort=self._abort_transport,
+                user_agent=settings.user_agent(),
+            ),
             Credentials.load(),
         )
 
@@ -720,6 +728,7 @@ class Service(xbmc.Monitor):
             on_connected=self._on_ws_connected,
             on_disconnected=self._on_ws_disconnected,
             verify_ssl=settings.get_bool("sslVerify"),
+            user_agent=settings.user_agent(),
         )
         self.ws.start()
 

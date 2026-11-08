@@ -393,7 +393,7 @@ def migration() -> str:
     )
 
 
-def show(store: "Store") -> None:
+def show(store: "Store", logged_out: bool = False) -> None:
     """The report, as a dialog to read: one row per fact, the value in the
     row's own label (a select dialog's plain layout has no second field).
 
@@ -443,6 +443,8 @@ def show(store: "Store") -> None:
             unfiled = unfiled_row(found, progress.stage)
             entries = store.unfiled(counted(found)) if unfiled else []
         choices: list[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
+        if logged_out:
+            choices.append(settings.localized(30896))
         choices.extend(lines)
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
         if cursor < 0:

@@ -605,7 +605,10 @@ def play(request: Request) -> None:
     private.pool_connections(True)
     item_id = request.params.get("id", "")
     creds = Credentials.load()
-    if not creds.is_logged_in or not item_id:
+    if not creds.is_logged_in:
+        _fail(request, 30026)
+        return
+    if not item_id:
         _fail(request)
         return
 
