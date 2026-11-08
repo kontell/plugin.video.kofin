@@ -1257,7 +1257,7 @@ def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch
     monkeypatch.setattr(play_module.toast, "show", lambda *a, **k: toasts.append(a[0]))
     built = []
     monkeypatch.setattr(
-        "kofin.core.api.plugin_transport", lambda verify: built.append(1)
+        "kofin.core.api.plugin_transport", lambda *_a, **_k: built.append(1)
     )
 
     play_module.play(Request("plugin://x", 1, {"id": "nope"}))
@@ -1301,7 +1301,7 @@ def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
         "setResolvedUrl",
         lambda handle, ok, li: resolved.append(ok),
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
 
     play_module.play(Request("plugin://x", 1, {"id": "m1"}))
 
@@ -1344,7 +1344,7 @@ def _stamp_play(play_module, monkeypatch, params, resume=False):
     monkeypatch.setattr(
         play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
     from kofin.plugin.router import Request
 
     play_module.play(Request("plugin://x", 1, params, resume))
@@ -1435,7 +1435,7 @@ def test_offline_without_a_kodi_bookmark_stamps_nothing(offline_env, monkeypatch
     monkeypatch.setattr(
         play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
     )
-    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda *_a, **_k: 1 / 0)
 
     play_module.play(Request("plugin://x", 1, {"id": "s1", "dbid": "7"}))
 

@@ -49,7 +49,7 @@ def login(request: Request) -> None:
         if not address_raw:
             return
 
-    transport = plugin_transport(settings.get_bool("sslVerify"))
+    transport = plugin_transport(settings.get_bool("sslVerify"), settings.user_agent())
     try:
         address = auth.normalize_address(address_raw)
         info = auth.public_info(transport, address)
@@ -186,7 +186,7 @@ def logout(request: Request) -> None:
     if not xbmcgui.Dialog().yesno("Kofin", message):
         return
 
-    transport = plugin_transport(settings.get_bool("sslVerify"))
+    transport = plugin_transport(settings.get_bool("sslVerify"), settings.user_agent())
     header = auth.build_auth_header(
         _device_name(), creds.device_id, settings.addon_version(), creds.token
     )

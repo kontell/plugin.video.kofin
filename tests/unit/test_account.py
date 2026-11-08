@@ -354,7 +354,9 @@ def test_login_names_a_ping_answered_by_something_else_a_server_error(
         def close(self):
             pass
 
-    monkeypatch.setattr(account, "plugin_transport", lambda verify: Answering())
+    monkeypatch.setattr(
+        account, "plugin_transport", lambda verify, user_agent="": Answering()
+    )
     settings.set_str("serverAddress", "192.168.1.1")
 
     account.login(REQ)
