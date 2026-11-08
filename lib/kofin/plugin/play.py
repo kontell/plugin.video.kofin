@@ -447,6 +447,49 @@ def _stream_index(raw: Optional[str]) -> Optional[int]:
         return None
 
 
+def catalogue_item(item_id: str) -> Optional[JsonDict]:
+    """The item as the catalogue last published it, or None: for an item of
+    a synced library this is the DTO a download's play is built and claimed
+    with, and it needs no server."""
+    try:
+        from kofin.sync.backends.api.identity import current_store
+
+        return current_store().item(item_id)
+    except Exception as error:
+        LOG.debug("catalogue has no copy of %s: %s", item_id, error)
+        return None
+
+
+def download_start_ticks(request: Request, item: JsonDict, from_library: bool) -> int:
+    """Where a download's play starts: as a streamed play, the bookmark for
+    a library row or the item's own position, an explicit start winning."""
+    from_start = request.params.get("fromstart") == "1"
+    dbid = request.params.get("dbid", "")
+    start_ticks = 0
+    if request.resume and not from_start:
+        start_ticks = resume_start_ticks(item, dbid if from_library else "")
+    try:
+        return int(request.params.get("startticks") or start_ticks)
+    except ValueError:
+        return start_ticks
+
+
+def download_item(item_id: str) -> JsonDict:
+    """What the download row knows of its item, as a DTO: enough to play
+    the file and claim the play, with the title Kodi's row carries."""
+    from kofin.downloads import store
+
+    row = store.get(item_id)
+    media = getattr(row, "media_type", "") if row is not None else ""
+    item_type = next((t for t, m in NATIVE_MEDIA.items() if m == media), "Video")
+    return {
+        "Id": item_id,
+        "Type": item_type,
+        "Name": "",
+        "MediaSources": [{"Id": item_id}],
+    }
+
+
 def downloaded_file(item_id: str) -> Optional[str]:
     """The absolute path of this item's completed download, or None.
 
@@ -489,7 +532,7 @@ def _resolve_to(request: Request, listitem: xbmcgui.ListItem, path: str) -> None
         xbmc.Player().play(path, listitem)
 
 
-def offline_answer(request: Request, item_id: str) -> bool:
+def offline_answer(request: Request, item_id: str, from_library: bool = False) -> bool:
     """Handle the play entirely locally when the server is unreachable.
 
     A downloaded item plays its file however it is reached: a library row,
@@ -508,6 +551,24 @@ def offline_answer(request: Request, item_id: str) -> bool:
     path = downloaded_file(item_id)
     if path:
         LOG.debug("offline: resolving %s to its download", item_id)
+        item = catalogue_item(item_id)
+        if item is not None:
+            # Claimed as an online play of the download is, from the
+            # catalogue's copy: the service reports it, and the stop it
+            # cannot send is parked for the reconnect.
+            creds = Credentials.load()
+            dbid = request.params.get("dbid", "")
+            resolve_downloaded(
+                request,
+                item,
+                path,
+                creds.server_address,
+                creds.device_id,
+                download_start_ticks(request, item, from_library),
+                dbid,
+                None,
+            )
+            return True
         listitem = xbmcgui.ListItem(path=path)
         listitem.setContentLookup(False)
         dbid = request.params.get("dbid", "")
@@ -627,8 +688,28 @@ def play(request: Request) -> None:
 
     # Before any transport is built: offline, everything below is a wait
     # with a known answer.
-    if offline_answer(request, item_id):
+    if offline_answer(request, item_id, from_library):
         return
+
+    # A download the viewer already has beats the network, and a synced
+    # item's catalogue copy is DTO enough to claim it with: no request is
+    # made for a play that needs none, so a server that has stopped
+    # answering, unnoticed yet, costs the play nothing.
+    local_path = None if stream_requested(request) else downloaded_file(item_id)
+    if local_path:
+        item = catalogue_item(item_id)
+        if item is not None:
+            resolve_downloaded(
+                request,
+                item,
+                local_path,
+                creds.server_address,
+                creds.device_id,
+                download_start_ticks(request, item, from_library),
+                request.params.get("dbid", "") if from_library else "",
+                None,
+            )
+            return
 
     transcode = request.params.get(PARAM_TRANSCODE) == "1"
     try:
@@ -651,7 +732,17 @@ def play(request: Request) -> None:
     segments_thread: Optional[threading.Thread] = None
     opened_live_stream = ""
     try:
-        item = api.item(item_id)
+        try:
+            item = api.item(item_id)
+        except JellyfinError as error:
+            if not local_path:
+                raise
+            # The download is on disk and the server is not answering: the
+            # play goes ahead on what the download row knows.
+            LOG.debug(
+                "item fetch failed (%s); playing the download of %s", error, item_id
+            )
+            item = download_item(item_id)
         if item.get("Type") in NATIVE_MEDIA:
             from kofin.sync.backends.api.identity import native_id_for
 
@@ -690,10 +781,8 @@ def play(request: Request) -> None:
             # live-clock anchor, never a stream offset.
             start_ticks = 0
 
-        # A download the user already has beats the network. Here rather than
-        # beside the offline check because the claim needs the item DTO, and
-        # after the start position because the resolved item carries it.
-        local_path = None if stream_requested(request) else downloaded_file(item_id)
+        # A download of an item the catalogue does not hold: the claim needs
+        # the item DTO, so it is resolved here, with the start position.
         if local_path:
             resolve_downloaded(
                 request,
