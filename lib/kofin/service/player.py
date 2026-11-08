@@ -418,17 +418,30 @@ class Player(xbmc.Player):
                 LOG.warning("stop report failed: %s", error)
                 # The position is the user's viewing progress and this was
                 # its only route to the server; park it for the next connect
-                # rather than lose it. Contained: a parking failure must not
-                # skip the transcode close below.
+                # rather than lose it, as the server's own stop rule would
+                # have read it: a play that reached the watched share is
+                # Played with no resume point, since a position that far in
+                # is what puts a finished item in Continue Watching.
+                # Contained: a parking failure must not skip the transcode
+                # close below.
                 try:
                     from kofin.downloads import pending
 
-                    pending.enqueue(
-                        str(item["Id"]),
-                        str(item.get("Type") or ""),
-                        position_ticks=int(stop_data["PositionTicks"]),
-                        snapshot=item.get("ServerUserData") or {},
-                    )
+                    if watched_to_end(item):
+                        pending.enqueue(
+                            str(item["Id"]),
+                            str(item.get("Type") or ""),
+                            played=True,
+                            position_ticks=0,
+                            snapshot=item.get("ServerUserData") or {},
+                        )
+                    else:
+                        pending.enqueue(
+                            str(item["Id"]),
+                            str(item.get("Type") or ""),
+                            position_ticks=int(stop_data["PositionTicks"]),
+                            snapshot=item.get("ServerUserData") or {},
+                        )
                 except Exception:  # pragma: no cover - defensive
                     LOG.exception("could not park the stop position")
                 if live_stream_id:

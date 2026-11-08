@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "刪除所有下載檔"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "從本裝置刪除所有已下載的檔案。項目仍會留在媒體庫中，並改回從伺服器播放。"
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "從本裝置刪除所有已下載的檔案，並停止讓播放清單和音樂庫保持同步。項目仍會留在媒體庫中，並改回從伺服器播放。"
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,7 @@ msgstr "已不在伺服器上"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s 已不在伺服器上，已從媒體庫中移除"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "已同步的媒體庫會保留在 Kodi 中，直到你再次登入；使用其他帳號登入會將其移除。"

@@ -1699,7 +1699,7 @@ msgid "Delete all downloads"
 msgstr ""
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
 msgstr ""
 
 msgctxt "#30806"
@@ -2070,4 +2070,8 @@ msgstr ""
 
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
+msgstr ""
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
 msgstr ""

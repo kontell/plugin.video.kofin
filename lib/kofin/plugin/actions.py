@@ -752,9 +752,18 @@ def library_status(request: Request) -> None:
     doing. The report and its dialog are status.py's; the button carries no
     ``<close>``, so reading it returns to the settings."""
     from kofin.sync.backends.api import status
-    from kofin.sync.backends.api.identity import current_store
+    from kofin.sync.backends.api.identity import current_store, owner_store
 
-    status.show(current_store())
+    if Credentials.load().is_logged_in:
+        status.show(current_store())
+        return
+    # Logged out, the rows stay keyed to the account that filed them, and
+    # the report is theirs, with what becomes of them said first.
+    store = owner_store()
+    if store is None:
+        toast.show(settings.localized(30026), toast.WARNING)
+        return
+    status.show(store, logged_out=True)
 
 
 def download_size(request: Request) -> None:

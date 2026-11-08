@@ -1882,6 +1882,62 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
         sync_db.reset_overrides()
 
 
+def test_a_replay_of_an_item_the_server_lost_is_dropped_and_the_rest_sent(
+    monkeypatch, tmp_path
+):
+    """A 404 is the item's, not the server's: its row leaves and the rows
+    behind it are replayed in the same pass."""
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+    from kofin.core.http import HttpError
+    from kofin.downloads import pending
+    from kofin.sync import private as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        pending.enqueue("gone", played=True)
+        pending.enqueue("kept", played=True)
+        service = Service()
+        sent = []
+
+        class LostOneApi:
+            def item(self, item_id):
+                if item_id == "gone":
+                    raise HttpError(404, "Not Found")
+                return {"UserData": {}}
+
+            def update_user_data(self, item_id, payload):
+                sent.append(item_id)
+
+        service.api = LostOneApi()
+        service._replay_pending_userdata()
+
+        assert sent == ["kept"]
+        assert pending.rows() == []
+    finally:
+        sync_db.reset_overrides()
+
+
+def test_a_keep_in_sync_request_with_nothing_synced_goes_to_the_download_manager(
+    monkeypatch,
+):
+    service = Service()
+    service.library = None
+    monkeypatch.setattr(service, "_start_library", lambda: None)
+    seen = []
+
+    class Downloads:
+        def reconcile_subscriptions(self, playlist_id=""):
+            seen.append(playlist_id)
+
+    monkeypatch.setattr(service, "_downloads_for", lambda name: Downloads())
+
+    service._ipc_library_command("SyncPlaylists", {"Id": "p1"})
+    service._ipc_library_command("SyncPlaylists", {})
+
+    assert seen == ["p1", ""]
+
+
 def test_shutdown_closes_the_dialogs_the_service_has_open(monkeypatch):
     service = Service()
     builtins = []
