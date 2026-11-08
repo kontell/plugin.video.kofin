@@ -1,3 +1,10 @@
+v0.96.8
+- Logging in as another account replaces the previous account's library.
+- Kodi can quit while a Kofin dialog is open.
+- A download plays at once when the server is unreachable, and deleting its file no longer marks it watched.
+- SyncPlay keeps its group across a service restart, and a new film starts from its beginning.
+- Clearer messages when the server is down or the login is no longer valid.
+
 v0.96.7
 - The critic-rating setting, which had no effect, is gone.
 - The Jellyfin remote no longer offers audio, subtitle and repeat controls that did nothing on Kodi.
