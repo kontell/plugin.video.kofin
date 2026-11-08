@@ -591,7 +591,7 @@ def test_who_is_watching_ipc_runs_picker_thread(monkeypatch):
     service = Service()
     shown = []
     monkeypatch.setattr(
-        whoswatching, "show_picker", lambda api, creds: shown.append(api)
+        whoswatching, "show_picker", lambda api, creds, modal=None: shown.append(api)
     )
 
     service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
@@ -607,7 +607,7 @@ def test_who_is_watching_picker_failure_is_contained(monkeypatch):
 
     service = Service()
 
-    def boom(api, creds):
+    def boom(api, creds, modal=None):
         raise RuntimeError("dialog exploded")
 
     monkeypatch.setattr(whoswatching, "show_picker", boom)
@@ -1936,6 +1936,34 @@ def test_a_keep_in_sync_request_with_nothing_synced_goes_to_the_download_manager
     service._ipc_library_command("SyncPlaylists", {})
 
     assert seen == ["p1", ""]
+
+
+def test_shutdown_closes_the_dialogs_the_service_has_open(monkeypatch):
+    service = Service()
+    builtins = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda command: builtins.append(command))
+    with service.modal("yesnodialog"):
+        with service.modal("selectdialog"):
+            service._close_dialogs()
+    service._close_dialogs()  # nothing open: nothing closed
+
+    assert sorted(builtins) == [
+        "Dialog.Close(selectdialog,true)",
+        "Dialog.Close(yesnodialog,true)",
+    ]
+
+
+def test_nothing_starts_once_the_service_is_stopping(monkeypatch):
+    service = Service()
+    service._stopping.set()
+    service._api_interfaces = True
+    service._start_library()
+    service._start_downloads()
+    service._start_syncplay()
+    service._start_backdrop()
+
+    assert service.library is None and service.downloads is None
+    assert service.syncplay is None and service._backdrop is None
 
 
 def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):
