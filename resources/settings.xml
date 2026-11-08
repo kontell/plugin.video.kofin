@@ -227,14 +227,10 @@
           <control type="slider" format="integer"/>
         </setting>
         <!-- The Library status report (plugin/actions.py library_status).
-             No <close>: a sub-dialog of this page. -->
+             No <close>: a sub-dialog of this page. Readable logged out,
+             when the report says what becomes of the synced libraries. -->
         <setting id="libraryStatus" type="action" label="30859" help="30860">
           <level>0</level>
-          <dependencies>
-            <dependency type="enable">
-              <condition operator="is" setting="isLoggedIn">true</condition>
-            </dependency>
-          </dependencies>
           <control type="button" format="action">
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=librarystatus)</data>
           </control>

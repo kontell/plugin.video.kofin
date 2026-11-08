@@ -348,7 +348,7 @@
   "#30803": "Gdy synchronizacja dodaje naraz więcej nowych albumów niż podana liczba, żaden z nich nie jest pobierany. Liczone w albumach, nie w utworach.",
   "#30810": "Wymaga %s, wolne tylko %s",
   "#30804": "Usuń wszystkie pobrania",
-  "#30805": "Usuwa z tego urządzenia każdy pobrany plik. Pozycje pozostają w bibliotece i będą znów odtwarzane z serwera.",
+  "#30805": "Usuwa z tego urządzenia każdy pobrany plik i przestaje utrzymywać synchronizację playlist i bibliotek muzycznych. Pozycje pozostają w bibliotece i będą znów odtwarzane z serwera.",
   "#30806": "Usunąć wszystkie pobrane pliki (%s), zwalniając około %s?",
   "#30807": "Nie ma pobrań do usunięcia",
   "#30808": "Wstrzymaj pobieranie podczas odtwarzania",
@@ -429,5 +429,6 @@
   "#30892": "Gdy Kodi uruchomi się ponownie, otwórz Kofin jeszcze raz, wybierz Wersje, a potem najnowszą wersję. Następnie zaloguj się i wybierz biblioteki do synchronizacji.",
   "#30893": "Możesz też zamknąć Kodi i ręcznie usunąć jego bazy danych wideo i muzyki, jak opisuje wiki Kofina:",
   "#30894": "Już nie ma na serwerze",
-  "#30895": "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi"
+  "#30895": "Biblioteki %s nie ma już na serwerze, więc usunięto ją z Kodi",
+  "#30896": "Zsynchronizowane biblioteki pozostają w Kodi do ponownego zalogowania; inne konto je usuwa."
 }

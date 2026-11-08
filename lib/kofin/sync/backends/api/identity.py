@@ -23,6 +23,13 @@ def current_store() -> Store:
     return Store(namespace(creds.server_id, creds.user_id))
 
 
+def owner_store() -> Optional[Store]:
+    """The store of whichever account the catalogue was filed for, or None
+    while nothing has been filed: the report logged out reads it."""
+    owner = Store.owner()
+    return Store(owner) if owner else None
+
+
 def mapped_item(kodi_id: int, media: str) -> Optional[str]:
     """The item id behind an owned native row, or None for anything else."""
     kind = MEDIA.get(media) or CONTAINERS.get(media)

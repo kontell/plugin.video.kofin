@@ -348,7 +348,7 @@
   "#30803": "Når en synkronisering tilføjer flere nye album end dette på én gang, hentes ingen af dem. Tælles i album, ikke spor.",
   "#30810": "Kræver %s, kun %s ledig",
   "#30804": "Slet alle downloads",
-  "#30805": "Slet alle hentede filer fra denne enhed. Elementerne bliver i dit bibliotek og afspilles fra serveren igen.",
+  "#30805": "Slet alle hentede filer fra denne enhed, og stop med at holde playlister og musikbiblioteker synkroniseret. Elementerne bliver i dit bibliotek og afspilles fra serveren igen.",
   "#30806": "Slet alle %s download(s), og frigør ca. %s?",
   "#30807": "Der er ingen downloads at slette",
   "#30808": "Pause downloads under afspilning",
@@ -429,5 +429,6 @@
   "#30892": "Når Kodi er genstartet, skal du åbne Kofin igen, vælge Versioner og vælge den nyeste version. Log derefter ind, og vælg de biblioteker, der skal synkroniseres.",
   "#30893": "Du kan også lukke Kodi og slette dets video- og musikdatabaser manuelt, som beskrevet på Kofin-wikien:",
   "#30894": "Findes ikke længere på serveren",
-  "#30895": "%s findes ikke længere på serveren og er fjernet fra biblioteket"
+  "#30895": "%s findes ikke længere på serveren og er fjernet fra biblioteket",
+  "#30896": "De synkroniserede biblioteker bliver i Kodi, indtil du logger ind igen; en anden konto fjerner dem."
 }

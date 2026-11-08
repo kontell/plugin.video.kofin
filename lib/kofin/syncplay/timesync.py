@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import websocket
 
 from kofin.core.log import Logger
-from kofin.core.ws import NoRedirectSocket, sslopt
+from kofin.core.ws import NoRedirectSocket, handshake_header, sslopt
 from kofin.syncplay import utils
 
 if TYPE_CHECKING:
@@ -35,11 +35,14 @@ class TimeSync(threading.Thread):
     the local clock to the server's.
     """
 
-    def __init__(self, manager: "SyncPlayManager", verify_ssl: bool = True) -> None:
+    def __init__(
+        self, manager: "SyncPlayManager", verify_ssl: bool = True, user_agent: str = ""
+    ) -> None:
         threading.Thread.__init__(self, name="kofin-syncplay-timesync")
         self.daemon = True
         self.manager = manager
         self._verify_ssl = verify_ssl
+        self._user_agent = user_agent
         self.samples = deque(maxlen=utils.TIMESYNC_WINDOW)  # type: deque
         self.offset_ms = 0.0
         self.rtt_ms = None
@@ -146,7 +149,7 @@ class TimeSync(threading.Thread):
         try:
             kwargs: dict[str, Any] = {
                 "timeout": 3,
-                "header": {"Authorization": authorization},
+                "header": handshake_header(authorization, self._user_agent),
                 "class_": NoRedirectSocket,
             }
             if url.startswith("wss://"):

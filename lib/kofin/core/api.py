@@ -198,7 +198,9 @@ class Api:
         """The plugin process's client: the stdlib transport, ``sslVerify``
         and the interactive retry and timeout budget."""
         return cls.from_credentials(
-            plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
+            plugin_transport(settings.get_bool("sslVerify"), settings.user_agent()),
+            creds,
+            interactive=True,
         )
 
     def close(self) -> None:

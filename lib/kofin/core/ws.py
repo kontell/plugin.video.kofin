@@ -51,6 +51,15 @@ def sslopt(verify: bool) -> dict[str, Any]:
     return {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
 
 
+def handshake_header(authorization: str, user_agent: str) -> dict[str, str]:
+    """The headers of a websocket handshake. websocket-client sends no
+    User-Agent of its own; ``user_agent`` is settings.user_agent()."""
+    header = {"Authorization": authorization}
+    if user_agent:
+        header["User-Agent"] = user_agent
+    return header
+
+
 class NoRedirectSocket(websocket.WebSocket):
     """A websocket whose handshake follows no redirect.
 
@@ -102,6 +111,7 @@ class WSClient(threading.Thread):
         on_connected: ConnectedCallback,
         on_disconnected: Optional[ConnectedCallback] = None,
         verify_ssl: bool = True,
+        user_agent: str = "",
         on_rejected: Optional[ConnectedCallback] = None,
     ) -> None:
         super().__init__(name="kofin-ws")
@@ -111,6 +121,7 @@ class WSClient(threading.Thread):
         # handshake succeeds.
         self.rejected = False
         self._url = socket_url(server_address)
+        self._user_agent = user_agent
         self._header = auth_header
         self._on_event = on_event
         self._on_connected = on_connected
@@ -181,7 +192,7 @@ class WSClient(threading.Thread):
     def _build_app(self) -> "websocket.WebSocketApp":
         return NoRedirectApp(
             self._url,
-            header={"Authorization": self._header},
+            header=handshake_header(self._header, self._user_agent),
             on_open=self._handle_open,
             on_message=self._handle_message,
             on_error=self._handle_error,

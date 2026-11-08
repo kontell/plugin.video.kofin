@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Slett alle nedlastinger"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Slett hver nedlastede fil fra denne enheten. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Slett hver nedlastede fil fra denne enheten og slutt å holde spillelister og musikkbiblioteker synkronisert. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,7 @@ msgstr "Finnes ikke lenger på serveren"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s finnes ikke lenger på serveren og er fjernet fra biblioteket"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "De synkroniserte bibliotekene blir i Kodi til du logger inn igjen; en annen konto fjerner dem."

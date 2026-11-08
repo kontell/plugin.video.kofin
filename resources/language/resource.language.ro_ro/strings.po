@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Șterge toate descărcările"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Șterge de pe acest dispozitiv fiecare fișier descărcat. Elementele rămân în bibliotecă și se redau din nou de pe server."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Șterge de pe acest dispozitiv fiecare fișier descărcat și nu mai păstrează listele de redare și bibliotecile de muzică sincronizate. Elementele rămân în bibliotecă și se redau din nou de pe server."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,3 +1959,7 @@ msgstr "Nu mai este pe server"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou; un alt cont le elimină."

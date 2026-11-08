@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import threading
+from contextlib import AbstractContextManager
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -27,7 +28,7 @@ from kofin.service.libraryclaim import (
     playing_jellyfin_id,
 )
 from kofin.service.segments import SegmentEngine
-from kofin.service.ports import forward, spawn_once
+from kofin.service.ports import forward, spawn_once, no_modal
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager
@@ -132,8 +133,14 @@ class _Reporter(threading.Thread):
 
 
 class Player(xbmc.Player):
-    def __init__(self, api: Api) -> None:
+    def __init__(
+        self,
+        api: Api,
+        modal: Callable[[str], AbstractContextManager[None]] = no_modal,
+    ) -> None:
         super().__init__()
+        # The service's record of the dialogs it has open, closed at shutdown.
+        self._modal = modal
         self.api = api
         self._item: JsonDict | None = None
         self._ticker: _Ticker | None = None
@@ -411,17 +418,30 @@ class Player(xbmc.Player):
                 LOG.warning("stop report failed: %s", error)
                 # The position is the user's viewing progress and this was
                 # its only route to the server; park it for the next connect
-                # rather than lose it. Contained: a parking failure must not
-                # skip the transcode close below.
+                # rather than lose it, as the server's own stop rule would
+                # have read it: a play that reached the watched share is
+                # Played with no resume point, since a position that far in
+                # is what puts a finished item in Continue Watching.
+                # Contained: a parking failure must not skip the transcode
+                # close below.
                 try:
                     from kofin.downloads import pending
 
-                    pending.enqueue(
-                        str(item["Id"]),
-                        str(item.get("Type") or ""),
-                        position_ticks=int(stop_data["PositionTicks"]),
-                        snapshot=item.get("ServerUserData") or {},
-                    )
+                    if watched_to_end(item):
+                        pending.enqueue(
+                            str(item["Id"]),
+                            str(item.get("Type") or ""),
+                            played=True,
+                            position_ticks=0,
+                            snapshot=item.get("ServerUserData") or {},
+                        )
+                    else:
+                        pending.enqueue(
+                            str(item["Id"]),
+                            str(item.get("Type") or ""),
+                            position_ticks=int(stop_data["PositionTicks"]),
+                            snapshot=item.get("ServerUserData") or {},
+                        )
                 except Exception:  # pragma: no cover - defensive
                     LOG.exception("could not park the stop position")
                 if live_stream_id:
@@ -622,19 +642,23 @@ class Player(xbmc.Player):
         return True
 
     def _remove_download_prompt(self, item_id: str, name: str) -> None:
-        if not xbmcgui.Dialog().yesno(
-            settings.localized(30710),  # Remove download
-            settings.localized(30714) % name,
-        ):
+        with self._modal("yesnodialog"):
+            answer = xbmcgui.Dialog().yesno(
+                settings.localized(30710),  # Remove download
+                settings.localized(30714) % name,
+            )
+        if not answer:
             return
         ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": [item_id]})
 
     def _delete_prompt(self, item: JsonDict) -> None:
         name = item.get("Name") or ""
-        if not xbmcgui.Dialog().yesno(
-            xbmc.getLocalizedString(117),  # Delete
-            settings.localized(30506) % name,
-        ):
+        with self._modal("yesnodialog"):
+            answer = xbmcgui.Dialog().yesno(
+                xbmc.getLocalizedString(117),  # Delete
+                settings.localized(30506) % name,
+            )
+        if not answer:
             return
         try:
             self.api.delete_item(str(item["Id"]))
