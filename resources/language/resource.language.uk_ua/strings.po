@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Видалити всі завантаження"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Видалити з цього пристрою кожен завантажений файл. Об'єкти залишаються у вашій медіатеці й знову відтворюватимуться із сервера."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Видалити з цього пристрою кожен завантажений файл і припинити синхронізацію плейлистів та музичних медіатек. Об'єкти залишаються у вашій медіатеці й знову відтворюються з сервера."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,6 +1959,10 @@ msgstr "Більше немає на сервері"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "Медіатеки %s більше немає на сервері, її вилучено з Kodi"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Синхронізовані бібліотеки залишаються в Kodi до повторного входу; інший обліковий запис їх видаляє."
 
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"

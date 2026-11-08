@@ -348,7 +348,7 @@
   "#30803": "Când o sincronizare adaugă deodată mai multe albume noi decât atât, niciunul nu este descărcat. Se numără albumele, nu piesele.",
   "#30810": "Necesită %s, doar %s liberi",
   "#30804": "Șterge toate descărcările",
-  "#30805": "Șterge de pe acest dispozitiv fiecare fișier descărcat. Elementele rămân în bibliotecă și se redau din nou de pe server.",
+  "#30805": "Șterge de pe acest dispozitiv fiecare fișier descărcat și nu mai păstrează listele de redare și bibliotecile de muzică sincronizate. Elementele rămân în bibliotecă și se redau din nou de pe server.",
   "#30806": "Ștergeți toate cele %s descărcări, eliberând circa %s?",
   "#30807": "Nu există descărcări de șters",
   "#30808": "Suspendă descărcările în timpul redării",
@@ -430,5 +430,6 @@
   "#30893": "Alternativ, închide Kodi și șterge manual bazele sale de date video și muzicale, așa cum descrie wiki-ul Kofin:",
   "#30894": "Nu mai este pe server",
   "#30895": "Biblioteca %s nu mai este pe server și a fost eliminată din Kodi",
+  "#30896": "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou; un alt cont le elimină.",
   "#30897": "%s din %s piese puse în coadă"
 }

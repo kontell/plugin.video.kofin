@@ -348,7 +348,7 @@
   "#30803": "Quan una sincronització afegeix més àlbums nous que aquest valor alhora, no se'n baixa cap. Es compta en àlbums, no en pistes.",
   "#30810": "Calen %s i només hi ha %s lliures",
   "#30804": "Suprimeix totes les baixades",
-  "#30805": "Suprimeix tots els fitxers baixats d'aquest dispositiu. Els elements es mantenen a la vostra biblioteca i es tornen a reproduir des del servidor.",
+  "#30805": "Suprimeix tots els fitxers baixats d'aquest dispositiu i deixa de mantenir sincronitzades les llistes de reproducció i les biblioteques de música. Els elements es mantenen a la vostra biblioteca i es tornen a reproduir des del servidor.",
   "#30806": "Voleu suprimir totes les %s baixades i alliberar uns %s?",
   "#30807": "No hi ha cap baixada per suprimir",
   "#30808": "Atura les baixades durant la reproducció",
@@ -430,5 +430,6 @@
   "#30893": "També pots tancar Kodi i eliminar les seves bases de dades de vídeo i música a mà, tal com explica la wiki de Kofin:",
   "#30894": "Ja no és al servidor",
   "#30895": "%s ja no és al servidor i s'ha eliminat de la biblioteca",
+  "#30896": "Les biblioteques sincronitzades es mantenen a Kodi fins que tornis a iniciar sessió; un altre compte les elimina.",
   "#30897": "S'han posat a la cua %s de %s pistes"
 }

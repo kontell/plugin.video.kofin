@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "모든 다운로드 삭제"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "이 기기에서 다운로드한 파일을 모두 삭제합니다. 항목은 라이브러리에 남아 다시 서버에서 재생됩니다."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "이 기기에서 다운로드한 파일을 모두 삭제하고 재생목록과 음악 라이브러리의 동기화 유지를 중단합니다. 항목은 라이브러리에 남아 다시 서버에서 재생됩니다."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,6 +1959,10 @@ msgstr "더 이상 서버에 없음"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s이(가) 더 이상 서버에 없어 라이브러리에서 제거되었습니다"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "동기화된 라이브러리는 다시 로그인할 때까지 Kodi에 남아 있으며, 다른 계정으로 로그인하면 제거됩니다."
 
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"

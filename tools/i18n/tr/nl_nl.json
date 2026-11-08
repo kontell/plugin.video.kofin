@@ -348,7 +348,7 @@
   "#30803": "Wanneer een synchronisatie in één keer meer nieuwe albums toevoegt dan dit, wordt er geen enkele gedownload. Geteld in albums, niet in nummers.",
   "#30810": "Vereist %s, maar %s vrij",
   "#30804": "Alle downloads verwijderen",
-  "#30805": "Verwijder elk gedownload bestand van dit apparaat. De items blijven in je bibliotheek en spelen weer af vanaf de server.",
+  "#30805": "Verwijder elk gedownload bestand van dit apparaat en stop met het gesynchroniseerd houden van afspeellijsten en muziekbibliotheken. De items blijven in je bibliotheek en spelen weer af vanaf de server.",
   "#30806": "Alle %s download(s) verwijderen, ca. %s vrij?",
   "#30807": "Geen downloads om te verwijderen",
   "#30808": "Downloads pauzeren tijdens afspelen",
@@ -430,5 +430,6 @@
   "#30893": "Je kunt ook Kodi sluiten en de video- en muziekdatabases met de hand verwijderen, zoals de Kofin-wiki beschrijft:",
   "#30894": "Niet meer op de server",
   "#30895": "%s staat niet meer op de server en is uit de bibliotheek verwijderd",
+  "#30896": "De gesynchroniseerde bibliotheken blijven in Kodi tot je opnieuw inlogt; een ander account verwijdert ze.",
   "#30897": "%s van %s nummers in de wachtrij gezet"
 }

@@ -348,7 +348,7 @@
   "#30803": "Lorsqu'une synchronisation ajoute plus de nouveaux albums que ce nombre d'un coup, aucun n'est téléchargé. Le compte se fait en albums, pas en morceaux.",
   "#30810": "Nécessite %s, %s libre seulement",
   "#30804": "Supprimer tous les téléchargements",
-  "#30805": "Supprime de cet appareil tous les fichiers téléchargés. Les éléments restent dans votre bibliothèque et se liront à nouveau depuis le serveur.",
+  "#30805": "Supprime de cet appareil tous les fichiers téléchargés et cesse de garder les listes de lecture et les bibliothèques musicales synchronisées. Les éléments restent dans votre bibliothèque et se liront à nouveau depuis le serveur.",
   "#30806": "Supprimer les %s téléchargement(s) et libérer environ %s ?",
   "#30807": "Aucun téléchargement à supprimer",
   "#30808": "Suspendre les téléchargements pendant la lecture",
@@ -430,5 +430,6 @@
   "#30893": "Vous pouvez aussi fermer Kodi et supprimer manuellement ses bases de données vidéo et musique, comme l'explique le wiki de Kofin :",
   "#30894": "N'est plus sur le serveur",
   "#30895": "La bibliothèque %s n'est plus sur le serveur et a été retirée de Kodi",
+  "#30896": "Les bibliothèques synchronisées restent dans Kodi jusqu'à votre prochaine connexion ; un autre compte les supprime.",
   "#30897": "%s pistes sur %s mises en file d'attente"
 }

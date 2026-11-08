@@ -348,7 +348,7 @@
   "#30803": "Wenn eine Synchronisation auf einmal mehr neue Alben hinzufügt, wird keines davon heruntergeladen. Gezählt wird in Alben, nicht in Titeln.",
   "#30810": "Benötigt %s, nur %s frei",
   "#30804": "Alle Downloads löschen",
-  "#30805": "Jede heruntergeladene Datei von diesem Gerät löschen. Die Einträge bleiben in deiner Bibliothek und werden wieder vom Server wiedergegeben.",
+  "#30805": "Jede heruntergeladene Datei von diesem Gerät löschen und Playlists und Musikbibliotheken nicht mehr synchron halten. Die Einträge bleiben in deiner Bibliothek und werden wieder vom Server wiedergegeben.",
   "#30806": "Alle %s Download(s) löschen und etwa %s freigeben?",
   "#30807": "Es gibt keine Downloads zum Löschen",
   "#30808": "Downloads während der Wiedergabe pausieren",
@@ -430,5 +430,6 @@
   "#30893": "Alternativ kannst du Kodi beenden und seine Video- und Musikdatenbanken von Hand löschen, wie im Kofin-Wiki beschrieben:",
   "#30894": "Nicht mehr auf dem Server",
   "#30895": "%s ist nicht mehr auf dem Server und wurde aus der Bibliothek entfernt",
+  "#30896": "Die synchronisierten Bibliotheken bleiben in Kodi, bis du dich wieder anmeldest; ein anderes Konto entfernt sie.",
   "#30897": "%s von %s Titeln eingereiht"
 }

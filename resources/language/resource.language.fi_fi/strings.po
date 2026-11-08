@@ -1645,8 +1645,8 @@ msgid "Delete all downloads"
 msgstr "Poista kaikki lataukset"
 
 msgctxt "#30805"
-msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr "Poista jokainen ladattu tiedosto tältä laitteelta. Kohteet säilyvät kirjastossasi ja toistuvat taas palvelimelta."
+msgid "Delete every downloaded file from this device and stop keeping playlists and music libraries in sync. The items stay in your library and play from the server again."
+msgstr "Poista jokainen ladattu tiedosto tältä laitteelta ja lopeta soittolistojen ja musiikkikirjastojen pitäminen ajan tasalla. Kohteet säilyvät kirjastossasi ja toistuvat taas palvelimelta."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
@@ -1959,6 +1959,10 @@ msgstr "Ei enää palvelimella"
 msgctxt "#30895"
 msgid "%s is no longer on the server and was removed from the library"
 msgstr "%s ei ole enää palvelimella, ja se poistettiin kirjastosta"
+
+msgctxt "#30896"
+msgid "The synced libraries stay in Kodi until you log in again; a different account removes them."
+msgstr "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne."
 
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"

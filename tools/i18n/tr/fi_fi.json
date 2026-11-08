@@ -348,7 +348,7 @@
   "#30803": "Kun synkronointi lisää kerralla enemmän uusia albumeita kuin tämä, mitään niistä ei ladata. Lasketaan albumeina, ei kappaleina.",
   "#30810": "Vaatii %s, vapaana vain %s",
   "#30804": "Poista kaikki lataukset",
-  "#30805": "Poista jokainen ladattu tiedosto tältä laitteelta. Kohteet säilyvät kirjastossasi ja toistuvat taas palvelimelta.",
+  "#30805": "Poista jokainen ladattu tiedosto tältä laitteelta ja lopeta soittolistojen ja musiikkikirjastojen pitäminen ajan tasalla. Kohteet säilyvät kirjastossasi ja toistuvat taas palvelimelta.",
   "#30806": "Poistetaanko kaikki %s latausta (%s)?",
   "#30807": "Ei poistettavia latauksia",
   "#30808": "Keskeytä lataukset toiston ajaksi",
@@ -430,5 +430,6 @@
   "#30893": "Voit myös sulkea Kodin ja poistaa sen video- ja musiikkitietokannat käsin Kofin-wikin ohjeiden mukaan:",
   "#30894": "Ei enää palvelimella",
   "#30895": "%s ei ole enää palvelimella, ja se poistettiin kirjastosta",
+  "#30896": "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toinen tili poistaa ne.",
   "#30897": "%s/%s kappaletta jonossa"
 }

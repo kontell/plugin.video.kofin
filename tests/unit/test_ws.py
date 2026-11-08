@@ -327,6 +327,24 @@ def _run_once(monkeypatch, client):
         ws_module.websocket.setdefaulttimeout(previous)
 
 
+def test_the_handshake_carries_the_user_agent(monkeypatch):
+    """websocket-client sends no User-Agent of its own."""
+    with ScriptedServer() as server:
+        server.answer("/socket", 404)
+        client = WSClient(
+            server.url,
+            'MediaBrowser Token="tok"',
+            on_event=lambda message_type, data: None,
+            on_connected=lambda: None,
+            user_agent="Kodi/23.0 (X11; Linux x86_64)",
+        )
+        _run_once(monkeypatch, client)
+
+    assert [h.get("User-Agent") for _, _, h, _ in server.requests] == [
+        "Kodi/23.0 (X11; Linux x86_64)"
+    ]
+
+
 def test_a_redirected_handshake_takes_the_token_nowhere_else(monkeypatch):
     """websocket-client follows a redirected handshake with every header,
     the Authorization header included, and run_forever takes no option to
@@ -575,3 +593,44 @@ def test_each_attempt_builds_a_fresh_app(monkeypatch):
     # its own app rather than the poisoned one.
     assert len(built) == 2
     assert built[0] is not built[1]
+
+
+def test_a_refused_handshake_marks_the_session_rejected_once():
+    """401 and 403 on the handshake are the server refusing the session, not
+    an outage: said once, and the retry backs off until a handshake succeeds."""
+    import websocket as ws_lib
+
+    from kofin.core import ws as ws_module
+
+    rejected = []
+    ws = WSClient(
+        "http://server:8096",
+        "auth",
+        on_event=lambda message_type, data: None,
+        on_connected=lambda: None,
+        on_rejected=lambda: rejected.append(True),
+    )
+    ws._handle_error(
+        None, ws_lib.WebSocketBadStatusException("Handshake status 403 Forbidden", 403)
+    )
+    ws._handle_error(
+        None, ws_lib.WebSocketBadStatusException("Handshake status 403 Forbidden", 403)
+    )
+
+    assert ws.rejected is True and rejected == [True]
+    assert ws_module.REJECTED_RETRY_SECONDS > ws_module.RECONNECT_SECONDS
+    ws._handle_error(None, RuntimeError("a plain drop"))  # not a refusal
+    assert rejected == [True]
+
+
+def test_a_handshake_that_succeeds_clears_the_rejection(monkeypatch):
+    ws = WSClient(
+        "http://server:8096",
+        "auth",
+        on_event=lambda m, d: None,
+        on_connected=lambda: None,
+    )
+    ws.rejected = True
+    ws._stop = True  # the open returns before the keepalive machinery
+    ws._handle_open(None)
+    assert ws.rejected is False
