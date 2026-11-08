@@ -225,6 +225,28 @@ class StreamedResponse:
             LOG.debug("stream close failed: %s", error)
 
 
+def _default_trust_adapter() -> requests.adapters.HTTPAdapter:
+    """An https adapter whose TLS context is the standard library's default.
+
+    requests on its own verifies against certifi's bundle. The default context
+    trusts what OpenSSL does: the file named by ``SSL_CERT_FILE``, which Kodi
+    sets from advancedsettings' ``catrustfile`` (and to its own bundle on
+    Android, macOS and Windows), or else the system store. The plugin's
+    transport, the websockets and Kodi's curl trust the same, so a CA the user
+    gave Kodi is trusted here too.
+    """
+    import ssl
+
+    from requests.adapters import HTTPAdapter
+
+    class DefaultTrust(HTTPAdapter):
+        def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["ssl_context"] = ssl.create_default_context()
+            super().init_poolmanager(*args, **kwargs)
+
+    return DefaultTrust()
+
+
 class Http:
     """A lazily created, kept-alive requests session."""
 
@@ -247,6 +269,7 @@ class Http:
 
         if self._session is None:
             session = requests.Session()
+            session.mount("https://", _default_trust_adapter())
             if self._user_agent:
                 session.headers["User-Agent"] = self._user_agent
             self._session = session
