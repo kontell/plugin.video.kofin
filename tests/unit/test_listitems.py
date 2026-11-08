@@ -446,30 +446,3 @@ def test_a_persons_portrait_is_capped_at_400_whatever_the_artwork_cap(monkeypatc
     assert listitems.art_query() == ""
     listitems.forget_art_query()
     assert listitems.person_thumb("http://s", {"Id": "p1"}) == ""
-
-
-def test_art_urls_tell_kodi_to_skip_the_check_kofin_skips(monkeypatch):
-    """Kodi fetches every art URL itself, and every one ends with the query."""
-    from kofin.plugin import listitems
-    from tests.unit.fakes import FakeAddon
-
-    FakeAddon.store = {
-        "serverAddress": "https://jf:8920",
-        "sslVerify": "false",
-        "maxArtResolution": "1080",
-        "compressArt": "true",
-    }
-    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
-    listitems.forget_art_query()
-    try:
-        art = listitems.art_for(
-            {"Id": "m1", "Type": "Movie", "ImageTags": {"Primary": "t"}},
-            "https://jf:8920",
-        )
-        thumb = listitems.person_thumb(
-            "https://jf:8920", {"Id": "p1", "PrimaryImageTag": "t"}
-        )
-    finally:
-        listitems.forget_art_query()
-    assert art["poster"].endswith("&MaxHeight=1080&Quality=90|verifypeer=false")
-    assert thumb.endswith("|verifypeer=false")

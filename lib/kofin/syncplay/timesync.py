@@ -8,12 +8,12 @@ unknown message type kills the shared socket."""
 import json
 import threading
 from collections import deque
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 import websocket
 
 from kofin.core.log import Logger
-from kofin.core.ws import NoRedirectSocket, handshake_header, sslopt
+from kofin.core.ws import NoRedirectSocket, handshake_header
 from kofin.syncplay import utils
 
 if TYPE_CHECKING:
@@ -35,13 +35,10 @@ class TimeSync(threading.Thread):
     the local clock to the server's.
     """
 
-    def __init__(
-        self, manager: "SyncPlayManager", verify_ssl: bool = True, user_agent: str = ""
-    ) -> None:
+    def __init__(self, manager: "SyncPlayManager", user_agent: str = "") -> None:
         threading.Thread.__init__(self, name="kofin-syncplay-timesync")
         self.daemon = True
         self.manager = manager
-        self._verify_ssl = verify_ssl
         self._user_agent = user_agent
         self.samples = deque(maxlen=utils.TIMESYNC_WINDOW)  # type: deque
         self.offset_ms = 0.0
@@ -147,14 +144,12 @@ class TimeSync(threading.Thread):
         url, authorization = target
 
         try:
-            kwargs: dict[str, Any] = {
-                "timeout": 3,
-                "header": handshake_header(authorization, self._user_agent),
-                "class_": NoRedirectSocket,
-            }
-            if url.startswith("wss://"):
-                kwargs["sslopt"] = sslopt(self._verify_ssl)
-            self._ws = websocket.create_connection(url, **kwargs)
+            self._ws = websocket.create_connection(
+                url,
+                timeout=3,
+                header=handshake_header(authorization, self._user_agent),
+                class_=NoRedirectSocket,
+            )
         except Exception as error:
             LOG.debug("Time-sync socket connect failed: %s", error)
             return None

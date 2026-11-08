@@ -193,10 +193,6 @@ def _queries() -> tuple[str, str]:
     art = "&MaxHeight=%d%s" % (maxheight, quality) if maxheight else ""
     side = min(maxheight, PERSON_MAX) if maxheight else PERSON_MAX
     person = "&MaxHeight=%d&MaxWidth=%d%s" % (side, side, quality)
-    # Every art URL ends with its query, and Kodi fetches every one itself.
-    if settings.skip_kodi_verify(settings.get_str("serverAddress")):
-        art += "|" + settings.KODI_SKIP_VERIFY
-        person += "|" + settings.KODI_SKIP_VERIFY
     _ART_QUERY = (now, art, person)
     return art, person
 

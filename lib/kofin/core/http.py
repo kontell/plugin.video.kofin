@@ -152,7 +152,7 @@ def run_ladder(
     raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
-def plugin_transport(verify_ssl: bool = True, user_agent: str = "") -> Http:
+def plugin_transport(user_agent: str = "") -> Http:
     """The transport for the *plugin* process.
 
     Standard library rather than ``requests``, because the requests import is
@@ -163,7 +163,7 @@ def plugin_transport(verify_ssl: bool = True, user_agent: str = "") -> Http:
     """
     from kofin.core.stdhttp import StdlibHttp
 
-    return StdlibHttp(verify_ssl, user_agent)
+    return StdlibHttp(user_agent)
 
 
 class StreamedResponse:
@@ -230,11 +230,9 @@ class Http:
 
     def __init__(
         self,
-        verify_ssl: bool = True,
         abort: Callable[[], bool] | None = None,
         user_agent: str = "",
     ) -> None:
-        self._verify_ssl = verify_ssl
         # Asked between retries: True means give up rather than replay. Passed
         # in rather than read here so this module keeps its no-Kodi-imports
         # property; the service wires its stop flag in (service/main.py).
@@ -249,21 +247,10 @@ class Http:
 
         if self._session is None:
             session = requests.Session()
-            session.verify = self._verify_ssl
             if self._user_agent:
                 session.headers["User-Agent"] = self._user_agent
-            if not self._verify_ssl:
-                # The user turned verification off deliberately (a private CA,
-                # a self-signed box); urllib3 would otherwise write a warning
-                # into Kodi's log for every single request made.
-                try:
-                    import urllib3
-
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                except Exception:  # pragma: no cover - defensive
-                    pass
             self._session = session
-            LOG.debug("http session opened (verify_ssl=%s)", self._verify_ssl)
+            LOG.debug("http session opened")
         return self._session
 
     def close(self) -> None:

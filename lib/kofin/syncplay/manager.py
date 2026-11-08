@@ -892,11 +892,7 @@ class SyncPlayManager:
         self.player.syncplay_group_active = True
 
         if self.timesync is None:
-            self.timesync = TimeSync(
-                self,
-                verify_ssl=settings.get_bool("sslVerify"),
-                user_agent=settings.user_agent(),
-            )
+            self.timesync = TimeSync(self, user_agent=settings.user_agent())
             self.timesync.start()
         else:
             self.timesync.force_update()

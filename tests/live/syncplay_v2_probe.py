@@ -79,7 +79,7 @@ def main():
     args = parser.parse_args()
     username, _, password = args.user.partition(":")
 
-    http = plugin_transport(verify_ssl=False)
+    http = plugin_transport()
     device_id = "kofin-m3-probe-%d" % int(time.time())
     login = Api(http, args.base, "kofin-probe", device_id, "0.0")
     auth = login.post(

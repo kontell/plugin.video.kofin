@@ -150,7 +150,7 @@ def find_servers(request: Request) -> None:
         # URL, and every other picker guards the same way.
         return
 
-    transport = plugin_transport(settings.get_bool("sslVerify"), settings.user_agent())
+    transport = plugin_transport(settings.user_agent())
     try:
         candidates = _scan_with_progress(transport)
     finally:

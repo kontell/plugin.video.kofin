@@ -595,16 +595,6 @@ def test_mixed_whitelist_entries_survive_selection(monkeypatch):
     assert service.library.commands == [("RemoveLibrary", {"Id": "Mixed:v-mixed"})]
 
 
-def test_ssl_handler(monkeypatch):
-    service = FakeService()
-    FakeAddon.store["sslVerify"] = "true"
-    applier = ready_applier(service)
-
-    FakeAddon.store["sslVerify"] = "false"
-    applier.apply()
-    assert service._restart_requested is True
-
-
 def test_library_nodes_enable_disable():
     """On rewrites the tree at once and the playlists at the next pass; off
     cleans the playlists up and republishes the tree."""

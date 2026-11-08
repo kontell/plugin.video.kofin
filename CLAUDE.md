@@ -138,9 +138,6 @@ What remains is kofin's own:
   `plugin/browse.py` (`BACKDROP_IMAGE`), and nothing rewrites it. The server's splashscreen
   is fetched as WebP and written content-addressed into addon_data (`service/backdrop.py`,
   `core/api.py::splashscreen`); `profile_path` is what a listing shows while the setting is on.
-- **`sslVerify` is one setting for every TLS socket**, HTTP and WSS. websocket-client 1.6.4 injects
-  `CERT_REQUIRED` when `sslopt` is omitted, so a self-signed server with verify off listed fine and
-  the websocket never came up. `WSClient` and the SyncPlay time-sync socket pass `sslopt` on `wss://`.
 - **Every request and websocket handshake carries `settings.user_agent()`**, Kodi's own, passed
   into both transports, `WSClient` and `TimeSync` where they are built. One built without it sends
   its library's (none from `http.client` and websocket-client, `python-requests/<version>` from

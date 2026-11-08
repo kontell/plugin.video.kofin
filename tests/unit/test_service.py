@@ -460,24 +460,15 @@ def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
     assert ipc.NONCE_KEY not in library.payloads[0]
 
 
-def test_ssl_change_triggers_restart():
-    FakeAddon.store["sslVerify"] = "true"
-    service = Service()
-    service.settings_apply.mark_ready()  # past the startup guard
-    FakeAddon.store["sslVerify"] = "false"
-    service.onSettingsChanged()
-    assert service._restart_requested is True
-
-
 def test_settings_change_ignored_before_ready():
     """Kodi's startup settings-load fires onSettingsChanged with transient
     reads; the service must not act until the applier is ready, or a plain
     restart could prompt a library removal."""
-    FakeAddon.store["sslVerify"] = "true"
+    FakeAddon.store["contextBitrates"] = "3,10,20"
     service = Service()  # applier not ready
-    FakeAddon.store["sslVerify"] = "false"
+    FakeAddon.store["contextBitrates"] = "3"
     service.onSettingsChanged()
-    assert service._restart_requested is False
+    assert state.PROP_CONTEXT_BITRATES not in FakeWindow.store
 
 
 def test_a_stopped_generation_ignores_kodi_callbacks(monkeypatch):
@@ -488,16 +479,16 @@ def test_a_stopped_generation_ignores_kodi_callbacks(monkeypatch):
     monkeypatch.setattr(
         Service, "_kodi_screensaver_deactivated", lambda self, data: handled.append(1)
     )
-    FakeAddon.store["sslVerify"] = "true"
+    FakeAddon.store["contextBitrates"] = "3,10,20"
     service = Service()
     service.settings_apply.mark_ready()
     service._shutdown()
 
-    FakeAddon.store["sslVerify"] = "false"
+    FakeAddon.store["contextBitrates"] = "3"
     service.onSettingsChanged()
     service.onNotification("xbmc", "GUI.OnScreensaverDeactivated", "")
 
-    assert service._restart_requested is False
+    assert FakeWindow.store.get(state.PROP_CONTEXT_BITRATES) != "3"
     assert handled == []
 
 
@@ -706,9 +697,9 @@ def test_broken_syncplay_never_suppresses_the_sync_kick():
 
 
 def test_a_restart_leaves_the_play_to_the_next_generation(monkeypatch):
-    """A sign-in or an sslVerify change restarts the service in the middle of
-    a play, and the teardown clears the live state before the next
-    generation exists. Its first tick reports the play Kodi goes on with."""
+    """A sign-in restarts the service in the middle of a play, and the
+    teardown clears the live state before the next generation exists. Its
+    first tick reports the play Kodi goes on with."""
     FakeAddon.store.update(
         serverAddress="http://fixture.invalid", userId="user", accessToken="fixture"
     )
