@@ -24,7 +24,7 @@ from kofin.core import (
     toast,
 )
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import Http, HttpError, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
@@ -914,6 +914,24 @@ class Service(xbmc.Monitor):
                     self.api.update_user_data(row.jellyfin_id, payload)
                     LOG.debug("replayed userdata for %s: %s", row.jellyfin_id, payload)
                 pending.remove(row.jellyfin_id)
+            except HttpError as error:
+                if error.status == 404:
+                    # The server no longer has the item: nothing to replay,
+                    # and the rows behind it must not wait on it.
+                    LOG.debug(
+                        "parked userdata for %s dropped: the server no longer has it",
+                        row.jellyfin_id,
+                    )
+                    pending.remove(row.jellyfin_id)
+                    continue
+                attempts = pending.record_attempt(row.jellyfin_id)
+                LOG.warning(
+                    "userdata replay failed for %s (attempt %d): %s",
+                    row.jellyfin_id,
+                    attempts,
+                    error,
+                )
+                return  # the server is unwell; the rest keeps for next time
             except JellyfinError as error:
                 attempts = pending.record_attempt(row.jellyfin_id)
                 LOG.warning(
