@@ -10,6 +10,7 @@ assertion.
 """
 
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,37 @@ def test_locale_is_exactly_what_the_generator_would_write(locale, source):
 def test_locale_is_structurally_sound(locale, source):
     """msgctxt order, untouched msgids, no empty or left-in-English msgstr."""
     assert validate.check(locale, source) == []
+
+
+def test_addon_xml_summary_and_description_match_the_language_files(source):
+    """The repository listing reads addon.xml. An installed add-on reads the
+    same sentences from strings.po, so the two copies are one text."""
+    metadata = (
+        ET.parse(_repo_root() / "addon.xml")
+        .getroot()
+        .find("extension[@point='xbmc.addon.metadata']")
+    )
+    english = {
+        entry["ctx"]: entry["msgid"]
+        for entry in source
+        if entry["ctx"] in ("Addon Summary", "Addon Description")
+    }
+    expected = {"en_GB": english}
+    for locale, (lang, _team, _plural) in gen.LANG_META.items():
+        entries = po_lib.parse_entries(
+            po_lib.LANG_DIR / ("resource.language.%s/strings.po" % locale)
+        )
+        expected[lang] = {
+            entry["ctx"]: entry["msgstr"]
+            for entry in entries
+            if entry["ctx"] in ("Addon Summary", "Addon Description")
+        }
+    for ctx, tag in (
+        ("Addon Summary", "summary"),
+        ("Addon Description", "description"),
+    ):
+        found = {element.get("lang"): element.text for element in metadata.findall(tag)}
+        assert found == {lang: texts[ctx] for lang, texts in expected.items()}
 
 
 @pytest.mark.parametrize("locale", _generated_locales())
