@@ -39,7 +39,7 @@ def secret(key):
 
 
 def transport_and_header(creds, token=None):
-    transport = plugin_transport(settings.get_bool("sslVerify"))
+    transport = plugin_transport()
     header = (
         auth.build_auth_header(
             settings.device_name(),

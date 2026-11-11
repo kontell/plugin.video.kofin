@@ -48,7 +48,6 @@ class SettingsApplier:
         self.service = service
         self.ready = False
         self.handlers: dict[str, Handler] = {
-            "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
             "syncPlayTempo": self._syncplay_tempo_changed,
@@ -150,10 +149,6 @@ class SettingsApplier:
         return False
 
     # -- handlers -------------------------------------------------------------
-
-    def _ssl_verify_changed(self, old: str, new: str) -> None:
-        LOG.debug("sslVerify changed; restarting service cycle")
-        self.service._restart_requested = True
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —

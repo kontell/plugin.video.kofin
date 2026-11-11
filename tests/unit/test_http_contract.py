@@ -7,6 +7,13 @@ carries. Every test here runs once per transport through ``Api`` and asserts
 one answer for both.
 """
 
+import http.server
+import select
+import shutil
+import socket
+import ssl
+import subprocess
+import threading
 from urllib.parse import unquote_plus
 
 import pytest
@@ -245,3 +252,225 @@ def test_the_plugin_client_sends_kodis_user_agent(server, monkeypatch):
         api.close()
 
     assert server.requests[0][2].get("User-Agent") == UA
+
+
+def _serve_https(cert, key):
+    """A loopback server presenting ``cert`` and answering every GET with ``{}``."""
+
+    class Answer(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Answer)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+class _ConnectProxy:
+    """An HTTP proxy that tunnels CONNECT to the requested loopback port.
+
+    ``connects`` counts tunnels, so a test can tell the request went through
+    the proxy rather than directly to the origin.
+    """
+
+    def __init__(self):
+        self.connects = 0
+        self._lock = threading.Lock()
+        self._sock = socket.socket()
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen()
+        self.url = "http://127.0.0.1:%d" % self._sock.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def close(self):
+        self._sock.close()
+
+    def _accept(self):
+        while True:
+            try:
+                client, _addr = self._sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._tunnel, args=(client,), daemon=True).start()
+
+    def _tunnel(self, client):
+        upstream = None
+        try:
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = client.recv(4096)
+                if not chunk:
+                    return
+                data += chunk
+            request = data.split(b"\r\n", 1)[0].decode("ascii", "replace")
+            verb, target, *_rest = request.split(" ")
+            host, port_text = target.rsplit(":", 1)
+            if verb != "CONNECT" or host != "127.0.0.1":
+                client.sendall(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                return
+            with self._lock:
+                self.connects += 1
+            upstream = socket.create_connection(("127.0.0.1", int(port_text)))
+            client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            pair = [client, upstream]
+            while True:
+                readable, _writable, _errors = select.select(pair, [], [], 5)
+                if not readable:
+                    return
+                for sock in readable:
+                    other = upstream if sock is client else client
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        return
+                    other.sendall(chunk)
+        except OSError:
+            return
+        finally:
+            client.close()
+            if upstream is not None:
+                upstream.close()
+
+
+@pytest.fixture(scope="module")
+def private_ca(tmp_path_factory):
+    """A CA of the user's own, and a loopback server whose certificate it
+    signed: ``(ca file, https url)``."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("needs the openssl command")
+    work = tmp_path_factory.mktemp("private-ca")
+    ca, ca_key = work / "ca.pem", work / "ca.key"
+    cert, key, csr = work / "server.pem", work / "server.key", work / "server.csr"
+    extensions = work / "server.cnf"
+    extensions.write_text(
+        "subjectAltName=IP:127.0.0.1\n"
+        "authorityKeyIdentifier=keyid,issuer\n"
+        "basicConstraints=CA:FALSE\n"
+        "keyUsage=digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\n"
+    )
+    for command in (
+        ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]
+        + ["-subj", "/CN=Kofin test CA"]
+        + ["-addext", "keyUsage=critical,keyCertSign,cRLSign"]
+        + ["-keyout", str(ca_key), "-out", str(ca)],
+        ["req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=127.0.0.1"]
+        + ["-keyout", str(key), "-out", str(csr)],
+        ["x509", "-req", "-in", str(csr), "-CA", str(ca), "-CAkey", str(ca_key)]
+        + ["-CAcreateserial", "-days", "2", "-extfile", str(extensions)]
+        + ["-out", str(cert)],
+    ):
+        subprocess.run([openssl, *command], check=True, capture_output=True)
+
+    server = _serve_https(cert, key)
+    yield str(ca), "https://127.0.0.1:%d" % server.server_address[1]
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize("transport_name", ["requests", "stdlib"])
+def test_a_ca_given_to_kodi_is_trusted_by_both(private_ca, transport_name, monkeypatch):
+    """Kodi exports advancedsettings' catrustfile as SSL_CERT_FILE. A server
+    that CA signed is reached by both transports with it and refused by both
+    without it; requests on its own would trust certifi's bundle alone."""
+    ca, url = private_ca
+    monkeypatch.setattr(http_module.time, "sleep", lambda seconds: None)
+    for name in (
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    def get():
+        transport = (
+            http_module.Http() if transport_name == "requests" else stdhttp.StdlibHttp()
+        )
+        api = Api(transport, url, "Kodi", "dev1", "0.1.0", token="tok")
+        try:
+            return api.get("/System/Info/Public")
+        finally:
+            transport.close()
+
+    with pytest.raises(ServerUnreachable):
+        get()
+
+    monkeypatch.setenv("SSL_CERT_FILE", ca)
+    assert get() == {}
+
+
+def test_an_http_proxy_trusts_the_ca_given_to_kodi(private_ca, monkeypatch, tmp_path):
+    """``HTTPS_PROXY`` builds its own pool. A server signed by the CA Kodi
+    exports as ``SSL_CERT_FILE`` is reached through that pool, and a server
+    signed by anyone else is refused."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("needs the openssl command")
+    ca, trusted_url = private_ca
+    untrusted_cert = tmp_path / "untrusted.pem"
+    untrusted_key = tmp_path / "untrusted.key"
+    subprocess.run(
+        [openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]
+        + ["-subj", "/CN=untrusted", "-addext", "subjectAltName=IP:127.0.0.1"]
+        + ["-keyout", str(untrusted_key), "-out", str(untrusted_cert)],
+        check=True,
+        capture_output=True,
+    )
+    untrusted = _serve_https(untrusted_cert, untrusted_key)
+    untrusted_url = "https://127.0.0.1:%d" % untrusted.server_address[1]
+    proxy = _ConnectProxy()
+    monkeypatch.setattr(http_module.time, "sleep", lambda seconds: None)
+    for name in (
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "http_proxy",
+        "HTTP_PROXY",
+        "https_proxy",
+        "HTTPS_PROXY",
+        "all_proxy",
+        "ALL_PROXY",
+        "no_proxy",
+        "NO_PROXY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("https_proxy", proxy.url)
+    monkeypatch.setenv("SSL_CERT_FILE", ca)
+
+    def get(url):
+        before = proxy.connects
+        transport = http_module.Http()
+        api = Api(transport, url, "Kodi", "dev1", "0.1.0", token="tok")
+        try:
+            return api.get("/System/Info/Public")
+        finally:
+            transport.close()
+            tunnels.append(proxy.connects - before)
+
+    tunnels = []
+    try:
+        assert get(trusted_url) == {}
+        with pytest.raises(ServerUnreachable):
+            get(untrusted_url)
+    finally:
+        proxy.close()
+        untrusted.shutdown()
+        untrusted.server_close()
+
+    # The proxy records one CONNECT per tunnel, which is how these two
+    # results are known to have used the proxy pool.
+    assert tunnels[0] >= 1
+    assert tunnels[1] >= 1

@@ -152,7 +152,7 @@ def run_ladder(
     raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
-def plugin_transport(verify_ssl: bool = True, user_agent: str = "") -> Http:
+def plugin_transport(user_agent: str = "") -> Http:
     """The transport for the *plugin* process.
 
     Standard library rather than ``requests``, because the requests import is
@@ -163,7 +163,7 @@ def plugin_transport(verify_ssl: bool = True, user_agent: str = "") -> Http:
     """
     from kofin.core.stdhttp import StdlibHttp
 
-    return StdlibHttp(verify_ssl, user_agent)
+    return StdlibHttp(user_agent)
 
 
 class StreamedResponse:
@@ -225,16 +225,41 @@ class StreamedResponse:
             LOG.debug("stream close failed: %s", error)
 
 
+def _default_trust_adapter() -> requests.adapters.HTTPAdapter:
+    """An https adapter whose TLS context is the standard library's default.
+
+    requests on its own verifies against certifi's bundle. The default context
+    trusts what OpenSSL does: the file named by ``SSL_CERT_FILE``, which Kodi
+    sets from advancedsettings' ``catrustfile`` (and to its own bundle on
+    Android, macOS and Windows), or else the system store. The plugin's
+    transport, the websockets and Kodi's curl trust the same, so a CA the user
+    gave Kodi is trusted here too. An ``HTTPS_PROXY`` connection uses a second
+    pool, built by ``proxy_manager_for``, so that pool gets the same context.
+    """
+    import ssl
+
+    from requests.adapters import HTTPAdapter
+
+    class DefaultTrust(HTTPAdapter):
+        def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["ssl_context"] = ssl.create_default_context()
+            super().init_poolmanager(*args, **kwargs)
+
+        def proxy_manager_for(self, proxy: str, **kwargs: Any) -> Any:
+            kwargs["ssl_context"] = ssl.create_default_context()
+            return super().proxy_manager_for(proxy, **kwargs)
+
+    return DefaultTrust()
+
+
 class Http:
     """A lazily created, kept-alive requests session."""
 
     def __init__(
         self,
-        verify_ssl: bool = True,
         abort: Callable[[], bool] | None = None,
         user_agent: str = "",
     ) -> None:
-        self._verify_ssl = verify_ssl
         # Asked between retries: True means give up rather than replay. Passed
         # in rather than read here so this module keeps its no-Kodi-imports
         # property; the service wires its stop flag in (service/main.py).
@@ -249,21 +274,11 @@ class Http:
 
         if self._session is None:
             session = requests.Session()
-            session.verify = self._verify_ssl
+            session.mount("https://", _default_trust_adapter())
             if self._user_agent:
                 session.headers["User-Agent"] = self._user_agent
-            if not self._verify_ssl:
-                # The user turned verification off deliberately (a private CA,
-                # a self-signed box); urllib3 would otherwise write a warning
-                # into Kodi's log for every single request made.
-                try:
-                    import urllib3
-
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                except Exception:  # pragma: no cover - defensive
-                    pass
             self._session = session
-            LOG.debug("http session opened (verify_ssl=%s)", self._verify_ssl)
+            LOG.debug("http session opened")
         return self._session
 
     def close(self) -> None:

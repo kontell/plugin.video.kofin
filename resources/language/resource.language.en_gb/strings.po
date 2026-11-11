@@ -166,20 +166,12 @@ msgctxt "#30065"
 msgid "Restart the background service without restarting Kodi."
 msgstr ""
 
-msgctxt "#30066"
-msgid "Verify SSL certificate"
-msgstr ""
-
-msgctxt "#30067"
-msgid "Disable only for servers with self-signed certificates."
-msgstr ""
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr ""
 
 msgctxt "#30072"
-msgid "SSL verification and other advanced options."
+msgid "Notification, browsing, playback and deletion options."
 msgstr ""
 
 msgctxt "#30073"

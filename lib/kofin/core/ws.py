@@ -5,7 +5,6 @@ is the service's business.
 """
 
 import json
-import ssl
 import threading
 import time
 from http import HTTPStatus
@@ -39,16 +38,6 @@ def socket_url(server_address: str) -> str:
     if server_address.startswith("https://"):
         return server_address.replace("https://", "wss://", 1) + "/socket"
     return server_address.replace("http://", "ws://", 1) + "/socket"
-
-
-def sslopt(verify: bool) -> dict[str, Any]:
-    """websocket-client options for a ``wss://`` connect.
-
-    websocket-client 1.6.4 injects CERT_REQUIRED when sslopt is omitted.
-    """
-    if verify:
-        return {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
-    return {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
 
 
 def handshake_header(authorization: str, user_agent: str) -> dict[str, str]:
@@ -110,7 +99,6 @@ class WSClient(threading.Thread):
         on_event: EventCallback,
         on_connected: ConnectedCallback,
         on_disconnected: Optional[ConnectedCallback] = None,
-        verify_ssl: bool = True,
         user_agent: str = "",
         on_rejected: Optional[ConnectedCallback] = None,
     ) -> None:
@@ -126,7 +114,6 @@ class WSClient(threading.Thread):
         self._on_event = on_event
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
-        self._verify_ssl = verify_ssl
         self._stop = False
         # Whether the socket is currently up: run_forever returns on every
         # failure and the run loop retries, so the flag is what turns that
@@ -167,10 +154,7 @@ class WSClient(threading.Thread):
             # app-level: half_open() recycles the socket when the server's
             # KeepAlive echoes stop arriving.
             try:
-                kwargs: dict[str, Any] = {"ping_interval": 10}
-                if self._url.startswith("wss://"):
-                    kwargs["sslopt"] = sslopt(self._verify_ssl)
-                self._app.run_forever(**kwargs)
+                self._app.run_forever(ping_interval=10)
             except Exception:
                 # One attempt's worth of failure, never the thread's life.
                 # Reconnection is this loop's job and it cannot do it from

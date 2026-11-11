@@ -91,8 +91,8 @@ class StdlibHttp(Http):
     so the reply one reads is not its own.
     """
 
-    def __init__(self, verify_ssl: bool = True, user_agent: str = "") -> None:
-        super().__init__(verify_ssl, user_agent=user_agent)
+    def __init__(self, user_agent: str = "") -> None:
+        super().__init__(user_agent=user_agent)
         self._local = threading.local()
         # Every connection this transport has opened, so close() can release
         # the ones belonging to threads that have since finished.
@@ -145,15 +145,6 @@ class StdlibHttp(Http):
         self._local.conn = None
         self._local.origin = None
 
-    def _context(self) -> ssl.SSLContext:
-        context = ssl.create_default_context()
-        if not self._verify_ssl:
-            # The user turned verification off deliberately (a private CA, a
-            # self-signed box). Same posture as the requests transport.
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-        return context
-
     def _connection(
         self, origin: tuple[str, str, int], connect_timeout: float, read_timeout: float
     ) -> tuple[http.client.HTTPConnection, bool]:
@@ -176,7 +167,10 @@ class StdlibHttp(Http):
         connection: http.client.HTTPConnection
         if scheme == "https":
             connection = http.client.HTTPSConnection(
-                host, port, timeout=connect_timeout, context=self._context()
+                host,
+                port,
+                timeout=connect_timeout,
+                context=ssl.create_default_context(),
             )
         else:
             connection = http.client.HTTPConnection(host, port, timeout=connect_timeout)

@@ -1370,9 +1370,7 @@ def _add_items(
 
         if item_type == "Photo":
             tags = item.get("ImageTags") or {}
-            path = settings.for_kodi(
-                api.image_url(item.get("Id", ""), "Primary", tags.get("Primary", ""))
-            )
+            path = api.image_url(item.get("Id", ""), "Primary", tags.get("Primary", ""))
             entries.append((path, li, False))
             continue
 

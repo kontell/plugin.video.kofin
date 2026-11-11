@@ -160,21 +160,13 @@ msgctxt "#30065"
 msgid "Restart the background service without restarting Kodi."
 msgstr "Kodi를 다시 시작하지 않고 백그라운드 서비스만 다시 시작합니다."
 
-msgctxt "#30066"
-msgid "Verify SSL certificate"
-msgstr "SSL 인증서 확인"
-
-msgctxt "#30067"
-msgid "Disable only for servers with self-signed certificates."
-msgstr "자체 서명 인증서를 사용하는 서버에서만 끄세요."
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "고급"
 
 msgctxt "#30072"
-msgid "SSL verification and other advanced options."
-msgstr "SSL 확인과 그 밖의 고급 옵션."
+msgid "Notification, browsing, playback and deletion options."
+msgstr "알림, 탐색, 재생, 삭제 옵션."
 
 msgctxt "#30073"
 msgid "Enable Delete from server"

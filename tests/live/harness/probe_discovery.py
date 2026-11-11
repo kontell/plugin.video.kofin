@@ -57,7 +57,7 @@ for entry in found:
     )
     fallback = discovery.fallback_address(entry)
     say("  fallback would be %s" % fallback)
-    transport = plugin_transport(True)
+    transport = plugin_transport()
     try:
         for address in (entry.address, fallback):
             try:

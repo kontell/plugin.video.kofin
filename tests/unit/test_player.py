@@ -349,10 +349,10 @@ def adopting(monkeypatch, playing="http://s/stream"):
 
 
 def test_the_next_generation_reports_the_play_kodi_goes_on_with(monkeypatch):
-    """A restart (an add-on update, a sign-in, an sslVerify change) stops a
-    generation in the middle of a play. The next one reports it on, in the
-    same play session and never as a new play, since the server counts a
-    play when it starts; and its stop still names the live stream."""
+    """A restart (an add-on update, a sign-in) stops a generation in the
+    middle of a play. The next one reports it on, in the same play session
+    and never as a new play, since the server counts a play when it starts;
+    and its stop still names the live stream."""
     old_api = handing_over(monkeypatch, LiveStreamId="ls1")
     new, api = adopting(monkeypatch)
 
