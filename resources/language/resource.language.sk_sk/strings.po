@@ -160,21 +160,13 @@ msgctxt "#30065"
 msgid "Restart the background service without restarting Kodi."
 msgstr "Reštartuje službu na pozadí bez reštartu Kodi."
 
-msgctxt "#30066"
-msgid "Verify SSL certificate"
-msgstr "Overovať certifikát SSL"
-
-msgctxt "#30067"
-msgid "Disable only for servers with self-signed certificates."
-msgstr "Vypnite len pre servery s vlastnoručne podpísanými certifikátmi."
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "Pokročilé"
 
 msgctxt "#30072"
-msgid "SSL verification and other advanced options."
-msgstr "Overovanie SSL a ďalšie pokročilé možnosti."
+msgid "Notification, browsing, playback and deletion options."
+msgstr "Možnosti upozornení, prehliadania, prehrávania a odstraňovania."
 
 msgctxt "#30073"
 msgid "Enable Delete from server"

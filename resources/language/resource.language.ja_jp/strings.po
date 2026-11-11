@@ -160,21 +160,13 @@ msgctxt "#30065"
 msgid "Restart the background service without restarting Kodi."
 msgstr "Kodi を再起動せずに、バックグラウンドサービスを再起動します。"
 
-msgctxt "#30066"
-msgid "Verify SSL certificate"
-msgstr "SSL 証明書を検証する"
-
-msgctxt "#30067"
-msgid "Disable only for servers with self-signed certificates."
-msgstr "自己署名証明書のサーバーの場合のみ無効にしてください。"
-
 msgctxt "#30071"
 msgid "Advanced"
 msgstr "詳細設定"
 
 msgctxt "#30072"
-msgid "SSL verification and other advanced options."
-msgstr "SSL の検証とその他の詳細オプション。"
+msgid "Notification, browsing, playback and deletion options."
+msgstr "通知、閲覧、再生、削除のオプション。"
 
 msgctxt "#30073"
 msgid "Enable Delete from server"

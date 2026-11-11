@@ -51,26 +51,6 @@ def available() -> bool:
     return get_addon() is not None
 
 
-KODI_SKIP_VERIFY = "verifypeer=false"
-
-
-def skip_kodi_verify(server: str) -> bool:
-    """Whether Kodi's own fetches from ``server`` skip the certificate check:
-    an https server while ``sslVerify`` is off. Kodi's curl checks the
-    certificate of every URL it is handed (CCurlFile), whatever kofin's own
-    requests do; a store that cannot be read keeps the check."""
-    return server.startswith("https://") and available() and not get_bool("sslVerify")
-
-
-def for_kodi(url: str) -> str:
-    """``url`` as Kodi must be handed it to fetch it itself. The option rides
-    after ``|``, where Kodi reads protocol options; FFmpeg's demuxer ignores
-    one it does not know."""
-    if not skip_kodi_verify(url):
-        return url
-    return url + ("&" if "|" in url else "|") + KODI_SKIP_VERIFY
-
-
 def get_str(setting_id: str) -> str:
     addon = get_addon()
     return addon.getSetting(setting_id) if addon is not None else ""

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import xbmcgui
 
-from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync.nodes.video import (
     NODES,
@@ -194,10 +193,8 @@ class _Artwork:
                 ):
                     window_prop(
                         "%s.artwork" % prop,
-                        settings.for_kodi(
-                            "%s/Items/%s/Images/Primary/0?Format=original"
-                            % (self.server.server, view_id)
-                        ),
+                        "%s/Items/%s/Images/Primary/0?Format=original"
+                        % (self.server.server, view_id),
                     )
                     break
             else:

@@ -426,17 +426,6 @@ def test_a_close_flagged_response_drops_the_connection():
     assert getattr(transport._local, "conn", None) is None
 
 
-def test_verification_follows_the_setting():
-    import ssl
-
-    verifying = stdhttp.StdlibHttp(True)._context()
-    assert verifying.verify_mode == ssl.CERT_REQUIRED and verifying.check_hostname
-
-    unverified = stdhttp.StdlibHttp(False)._context()
-    assert unverified.verify_mode == ssl.CERT_NONE
-    assert unverified.check_hostname is False
-
-
 def test_the_transport_imports_without_requests():
     """The reason the module exists: importing it must not drag in the tree it
     was written to avoid."""
