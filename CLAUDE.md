@@ -792,7 +792,9 @@ What remains is kofin's own:
   handed the library's whole song list each time (22,381 songs, 1.1 MB, 22.0b2 on the P1D).
 - **A collection is planned in every pass that plans a movie filed under it, a live
   collection of the same title with it, and a set is never acknowledged without a compare**
-  (`Native.join_sets`, `patch.Applier.plan`). Kodi holds one set of that name. A set
+  (`Native.join_sets`, `patch.Applier.plan`). Kodi holds one set of that name. The
+  lowest id with a row owns its plot, and another collection of the title is
+  acknowledged against that row. A set
   is Kodi's to make and to drop: it goes with the last movie that names it, and a scan or a
   movie's patch makes it again from the name alone, bare, while the collection's payload has not moved. `sets.idSet` is a
   plain rowid, so the new row takes the number the old one had and the short-circuit above

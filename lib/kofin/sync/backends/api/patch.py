@@ -126,6 +126,8 @@ class Applier:
         self._preloaded: Optional[set[str]] = None
         self.collections: dict[str, str] = {}
         self.movies: set[str] = set()
+        # Title to the collection id that owns Kodi's one set of that name.
+        self.set_owners: dict[str, str] = {}
         self.local: set[str] = set()
         # Per show: the season numbers with an importable episode.
         self._seasons_with_episodes: dict[str, set[int]] = {}
@@ -232,6 +234,21 @@ class Applier:
         self._downloaded_seasons = {}
         self.collections = collections
         self.movies = movies
+        # The collection that owns each title's one set: the lowest id
+        # whose members are filed under it. One with none is rowless.
+        self.set_owners = {}
+        for record in upserts.values():
+            if record.kind != "BoxSet":
+                continue
+            title = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
+            members = record.item.get("KofinMembers") or []
+            if not title or not any(
+                member in self.movies and self.collections.get(member) == title
+                for member in members
+            ):
+                continue
+            if title not in self.set_owners or record.item_id < self.set_owners[title]:
+                self.set_owners[title] = record.item_id
         self.local = {item_id for item_id, _ in self.store.local_pending()}
         if not self._mappings_loaded:
             if len(upserts) >= PRELOAD_ALL_MAPPINGS:
@@ -373,14 +390,29 @@ class Applier:
         """The patch a record needs, or None once it is acknowledged, left to
         a viewer's edit or to the item of ours that owns its row; raises when
         the scanner has not filed it yet. In order: the kinds applied without
-        a row, the row, music's own plan, the viewer's edit, the row another
-        item owns, the acknowledgement short-circuit, the refresh, the compare.
+        a row, a collection sharing its title's set, the row, music's own
+        plan, the viewer's edit, the row another item owns, the
+        acknowledgement short-circuit, the refresh, the compare.
         """
         kind = record.kind
         if self.rowless(record):
             self.ack(record.item_id, record.generation, None, {}, kind)
             return None
         row = self._filed_row(record)
+        if kind == "BoxSet":
+            # Kodi holds one set of the title. The lowest id with a row owns
+            # its plot. Another collection of the title is acknowledged
+            # against that row.
+            title = (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
+            if self.set_owners.get(title) not in (None, record.item_id):
+                self.ack(
+                    record.item_id,
+                    record.generation,
+                    row[KINDS[kind].id_param],
+                    {},
+                    kind,
+                )
+                return None
         if kind in DERIVED or kind == "Audio":
             return self.plan_music(record, row, repair)
         seasons = (

@@ -1535,28 +1535,34 @@ def test_the_collection_a_movie_falls_back_to_is_planned_with_it(store, backend,
 
 
 def test_a_collection_of_the_same_title_is_planned_with_it(store, backend, kodi):
-    """Kodi holds one set of the title. A movie of one collection brings the
-    other into the pass, and that row is compared for both."""
+    """Kodi holds one set of the title, and the lowest id owns it. A movie
+    of the other brings that owner into the pass. The other is acknowledged
+    with no row, so its plot is not written over the set."""
     store.publish(
         [
             movie(),
             movie("b"),
-            boxset("one", "Dune", ["a"], Overview="Shared"),
-            boxset("two", "Dune", ["b"], Overview="Shared"),
+            boxset("one", "Dune", ["a"], Overview="From the first"),
+            boxset("two", "Dune", ["b"], Overview="From the second"),
         ],
         library=LIB,
     )
     backend.reconcile()
     assert not store.pending()
     row = next(iter(kodi.rows["BoxSet"].values()))
-    row["plot"] = ""
+    assert row["plot"] == "From the first"
+    assert store.mapping("one").kodi_id == row["setid"]
+    assert store.mapping("two").kodi_id == row["setid"]
+    row["plot"] = "From the second"
     kodi.calls.clear()
-    store.publish([movie(Overview="Edited")])
+    store.publish([movie("b", Overview="Edited")])
     backend.reconcile()
     assert not store.pending()
     assert [
         p.get("plot") for p in methods(kodi, "VideoLibrary.SetMovieSetDetails")
-    ] == ["Shared", "Shared"]
+    ] == ["From the first"]
+    assert row["plot"] == "From the first"
+    assert store.mapping("two").kodi_id == row["setid"]
 
 
 def test_only_a_movie_filed_under_a_collection_brings_it_into_the_pass(
