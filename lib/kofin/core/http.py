@@ -233,7 +233,8 @@ def _default_trust_adapter() -> requests.adapters.HTTPAdapter:
     sets from advancedsettings' ``catrustfile`` (and to its own bundle on
     Android, macOS and Windows), or else the system store. The plugin's
     transport, the websockets and Kodi's curl trust the same, so a CA the user
-    gave Kodi is trusted here too.
+    gave Kodi is trusted here too. An ``HTTPS_PROXY`` connection uses a second
+    pool, built by ``proxy_manager_for``, so that pool gets the same context.
     """
     import ssl
 
@@ -243,6 +244,10 @@ def _default_trust_adapter() -> requests.adapters.HTTPAdapter:
         def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
             kwargs["ssl_context"] = ssl.create_default_context()
             super().init_poolmanager(*args, **kwargs)
+
+        def proxy_manager_for(self, proxy: str, **kwargs: Any) -> Any:
+            kwargs["ssl_context"] = ssl.create_default_context()
+            return super().proxy_manager_for(proxy, **kwargs)
 
     return DefaultTrust()
 
