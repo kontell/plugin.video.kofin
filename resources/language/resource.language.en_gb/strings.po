@@ -15,8 +15,9 @@ msgstr ""
 "Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-# Add-on browser metadata. These must stay in step with the en_GB <summary> and
-# <description> in addon.xml, which remain the fallback for untranslated locales.
+# Add-on browser metadata. The same sentences are the <summary> and
+# <description> in addon.xml, one lang attribute per shipped locale. en_GB
+# there is the fallback for a locale this add-on does not ship.
 
 msgctxt "Addon Summary"
 msgid "Jellyfin client for seamless Kodi integration"
