@@ -25,7 +25,7 @@ from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
 from . import capabilities, metadata, paths, progress, removal
-from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
+from .kinds import ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
@@ -187,10 +187,13 @@ class Native:
         # The pass's music work and what it reads once for it; a new one
         # for every pass (reconcile).
         self.music = MusicPass(self)
-        # The music libraries whose every song has been compared with Kodi's
-        # rows since the service started, a repair, or a music scan or clean
-        # that was not the pass's own (MusicPass.check_due).
+        # Music libraries compared whole since ``music_sweep`` was set, and
+        # the flag itself. A repair, a music scan or clean that was not the
+        # pass's own, and a directory this pass was to list and did not, set
+        # the flag (note_music_changes, MusicPass.finish). Both start clear:
+        # a service start does not compare every song.
         self.music_checked: set[str] = set()
+        self.music_sweep = False
         # The music scans and cleans heard on the monitor so far, the scans
         # of the pass's own not yet matched to one of them, and this pass's
         # directory scans per library, which count as its own only once their
@@ -941,6 +944,7 @@ class Native:
         self._own_music_scans -= own
         if new > own:
             self.music_checked.clear()
+            self.music_sweep = True
 
     def credit_music_scans(self, library: str) -> None:
         """The library's directory scans this pass ran have had their
@@ -970,12 +974,7 @@ class Native:
             # The pin can predate a collection's removal (store.pin keeps a
             # pin an earlier pass left), and a collection read there would
             # keep its set on its movies while finish_sets lets it go.
-            sets = {
-                item_id: record
-                for item_id, record in self.store.records(kind="BoxSet").items()
-                if item_id not in pending or pending[item_id][1] != "remove"
-            }
-            boxsets = [r.item for r in sets.values()]
+            sets, boxsets = self._collections(pending, entries)
             collections = metadata.collections_of(boxsets)
             self.join_sets(pending, entries, sets, collections)
             upserts = self._upserts(pending, entries)
@@ -1048,6 +1047,7 @@ class Native:
         self.note_music_changes()
         if repair:
             self.music_checked.clear()
+            self.music_sweep = True
         return repair, stamped, serializer
 
     def _pending(self, repair: bool) -> tuple[PendingWork, Placements]:
@@ -1101,6 +1101,66 @@ class Native:
             )
         return upserts
 
+    def _collections(
+        self, pending: PendingWork, entries: Placements
+    ) -> tuple[dict[str, Record], list[dict[str, Any]]]:
+        """The collections ``join_sets`` plans, and the live payloads
+        ``finish_sets`` keeps titles from.
+
+        Membership is inside the payload, so the payloads are read only
+        when a movie is in the pass or a collection already is. A pass
+        that has neither skips the read. ``join_sets`` is given the
+        collections that name a movie of the pass, plus any collection
+        already pending. A removal that is waiting is given every live
+        collection: a title still in use is not free.
+        """
+
+        def kind_of(item_id: str) -> str:
+            try:
+                return entries[item_id].kind
+            except KeyError:
+                return ""
+
+        def is_boxset(item_id: str, payload: dict[str, Any]) -> bool:
+            return payload.get("Type") == "BoxSet" or kind_of(item_id) == "BoxSet"
+
+        movie_upsert = any(
+            operation == "upsert" and kind_of(item_id) == "Movie"
+            for item_id, (_, operation, _) in pending.items()
+        )
+        boxset_pending = any(
+            is_boxset(item_id, payload) for item_id, (_, _, payload) in pending.items()
+        )
+        if not movie_upsert and not boxset_pending:
+            return {}, []
+        live = {
+            item_id: record
+            for item_id, record in self.store.records(kind="BoxSet").items()
+            if item_id not in pending or pending[item_id][1] != "remove"
+        }
+        movies = {
+            item_id
+            for item_id, (_, operation, _) in pending.items()
+            if operation == "upsert" and kind_of(item_id) == "Movie"
+        }
+        pending_boxsets = {
+            item_id
+            for item_id, (_, _, payload) in pending.items()
+            if is_boxset(item_id, payload)
+        }
+        sets = {
+            item_id: record
+            for item_id, record in live.items()
+            if item_id in pending_boxsets
+            or set(record.item.get("KofinMembers") or []) & movies
+        }
+        removal_waiting = any(
+            operation == "remove" and is_boxset(item_id, payload)
+            for item_id, (_, operation, payload) in pending.items()
+        )
+        chosen = live if removal_waiting else sets
+        return sets, [record.item for record in chosen.values()]
+
     def _apply(
         self,
         applier: Applier,
@@ -1110,40 +1170,31 @@ class Native:
         repair: bool,
         errors: list[Exception],
     ) -> None:
-        """The scans and the setters: music scanned, the kinds that do not
-        wait for the video scans applied, then the video scans and every
-        other kind in order."""
-        self.scan_music(upserts, errors, entries)
-        video = self.plan_video(upserts, errors)
-        # Album and artist artwork does not wait for the video scans
-        # (kinds.MUSIC_FIRST). With no video scan to wait for, the kinds
-        # keep their order and the music hold is taken once.
-        early = (
-            [
-                kind
-                for kind in MUSIC_FIRST
-                if any(r.kind == kind for r in upserts.values())
-            ]
-            if video.directories or video.movie_folders
-            else []
-        )
-        if early:
-            applier.run(upserts, {}, set(), repair, errors, kinds=early)
-        self.scan_video(video)
+        """The scans, then the setters.
+
+        New movies, then new shows and episodes, then new music videos,
+        then album directories that hold a song with no row, are scanned
+        before metadata. Versions and extras of a movie that already has
+        a row, and the album directories whose songs all have rows,
+        follow. Setters run after every scan, in ``kinds.ORDER``, so a
+        new album's cover follows its scan and a song's play count stays
+        last.
+        """
+        planned = self._plan_music(upserts, errors, entries)
+        fresh, assets = self.plan_video(upserts, errors)
+        failed: set[str] = set()
+        self.scan_video(fresh)
+        self._scan_music(planned, upserts, errors, failed, fresh=True)
+        self.scan_video(assets)
+        self._scan_music(planned, upserts, errors, failed, fresh=False)
+        self._finish_music(planned, entries, errors, failed)
         # Only a collection's planning asks which ids are movies.
         movies = (
             {i for i, e in entries.items() if e.kind == "Movie"}
             if any(r.kind == "BoxSet" for r in upserts.values())
             else set()
         )
-        applier.run(
-            upserts,
-            collections,
-            movies,
-            repair,
-            errors,
-            kinds=[kind for kind in ORDER if kind not in early],
-        )
+        applier.run(upserts, collections, movies, repair, errors, kinds=list(ORDER))
         self.reclaim_shows(upserts)
 
     def _settle(
@@ -1229,14 +1280,15 @@ class Native:
         for item_id, record in joined.items():
             pending[item_id] = (record.generation, "upsert", {})
 
-    def scan_music(
+    def _plan_music(
         self,
         upserts: dict[str, Record],
         errors: list[Exception],
-        entries: Optional[abc.Mapping[str, Entry]] = None,
-    ) -> None:
-        """Have Kodi list the music directories that need it, a library at a
-        time. The pass scans music before video (reconcile)."""
+        entries: abc.Mapping[str, Entry],
+    ) -> dict[str, tuple[set[str], set[str]]]:
+        """The album directories each library must list again, split into
+        those that hold a song with no row and the rest. Nothing is scanned."""
+        planned: dict[str, tuple[set[str], set[str]]] = {}
         for library in sorted({r.library for r in upserts.values() if r.library}):
             if not any(
                 paths.CONTENT.get(r.kind) == "music"
@@ -1245,9 +1297,65 @@ class Native:
             ):
                 continue
             try:
-                if entries is None:
-                    entries = self.store.entries()
-                self.music.import_missing(upserts, library, entries)
+                planned[library] = self.music.directories(upserts, library, entries)
+            except InterruptedError:
+                raise
+            except Exception as error:
+                errors.append(error)
+        return planned
+
+    def _scan_music(
+        self,
+        planned: dict[str, tuple[set[str], set[str]]],
+        upserts: dict[str, Record],
+        errors: list[Exception],
+        failed: set[str],
+        fresh: bool,
+    ) -> None:
+        """Scan one half of what ``_plan_music`` named. A library with
+        nothing in either half is asked once, on the fresh half: a scan
+        that fails before it lists anything still reaches the caller that
+        is waiting on it."""
+        for library, (new, rest) in planned.items():
+            if library in failed:
+                continue
+            folders = new if fresh else rest
+            if fresh and not new and not rest:
+                folders = set()
+            elif not folders:
+                continue
+            try:
+                self.music.scan(
+                    library,
+                    folders,
+                    expected=sum(
+                        1
+                        for record in upserts.values()
+                        if record.kind == "Audio"
+                        and record.library == library
+                        and record.parent_id in folders
+                    ),
+                )
+            except InterruptedError:
+                raise
+            except Exception as error:
+                errors.append(error)
+                failed.add(library)
+
+    def _finish_music(
+        self,
+        planned: dict[str, tuple[set[str], set[str]]],
+        entries: abc.Mapping[str, Entry],
+        errors: list[Exception],
+        failed: set[str],
+    ) -> None:
+        """Lost songs, scan credit and the sweep flag, once both halves of
+        a library have been scanned."""
+        for library in planned:
+            if library in failed:
+                continue
+            try:
+                self.music.finish(library, entries)
             except InterruptedError:
                 raise
             except Exception as error:
@@ -1277,18 +1385,25 @@ class Native:
 
     def plan_video(
         self, upserts: dict[str, Record], errors: list[Exception]
-    ) -> VideoScan:
-        """Bind whatever the readback shows the video scanner has not filed,
-        and name the directories to scan for it and for the movie folders
-        whose versions or extras the scanner has not seen."""
-        scan = VideoScan([], {}, [], [])
+    ) -> tuple[VideoScan, VideoScan]:
+        """Bind whatever the readback shows the video scanner has not filed.
+
+        The first scan is new content, every library's movies, then its
+        shows and episodes, then its music videos. The second is the
+        version and extra folders of movies that already have a row, and
+        of movies whose own file was listed by a root scan. A new movie
+        scanned by its own folder already lists those files.
+        """
         self._extras_folders = set()
+        gathered: dict[str, list[tuple[str, list[Record], int, list[str]]]] = {
+            "movies": [],
+            "tvshows": [],
+            "musicvideos": [],
+        }
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
-            for content in paths.CONTENTS:
+            for content in ("movies", "tvshows", "musicvideos"):
                 if not any(paths.CONTENT.get(k) == content for k in kinds):
-                    continue
-                if content == "music":
                     continue
                 try:
                     self.bind(library, content)
@@ -1298,31 +1413,46 @@ class Native:
                     errors.append(error)
                     continue
                 missing, present = self._unfiled(content, library, upserts)
-                asset_folders: list[str] = []
-                if content == "movies":
-                    asset_folders = self._asset_folders(upserts, library)
+                asset_folders = (
+                    self._asset_folders(upserts, library) if content == "movies" else []
+                )
                 if not missing and not asset_folders:
                     continue
+                gathered[content].append((library, missing, present, asset_folders))
+        directories: list[str] = []
+        expected: dict[str, int] = {}
+        expectations: list[tuple[str, int, dict[str, Any]]] = []
+        movie_folders: list[str] = []
+        asset_directories: list[str] = []
+        for content in ("movies", "tvshows", "musicvideos"):
+            for library, missing, present, asset_folders in gathered[content]:
                 root = paths.library_dir(self.key, library, content)
                 if content == "movies":
-                    self._movie_directories(
-                        scan, library, root, present, missing, asset_folders
+                    named, counts, folders, later = self._movie_directories(
+                        library, root, present, missing, asset_folders
                     )
+                    directories.extend(named)
+                    expected.update(counts)
+                    movie_folders.extend(folders)
+                    asset_directories.extend(later)
                 else:
-                    scan.directories.append(root)
-                    scan.expected[root] = sum(
+                    directories.append(root)
+                    expected[root] = sum(
                         1 for r in missing if r.kind in ("Episode", "MusicVideo")
                     )
                 for record in self.payloads.walk(missing):
                     if record.kind in ("Movie", "Episode", "MusicVideo"):
-                        scan.expectations.append(
+                        expectations.append(
                             (
                                 record.item_id,
                                 record.generation,
                                 metadata.userdata(record.item),
                             )
                         )
-        return scan
+        return (
+            VideoScan(directories, expected, expectations, movie_folders),
+            VideoScan(asset_directories, {}, [], asset_directories),
+        )
 
     def _unfiled(
         self, content: str, library: str, upserts: dict[str, Record]
@@ -1364,41 +1494,44 @@ class Native:
 
     def _movie_directories(
         self,
-        scan: VideoScan,
         library: str,
         root: str,
         present: int,
         missing: list[Record],
         asset_folders: list[str],
-    ) -> None:
-        """The directories a movie library's scan lists. A movie's URL sits
-        in a folder of its own. A few new movies are scanned by folder, each
-        bound first (Kodi finds a plugin folder's scraper only through the
-        folder's own binding); a first import, or a library mostly missing,
-        scans the root once, which lists every movie as a file under its
-        folder's URL. A folder whose version files or extras Kodi has not
-        seen is scanned by name, after the root when the root walks (the
-        root lists the movie's own file alone), and bound again with folder
-        names on, which the extras need."""
+    ) -> tuple[list[str], dict[str, int], list[str], list[str]]:
+        """Directories for movies the scanner has not filed, and the asset
+        folders that scan does not already list.
+
+        A movie's URL sits in a folder of its own. A few new movies are
+        scanned by folder, each bound first (Kodi finds a plugin folder's
+        scraper only through the folder's own binding); a first import, or
+        a library mostly missing, scans the root once, which lists every
+        movie as a file under its folder's URL. A folder scanned by name
+        lists that movie's version files and extras. A root scan lists the
+        movie's own file alone, so those asset folders are returned apart,
+        to be scanned after the new content.
+        """
+        directories: list[str] = []
+        expected: dict[str, int] = {}
+        movie_folders: list[str] = []
         if missing:
             total = present + len(missing)
             if len(missing) > total * ROOT_SCAN_SHARE:
-                scan.directories.append(root)
-                scan.expected[root] = len(missing)
+                directories.append(root)
+                expected[root] = len(missing)
             else:
                 movie_folders = [
                     paths.movie_dir(self.key, library, r.item_id) for r in missing
                 ]
-                scan.movie_folders.extend(movie_folders)
-                scan.directories.extend(movie_folders)
-                scan.expected.update((folder, 1) for folder in movie_folders)
-        if asset_folders:
-            scan.movie_folders.extend(
-                f for f in asset_folders if f not in scan.movie_folders
-            )
-            scan.directories.extend(
-                f for f in asset_folders if f not in scan.directories
-            )
+                directories.extend(movie_folders)
+                expected.update((folder, 1) for folder in movie_folders)
+        later = [
+            folder
+            for folder in asset_folders
+            if folder not in movie_folders and folder not in directories
+        ]
+        return directories, expected, movie_folders, later
 
     def scan_video(self, video: VideoScan) -> None:
         """Have Kodi's video scanner list what plan_video named.

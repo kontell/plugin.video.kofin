@@ -148,6 +148,11 @@ class Placements(abc.Mapping):
         for item_id in wanted:
             self._known[item_id] = found.get(item_id)
 
+    @property
+    def generation(self) -> int:
+        """The catalogue generation these placements were read at."""
+        return self._generation
+
     def whole(self) -> dict[str, Entry]:
         if self._whole is None:
             self._whole = self._store.entries_at(self._generation)
@@ -774,6 +779,64 @@ class Store(Catalogue):
                 )
             }
 
+    def has_survivor(
+        self,
+        library: str,
+        leaving: Collection[str],
+        generation: int,
+        exclude_kinds: Collection[str],
+    ) -> bool:
+        """Whether ``library`` still has a member at ``generation`` that is
+        not among ``leaving`` and not of ``exclude_kinds``.
+
+        One row answers, on the same generation predicate as ``entries_at``.
+        A leaving set of a few hundred ids is one ``NOT IN``. A larger one
+        is a temporary table so a single query still excludes every id, and
+        the table is dropped before a pooled connection is reused. An empty
+        ``leaving`` is a survivor: nothing of the library is going.
+        """
+        gone = list(leaving)
+        if not gone:
+            return True
+        excluded = list(exclude_kinds)
+        params: list[Any] = [self.namespace, generation, generation, library]
+        kind_sql = ""
+        if excluded:
+            kind_sql = " AND kind NOT IN (%s)" % ",".join("?" * len(excluded))
+            params.extend(excluded)
+        where = (
+            "namespace=? AND added<=? AND (removed IS NULL OR removed>?)"
+            " AND library=?" + kind_sql
+        )
+        with Database() as db:
+            self._prepare(db.cursor)
+            if len(gone) <= 500:
+                row = db.cursor.execute(
+                    "SELECT 1 FROM api_entry WHERE "
+                    + where
+                    + " AND item_id NOT IN (%s) LIMIT 1" % ",".join("?" * len(gone)),
+                    params + gone,
+                ).fetchone()
+                return row is not None
+            db.cursor.execute("DROP TABLE IF EXISTS api_leaving")
+            db.cursor.execute(
+                "CREATE TEMP TABLE api_leaving (item_id TEXT PRIMARY KEY)"
+            )
+            try:
+                db.cursor.executemany(
+                    "INSERT OR IGNORE INTO api_leaving (item_id) VALUES (?)",
+                    [(item_id,) for item_id in gone],
+                )
+                row = db.cursor.execute(
+                    "SELECT 1 FROM api_entry WHERE "
+                    + where
+                    + " AND item_id NOT IN (SELECT item_id FROM api_leaving) LIMIT 1",
+                    params,
+                ).fetchone()
+                return row is not None
+            finally:
+                db.cursor.execute("DROP TABLE IF EXISTS api_leaving")
+
     def filed_under(self, kind: str, parent_id: str) -> list[str]:
         """The ids of one kind filed under a parent, live and not leaving."""
         with Database() as db:
@@ -1335,7 +1398,11 @@ class Store(Catalogue):
 
     def forget_many(self, rows: Iterable[tuple[str, int]]) -> int:
         """One transaction for a batch of removal acknowledgements; returns
-        how many matched their desired generation."""
+        how many matched their desired generation. An empty batch opens no
+        transaction: a removal that settled nothing still calls this."""
+        rows = list(rows)
+        if not rows:
+            return 0
         count = 0
         with Database() as db:
             self._prepare(db.cursor)

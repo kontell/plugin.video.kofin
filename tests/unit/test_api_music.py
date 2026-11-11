@@ -13,13 +13,17 @@ from tests.unit.apifixtures import (  # noqa: F401
     ARTIST2,
     LIB,
     LIB2,
+    SHOW,
     album,
     album_bundle,
     artist,
     backend,
+    boxset,
+    episode,
     kodi,
     methods,
     movie,
+    show_bundle,
     song,
     store,
 )
@@ -335,8 +339,7 @@ def test_server_userdata_patches_without_a_rescan(store, backend, kodi):
 def test_a_play_count_reads_only_its_own_rows(store, backend, kodi, monkeypatch):
     """A play's user data is one song: its publish reads that song's
     placement, the pass reads that song's mapping and its own directory
-    back from Kodi, and no song of the library beyond it, once the library
-    has been compared whole since the service started."""
+    back from Kodi, and no song of the library beyond it."""
     from kofin.sync.backends.api import musicpass
     from kofin.sync.backends.api.readback import Readback
     from kofin.sync.backends.api.store import Store
@@ -604,9 +607,11 @@ def test_a_song_moved_between_albums_rescans_both_directories(store, backend, ko
     kodi.music_folders.clear()
     store.publish([song("tc32", ALBUM2, 2, ARTIST2)])
     backend.reconcile()
-    # The directory it left and the one it joined, in one scan.
-    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB, 0)]
-    assert sorted(kodi.music_folders) == sorted([ALBUM, ALBUM2])
+    # The directory it joined holds a song with no row and is scanned first.
+    # The one it left is scanned after, so the same part is asked twice.
+    part = paths.music_part(store.namespace, LIB, 0)
+    assert kodi.music_scanned == [part, part]
+    assert kodi.music_folders == [ALBUM2, ALBUM]
     songs = owned_songs(kodi)
     assert songs["tc32"]["file"] == paths.playback_url(
         store.namespace, "Audio", LIB, "tc32", ALBUM2, "flac"
@@ -796,9 +801,9 @@ def test_video_and_music_libraries_share_one_pass(store, backend, kodi):
     assert artist_key(" Band ") == "band"
 
 
-def test_album_and_artist_art_does_not_wait_for_the_video_scans(store, backend, kodi):
-    """Selected together with a video library, a music library's albums and
-    artists are applied between the music scan and the video scans."""
+def test_album_and_artist_art_follows_the_scans(store, backend, kodi):
+    """Albums and artists are applied after the new-content scans, and a
+    song's play count after those."""
     membership = {"a": LIB}
     items = [movie()] + album_bundle(songs=2)
     items[3]["UserData"] = {
@@ -817,11 +822,11 @@ def test_album_and_artist_art_does_not_wait_for_the_video_scans(store, backend, 
         or m in ("VideoLibrary.Scan", "AudioLibrary.Scan")
     ]
     video_scan = order.index("VideoLibrary.Scan")
-    assert order.index("AudioLibrary.SetAlbumDetails") < video_scan
-    assert order.index("AudioLibrary.SetArtistDetails") < video_scan
-    # The play counts still go last of all, after the video kinds.
-    assert order.index("AudioLibrary.SetSongDetails") > video_scan
-    # Each of the two is applied once.
+    audio_scan = order.index("AudioLibrary.Scan")
+    album_set = order.index("AudioLibrary.SetAlbumDetails")
+    artist_set = order.index("AudioLibrary.SetArtistDetails")
+    song_set = order.index("AudioLibrary.SetSongDetails")
+    assert video_scan < audio_scan < album_set < artist_set < song_set
     assert order.count("AudioLibrary.SetAlbumDetails") == 1
     assert order.count("AudioLibrary.SetArtistDetails") == 1
 
@@ -833,6 +838,169 @@ def test_a_pass_with_no_video_scan_keeps_one_hold_and_its_order(store, backend, 
     backend.reconcile(repair=True)
     assert kodi.hold_tokens == ["music"]
     assert not store.pending()
+
+
+def test_a_new_service_does_not_compare_every_song_for_a_play_count(
+    store, backend, kodi, monkeypatch
+):
+    """A service starts with nothing compared. A play count still reads that
+    song's directory, not the library."""
+    from kofin.sync.backends.api.native import Native
+    from kofin.sync.backends.api.readback import Readback
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    second = Native(store)
+    kodi.monitor = second.monitor
+    folders, songs = [], []
+    read_folders, read_songs = Readback.folders, Readback._songs
+    monkeypatch.setattr(
+        Readback,
+        "folders",
+        lambda self, library: folders.append(library) or read_folders(self, library),
+    )
+    monkeypatch.setattr(
+        Readback,
+        "_songs",
+        lambda self, library: songs.append(library) or read_songs(self, library),
+    )
+    kodi.music_scanned.clear()
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    second.reconcile()
+    assert folders == [] and songs == []
+    assert kodi.music_scanned == []
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
+
+
+def test_a_repair_still_compares_every_song(store, backend, kodi):
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    del kodi.songs[owned_songs(kodi)["tc32"]["songid"]]
+    backend.reconcile(repair=True)
+    assert "tc32" in owned_songs(kodi)
+    assert not store.pending()
+
+
+def test_an_album_payload_change_still_compares_every_song(store, backend, kodi):
+    store.publish(
+        album_bundle(songs=1) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB
+    )
+    backend.reconcile()
+    gone = "u%s1" % ALBUM2[:2]
+    del kodi.songs[owned_songs(kodi)[gone]["songid"]]
+    store.publish([album(ALBUM, Overview="Moved notes")])
+    backend.reconcile()
+    assert gone in owned_songs(kodi)
+    assert not store.pending()
+
+
+def test_a_wide_pass_still_compares_every_song(store, backend, kodi, monkeypatch):
+    from kofin.sync.backends.api.readback import Readback
+
+    monkeypatch.setattr(Readback, "WHOLE_LIBRARY_FOLDERS", 1)
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    del kodi.songs[owned_songs(kodi)["tc32"]["songid"]]
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert "tc32" in owned_songs(kodi)
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
+
+
+def test_a_song_only_pass_does_not_read_collections(store, backend, kodi, monkeypatch):
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=1) + [boxset("box", "Solo", ["a"])], library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    asked = []
+    records = Store.records
+
+    def spy(self, *args, **kwargs):
+        asked.append(args[0] if args else kwargs.get("kind"))
+        return records(self, *args, **kwargs)
+
+    monkeypatch.setattr(Store, "records", spy)
+    store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2})])
+    backend.reconcile()
+    assert "BoxSet" not in asked
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
+
+
+def test_removing_a_music_library_does_not_clear_video(store, backend, kodi):
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetSourceContent")
+    assert owned_songs(kodi) == {}
+    assert not store.pending()
+
+
+def test_new_content_is_scanned_before_metadata(store, backend, kodi):
+    """A new movie, a new episode and a new album are scanned before the
+    extras of a movie that already has a row, and the setters follow."""
+    store.publish(show_bundle() + [movie("kept")] + album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    feature = {
+        "Id": "x1",
+        "Name": "Trailer",
+        "Container": "mkv",
+        "RunTimeTicks": 60000000,
+    }
+    kodi.calls.clear()
+    kodi.scanned.clear()
+    kodi.music_scanned.clear()
+    kodi.music_folders.clear()
+    # A batch, not a complete listing: absence would remove the show.
+    store.publish(
+        [
+            movie("n"),
+            episode("ea13", SHOW, 1, 3),
+            movie("kept", SpecialFeatures=[feature]),
+            song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2}),
+        ]
+        + album_bundle(ALBUM2, ARTIST2, 1, "u"),
+        membership=LIB,
+    )
+    backend.reconcile()
+    assert not store.pending()
+    hold = paths.hold_dir(store.namespace, "music")
+    scans = [
+        (method, params["directory"])
+        for method, params in kodi.calls
+        if method in ("VideoLibrary.Scan", "AudioLibrary.Scan")
+        and params.get("directory") != hold
+    ]
+    assert scans == [
+        ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "n")),
+        ("VideoLibrary.Scan", paths.library_dir(store.namespace, LIB, "tvshows")),
+        ("AudioLibrary.Scan", paths.music_part(store.namespace, LIB, 0)),
+        ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "kept")),
+    ]
+    assert kodi.music_folders == [ALBUM2]
+
+    def at(method):
+        for index, (name, _params) in enumerate(kodi.calls):
+            if name == method:
+                return index
+        raise AssertionError(method)
+
+    extra = next(
+        index
+        for index, (name, params) in enumerate(kodi.calls)
+        if name == "VideoLibrary.Scan"
+        and params["directory"] == paths.movie_dir(store.namespace, LIB, "kept")
+    )
+    assert (
+        extra < at("AudioLibrary.SetAlbumDetails") < at("AudioLibrary.SetSongDetails")
+    )
+    assert at("AudioLibrary.SetAlbumDetails") < at("AudioLibrary.SetArtistDetails")
+    setters = methods(kodi, "AudioLibrary.SetSongDetails")
+    assert len(setters) == 1 and setters[0]["playcount"] == 2
+    assert owned_songs(kodi)["tc31"]["playcount"] == 2
 
 
 # -- provider, serializer, identity, coordinator ------------------------------
@@ -1554,6 +1722,7 @@ def test_a_small_pass_without_movies_binds_stamps_and_trims_nothing(
     backend.reconcile()
     assert (bound, stamped, released) == ([], [], [])
     backend.music_checked.clear()
+    backend.music_sweep = True
     store.publish([song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
     backend.reconcile()
     assert (bound, stamped, released) == ([], [], [1])
@@ -1653,6 +1822,7 @@ def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
     store.publish(album_bundle(songs=2), library=LIB)
     backend.reconcile()
     backend.music_checked.clear()
+    backend.music_sweep = True
 
     def scan(self, library, folders, expected=0):
         raise RuntimeError("scan failed")
@@ -1667,11 +1837,17 @@ def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
 def test_a_play_count_pass_reads_no_placement_but_its_own(
     store, backend, kodi, monkeypatch
 ):
-    """The pass reads the placements of what it holds; only a removal, which
-    decides whether a library goes whole, reads every one."""
+    """The pass reads the placements of what it holds. A sweep compares every
+    song and reads every placement; a one-song removal does not.
+
+    The library has a second album, so the removal's scan is not every
+    directory: that scan compares the songs it re-listed, and a scan of
+    every directory reads every placement.
+    """
     from kofin.sync.backends.api.store import Store
 
-    store.publish(album_bundle(songs=3), library=LIB)
+    catalogue = album_bundle(songs=3) + album_bundle(ALBUM2, ARTIST2, 1, "u")
+    store.publish(catalogue, library=LIB)
     backend.reconcile()
     wholes = []
     entries_at = Store.entries_at
@@ -1694,14 +1870,15 @@ def test_a_play_count_pass_reads_no_placement_but_its_own(
     backend.reconcile()
     assert owned_songs(kodi)[tc31]["playcount"] == 2
     assert wholes == [] and singles == [[tc31]]
-    # The whole check reads every placement at once, not one at a time.
+    # A sweep compares every song and reads every placement at once.
     backend.music_checked.clear()
+    backend.music_sweep = True
     singles.clear()
     store.publish([song(tc31, ALBUM, 1, UserData={"Played": True, "PlayCount": 3})])
     backend.reconcile()
     assert len(wholes) == 1 and singles == [[tc31]]
     wholes.clear()
-    listing = [i for i in album_bundle(songs=3) if i["Id"] != "t%s3" % ALBUM[:2]]
+    listing = [i for i in catalogue if i["Id"] != "t%s3" % ALBUM[:2]]
     store.publish(listing, library=LIB)
     backend.reconcile()
-    assert len(wholes) == 1
+    assert wholes == []

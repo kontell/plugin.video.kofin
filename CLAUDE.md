@@ -201,9 +201,11 @@ What remains is kofin's own:
   path's episodes), and so does a single show's removal (`RemoveTVShow`). Kodi forgets those
   folders' hashes as it does, so the removal scans the video source that holds their
   episodes once the row has gone (`removal.sources_of`), and the show comes back under its
-  own folder with its watched states. A show to remove is found as the pass finds it, through
-  its episodes (`removal._row`): read from the listing alone, a row under their folder was
-  forgotten with our episodes still on it.
+  own folder with its watched states. A mapped show is removed by its stored id when that
+  row is still under our folder (`removal._locate`). The listing and the episode adopt
+  (`removal._row`) are the fallback when the id is missing or the row is not ours: read
+  from the listing alone, a row under their folder was forgotten with our episodes still
+  on it.
 - **A movie another source's copy took the row of is still ours, found by our own file**
   (`Readback.movie`). Kodi's grouping of similar videos (`videolibrary.similarvideoaction`,
   automatic by default) groups a scraped movie with any movie sharing a unique id
@@ -212,7 +214,8 @@ What remains is kofin's own:
   listed under their file, where the library's listing does not reach, and every pass failed.
   Kodi still resolves our URL to the movie (`GetMovieId` reads `videoversion`), and
   `Files.GetFileDetails` on it names the row; Kodi lists the movie's folder to answer, so only
-  a movie Kodi has filed for us is looked for that way. Such a row is never refreshed, which
+  a movie Kodi has filed for us is looked for that way. A row the stored id still holds is
+  removed by that id, and this lookup is the fallback. Such a row is never refreshed, which
   would read their file. The library clear finds a movie by the file its row lists and
   cannot reach it, so a grouped movie goes by its id before the clear (`removal.grouped_movies`),
   a single one leaving the same way, and the source holding their file is scanned after.
@@ -249,9 +252,12 @@ What remains is kofin's own:
   (`patch.Applier.commit`): one-row commits were 3,685 database opens for a pass that sent
   nothing.
 - **Nothing in the API backend is forgotten on the strength of an accepted call.** `removal.py`
-  is driven by the kind table (`kinds.KINDS[...].removal`): a row kind is confirmed by one
-  scoped readback, a child of a show that is going is acknowledged only when the show's removal
-  is confirmed, and a set is acknowledged after the apply pass has unfiled its movies and
+  is driven by the kind table (`kinds.KINDS[...].removal`): a mapped movie, show, episode
+  or music video is removed by `Get*Details` on the stored id and confirmed by reading that
+  id back. The library listing is the fallback when that id is missing or the row is not
+  ours, for a show as for a movie. A child of a show that is going is acknowledged only
+  when the show's removal is confirmed, and a set is acknowledged after the apply pass
+  has unfiled its movies and
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
   no longer shows it; the empty row Kodi keeps is removed by id with the `remove_set`
   feature (`RemoveMovieSet`, kontell/xbmc #7), and without it stays, in no listing, for
@@ -278,16 +284,20 @@ What remains is kofin's own:
   read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
   the count (`provider._known_entries`); until the store or that readback answers,
   `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
+- **Music "Update library on startup" stays off** (`musiclibrary.updateonstartup`).
+  Kodi runs that scan as it starts, before the service is listening, and the scanner
+  removes a directory's songs before it applies the listing.
 - **The pass finds applied songs Kodi lost, when something can have lost them.** Nothing
   pending names a song a half-failed listing, a stopped scan or a user's interrupted rescan
   removed, so `MusicPass.directories` compares every acknowledged song with the readback, puts
   the missing ones back to pending and into the pass, and scans their directory. Songs whose
   album's payload moved join the same comparison, because `song_tags` takes the album's
   artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
-  Bravia), so it runs only when due (`MusicPass.check_due`): a library's first music pass
-  after the service starts, a repair, the pass after Kodi announces a music scan or clean
-  that was not the pass's own (`Native.note_music_changes`), an album that moved, and a pass
-  whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories. Kodi announces the end of
+  Bravia), so it runs only when due (`MusicPass.check_due`): a repair, the pass after Kodi
+  announces a music scan or clean that was not the pass's own (`Native.note_music_changes`),
+  an album that moved, a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories,
+  and a directory the last compare could not read. The pass does not compare every song
+  because the service just started. Kodi announces the end of
   every scan, the hold's included, and names no directory, so the pass hears them on its own
   Monitor and takes as many as it ran for its own: the hold, and each directory scan once
   `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
@@ -352,8 +362,8 @@ What remains is kofin's own:
   process-wide pool is the other spelling and stays the plugin's.
 - **A small pass reads only its own rows.** The pass's placements are a `Placements` map: the
   pending items' read up front, any other by the item, and every one only for a caller that
-  walks the map (a removal deciding whether a library goes whole, a collection's planning) or
-  reads past `WHOLE_AFTER` items one at a time. `store.publish` without a complete listing reads
+  walks the map (a collection's planning) or reads past `WHOLE_AFTER` items one at a time.
+  Whether a removal clears a library is one survivor row (`store.has_survivor`). `store.publish` without a complete listing reads
   only the named items' placements, the applier preloads every mapping only for a pass of
   `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
@@ -385,7 +395,8 @@ What remains is kofin's own:
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
   pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
-  SQLite and held the store's write lock across a service restart.
+  SQLite and held the store's write lock across a service restart. An empty batch opens no
+  transaction.
 - **The pass issues one scan at a time.** Kodi's `UpdateLibrary` builtin, which both
   `VideoLibrary.Scan` and `AudioLibrary.Scan` execute, *stops* a running scan instead of
   queuing the request. Two roots selected together on the LibreELEC box cancelled each other
@@ -495,10 +506,10 @@ What remains is kofin's own:
   not stale on that Piers, and is on the Kodi 23 the profile moves to): never a pass, since the library is gone from Kodi
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
   no path lists the library while its old rows are still leaving.
-- **Album and artist artwork is applied between the music scan and the video scans**
-  (`kinds.MUSIC_FIRST`, `Native.reconcile`: `scan_music`, `plan_video`, the early kinds,
-  `scan_video`). With no video scan to wait for, the kinds keep their order and the music
-  hold is taken once.
+- **New movies, then new shows and episodes, then new music videos, then album directories
+  with a song that has no row, are scanned before metadata.** Versions and extras of a movie
+  that already has a row, and song play counts, come after. Album and artist setters stay in
+  `kinds.ORDER`, after those scans and before Audio.
 - **A viewer's request has one bar from the request to the end of the work**
   (`progress.Progress.attend`, `Library.settle_progress`). `close` ends a stretch and leaves
   an attended bar up; only `finish` takes it down, and a retried command does not attend
