@@ -42,7 +42,7 @@ _RESCAN = tuple(kind for kind, table in KINDS.items() if table.removal == "resca
 class _Attempt(NamedTuple):
     """One row a removal call was made for, and how it was found.
 
-    ``fast`` is a mapped id that ``Readback.holds`` accepted. Its
+    ``fast`` is a mapped id that ``Readback.owns`` accepted. Its
     confirmation reads that id back. A fallback row is confirmed by the
     listing, which is what found it. ``version_ids`` are the other movie
     rows of a fast movie's version files; a fallback movie finds those
@@ -553,13 +553,12 @@ def _remove_rows(
     The id stored for the item is removed when that row is still ours.
     Kodi may have deleted it, or reissued it: the video tables' ids are
     plain INTEGER PRIMARY KEYs, so a stored id that is missing or names
-    another row falls back to the listing. A show found that way owes a
-    scan of any source that filed an episode on its row, our folder or
-    not: another source's scan can leave the row there and take our id
-    off it, and ``RemoveTVShow`` deletes those episodes with it. A movie
-    owes the source of a file that is not ours. A row whose other sources
-    cannot be read stays. An id the stored row check rejected is not
-    removed.
+    another row falls back to the listing. Every show owes a scan of any
+    source that filed an episode on its row. Those episodes stay linked
+    when the row is still under our folder, and ``RemoveTVShow`` deletes
+    them. A movie found by the listing owes the source of a file that is
+    not ours. A row whose other sources cannot be read stays. An id the
+    stored row check rejected is not removed.
     """
     store = native.store
     attempted: list[_Attempt] = []
@@ -575,13 +574,14 @@ def _remove_rows(
                 _forget_with_children(store, pending, children, item_id)
                 continue
             row, fast, versions = located
-            if not fast:
-                if placed.kind == "Series":
-                    store.owe_scans(sources_of(native, {row["tvshowid"]}))
-                elif placed.kind == "Movie" and not native.readback.own_file(
-                    placed.library, item_id, row
-                ):
-                    store.owe_scans(sources_holding([row.get("file") or ""]))
+            if placed.kind == "Series":
+                store.owe_scans(sources_of(native, {row["tvshowid"]}))
+            elif (
+                not fast
+                and placed.kind == "Movie"
+                and not native.readback.own_file(placed.library, item_id, row)
+            ):
+                store.owe_scans(sources_holding([row.get("file") or ""]))
             rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
@@ -858,12 +858,18 @@ def _version_ids_fast(
     row: dict[str, Any],
 ) -> list[int]:
     """Movie ids of this item's version files, from each file, not from a
-    listing of the library. The movie's own file is the first source and
-    is the row already in hand. An id that is that row is not removed
-    twice. A file Kodi holds no row for is skipped."""
+    listing of the library.
+
+    Every source can still have a version URL, the first included: that
+    source is the movie's own file now, and the URL is a row of its own
+    when the source was not. An id is kept only when that row is this
+    item. The movie's own id is not removed twice. A file Kodi holds no
+    row for is skipped.
+    """
     owner = row.get("movieid")
     found: list[int] = []
-    for source in metadata.version_sources(payload or {})[1:]:
+    seen: set[int] = set()
+    for source in metadata.version_sources(payload or {}):
         try:
             reply = rpc(
                 "Files.GetFileDetails",
@@ -879,13 +885,25 @@ def _version_ids_fast(
             continue
         details = (reply or {}).get("filedetails") or {}
         movieid = details.get("id")
-        if (
+        if not (
             details.get("type") == "movie"
             and isinstance(movieid, int)
             and movieid >= 0
             and movieid != owner
+            and movieid not in seen
         ):
-            found.append(movieid)
+            continue
+        try:
+            candidate = native.readback.details("Movie", movieid)
+        except RuntimeError:
+            continue
+        if (
+            native.readback.owns("Movie", candidate, placed.library, placed.parent_id)
+            != item_id
+        ):
+            continue
+        seen.add(movieid)
+        found.append(movieid)
     return found
 
 

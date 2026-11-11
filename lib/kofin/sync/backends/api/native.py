@@ -1111,8 +1111,9 @@ class Native:
         when a movie is in the pass or a collection already is. A pass
         that has neither skips the read. ``join_sets`` is given the
         collections that name a movie of the pass, plus any collection
-        already pending. A removal that is waiting is given every live
-        collection: a title still in use is not free.
+        already pending, plus any other live collection of those titles:
+        Kodi holds one set per title. A removal that is waiting is given
+        every live collection: a title still in use is not free.
         """
 
         def kind_of(item_id: str) -> str:
@@ -1154,6 +1155,20 @@ class Native:
             if item_id in pending_boxsets
             or set(record.item.get("KofinMembers") or []) & movies
         }
+        titles = {
+            (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
+            for record in sets.values()
+        }
+        titles.discard("")
+        if titles:
+            sets.update(
+                {
+                    item_id: record
+                    for item_id, record in live.items()
+                    if (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
+                    in titles
+                }
+            )
         removal_waiting = any(
             operation == "remove" and is_boxset(item_id, payload)
             for item_id, (_, operation, payload) in pending.items()

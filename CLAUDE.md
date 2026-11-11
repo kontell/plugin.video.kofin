@@ -790,8 +790,9 @@ What remains is kofin's own:
   `limits` with an end of 0 gets no row from the video library and every row from the audio
   library: the bar of a music import read its count that way every three seconds and was
   handed the library's whole song list each time (22,381 songs, 1.1 MB, 22.0b2 on the P1D).
-- **A collection is planned in every pass that plans a movie filed under it, and a set is
-  never acknowledged without a compare** (`Native.join_sets`, `patch.Applier.plan`). A set
+- **A collection is planned in every pass that plans a movie filed under it, a live
+  collection of the same title with it, and a set is never acknowledged without a compare**
+  (`Native.join_sets`, `patch.Applier.plan`). Kodi holds one set of that name. A set
   is Kodi's to make and to drop: it goes with the last movie that names it, and a scan or a
   movie's patch makes it again from the name alone, bare, while the collection's payload has not moved. `sets.idSet` is a
   plain rowid, so the new row takes the number the old one had and the short-circuit above
