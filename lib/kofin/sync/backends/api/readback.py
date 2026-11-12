@@ -19,6 +19,7 @@ import time
 from typing import Any, Optional, Union
 from collections.abc import Iterable
 
+from kofin.core import kodirpc
 from kofin.core.log import Logger
 from . import paths
 from .kinds import KINDS, Kind, properties, rpc
@@ -542,6 +543,35 @@ class Readback:
         )
         row: dict[str, Any] = reply.get(table.result_key, {})
         return row
+
+    def lookup(self, kind: str, kodi_id: int) -> Optional[dict[str, Any]]:
+        """The row under ``kodi_id``, or None when Kodi refuses the id, as it
+        does an id it holds no row under. Raises when Kodi could not be
+        asked: that answer says nothing about the row."""
+        table = KINDS[kind]
+        reply = kodirpc.call(
+            table.getter,
+            {table.id_param: kodi_id, "properties": properties(kind, self.features)},
+        )
+        if reply is kodirpc.FAILED:
+            raise RuntimeError("Kodi could not be asked for %s %d" % (kind, kodi_id))
+        if not isinstance(reply, dict):
+            return None
+        return reply.get(table.result_key) or None
+
+    def movie_folder(self, library: str, item_id: str) -> list[dict[str, Any]]:
+        """Every movie row filed under one movie's folder, in one listing:
+        its own and any version file Kodi filed as a movie of its own. A
+        path filter is answered from the database, without the add-on."""
+        return self._paged(
+            KINDS["Movie"],
+            {
+                "properties": properties("Movie", self.features, minimal=True),
+                "filter": self._path_filter(
+                    paths.movie_dir(self.key, library, item_id)
+                ),
+            },
+        )
 
     def owned(
         self, kind: str, kodi_id: int, item_id: str, library: str, parent_id: str = ""

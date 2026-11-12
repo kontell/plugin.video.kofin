@@ -25,7 +25,7 @@ from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
 from . import capabilities, metadata, paths, progress, removal
-from .kinds import ORDER, rpc, rpc_batch
+from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import PRELOAD_ALL_MAPPINGS, Applier
 from .readback import Readback
@@ -187,13 +187,16 @@ class Native:
         # The pass's music work and what it reads once for it; a new one
         # for every pass (reconcile).
         self.music = MusicPass(self)
-        # Music libraries compared whole since ``music_sweep`` was set, and
-        # the flag itself. A repair, a music scan or clean that was not the
-        # pass's own, and a directory this pass was to list and did not, set
-        # the flag (note_music_changes, MusicPass.finish). Both start clear:
-        # a service start does not compare every song.
+        # Which music libraries owe a compare of every song
+        # (MusicPass.check_due). ``music_sweep``: every library does, but
+        # those in ``music_checked``, since a repair or a music scan or
+        # clean that was not the pass's own (note_music_changes).
+        # ``music_owed``: a library a pass left a directory of unread
+        # (MusicPass.finish). All start clear: a service start does not
+        # compare every song.
         self.music_checked: set[str] = set()
         self.music_sweep = False
+        self.music_owed: set[str] = set()
         # The music scans and cleans heard on the monitor so far, the scans
         # of the pass's own not yet matched to one of them, and this pass's
         # directory scans per library, which count as its own only once their
@@ -1104,17 +1107,14 @@ class Native:
     def _collections(
         self, pending: PendingWork, entries: Placements
     ) -> tuple[dict[str, Record], list[dict[str, Any]]]:
-        """The collections ``join_sets`` plans, and the live payloads
-        ``finish_sets`` keeps titles from.
+        """Every live collection, for ``join_sets`` and ``finish_sets``, read
+        only when a movie or a collection is pending: membership is inside
+        the payloads, and nothing else in the pass reads them.
 
-        Membership is inside the payload, so the payloads are read only
-        when a movie is in the pass or a collection already is. A pass
-        that has neither skips the read. ``join_sets`` is given the
-        collections that name a movie of the pass, plus any collection
-        already pending, plus any other live collection of those titles.
-        Kodi holds one set per title, and the lowest id with a row owns
-        its plot (``Applier.plan``). A removal that is waiting is given every
-        live collection: a title still in use is not free.
+        A movie's set is chosen among all its collections
+        (``metadata.collections_of``), so the map is built from every one:
+        built from fewer, a movie in two collections maps to the one that
+        lost it, which then has no row to find.
         """
 
         def kind_of(item_id: str) -> str:
@@ -1123,59 +1123,19 @@ class Native:
             except KeyError:
                 return ""
 
-        def is_boxset(item_id: str, payload: dict[str, Any]) -> bool:
-            return payload.get("Type") == "BoxSet" or kind_of(item_id) == "BoxSet"
-
-        movie_upsert = any(
-            operation == "upsert" and kind_of(item_id) == "Movie"
-            for item_id, (_, operation, _) in pending.items()
-        )
-        boxset_pending = any(
-            is_boxset(item_id, payload) for item_id, (_, _, payload) in pending.items()
-        )
-        if not movie_upsert and not boxset_pending:
+        if not any(
+            (operation == "upsert" and kind_of(item_id) == "Movie")
+            or payload.get("Type") == "BoxSet"
+            or kind_of(item_id) == "BoxSet"
+            for item_id, (_, operation, payload) in pending.items()
+        ):
             return {}, []
         live = {
             item_id: record
             for item_id, record in self.store.records(kind="BoxSet").items()
             if item_id not in pending or pending[item_id][1] != "remove"
         }
-        movies = {
-            item_id
-            for item_id, (_, operation, _) in pending.items()
-            if operation == "upsert" and kind_of(item_id) == "Movie"
-        }
-        pending_boxsets = {
-            item_id
-            for item_id, (_, _, payload) in pending.items()
-            if is_boxset(item_id, payload)
-        }
-        sets = {
-            item_id: record
-            for item_id, record in live.items()
-            if item_id in pending_boxsets
-            or set(record.item.get("KofinMembers") or []) & movies
-        }
-        titles = {
-            (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
-            for record in sets.values()
-        }
-        titles.discard("")
-        if titles:
-            sets.update(
-                {
-                    item_id: record
-                    for item_id, record in live.items()
-                    if (record.item.get("Name") or "").strip(paths.ASCII_SPACE)
-                    in titles
-                }
-            )
-        removal_waiting = any(
-            operation == "remove" and is_boxset(item_id, payload)
-            for item_id, (_, operation, payload) in pending.items()
-        )
-        chosen = live if removal_waiting else sets
-        return sets, [record.item for record in chosen.values()]
+        return live, [record.item for record in live.values()]
 
     def _apply(
         self,
@@ -1190,27 +1150,47 @@ class Native:
 
         New movies, then new shows and episodes, then new music videos,
         then album directories that hold a song with no row, are scanned
-        before metadata. Versions and extras of a movie that already has
-        a row, and the album directories whose songs all have rows,
-        follow. Setters run after every scan, in ``kinds.ORDER``, so a
-        new album's cover follows its scan and a song's play count stays
-        last.
+        first. The album directories whose songs all have rows follow,
+        then album and artist art and text (``kinds.MUSIC_FIRST``), which
+        a music scan can file under a new row and so follows every one.
+        Then the versions and extras of movies that already have a row,
+        and every other kind in ``kinds.ORDER``. With no version or extra
+        scan to wait for, the kinds keep their order and the music hold is
+        taken once.
         """
         planned = self._plan_music(upserts, errors, entries)
         fresh, assets = self.plan_video(upserts, errors)
         failed: set[str] = set()
         self.scan_video(fresh)
         self._scan_music(planned, upserts, errors, failed, fresh=True)
-        self.scan_video(assets)
         self._scan_music(planned, upserts, errors, failed, fresh=False)
         self._finish_music(planned, entries, errors, failed)
+        early = (
+            [
+                kind
+                for kind in MUSIC_FIRST
+                if any(r.kind == kind for r in upserts.values())
+            ]
+            if assets.directories
+            else []
+        )
+        if early:
+            applier.run(upserts, {}, set(), repair, errors, kinds=early)
+        self.scan_video(assets)
         # Only a collection's planning asks which ids are movies.
         movies = (
             {i for i, e in entries.items() if e.kind == "Movie"}
             if any(r.kind == "BoxSet" for r in upserts.values())
             else set()
         )
-        applier.run(upserts, collections, movies, repair, errors, kinds=list(ORDER))
+        applier.run(
+            upserts,
+            collections,
+            movies,
+            repair,
+            errors,
+            kinds=[kind for kind in ORDER if kind not in early],
+        )
         self.reclaim_shows(upserts)
 
     def _settle(
@@ -1328,17 +1308,11 @@ class Native:
         failed: set[str],
         fresh: bool,
     ) -> None:
-        """Scan one half of what ``_plan_music`` named. A library with
-        nothing in either half is asked once, on the fresh half: a scan
-        that fails before it lists anything still reaches the caller that
-        is waiting on it."""
+        """Scan one half of what ``_plan_music`` named, every library's;
+        a library whose first half failed is not scanned again."""
         for library, (new, rest) in planned.items():
-            if library in failed:
-                continue
             folders = new if fresh else rest
-            if fresh and not new and not rest:
-                folders = set()
-            elif not folders:
+            if library in failed or not folders:
                 continue
             try:
                 self.music.scan(

@@ -189,10 +189,10 @@ class MusicPass:
         filed and did not, and mark a library compared only once that
         check has run.
 
-        A directory this pass was to list and did not sets the sweep flag:
-        the rows it holds are found by the next whole compare. A scan that
-        raised never reaches here, so the flag a repair or a foreign scan
-        set stays set and the library stays unchecked.
+        A directory this pass was to list and did not leaves the library
+        owing a whole compare, which finds the rows it holds. A scan that
+        raised never reaches here, so a sweep a repair or a foreign scan
+        marked stays due for the library.
         """
         # Every directory of the library this pass re-listed, the removal's
         # scans before this one included: none other can have lost a song.
@@ -213,9 +213,10 @@ class MusicPass:
         } - self.listed
         if unread:
             self.native.music_checked.discard(library)
-            self.native.music_sweep = True
+            self.native.music_owed.add(library)
         elif library in self._compared:
             self.native.music_checked.add(library)
+            self.native.music_owed.discard(library)
 
     def scan(self, library: str, folders: set[str], expected: int = 0) -> None:
         """Have Kodi list the changed album directories again.
@@ -464,12 +465,13 @@ class MusicPass:
     ) -> bool:
         """Whether this pass compares every song of the library with Kodi's
         rows: a sweep is marked and this library has not been compared
-        since (a repair, a music scan or clean that was not the pass's own,
-        or a directory left unread), an album's payload moved, or the
-        pass's songs span enough directories that the library is read
-        whole anyway."""
+        since (a repair, a music scan or clean that was not the pass's
+        own), a pass left one of its directories unread, an album's payload
+        moved, or the pass's songs span enough directories that the
+        library is read whole anyway."""
         return (
             (self.native.music_sweep and library not in self.native.music_checked)
+            or library in self.native.music_owed
             or bool(changed_albums)
             or len({r.parent_id for r in songs.values()})
             >= self.native.readback.WHOLE_LIBRARY_FOLDERS

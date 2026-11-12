@@ -780,62 +780,29 @@ class Store(Catalogue):
             }
 
     def has_survivor(
-        self,
-        library: str,
-        leaving: Collection[str],
-        generation: int,
-        exclude_kinds: Collection[str],
+        self, library: str, generation: int, exclude_kinds: Collection[str]
     ) -> bool:
-        """Whether ``library`` still has a member at ``generation`` that is
-        not among ``leaving`` and not of ``exclude_kinds``.
-
-        One row answers, on the same generation predicate as ``entries_at``.
-        A leaving set of a few hundred ids is one ``NOT IN``. A larger one
-        is a temporary table so a single query still excludes every id, and
-        the table is dropped before a pooled connection is reused. An empty
-        ``leaving`` is a survivor: nothing of the library is going.
-        """
-        gone = list(leaving)
-        if not gone:
-            return True
+        """Whether ``library`` has a member at ``generation``, not of
+        ``exclude_kinds``, with no removal pending. One row answers, on the
+        same generation predicate as ``entries_at``."""
         excluded = list(exclude_kinds)
-        params: list[Any] = [self.namespace, generation, generation, library]
         kind_sql = ""
         if excluded:
-            kind_sql = " AND kind NOT IN (%s)" % ",".join("?" * len(excluded))
-            params.extend(excluded)
-        where = (
-            "namespace=? AND added<=? AND (removed IS NULL OR removed>?)"
-            " AND library=?" + kind_sql
-        )
+            kind_sql = " AND e.kind NOT IN (%s)" % ",".join("?" * len(excluded))
         with Database() as db:
             self._prepare(db.cursor)
-            if len(gone) <= 500:
-                row = db.cursor.execute(
-                    "SELECT 1 FROM api_entry WHERE "
-                    + where
-                    + " AND item_id NOT IN (%s) LIMIT 1" % ",".join("?" * len(gone)),
-                    params + gone,
-                ).fetchone()
-                return row is not None
-            db.cursor.execute("DROP TABLE IF EXISTS api_leaving")
-            db.cursor.execute(
-                "CREATE TEMP TABLE api_leaving (item_id TEXT PRIMARY KEY)"
-            )
-            try:
-                db.cursor.executemany(
-                    "INSERT OR IGNORE INTO api_leaving (item_id) VALUES (?)",
-                    [(item_id,) for item_id in gone],
-                )
-                row = db.cursor.execute(
-                    "SELECT 1 FROM api_entry WHERE "
-                    + where
-                    + " AND item_id NOT IN (SELECT item_id FROM api_leaving) LIMIT 1",
-                    params,
-                ).fetchone()
-                return row is not None
-            finally:
-                db.cursor.execute("DROP TABLE IF EXISTS api_leaving")
+            row = db.cursor.execute(
+                """SELECT 1 FROM api_entry e
+                WHERE e.namespace=? AND e.added<=?
+                AND (e.removed IS NULL OR e.removed>?) AND e.library=?"""
+                + kind_sql
+                + """ AND NOT EXISTS (SELECT 1 FROM api_item i
+                    WHERE i.namespace=e.namespace AND i.item_id=e.item_id
+                    AND i.status='pending' AND i.operation='remove')
+                LIMIT 1""",
+                [self.namespace, generation, generation, library] + excluded,
+            ).fetchone()
+        return row is not None
 
     def filed_under(self, kind: str, parent_id: str) -> list[str]:
         """The ids of one kind filed under a parent, live and not leaving."""

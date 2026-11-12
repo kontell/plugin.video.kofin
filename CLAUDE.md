@@ -254,8 +254,11 @@ What remains is kofin's own:
 - **Nothing in the API backend is forgotten on the strength of an accepted call.** `removal.py`
   is driven by the kind table (`kinds.KINDS[...].removal`): a mapped movie, show, episode
   or music video is removed by `Get*Details` on the stored id and confirmed by reading that
-  id back. The library listing is the fallback when that id is missing or the row is not
-  ours, for a show as for a movie. A child of a show that is going is acknowledged only
+  id back (`Readback.lookup`): an id Kodi refuses is gone, and a read Kodi could not answer
+  keeps the removal pending. A movie's version rows are the rows under its folder, one
+  path-filtered listing that Kodi answers without the add-on (`Readback.movie_folder`). The
+  library listing is the fallback when that id is missing or the row is not ours, for a
+  show as for a movie. A child of a show that is going is acknowledged only
   when the show's removal is confirmed, and a set is acknowledged after the apply pass
   has unfiled its movies and
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
@@ -284,9 +287,6 @@ What remains is kofin's own:
   read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
   the count (`provider._known_entries`); until the store or that readback answers,
   `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
-- **Music "Update library on startup" stays off** (`musiclibrary.updateonstartup`).
-  Kodi runs that scan as it starts, before the service is listening, and the scanner
-  removes a directory's songs before it applies the listing.
 - **The pass finds applied songs Kodi lost, when something can have lost them.** Nothing
   pending names a song a half-failed listing, a stopped scan or a user's interrupted rescan
   removed, so `MusicPass.directories` compares every acknowledged song with the readback, puts
@@ -296,8 +296,11 @@ What remains is kofin's own:
   Bravia), so it runs only when due (`MusicPass.check_due`): a repair, the pass after Kodi
   announces a music scan or clean that was not the pass's own (`Native.note_music_changes`),
   an album that moved, a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories,
-  and a directory the last compare could not read. The pass does not compare every song
-  because the service just started. Kodi announces the end of
+  and, for its library alone, a directory a pass was to list and did not
+  (`Native.music_owed`). The pass does not compare every song because the service just
+  started, so a music scan Kodi ran while the service was not listening (its own update on
+  startup, a service restart) and that stopped part way leaves its lost songs until one of
+  those is next due. Kodi announces the end of
   every scan, the hold's included, and names no directory, so the pass hears them on its own
   Monitor and takes as many as it ran for its own: the hold, and each directory scan once
   `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
@@ -363,7 +366,9 @@ What remains is kofin's own:
 - **A small pass reads only its own rows.** The pass's placements are a `Placements` map: the
   pending items' read up front, any other by the item, and every one only for a caller that
   walks the map (a collection's planning) or reads past `WHOLE_AFTER` items one at a time.
-  Whether a removal clears a library is one survivor row (`store.has_survivor`). `store.publish` without a complete listing reads
+  Whether a removal clears a library is one survivor row (`store.has_survivor`), and the
+  collections' payloads are read only when a movie or a collection is pending
+  (`Native._collections`). `store.publish` without a complete listing reads
   only the named items' placements, the applier preloads every mapping only for a pass of
   `PRELOAD_ALL_MAPPINGS` rows or more (`mappings_of` otherwise), and the music pass reads a
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
@@ -507,9 +512,12 @@ What remains is kofin's own:
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
   no path lists the library while its old rows are still leaving.
 - **New movies, then new shows and episodes, then new music videos, then album directories
-  with a song that has no row, are scanned before metadata.** Versions and extras of a movie
-  that already has a row, and song play counts, come after. Album and artist setters stay in
-  `kinds.ORDER`, after those scans and before Audio.
+  with a song that has no row, are scanned before metadata** (`Native._apply`). The album
+  directories whose songs all have rows come next, then album and artist art and text
+  (`kinds.MUSIC_FIRST`), then the versions and extras of a movie that already has a row,
+  then every other setter, song play counts last. Album and artist setters follow every
+  music scan because a scan can file an album under a new row. With no version or extra
+  scan to wait for, the kinds keep their order and the music hold is taken once.
 - **A viewer's request has one bar from the request to the end of the work**
   (`progress.Progress.attend`, `Library.settle_progress`). `close` ends a stretch and leaves
   an attended bar up; only `finish` takes it down, and a retried command does not attend

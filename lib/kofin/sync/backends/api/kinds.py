@@ -16,6 +16,11 @@ from kofin.core import kodirpc
 # retry.
 BATCH = 25
 
+# The two music kinds whose patch is their artwork and text, applied once the
+# music scans are done and before the version and extra scans
+# (native._apply).
+MUSIC_FIRST = ("MusicAlbum", "MusicArtist")
+
 # Application order: a season or episode patch needs its show's row first
 # and a set needs its movies. Songs go last: each played song is a setter,
 # and every album cover would wait behind them.

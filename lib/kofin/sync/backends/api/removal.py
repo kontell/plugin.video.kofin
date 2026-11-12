@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.sync import kofindb, private
-from . import metadata, paths, progress
+from . import paths, progress
 from .kinds import KINDS, rpc
 from .store import Entry, PendingWork, Placements, Store
 
@@ -45,8 +45,8 @@ class _Attempt(NamedTuple):
     ``fast`` is a mapped id that ``Readback.owns`` accepted. Its
     confirmation reads that id back. A fallback row is confirmed by the
     listing, which is what found it. ``version_ids`` are the other movie
-    rows of a fast movie's version files; a fallback movie finds those
-    from the listing instead.
+    rows of a fast movie's version files, from its folder; a fallback
+    movie finds those from the listing instead.
     """
 
     item_id: str
@@ -423,7 +423,7 @@ def _clear_whole_libraries(
         by_library.setdefault(entry.library, set()).add(item_id)
     cleared: set[str] = set()
     for library, members in sorted(by_library.items()):
-        if store.has_survivor(library, members, generation, _RESCAN):
+        if store.has_survivor(library, generation, _RESCAN):
             continue
         kinds = {placement[i].kind for i in members}
         others: list[str] = []
@@ -569,7 +569,7 @@ def _remove_rows(
         try:
             if native.abort():
                 raise InterruptedError("native sync stopped")
-            located = _locate(native, placed, item_id, pending[item_id][2])
+            located = _locate(native, placed, item_id)
             if located is None:
                 _forget_with_children(store, pending, children, item_id)
                 continue
@@ -624,8 +624,9 @@ def _confirm_rows(
     whose show was settled before it was gathered, or whose removal never
     got as far as a call, goes with the show's state.
 
-    A mapped id is confirmed by reading it back. Gone, or now a different
-    item, is success. The listing is asked only for a row that was found
+    A mapped id is confirmed by reading it back. Refused, or now a
+    different item, is success; a read Kodi could not answer leaves the
+    removal pending. The listing is asked only for a row that was found
     that way, and only those rows drop the scope cache: after a delete of
     an id just checked, absence is the result, and a movie missing from
     the listing is looked up by listing its folder.
@@ -639,12 +640,16 @@ def _confirm_rows(
         if placed.kind == "Episode" and placed.parent_id in removed_shows:
             survived = False
         elif attempt.fast:
-            survived = _still_ours(native, placed, item_id, attempt.kodi_id)
-            if not survived and placed.kind == "Movie":
+            try:
                 survived = any(
-                    _still_ours(native, placed, item_id, version_id)
-                    for version_id in attempt.version_ids
+                    _still_ours(native, placed, item_id, kodi_id)
+                    for kodi_id in (attempt.kodi_id,) + attempt.version_ids
                 )
+            except InterruptedError:
+                raise
+            except Exception as error:
+                _fail_with_children(store, pending, children, item_id, error, errors)
+                continue
         else:
             survived = _row(native, placed, item_id) is not None or (
                 placed.kind == "Movie"
@@ -816,22 +821,20 @@ def _ours_in_set(native: "Native", title: str) -> bool:
 
 
 def _locate(
-    native: "Native", placed: Entry, item_id: str, payload: dict[str, Any]
+    native: "Native", placed: Entry, item_id: str
 ) -> Optional[tuple[dict[str, Any], bool, list[int]]]:
     """The row to remove, whether the stored id still names it, and the
     other movie ids of a fast movie's version files.
 
-    A stored id of 0 is no id. A getter that fails, or a row that is not
+    A stored id of 0 is no id. An id Kodi refuses, or a row that is not
     this item, falls through to the listing (``_row``): a merged show and
     a grouped movie are found there, and so is an id Kodi has already
-    dropped or given to another row.
+    dropped or given to another row. A read Kodi could not answer raises,
+    and the removal stays pending.
     """
     mapping = native.store.mapping(item_id)
     if mapping is not None and mapping.kodi_id:
-        try:
-            row = native.readback.details(placed.kind, mapping.kodi_id)
-        except RuntimeError:
-            row = {}
+        row = native.readback.lookup(placed.kind, mapping.kodi_id)
         # owns, not holds: a row this pass adopted (a show found through
         # its episodes, a movie found by its file) is the fallback. holds
         # would take it for the fast path and skip the other source.
@@ -842,7 +845,7 @@ def _locate(
         ):
             versions: list[int] = []
             if placed.kind == "Movie":
-                versions = _version_ids_fast(native, placed, item_id, payload, row)
+                versions = _version_ids(native, placed, item_id, row)
             return row, True, versions
     found = _row(native, placed, item_id)
     if found is None:
@@ -850,71 +853,29 @@ def _locate(
     return found, False, []
 
 
-def _version_ids_fast(
-    native: "Native",
-    placed: Entry,
-    item_id: str,
-    payload: dict[str, Any],
-    row: dict[str, Any],
+def _version_ids(
+    native: "Native", placed: Entry, item_id: str, row: dict[str, Any]
 ) -> list[int]:
-    """Movie ids of this item's version files, from each file, not from a
-    listing of the library.
-
-    Every source can still have a version URL, the first included: that
-    source is the movie's own file now, and the URL is a row of its own
-    when the source was not. An id is kept only when that row is this
-    item. The movie's own id is not removed twice. A file Kodi holds no
-    row for is skipped.
-    """
+    """Movie ids of this item's version files that Kodi filed as movies of
+    their own: the rows under the movie's folder that are this item's,
+    the movie's own row aside. A version grouped under another movie is
+    that movie's row, filed under its folder, and is left there."""
     owner = row.get("movieid")
-    found: list[int] = []
-    seen: set[int] = set()
-    for source in metadata.version_sources(payload or {}):
-        try:
-            reply = rpc(
-                "Files.GetFileDetails",
-                {
-                    "file": paths.version_url(
-                        native.key, placed.library, item_id, source["Id"]
-                    ),
-                    "media": "video",
-                    "properties": ["file"],
-                },
-            )
-        except RuntimeError:
-            continue
-        details = (reply or {}).get("filedetails") or {}
-        movieid = details.get("id")
-        if not (
-            details.get("type") == "movie"
-            and isinstance(movieid, int)
-            and movieid >= 0
-            and movieid != owner
-            and movieid not in seen
-        ):
-            continue
-        try:
-            candidate = native.readback.details("Movie", movieid)
-        except RuntimeError:
-            continue
-        if (
-            native.readback.owns("Movie", candidate, placed.library, placed.parent_id)
-            != item_id
-        ):
-            continue
-        seen.add(movieid)
-        found.append(movieid)
-    return found
+    return [
+        version["movieid"]
+        for version in native.readback.movie_folder(placed.library, item_id)
+        if version.get("movieid") != owner
+        and native.readback.owns("Movie", version, placed.library, placed.parent_id)
+        == item_id
+    ]
 
 
 def _still_ours(native: "Native", placed: Entry, item_id: str, kodi_id: int) -> bool:
-    """Whether ``kodi_id`` is still this item's row. A missing id, or one
-    Kodi has given to another item, is gone."""
-    try:
-        row = native.readback.details(placed.kind, kodi_id)
-    except RuntimeError:
-        return False
-    return bool(row) and native.readback.holds(
+    """Whether ``kodi_id`` is still this item's row. An id Kodi refuses, or
+    one Kodi has given to another item, is gone; a read Kodi could not
+    answer raises."""
+    row = native.readback.lookup(placed.kind, kodi_id)
+    return row is not None and native.readback.holds(
         placed.kind, row, placed.library, item_id, placed.parent_id
     )
 

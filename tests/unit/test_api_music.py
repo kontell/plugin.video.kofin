@@ -939,8 +939,10 @@ def test_removing_a_music_library_does_not_clear_video(store, backend, kodi):
 
 
 def test_new_content_is_scanned_before_metadata(store, backend, kodi):
-    """A new movie, a new episode and a new album are scanned before the
-    extras of a movie that already has a row, and the setters follow."""
+    """A new movie, a new episode and a new album are scanned first, then
+    the album a song was renamed in. Album and artist setters follow every
+    music scan and come before the extras of a movie that already has a
+    row; a song's play count is last."""
     store.publish(show_bundle() + [movie("kept")] + album_bundle(songs=2), library=LIB)
     backend.reconcile()
     assert not store.pending()
@@ -961,6 +963,7 @@ def test_new_content_is_scanned_before_metadata(store, backend, kodi):
             episode("ea13", SHOW, 1, 3),
             movie("kept", SpecialFeatures=[feature]),
             song("tc31", ALBUM, 1, UserData={"Played": True, "PlayCount": 2}),
+            song("tc32", ALBUM, 2, Name="Renamed"),
         ]
         + album_bundle(ALBUM2, ARTIST2, 1, "u"),
         membership=LIB,
@@ -978,9 +981,10 @@ def test_new_content_is_scanned_before_metadata(store, backend, kodi):
         ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "n")),
         ("VideoLibrary.Scan", paths.library_dir(store.namespace, LIB, "tvshows")),
         ("AudioLibrary.Scan", paths.music_part(store.namespace, LIB, 0)),
+        ("AudioLibrary.Scan", paths.music_part(store.namespace, LIB, 0)),
         ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "kept")),
     ]
-    assert kodi.music_folders == [ALBUM2]
+    assert kodi.music_folders == [ALBUM2, ALBUM]
 
     def at(method):
         for index, (name, _params) in enumerate(kodi.calls):
@@ -994,10 +998,18 @@ def test_new_content_is_scanned_before_metadata(store, backend, kodi):
         if name == "VideoLibrary.Scan"
         and params["directory"] == paths.movie_dir(store.namespace, LIB, "kept")
     )
-    assert (
-        extra < at("AudioLibrary.SetAlbumDetails") < at("AudioLibrary.SetSongDetails")
+    last_music_scan = max(
+        index
+        for index, (name, params) in enumerate(kodi.calls)
+        if name == "AudioLibrary.Scan" and params.get("directory") != hold
     )
-    assert at("AudioLibrary.SetAlbumDetails") < at("AudioLibrary.SetArtistDetails")
+    assert (
+        last_music_scan
+        < at("AudioLibrary.SetAlbumDetails")
+        < at("AudioLibrary.SetArtistDetails")
+        < extra
+        < at("AudioLibrary.SetSongDetails")
+    )
     setters = methods(kodi, "AudioLibrary.SetSongDetails")
     assert len(setters) == 1 and setters[0]["playcount"] == 2
     assert owned_songs(kodi)["tc31"]["playcount"] == 2
@@ -1828,10 +1840,50 @@ def test_a_scan_that_fails_leaves_the_library_to_be_compared_whole(
         raise RuntimeError("scan failed")
 
     monkeypatch.setattr(musicpass.MusicPass, "scan", scan)
-    store.publish([song("t%s1" % ALBUM[:2], ALBUM, 1, UserData={"PlayCount": 2})])
-    with pytest.raises(RuntimeError):
+    store.publish([song("t%s1" % ALBUM[:2], ALBUM, 1, Name="Renamed")])
+    with pytest.raises(RuntimeError, match="scan failed"):
         backend.reconcile()
     assert LIB not in backend.music_checked
+
+
+def test_a_directory_left_unread_owes_its_own_library_a_compare(
+    store, backend, kodi, monkeypatch
+):
+    """The compare is due for the library a pass left a directory of
+    unread, and for no other: a play count elsewhere compares its own
+    song."""
+    from kofin.sync.backends.api import musicpass
+    from kofin.sync.backends.api.store import Store
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    store.publish(album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB2)
+    backend.reconcile()
+    assert not backend.music_sweep and not backend.music_owed
+    listed = Store.listed
+    monkeypatch.setattr(
+        Store,
+        "listed",
+        lambda self, library: set() if library == LIB else listed(self, library),
+    )
+    store.publish([song("tc31", ALBUM, 1, Name="Renamed")])
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert backend.music_owed == {LIB}
+    monkeypatch.setattr(Store, "listed", listed)
+    due = []
+    check_due = musicpass.MusicPass.check_due
+
+    def spy(self, library, songs, changed_albums):
+        whole = check_due(self, library, songs, changed_albums)
+        due.append((library, whole))
+        return whole
+
+    monkeypatch.setattr(musicpass.MusicPass, "check_due", spy)
+    store.publish([song("ud41", ALBUM2, 1, ARTIST2, UserData={"PlayCount": 3})])
+    backend.reconcile()
+    assert (LIB2, False) in due and (LIB, True) in due
+    assert not store.pending()
+    assert not backend.music_owed and LIB in backend.music_checked
 
 
 def test_a_play_count_pass_reads_no_placement_but_its_own(
