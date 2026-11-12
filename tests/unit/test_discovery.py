@@ -9,7 +9,7 @@ import socket
 
 import pytest
 
-from kofin.core import discovery
+from kofin.core import auth, discovery
 
 PAYLOAD = (
     b'{"Address":"http://192.168.1.167:8096",'
@@ -233,6 +233,43 @@ def test_fallback_is_the_same_address_when_the_server_named_its_own_ip():
     found = discovery.Found("a", "minipie", "http://192.168.1.167:8096", HOST)
 
     assert discovery.fallback_address(found) == found.address
+
+
+# -- what the probe may ask for -----------------------------------------------
+
+
+def test_an_address_without_a_path_may_be_probed_on_any_host():
+    found = discovery.Found("a", "attic", "https://attic.example.com:8920", "10.0.0.5")
+
+    assert discovery.may_probe(found)
+
+
+def test_a_base_path_on_the_replying_host_may_be_probed():
+    found = discovery.Found("a", "nas", "http://10.0.0.5:8096/jellyfin", "10.0.0.5")
+
+    assert discovery.may_probe(found)
+
+
+@pytest.mark.parametrize(
+    "published",
+    [
+        "http://127.0.0.1:80/cgi-bin/reboot.cgi",
+        "http://192.168.1.1:80/apply.cgi",
+        "http://attic:8096/jellyfin",
+    ],
+)
+def test_a_path_on_another_host_is_not_probed(published):
+    """A reply can come from anything on the network; the path it publishes
+    would otherwise be requested from a host of its choosing."""
+    found = discovery.Found("a", "evil", auth.normalize_address(published), HOST)
+
+    assert not discovery.may_probe(found)
+
+
+def test_the_host_comparison_ignores_case():
+    found = discovery.Found("a", "nas", "http://NAS:8096/jellyfin", "nas")
+
+    assert discovery.may_probe(found)
 
 
 # -- row text -----------------------------------------------------------------
