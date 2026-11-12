@@ -219,6 +219,74 @@ def test_an_unreachable_published_url_falls_back_to_the_source_address(rig):
     assert _stored() == "https://10.0.0.5:8920"
 
 
+def test_a_published_path_on_another_host_is_never_requested(rig):
+    """A reply naming a path on some other host is probed only on the host
+    that sent it, and the path is never requested from the named one."""
+    hostile = discovery.Found(
+        server_id="id-evil",
+        name="evil",
+        address="http://127.0.0.1:80/cgi-bin/reboot.cgi",
+        source_host="192.168.1.66",
+    )
+    rig.found = [hostile]
+    rig.dialog.select_answers = [-1]
+
+    serverpicker.find_servers(_request())
+
+    assert rig.probed == ["http://192.168.1.66:80/cgi-bin/reboot.cgi"]
+
+
+def test_a_base_path_on_the_replying_host_is_verified(rig):
+    nas = discovery.Found(
+        server_id="id-nas",
+        name="nas",
+        address="http://192.168.1.20:8096/jellyfin",
+        source_host="192.168.1.20",
+    )
+    rig.found = [nas]
+    rig.reachable = {nas.address: {"ServerName": "nas"}}
+    rig.dialog.select_answers = [0]
+
+    serverpicker.find_servers(_request())
+
+    assert rig.probed == ["http://192.168.1.20:8096/jellyfin"]
+    assert _stored() == "http://192.168.1.20:8096/jellyfin"
+
+
+def test_a_proxied_base_path_is_verified_on_the_source_and_stored_there(rig):
+    proxied = discovery.Found(
+        server_id="id-attic",
+        name="attic",
+        address="https://attic.example.com:8920/jellyfin",
+        source_host="10.0.0.5",
+    )
+    rig.found = [proxied]
+    rig.reachable = {"https://10.0.0.5:8920/jellyfin": {}}
+    rig.dialog.select_answers = [0]
+
+    serverpicker.find_servers(_request())
+
+    assert rig.probed == ["https://10.0.0.5:8920/jellyfin"]
+    assert _stored() == "https://10.0.0.5:8920/jellyfin"
+
+
+def test_an_unprobed_published_address_is_still_offered(rig):
+    """When the fallback does not answer either, the row is the address the
+    server published, unverified, as for any server that answered nothing."""
+    proxied = discovery.Found(
+        server_id="id-attic",
+        name="attic",
+        address="https://attic.example.com:8920/jellyfin",
+        source_host="10.0.0.5",
+    )
+    rig.found = [proxied]
+    rig.dialog.select_answers = [0]
+
+    serverpicker.find_servers(_request())
+
+    assert _stored() == "https://attic.example.com:8920/jellyfin"
+
+
 def test_a_server_that_answered_nothing_is_offered_last_not_hidden(rig):
     """'attic' sorts first by name and last by reachability. The user may know
     the network better than the probe does, so it stays on the list."""

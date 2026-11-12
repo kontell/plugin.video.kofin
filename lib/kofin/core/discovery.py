@@ -190,6 +190,23 @@ def fallback_address(found: Found) -> str:
     return auth.normalize_address(rebuilt)
 
 
+def may_probe(found: Found) -> bool:
+    """Whether the published address may be probed as it stands.
+
+    Anything on the network can answer the broadcast, and the probe is sent
+    before the user has picked anything, so a published address chooses the
+    host and path of a request this box makes: ``/cgi-bin/x`` on its own
+    loopback or on a router. A path is followed only on the host the reply
+    came from, where it reaches nothing that host could not reach itself.
+    A published address with a path on any other host is not probed;
+    :func:`fallback_address`, which is always on the source host, is.
+    """
+    parts = urlsplit(found.address)
+    if not parts.path:
+        return True
+    return (parts.hostname or "").lower() == found.source_host.lower()
+
+
 def label_for(
     name: str, address: str, info: Optional[dict[str, Any]] = None
 ) -> tuple[str, str]:

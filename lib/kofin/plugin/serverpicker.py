@@ -55,10 +55,12 @@ def _text(string_id: int) -> str:
 
 
 def _addresses(found: discovery.Found) -> list[str]:
-    """The addresses to try for one hit, best first."""
-    addresses = [found.address]
+    """The addresses to try for one hit, best first. A published address
+    left out by :func:`discovery.may_probe` is still offered, unverified,
+    when its fallback does not answer either."""
+    addresses = [found.address] if discovery.may_probe(found) else []
     fallback = discovery.fallback_address(found)
-    if fallback and fallback != found.address:
+    if fallback and fallback not in addresses:
         addresses.append(fallback)
     return addresses
 
