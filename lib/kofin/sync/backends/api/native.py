@@ -1159,6 +1159,14 @@ class Native:
         taken once.
         """
         planned = self._plan_music(upserts, errors, entries)
+        # An album brings its songs into the comparison only while it is
+        # pending (MusicPass.directories): one of a library whose planning
+        # failed waits for the next pass.
+        upserts = {
+            item_id: record
+            for item_id, record in upserts.items()
+            if record.kind != "MusicAlbum" or record.library in planned
+        }
         fresh, assets = self.plan_video(upserts, errors)
         failed: set[str] = set()
         self.scan_video(fresh)

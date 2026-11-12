@@ -1600,6 +1600,37 @@ def test_an_album_change_retags_its_songs_without_a_song_payload_change(
     assert kodi.music_scanned == [] and not store.pending()
 
 
+def test_an_album_whose_library_was_not_planned_stays_pending(
+    store, backend, kodi, monkeypatch
+):
+    """The album's songs are compared with it only while it is pending: one
+    acknowledged while its library's directories could not be planned would
+    leave its songs with the old tags."""
+    from kofin.sync.backends.api import musicpass
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    before = store.mapping("tc31").applied["tag"]
+    directories = musicpass.MusicPass.directories
+
+    def unplanned(self, upserts, library, entries):
+        raise RuntimeError("planning failed")
+
+    monkeypatch.setattr(musicpass.MusicPass, "directories", unplanned)
+    kodi.calls.clear()
+    kodi.music_folders.clear()
+    store.publish([album(ProviderIds={"MusicBrainzAlbum": "mb-album-moved"})])
+    with pytest.raises(RuntimeError, match="planning failed"):
+        backend.reconcile()
+    assert store.state(ALBUM).status == "pending"
+    assert not methods(kodi, "AudioLibrary.SetAlbumDetails")
+    monkeypatch.setattr(musicpass.MusicPass, "directories", directories)
+    backend.reconcile()
+    assert kodi.music_folders == [ALBUM]
+    assert store.mapping("tc31").applied["tag"] != before
+    assert not store.pending()
+
+
 def test_music_folder_waits_for_a_proven_listing(store, monkeypatch):
     """A failed or partial fallback is the directory deleted, so the listing
     waits until the store or a complete readback answers, and at shutdown
