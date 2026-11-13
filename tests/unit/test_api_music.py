@@ -979,7 +979,7 @@ def test_new_content_is_scanned_before_metadata(store, backend, kodi):
     ]
     assert scans == [
         ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "n")),
-        ("VideoLibrary.Scan", paths.library_dir(store.namespace, LIB, "tvshows")),
+        ("VideoLibrary.Scan", paths.show_dir(store.namespace, LIB, SHOW)),
         ("AudioLibrary.Scan", paths.music_part(store.namespace, LIB, 0)),
         ("AudioLibrary.Scan", paths.music_part(store.namespace, LIB, 0)),
         ("VideoLibrary.Scan", paths.movie_dir(store.namespace, LIB, "kept")),

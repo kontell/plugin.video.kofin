@@ -27,9 +27,13 @@ from kofin.core.log import Logger
 from kofin.sync.private import Database
 from . import paths
 from .kinds import NAMES
-from .records import Record
+from .records import PayloadWindow, Record
 
 LOG = Logger(__name__)
+
+# An episode as its show's hash reads it: id, season and number
+# (metadata.episode_row).
+EpisodeRow = tuple[str, int, int]
 
 
 def namespace(server_id: str, user_id: str) -> str:
@@ -214,6 +218,10 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
+                PRIMARY KEY(namespace,item_id));
+            CREATE TABLE IF NOT EXISTS api_episode_row(
+                namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
+                format INTEGER NOT NULL, season INTEGER, episode INTEGER,
                 PRIMARY KEY(namespace,item_id));
             CREATE TABLE IF NOT EXISTS api_local_userdata(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, payload TEXT NOT NULL,
@@ -997,6 +1005,81 @@ class Store(Catalogue):
             for row in rows
         }
 
+    def episode_rows(
+        self,
+        library: str,
+        reduce: Callable[[dict[str, Any]], Optional[EpisodeRow]],
+        row_format: int,
+        pinned: bool = True,
+    ) -> dict[str, list[EpisodeRow]]:
+        """What ``reduce`` makes of each episode of ``library``, by show,
+        without the episodes it answers None for.
+
+        A row is kept beside the generation of the payload it was reduced
+        from and ``row_format``, the caller's number for what ``reduce``
+        reads of a payload. Only an episode whose payload has moved since,
+        one kept under another format and one never reduced have their
+        payload read,
+        so a library nothing changed in is answered without a payload. A
+        payload staged between the two reads is kept under the generation
+        before it, which the next read finds moved.
+        """
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, pinned)
+            found = db.cursor.execute(
+                """SELECT e.item_id, e.parent_id, i.desired,
+                    r.generation, r.format, r.season, r.episode
+                FROM api_entry e
+                JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
+                LEFT JOIN api_episode_row r
+                    ON r.namespace=e.namespace AND r.item_id=e.item_id
+                WHERE e.namespace=? AND e.added<=?
+                    AND (e.removed IS NULL OR e.removed>?)
+                    AND e.kind='Episode' AND e.library=?""",
+                (self.namespace, generation, generation, library),
+            ).fetchall()
+        rows: dict[str, list[EpisodeRow]] = {}
+        moved: dict[str, tuple[str, int]] = {}
+        for item_id, parent, desired, kept, kept_format, season, episode in found:
+            if kept != desired or kept_format != row_format:
+                moved[item_id] = (parent, desired)
+            elif season is not None:
+                rows.setdefault(parent, []).append((item_id, season, episode))
+        reduced = []
+        ids = sorted(moved)
+        for start in range(0, len(ids), PayloadWindow.CHUNK):
+            for item_id, payload in self.payloads(
+                ids[start : start + PayloadWindow.CHUNK]
+            ).items():
+                parent, desired = moved[item_id]
+                row = reduce(payload)
+                reduced.append(
+                    (
+                        self.namespace,
+                        item_id,
+                        desired,
+                        row_format,
+                        row[1] if row else None,
+                        row[2] if row else None,
+                    )
+                )
+                if row is not None:
+                    rows.setdefault(parent, []).append(row)
+        if reduced:
+            try:
+                with Database() as db:
+                    self._prepare(db.cursor)
+                    db.cursor.executemany(
+                        "INSERT OR REPLACE INTO api_episode_row VALUES (?,?,?,?,?,?)",
+                        reduced,
+                    )
+            except sqlite3.Error as error:
+                # The rows are the answer either way; unkept, they are
+                # reduced again by the next read.
+                LOG.debug("episode rows not kept: %s", error)
+        return rows
+
     def folders(self, kind: str, library: str, pinned: bool = True) -> list[str]:
         """The directory keys live items of ``kind`` file under, without
         loading a payload."""
@@ -1397,6 +1480,10 @@ class Store(Catalogue):
                 )
                 db.cursor.execute(
                     "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                )
+                db.cursor.execute(
+                    "DELETE FROM api_episode_row WHERE namespace=? AND item_id=?",
                     (self.namespace, item_id),
                 )
             if count and root:

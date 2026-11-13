@@ -139,6 +139,119 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
     assert not store.pending()
 
 
+def test_a_new_episode_of_a_filed_show_is_scanned_by_the_show_s_folder(
+    store, backend, kodi
+):
+    """The root's listing names every show of the library, built from the
+    catalogue. A show Kodi already lists under our folder is found by its
+    folder's path, so its new episode is filed by a scan of that folder."""
+    store.publish(show_bundle() + show_bundle(SHOW2), library=LIB)
+    backend.reconcile()
+    root = paths.library_dir(store.namespace, LIB, "tvshows")
+    assert kodi.scanned == [root]
+
+    kodi.scanned.clear()
+    store.publish(
+        [episode("ea13", number=3), episode("eb23", SHOW2, number=3)],
+        membership=LIB,
+    )
+    backend.reconcile()
+
+    assert kodi.scanned == [
+        paths.show_dir(store.namespace, LIB, SHOW),
+        paths.show_dir(store.namespace, LIB, SHOW2),
+    ]
+    assert {"ea13", "eb23"} <= set(kodi.owned("Episode"))
+    assert not store.pending()
+
+
+def test_a_new_show_is_scanned_from_the_root(store, backend, kodi):
+    """Kodi makes the item of a folder it is asked for itself, without the
+    tag the root's listing gives a show: a show with no row needs the root,
+    and so does every other show's episode in the same pass."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+
+    store.publish([episode("ea13", number=3)] + show_bundle(SHOW2), membership=LIB)
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert {"ea13", "eb21", "eb22"} <= set(kodi.owned("Episode"))
+    assert not store.pending()
+
+
+def test_new_episodes_of_many_shows_are_scanned_from_the_root(
+    store, backend, kodi, monkeypatch
+):
+    monkeypatch.setattr(native, "SHOW_FOLDER_SCANS", 1)
+    store.publish(show_bundle() + show_bundle(SHOW2), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+
+    store.publish(
+        [episode("ea13", number=3), episode("eb23", SHOW2, number=3)],
+        membership=LIB,
+    )
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert not store.pending()
+
+
+def test_an_episode_a_show_folder_scan_did_not_file_is_scanned_from_the_root(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi skips a folder whose listing matches the hash it stored for it,
+    and a folder scan hashes the folder differently from the root's
+    listing: an episode a folder scan left unfiled is the root's next."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+    scan = kodi.scan
+
+    def skipping(directory):
+        location = paths.parse(directory)
+        if location is not None and location.series:
+            kodi.scanned.append(directory)
+            kodi.monitor.finished += 1
+            return
+        scan(directory)
+
+    monkeypatch.setattr(kodi, "scan", skipping)
+    store.publish([episode("ea13", number=3)], membership=LIB)
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert kodi.scanned == [paths.show_dir(store.namespace, LIB, SHOW)]
+    assert store.pending()
+
+    kodi.scanned.clear()
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert "ea13" in kodi.owned("Episode")
+    assert not store.pending()
+
+
+def test_an_episode_filed_by_its_show_s_folder_is_scanned_there_again(
+    store, backend, kodi
+):
+    """Only a pass that did not complete sends the episodes it left to a
+    folder scan to the root: Kodi removing the row again is a new episode
+    like any other."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    folder = paths.show_dir(store.namespace, LIB, SHOW)
+    for _ in range(2):
+        kodi.scanned.clear()
+        row = kodi.owned("Episode")["ea12"]
+        del kodi.rows["Episode"][row["episodeid"]]
+        store.invalidate(["ea12"])
+        backend.reconcile()
+        assert kodi.scanned == [folder]
+        assert "ea12" in kodi.owned("Episode")
+
+
 def test_episode_refresh_changes_id_and_restores_userdata(store, backend, kodi):
     store.publish(show_bundle(), library=LIB)
     backend.reconcile()

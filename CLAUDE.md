@@ -437,9 +437,27 @@ What remains is kofin's own:
   box and left it unable to answer ssh until it was power-cycled; the pass that followed
   would have loaded all 6,616 for planning. `store.pending_work` carries a payload only for
   a tombstone, records read theirs through `PayloadWindow` (200 ids a query, at most 512
-  held), listings walk their scope through one, and the tvshows root reduces each episode to
-  `metadata.episode_row` as it reads it. `store.records()` is still eager for the callers
+  held), listings walk their scope through one, and the tvshows root reads each episode's
+  numbering from `api_episode_row` (below). `store.records()` is still eager for the callers
   that need every row.
+- **The tvshows root reads no episode payload that has not moved** (`Store.episode_rows`,
+  `api_episode_row`, `metadata.EPISODE_ROW_FORMAT`). The show hashes need every episode's
+  season and number, and reading 4,339 payloads for them was 3.5 s of a 4.1 s root listing on
+  the Bravia, on every scan of the root, Kodi's own Update library included. A row is kept
+  beside the payload generation and the format it was reduced under, so only an episode whose
+  payload moved is read again; 0.45 s once kept. Raise `EPISODE_ROW_FORMAT` when
+  `episode_row` or `episode_numbers` reads a payload differently, or the kept rows go on
+  hashing the old reading.
+- **A new episode of a show Kodi lists under our folder is scanned by the show's folder**
+  (`Native._show_directories`, `SHOW_FOLDER_SCANS`). A scan of a folder bound as one show finds
+  the show by the folder's path (`CVideoDatabase::GetTvShowId`) and lists that folder alone:
+  0.3 s against 5.4 s for one episode on the Bravia. Kodi makes that folder's item itself,
+  without the tag the root's listing carries, so a show with no row, a show whose row another
+  source's folder lists, more than `SHOW_FOLDER_SCANS` shows, and an episode a pass that did
+  not complete left to a folder scan go to the root. The last matters because Kodi skips a
+  folder whose listing matches its stored hash, and a folder scan stores Kodi's own hash of
+  the listing where a root scan stores the provider's; the next root scan lists that show
+  once more for it.
 - **An empty premiere or aired date is no opinion, never a patch.** Kodi fills a missing date
   itself (its zero date on the P1D, which reads back empty; a sibling's date on the LibreELEC
   box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a

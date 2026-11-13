@@ -39,6 +39,10 @@ T = TypeVar("T")
 # A pass scans a movies root once instead of the missing movies' folders by
 # name when at least this share of the library is missing.
 ROOT_SCAN_SHARE = 0.5
+# The most shows a pass scans by their own folders for new episodes; past
+# it the library's root is scanned once. Each folder is a scan of its own: a
+# call, a wait for the scanner and an announcement to the home widgets.
+SHOW_FOLDER_SCANS = 5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
 ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
@@ -210,6 +214,9 @@ class Native:
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: set[str] = set()
+        # library -> the episodes a pass that did not complete had the
+        # scanner file from their shows' own folders (_show_directories).
+        self._folder_scanned: dict[str, set[str]] = {}
         # Rows a refresh of the pass's replaced, by (kind, old Kodi id): Kodi
         # announces the old row's removal, and its number can come back as
         # the new row's (refile_removed).
@@ -990,6 +997,8 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
+            # Every episode a folder scan was asked for is filed.
+            self._folder_scanned.clear()
             if stamped != self.features or serializer != metadata.SERIALIZER:
                 self.store.remember_features(self.features, metadata.SERIALIZER)
         finally:
@@ -1433,6 +1442,10 @@ class Native:
                     expected.update(counts)
                     movie_folders.extend(folders)
                     asset_directories.extend(later)
+                elif content == "tvshows":
+                    named, counts = self._show_directories(library, root, missing)
+                    directories.extend(named)
+                    expected.update(counts)
                 else:
                     directories.append(root)
                     expected[root] = sum(
@@ -1530,6 +1543,44 @@ class Native:
             if folder not in movie_folders and folder not in directories
         ]
         return directories, expected, movie_folders, later
+
+    def _show_directories(
+        self, library: str, root: str, missing: list[Record]
+    ) -> tuple[list[str], dict[str, int]]:
+        """Directories for the shows and episodes the scanner has not filed.
+
+        A new episode of a show Kodi lists under our folder is scanned by
+        that show's folder. Asked for a folder bound as one show, the scanner
+        finds the show by the folder's path (CVideoDatabase::GetTvShowId) and
+        lists that folder alone, where a scan of the root has the provider
+        list every show of the library first.
+
+        The scanner makes the folder's item itself, without the tag the
+        root's listing gives a show, so the root is scanned for a show with
+        no row, and for one whose row another source's folder lists. It is
+        scanned as well when more than SHOW_FOLDER_SCANS shows have new
+        episodes, and for an episode a pass that did not complete left to a
+        folder scan: Kodi skips a folder whose listing matches the hash it
+        stored for it, and under the root a show carries a hash of the
+        provider's.
+        """
+        shows = self.readback.scope("Series", library)
+        asked = self._folder_scanned.pop(library, set())
+        folders: dict[str, int] = {}
+        for record in missing:
+            if (
+                record.kind != "Episode"
+                or record.parent_id not in shows
+                or record.item_id in asked
+            ):
+                folders = {}
+                break
+            folder = paths.show_dir(self.key, library, record.parent_id)
+            folders[folder] = folders.get(folder, 0) + 1
+        if not folders or len(folders) > SHOW_FOLDER_SCANS:
+            return [root], {root: sum(1 for r in missing if r.kind == "Episode")}
+        self._folder_scanned[library] = {r.item_id for r in missing}
+        return sorted(folders), dict(folders)
 
     def scan_video(self, video: VideoScan) -> None:
         """Have Kodi's video scanner list what plan_video named.
