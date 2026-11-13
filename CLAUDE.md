@@ -278,6 +278,14 @@ What remains is kofin's own:
   every directory that still has songs to shed (`store.tombstones`) until the scan has
   emptied it. `removal.remove_music` confirms by reading the directory back; albums and
   artists are let go with their songs.
+- **A removed artist takes the albums the server no longer lists** (`Library._orphaned`).
+  Deleting an artist's folder, Jellyfin announces the artist's removal alone (`LibraryChanged`,
+  and KofinSyncQueue records that one), deletes the songs below it without a word and keeps
+  each album with its parent gone: the album answers `/Users/{user}/Items/{id}` but no `/Items`
+  query, `Ids` included, and outlives the next library scan. So a removal that names an artist,
+  or an item the catalogue does not place, looks for the albums whose payload's `ParentId` it
+  is, asks for them and their songs inside their library, and removes what is not listed, on
+  the websocket's path and the catch-up's alike.
 - **The music provider hands over a complete listing or none, and never fails.** Kodi scans
   whatever rows reached it before a listing failed, however it failed, and `RetrieveMusicInfo`
   removes every song on the path first: a failed listing, an exception reaching `dispatch`
