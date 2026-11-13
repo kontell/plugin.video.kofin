@@ -978,6 +978,7 @@ class Library(threading.Thread):
         began = time.monotonic()
         self.publish(
             items + boxsets,
+            settle=False,
             membership=membership,
             complete_libraries=committed,
             complete_boxsets=complete and movies_selected,
@@ -1094,11 +1095,8 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        if items or removed:
-            # A catch-up that brought nothing is no change for the pass to
-            # wait on (PASS_SETTLE).
-            self.publish(items, membership=membership, removed=removed)
-        self.apply_userdata(change_set.userdata)
+        self.publish(items, settle=False, membership=membership, removed=removed)
+        self.apply_userdata(change_set.userdata, settle=False)
         if change_set.envelope.server_time:
             self.store.set_watermark(
                 watermark=changefeed.unix_to_watermark(
@@ -1148,8 +1146,7 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        if items or boxsets:
-            self.publish(items + boxsets, membership=membership)
+        self.publish(items + boxsets, settle=False, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
@@ -1253,9 +1250,9 @@ class Library(threading.Thread):
         item = self.player.current_item() if self.player is not None else None
         return str((item or {}).get("Id") or "")
 
-    def apply_userdata(self, data: list[Any]) -> None:
+    def apply_userdata(self, data: list[Any], settle: bool = True) -> None:
         """Merge the server's user data into the catalogue, except for the
-        item this Kodi is playing.
+        item this Kodi is playing. ``settle`` as for ``publish``.
 
         Kodi's player owns the row of what it plays. That something came
         for it is kept, and the entry the server sends when the playback
@@ -1280,16 +1277,24 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
-            self._published_at = time.monotonic()
+            if settle:
+                self._published_at = time.monotonic()
         # Only now. A release has no queue behind it: dropped before a
         # publish that failed, its entry was gone for good.
         for item_id in settled:
             self._held_userdata.pop(item_id, None)
 
-    def publish(self, items: list[dict[str, Any]], **placement: Any) -> None:
+    def publish(
+        self, items: list[dict[str, Any]], settle: bool = True, **placement: Any
+    ) -> None:
         """Publish full items as the server sent them, all but the user data
         of the item this Kodi is playing, which is held like an entry sent
         for it (apply_userdata) while the item keeps what the catalogue has.
+
+        ``settle`` has the next pass wait for more of the same change
+        (PASS_SETTLE): an event or an edit's re-read can be followed by the
+        server's echo of it. A listing or a catch-up is an answer as of one
+        moment, and nothing follows it.
         """
         playing = self._playing()
         if playing:
@@ -1305,7 +1310,8 @@ class Library(threading.Thread):
                     item["UserData"] = known.get("UserData") or {}
                 break
         self.store.publish(items, **placement)
-        self._published_at = time.monotonic()
+        if settle:
+            self._published_at = time.monotonic()
 
     def announce_new_content(self) -> None:
         """Announce what the pass filed of the new content catch-ups brought."""

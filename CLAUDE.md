@@ -380,7 +380,10 @@ What remains is kofin's own:
   waits in the queue, at most `PASS_SETTLE_MAX` after the work appeared: marking an episode
   watched publishes the outbox's re-read and, half a second later, the server's echo with the
   season, and each pass costs seconds whatever it holds (two of 2.9 and 3.2 s on the Bravia
-  became one of 1.9 s). After the pass, movie folders are bound only when it filed movies, the
+  became one of 1.9 s). A complete listing and a catch-up publish with `settle=False`
+  (`Library.publish`, `apply_userdata`): each is the server's answer as of one moment and
+  nothing follows it, so the pass after it starts in the same tick, a second sooner. After
+  the pass, movie folders are bound only when it filed movies, the
   feature stamp is written only when it moved, and the heap is collected and trimmed only after
   a large pass, a whole music read or a music scan (which reads every album payload). The
   folders of an older profile's movies are still bound once a service generation, when nothing
@@ -391,9 +394,7 @@ What remains is kofin's own:
   `state.is_online`). A session that ends on a play leaves the play's echo pending, and the next
   start applied it before asking the server anything: a pass of its own, with the catch-up
   7.4 s behind it on the Bravia and its content in a second pass. Away from the server the
-  pass still goes first, since every stage ahead of it can wait out a transport's retries. A
-  catch-up that brings nothing publishes nothing (`Library.catch_up`), or the pass after it
-  would wait out `PASS_SETTLE` for no change.
+  pass still goes first, since every stage ahead of it can wait out a transport's retries.
 - **A reconnect's catch-up does not wait for the session to settle** (`Service._run_post_connect`,
   `SESSION_SETTLE_SECONDS`). The two seconds are for the socket's session, which only the
   capabilities and the who's-watching restore attach to. The parked user data is replayed, the
