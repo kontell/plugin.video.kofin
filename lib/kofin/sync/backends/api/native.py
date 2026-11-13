@@ -988,6 +988,7 @@ class Native:
             collections = metadata.collections_of(boxsets)
             self.join_sets(pending, entries, sets, collections)
             upserts = self._upserts(pending, entries)
+            self._look_up({i: (r.kind, r.library) for i, r in upserts.items()})
             self.progress.begin(len(upserts))
             large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
             self._apply(applier, upserts, entries, collections, repair, errors)
@@ -1055,6 +1056,7 @@ class Native:
             )
             repair = True
         self.readback.clear()
+        self.readback.look_up({})
         self.music = MusicPass(self)
         self.note_music_changes()
         if repair:
@@ -1080,6 +1082,15 @@ class Native:
             entries.whole()
         return pending, entries
 
+    def _look_up(self, items: dict[str, tuple[str, str]]) -> None:
+        """Tell the readback how many rows of each library the pass looks
+        up, from each item's kind and library: a small pass reads its own
+        movies, albums and artists alone."""
+        counts: dict[tuple[str, str], int] = {}
+        for scope in items.values():
+            counts[scope] = counts.get(scope, 0) + 1
+        self.readback.look_up(counts)
+
     def _remove(
         self, pending: PendingWork, entries: Placements, errors: list[Exception]
     ) -> None:
@@ -1088,7 +1099,15 @@ class Native:
         go of its set before the set can and rejoin as upserts, and a
         whole-library clear puts other libraries' shows back."""
         self.store.invalidate(removal.set_members(pending))
-        removal.remove(self, pending, entries, self.store.tombstones(), errors)
+        tombstones = self.store.tombstones()
+        looked_up = {
+            item_id: (entry.kind, entry.library)
+            for item_id in pending
+            if (entry := entries.get(item_id)) is not None
+        }
+        looked_up.update((i, (e.kind, e.library)) for i, e in tombstones.items())
+        self._look_up(looked_up)
+        removal.remove(self, pending, entries, tombstones, errors)
         for item_id, generation, operation, _ in self.store.pending_work():
             if operation == "upsert" and item_id not in pending:
                 pending[item_id] = (generation, operation, {})
@@ -1484,12 +1503,26 @@ class Native:
             )
             return missing, 0
         kind = "Movie" if content == "movies" else "MusicVideo"
-        present = self.readback.scope(kind, library)
-        missing = [
-            r
-            for r in upserts.values()
-            if r.kind == kind and r.library == library and r.item_id not in present
+        wanted = [
+            r for r in upserts.values() if r.kind == kind and r.library == library
         ]
+        if kind == "Movie" and self.readback.by_row(kind, library):
+            # Each movie by its folder, and the library's rows counted.
+            missing = [
+                r
+                for r in wanted
+                if self.readback.listed_movie(library, r.item_id) is None
+            ]
+            counted = (
+                self._count(paths.parse(paths.library_dir(self.key, library, content)))
+                if missing
+                else None
+            )
+            present = len(wanted) - len(missing) if counted is None else counted
+        else:
+            listed = self.readback.scope(kind, library)
+            missing = [r for r in wanted if r.item_id not in listed]
+            present = len(listed)
         if kind == "Movie" and missing:
             # Only a movie Kodi has filed for us can sit on a row
             # another source's file lists (Readback.movie), and a
@@ -1501,7 +1534,7 @@ class Native:
                 if r.item_id not in filed
                 or self.readback.movie(library, r.item_id) is None
             ]
-        return missing, len(present)
+        return missing, present
 
     def _movie_directories(
         self,

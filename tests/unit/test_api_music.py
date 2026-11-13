@@ -293,7 +293,7 @@ def test_a_renamed_song_waits_for_a_scan_that_reads_its_directory(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
     )
     backend.reconcile()
-    assert LIB in backend.music_checked
+    assert not backend.music_owed
     before = store.mapping("tc31").applied["tag"]
     store.publish([song("tc31", ALBUM, 1, Name="Renamed")])
     scan_folder = kodi._scan_folder
@@ -303,7 +303,7 @@ def test_a_renamed_song_waits_for_a_scan_that_reads_its_directory(
     assert store.state("tc31").status == "pending"
     assert store.mapping("tc31").applied["tag"] == before
     # Only a compare of every song finds what an unread directory holds.
-    assert LIB not in backend.music_checked
+    assert LIB in backend.music_owed
     monkeypatch.setattr(kodi, "_scan_folder", scan_folder)
     kodi.music_folders.clear()
     backend.reconcile()
@@ -881,7 +881,10 @@ def test_a_repair_still_compares_every_song(store, backend, kodi):
     assert not store.pending()
 
 
-def test_an_album_payload_change_still_compares_every_song(store, backend, kodi):
+def test_an_album_payload_change_compares_its_own_songs(store, backend, kodi):
+    """A moved album has the songs placed in its directory compared, read
+    with it. A song Kodi lost from another album waits for a pass that
+    compares the whole library."""
     store.publish(
         album_bundle(songs=1) + album_bundle(ALBUM2, ARTIST2, 1, "u"), library=LIB
     )
@@ -890,6 +893,12 @@ def test_an_album_payload_change_still_compares_every_song(store, backend, kodi)
     del kodi.songs[owned_songs(kodi)[gone]["songid"]]
     store.publish([album(ALBUM, Overview="Moved notes")])
     backend.reconcile()
+    assert not backend.music.read_library
+    assert gone not in owned_songs(kodi)
+    backend.music_sweep = True
+    store.publish([album(ALBUM, Overview="Moved again")])
+    backend.reconcile()
+    assert backend.music.read_library
     assert gone in owned_songs(kodi)
     assert not store.pending()
 
@@ -1965,3 +1974,74 @@ def test_a_play_count_pass_reads_no_placement_but_its_own(
     store.publish(listing, library=LIB)
     backend.reconcile()
     assert wholes == []
+
+
+def _music_listings(kodi, store, library=LIB):
+    """The calls that list a whole music library's songs, albums or
+    artists: a count asks for no property."""
+    root = paths.library_dir(store.namespace, library, "music")
+    whole = {"field": "path", "operator": "startswith", "value": root}
+    return [
+        (method, params)
+        for method, params in kodi.calls
+        if method
+        in (
+            "AudioLibrary.GetSongs",
+            "AudioLibrary.GetAlbums",
+            "AudioLibrary.GetArtists",
+        )
+        and params.get("properties")
+        and params.get("filter") == whole
+    ]
+
+
+def test_a_small_album_pass_reads_its_own_album_and_artist(store, backend, kodi):
+    """A pass that files an album, or changes one and its artist, reads the
+    album's directory, the album row by its id and the artist by its name:
+    no listing of the library's songs, albums or artists."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish(album_bundle(ALBUM2, ARTIST2, 2, "u"), membership=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert set(owned_songs(kodi)) == {"tc31", "tc32", "ud41", "ud42"}
+    assert _music_listings(kodi, store) == []
+    kodi.calls.clear()
+    store.publish(
+        [
+            album(ALBUM2, ARTIST2, Overview="New notes"),
+            artist(ARTIST2, "Act " + ARTIST2[:2], Overview="New biography"),
+        ]
+    )
+    backend.reconcile()
+    assert not store.pending()
+    assert _music_listings(kodi, store) == []
+    albums = {r["albumid"]: r for r in kodi.albums.values()}
+    assert albums[store.mapping(ALBUM2).kodi_id]["description"] == "New notes"
+    artists = {r["artistid"]: r for r in kodi.artists.values()}
+    assert artists[store.mapping(ARTIST2).kodi_id]["description"] == "New biography"
+    assert methods(kodi, "AudioLibrary.GetAlbumDetails")
+    assert methods(kodi, "AudioLibrary.GetArtists")
+
+
+def test_an_artist_kodi_names_otherwise_is_found_in_the_listing(store, backend, kodi):
+    """Kodi's "is" folds ASCII case only: an artist named outside ASCII is
+    looked up in the library's listing, where names compare casefolded."""
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    row = next(iter(kodi.artists.values()))
+
+    def kodi_names(name):
+        row["artist"] = row["label"] = name
+        for song_row in kodi.songs.values():
+            song_row["artist"] = song_row["albumartist"] = [name]
+
+    for kodis, ours, listed in (("BAND", "Band", False), ("BÄND", "Bänd", True)):
+        kodi_names(kodis)
+        kodi.calls.clear()
+        store.publish([artist(ARTIST, ours, Overview="Bio of " + ours)])
+        backend.reconcile()
+        assert not store.pending()
+        assert row["description"] == "Bio of " + ours
+        assert bool(_music_listings(kodi, store)) is listed

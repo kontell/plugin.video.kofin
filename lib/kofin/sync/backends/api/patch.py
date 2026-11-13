@@ -30,7 +30,7 @@ from .kinds import (
     rpc,
     rpc_batch,
 )
-from .readback import OWN_FOLDER, artist_key
+from .readback import OWN_FOLDER
 from .records import Record
 from . import downloaded
 from .store import Mapping, hash_matches, payload_hash
@@ -327,11 +327,9 @@ class Applier:
             albumid = self.native.music.album_id(record)
             if albumid is None:
                 return None
-            return self.readback.scope("MusicAlbum", record.library).get(albumid)
+            return self.readback.album(record.library, albumid)
         if kind == "MusicArtist":
-            return self.readback.scope("MusicArtist", record.library).get(
-                artist_key(record.item.get("Name"))
-            )
+            return self.readback.artist(record.library, record.item.get("Name"))
         if kind == "Season":
             number = record.item.get("IndexNumber")
             if number is None:
@@ -722,7 +720,7 @@ class Applier:
                 # listing this pass: the row still carries the old ones.
                 raise RuntimeError("song awaits its directory's rescan")
         elif kind == "MusicAlbum":
-            owner = self.native.music.album_owner(kodi_id)
+            owner = self.native.music.album_owner(kodi_id, record.library)
             if owner is not None and owner != record.item_id:
                 # Kodi merged two of our albums into one row; the first owns
                 # its art and description, the other is mapped and left.

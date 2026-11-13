@@ -295,12 +295,13 @@ What remains is kofin's own:
   artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
   Bravia), so it runs only when due (`MusicPass.check_due`): a repair, the pass after Kodi
   announces a music scan or clean that was not the pass's own (`Native.note_music_changes`),
-  an album that moved, a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories,
-  and, for its library alone, a directory a pass was to list and did not
-  (`Native.music_owed`). The pass does not compare every song because the service just
-  started, so a music scan Kodi ran while the service was not listening (its own update on
-  startup, a service restart) and that stopped part way leaves its lost songs until one of
-  those is next due. Kodi announces the end of
+  a pass whose songs and moved albums span `Readback.WHOLE_LIBRARY_FOLDERS` directories, and,
+  for its library alone, a directory a pass was to list and did not (`Native.music_owed`).
+  Below that, an album that moved has the songs placed in its directory compared, read with
+  it. The pass does not compare every song because the service just started, so a music scan
+  Kodi ran while the service was not listening (its own update on startup, a service restart)
+  and that stopped part way leaves its lost songs until one of those is next due. Kodi
+  announces the end of
   every scan, the hold's included, and names no directory, so the pass hears them on its own
   Monitor and takes as many as it ran for its own: the hold, and each directory scan once
   `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
@@ -374,7 +375,14 @@ What remains is kofin's own:
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
   scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
   every mapping 2.2 s), and one song's play count paid five of them, plus the whole library read
-  back: 22 s from the song's end to the bar going.
+  back: 22 s from the song's end to the bar going. Kodi's rows likewise: a pass that looks up
+  fewer than `Readback.WHOLE_LIBRARY_ROWS` of a library's movies, albums or artists
+  (`Native._look_up`, counting its upserts and its tombstones) reads each movie by its folder,
+  each album by its id with its directory for the id, and each artist by name, where a library's
+  movie listing took 1.9 to 2.6 s on the Bravia and its songs 3 s; a movie pass counts the
+  library for the root-scan share instead of listing it. Kodi's `is` is SQL `LIKE`, which folds
+  ASCII case alone, so an artist named outside ASCII, or one the filter misses, is read from the
+  listing (`Readback.artist`).
 - **A pass waits for its change to settle, and skips what a small pass does not need.**
   `Library.apply` starts a pass once nothing has been published for `PASS_SETTLE` and no event
   waits in the queue, at most `PASS_SETTLE_MAX` after the work appeared: marking an episode

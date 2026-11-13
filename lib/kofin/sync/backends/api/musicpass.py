@@ -64,9 +64,13 @@ class MusicPass:
         self._song_folders: dict[str, set[str]] = {}
         self._credited: dict[str, dict[str, set[str]]] = {}
         self._album_ids: dict[str, dict[str, Optional[int]]] = {}
+        # (library, album directory) -> the Kodi album id, for a pass that
+        # reads the library's albums a row at a time.
+        self._album_of: dict[tuple[str, str], Optional[int]] = {}
         # Kodi's album and artist rows are not per library: two libraries
         # (or two albums of one) may share a row, and one of ours owns it.
         self._album_owners: Optional[dict[int, str]] = None
+        self._owner_of: dict[int, Optional[str]] = {}
         self._artist_owners: Optional[dict[str, str]] = None
 
     def forget(self) -> None:
@@ -77,7 +81,9 @@ class MusicPass:
         self._song_folders = {}
         self._credited = {}
         self._album_ids = {}
+        self._album_of = {}
         self._album_owners = None
+        self._owner_of = {}
         self._artist_owners = None
 
     def song_mappings(self, library: str) -> dict[str, Mapping]:
@@ -148,26 +154,50 @@ class MusicPass:
         if library not in self._album_ids:
             ids: dict[str, Optional[int]] = {}
             for folder, rows in sorted(self.native.readback.folders(library).items()):
-                counted = collections.Counter(
-                    row.get("albumid") for row in rows.values() if row.get("albumid")
-                )
-                if counted:
-                    ids[folder] = counted.most_common(1)[0][0]
+                found = _most_shared(rows)
+                if found is not None:
+                    ids[folder] = found
             self._album_ids[library] = ids
         return self._album_ids[library]
 
     def album_id(self, record: Record) -> Optional[int]:
         """Kodi's id for the album the record's songs were filed under: the
-        one most of them share."""
+        one most of them share. A pass that reads the library's albums a row
+        at a time reads the album's directory alone."""
+        if self.native.readback.by_row("MusicAlbum", record.library):
+            return self._directory_album(record.library, record.item_id)
         return self.album_ids(record.library).get(record.item_id)
 
-    def album_owner(self, albumid: int) -> Optional[str]:
+    def _directory_album(self, library: str, folder: str) -> Optional[int]:
+        key = (library, folder)
+        if key not in self._album_of:
+            self._album_of[key] = _most_shared(
+                self.native.readback.scope("Audio", library, folder)
+            )
+        return self._album_of[key]
+
+    def album_owner(self, albumid: int, library: str) -> Optional[str]:
         """Of our albums Kodi merged into one row, the first by id owns the
-        row's art and description; the others are mapped and left."""
+        row's art and description; the others are mapped and left. A pass
+        that reads the library's albums a row at a time asks Kodi for the
+        row's songs and reads only the directories they are in."""
+        if self.native.readback.by_row("MusicAlbum", library):
+            if albumid not in self._owner_of:
+                self._owner_of[albumid] = min(
+                    (
+                        folder
+                        for held_in, folder in self.native.readback.album_folders(
+                            albumid
+                        )
+                        if self._directory_album(held_in, folder) == albumid
+                    ),
+                    default=None,
+                )
+            return self._owner_of[albumid]
         if self._album_owners is None:
             owners: dict[int, str] = {}
-            for library in self.store.libraries("Audio"):
-                for folder, found in sorted(self.album_ids(library).items()):
+            for held_in in self.store.libraries("Audio"):
+                for folder, found in sorted(self.album_ids(held_in).items()):
                     if found is not None and (
                         found not in owners or folder < owners[found]
                     ):
@@ -335,13 +365,15 @@ class MusicPass:
         claims -- the old half of a move, or a listing that failed half
         way -- is settled by its complete listing too.
 
-        Two kinds of applied song join the comparison uninvited: one Kodi
-        does not hold (as ``lost_songs``), and one whose album's payload
-        moved, since its tags take the album's artists and MusicBrainz ids.
-        Either goes back to pending and into this pass. That whole check
-        reads every song of the library, so it runs when something can
-        have changed what Kodi holds (``check_due``); otherwise only the
-        pass's own songs are compared, each read with its directory.
+        Two kinds of applied song join the comparison uninvited: one whose
+        album's payload moved, since its tags take the album's artists and
+        MusicBrainz ids, and one Kodi does not hold (as ``lost_songs``).
+        Either goes back to pending and into this pass. The first are the
+        songs placed in the album's directory, read with it. The second
+        needs every song of the library read, so that check runs when
+        something can have changed what Kodi holds (``check_due``);
+        otherwise only the pass's own songs are compared, each read with its
+        directory.
         """
         songs = {
             r.item_id: r
@@ -387,6 +419,27 @@ class MusicPass:
                     )
                 )
         else:
+            if changed_albums:
+                in_albums = [
+                    item_id
+                    for item_id in self.store.placed_in(
+                        "Audio", library, changed_albums
+                    )
+                    if item_id not in songs
+                ]
+                filed = self.store.mappings_of(in_albums)
+                songs.update(
+                    self.store.records(
+                        kind="Audio",
+                        library=library,
+                        item_ids=[
+                            i
+                            for i in in_albums
+                            if i in filed and filed[i].kodi_id is not None
+                        ],
+                        payloads=False,
+                    )
+                )
             mappings = self.store.mappings_of(songs)
         revived: dict[str, Record] = {}
         if songs:
@@ -466,14 +519,14 @@ class MusicPass:
         """Whether this pass compares every song of the library with Kodi's
         rows: a sweep is marked and this library has not been compared
         since (a repair, a music scan or clean that was not the pass's
-        own), a pass left one of its directories unread, an album's payload
-        moved, or the pass's songs span enough directories that the
-        library is read whole anyway."""
+        own), a pass left one of its directories unread, or the pass's songs
+        and moved albums span enough directories that the library is read
+        whole anyway. Below that, a moved album has the songs placed in its
+        directory compared (``directories``)."""
         return (
             (self.native.music_sweep and library not in self.native.music_checked)
             or library in self.native.music_owed
-            or bool(changed_albums)
-            or len({r.parent_id for r in songs.values()})
+            or len({r.parent_id for r in songs.values()} | set(changed_albums))
             >= self.native.readback.WHOLE_LIBRARY_FOLDERS
         )
 
@@ -483,3 +536,11 @@ def _read_every(entries: abc.Mapping[str, Entry]) -> None:
     by one; a plain dict already holds them."""
     if isinstance(entries, Placements):
         entries.whole()
+
+
+def _most_shared(rows: abc.Mapping[str, dict]) -> Optional[int]:
+    """The album id most of a directory's song rows share, or None."""
+    counted = collections.Counter(
+        row.get("albumid") for row in rows.values() if row.get("albumid")
+    )
+    return counted.most_common(1)[0][0] if counted else None

@@ -1936,14 +1936,12 @@ def test_a_movie_refresh_is_confirmed_by_its_folder_at_most_once_a_second(
     store.publish([movie(People=[{"Name": "Recast", "Type": "Actor"}])])
     backend.reconcile()
     assert not store.pending()
-    library = paths.library_dir(store.namespace, LIB, "movies")
     folder = paths.movie_dir(store.namespace, LIB, "a")
-    # The plan's one listing of the library, then the movie's folder alone:
-    # thirty polls of 100 ms, read a handful of times, not thirty.
-    assert lists[0][1] == library
-    polls = [value for _, value in lists[1:]]
-    assert polls and set(polls) == {folder}
-    assert len(polls) <= 6
+    # The plan reads the movie's folder, and so does every poll: thirty
+    # polls of 100 ms, read a handful of times, not thirty.
+    reads = [value for _, value in lists]
+    assert reads and set(reads) == {folder}
+    assert len(reads) <= 7
     assert store.mapping("a").kodi_id in kodi.rows["Movie"]
 
 
@@ -2625,3 +2623,68 @@ def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
     )
     removal.clear_library(native, LIB, {"Movie"}, rows=5)
     assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
+
+
+def _movie_listings(kodi, store, library=LIB):
+    """The GetMovies calls that list a library's rows: a count asks for
+    none."""
+    root = paths.library_dir(store.namespace, library, "movies")
+    return [
+        p
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+        if p.get("properties") and (p.get("filter") or {}).get("value") == root
+    ]
+
+
+def test_a_small_movie_pass_reads_its_movies_by_their_folders(store, backend, kodi):
+    """A pass that files, patches or removes a few movies reads each by its
+    folder, and the library is counted, never listed."""
+    store.publish([movie(), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([movie("d")], membership=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert store.mapping("d").kodi_id in kodi.rows["Movie"]
+    # Three movies of four present: scanned by its folder, not the root.
+    assert kodi.scanned[-1] == paths.movie_dir(store.namespace, LIB, "d")
+    assert _movie_listings(kodi, store) == []
+    folders = {
+        (p.get("filter") or {}).get("value")
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+        if p.get("properties")
+    }
+    assert folders == {paths.movie_dir(store.namespace, LIB, "d")}
+    kodi.calls.clear()
+    store.publish([movie(Overview="Changed")])
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.rows["Movie"][store.mapping("a").kodi_id]["plot"] == "Changed"
+    assert _movie_listings(kodi, store) == []
+    kodi.calls.clear()
+    store.publish([], removed=["b"])
+    backend.reconcile()
+    assert not store.pending()
+    assert store.mapping("b") is None
+    assert len(kodi.rows["Movie"]) == 3
+    assert _movie_listings(kodi, store) == []
+
+
+def test_a_pass_of_many_movies_lists_the_library(store, backend, kodi):
+    """From WHOLE_LIBRARY_ROWS movies on, the library is read in one
+    listing, not a folder at a time."""
+    from kofin.sync.backends.api.readback import Readback
+
+    many = Readback.WHOLE_LIBRARY_ROWS
+    store.publish([movie("m%02d" % n) for n in range(many)], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([movie("m%02d" % n, Overview="Changed") for n in range(many)])
+    backend.reconcile()
+    assert not store.pending()
+    assert _movie_listings(kodi, store)
+    root = paths.library_dir(store.namespace, LIB, "movies")
+    assert all(
+        (p.get("filter") or {}).get("value") in (None, root)
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+    )
