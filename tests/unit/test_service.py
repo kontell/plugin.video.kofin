@@ -1246,7 +1246,7 @@ def test_ws_connect_restores_who_is_watching(monkeypatch):
     service._on_ws_connected()
     _join_post_connect(service)
 
-    assert order == ["capabilities", "catchup"]
+    assert order == ["catchup", "capabilities"]
     assert api.added == ["u2", "u4"]
 
 
@@ -1388,7 +1388,80 @@ def test_post_connect_reruns_once_for_a_connect_landing_mid_pass(monkeypatch):
     service._post_connect_pending.set()
     service._run_post_connect()
 
-    assert calls == ["caps", "restore", "catchup"] * 2
+    assert calls == ["catchup", "caps", "restore"] * 2
+
+
+def test_the_catch_up_does_not_wait_for_the_session_to_settle(monkeypatch):
+    """The settle is for the socket's session, which only the capabilities
+    and the who's-watching restore attach to. A device that slept learns what
+    the server gained from the catch-up alone, so it is asked for first, the
+    parked edits ahead of it, and the settle counts from the connection."""
+    import kofin.service.main as main_module
+
+    service = Service()
+    service.syncplay = None
+    calls = []
+    clock = [100.0]
+
+    class Monitor:
+        def abortRequested(self):
+            return False
+
+        def waitForAbort(self, seconds=0):
+            calls.append(("wait", round(seconds, 3)))
+            return False
+
+    def replay():
+        calls.append("replay")
+        clock[0] += 0.5
+
+    monkeypatch.setattr(main_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(service, "_replay_pending_userdata", replay)
+    monkeypatch.setattr(
+        service, "_catch_up_after_reconnect", lambda: calls.append("catchup")
+    )
+    monkeypatch.setattr(service, "_register_capabilities", lambda: calls.append("caps"))
+    monkeypatch.setattr(
+        service, "_restore_additional_users", lambda: calls.append("restore")
+    )
+    monkeypatch.setattr("xbmc.Monitor", Monitor)
+
+    service._post_connect_pending.set()
+    service._run_post_connect()
+
+    assert calls == ["replay", "catchup", ("wait", 1.5), "caps", "restore"]
+
+
+def test_a_replay_longer_than_the_settle_registers_at_once(monkeypatch):
+    import kofin.service.main as main_module
+
+    service = Service()
+    service.syncplay = None
+    calls = []
+    clock = [100.0]
+
+    class Monitor:
+        def abortRequested(self):
+            return False
+
+        def waitForAbort(self, seconds=0):
+            calls.append("wait")
+            return False
+
+    def replay():
+        clock[0] += main_module.SESSION_SETTLE_SECONDS + 1
+
+    monkeypatch.setattr(main_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(service, "_replay_pending_userdata", replay)
+    monkeypatch.setattr(service, "_catch_up_after_reconnect", lambda: None)
+    monkeypatch.setattr(service, "_register_capabilities", lambda: calls.append("caps"))
+    monkeypatch.setattr(service, "_restore_additional_users", lambda: None)
+    monkeypatch.setattr("xbmc.Monitor", Monitor)
+
+    service._post_connect_pending.set()
+    service._run_post_connect()
+
+    assert calls == ["caps"]
 
 
 # --- teardown must end, and must not lie about it ----------------------------
@@ -2184,9 +2257,131 @@ def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
     assert service.library is None
 
 
+def _started_service(monkeypatch, tmp_path, probe):
+    """A logged-in service whose every start is recorded, with ``probe`` as
+    the server's answer."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service.credentials.is_logged_in = True
+    order = []
+
+    def probe_info(self):
+        order.append("probe")
+        return probe()
+
+    service.api = type("A", (), {"probe_info": probe_info})()
+    for name in ("syncplay", "websocket", "followers"):
+        monkeypatch.setattr(
+            service, "_start_" + name, lambda name=name: order.append(name)
+        )
+    monkeypatch.setattr(service, "_settle_left_tempo", lambda: order.append("tempo"))
+    monkeypatch.setattr(
+        service, "_prepare_api_backend", lambda: order.append("prepare")
+    )
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    return service, order
+
+
+def _run_ticks(service, monkeypatch, ticks):
+    """Run the service for the early tick and ``ticks`` ticks of its loop."""
+    left = [ticks]
+
+    def wait(timeout=None):
+        left[0] -= 1
+        return left[0] <= 0
+
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+    monkeypatch.setattr(service, "waitForAbort", wait)
+    assert service.run() is False
+
+
+def test_the_server_is_asked_before_the_backend_is_prepared(monkeypatch, tmp_path):
+    """The probe, SyncPlay and the websocket read nothing the preparation
+    makes, and the preparation is seconds on a slow device at Kodi's start.
+    What a connection starts that does read it follows the preparation."""
+    service, order = _started_service(monkeypatch, tmp_path, lambda: {})
+
+    _run_ticks(service, monkeypatch, 1)
+
+    assert order == ["probe", "syncplay", "websocket", "tempo", "prepare", "followers"]
+
+
+def test_a_server_that_does_not_answer_the_first_probe_still_gets_a_prepared_backend(
+    monkeypatch, tmp_path
+):
+    """Pending native work is applied with no server, so the preparation
+    never waits for one: a failed probe goes to the backoff and the start
+    carries on."""
+    from kofin.core.http import ServerUnreachable
+
+    def refuse():
+        raise ServerUnreachable("no route")
+
+    service, order = _started_service(monkeypatch, tmp_path, refuse)
+
+    _run_ticks(service, monkeypatch, 2)
+
+    assert order == ["probe", "tempo", "prepare"]
+
+
+def test_a_later_connection_starts_its_followers_in_the_same_tick(
+    monkeypatch, tmp_path
+):
+    service, order = _started_service(monkeypatch, tmp_path, lambda: {})
+    service._backend_prepared = True
+
+    service._tick()
+    service._tick()
+
+    assert order == ["probe", "syncplay", "websocket", "followers"]
+
+
+def test_followers_owed_to_a_server_that_went_away_wait_for_it(monkeypatch, tmp_path):
+    """The library entries are asked of the server: with the server gone
+    between the probe and the end of the preparation, they are started by the
+    connection that follows."""
+    from kofin.core.http import ServerUnreachable
+
+    answers = [True]
+
+    def probe():
+        if not answers[0]:
+            raise ServerUnreachable("no route")
+        return {}
+
+    service, order = _started_service(monkeypatch, tmp_path, probe)
+    monkeypatch.setattr(service, "_recover_threads", lambda: None)
+
+    service._tick()  # the start's probe, ahead of the preparation
+    answers[0] = False
+    service._go_offline()
+    service._backend_prepared = True
+    service._tick()
+
+    assert "followers" not in order
+
+    answers[0] = True
+    monkeypatch.setattr(service._backoff, "due", lambda now: True)
+    service._tick()
+
+    assert order[-1] == "followers" and order.count("followers") == 1
+
+
+def test_a_start_kodi_aborts_at_once_asks_the_server_nothing(monkeypatch, tmp_path):
+    service, order = _started_service(monkeypatch, tmp_path, lambda: {})
+    monkeypatch.setattr(service, "abortRequested", lambda: True)
+
+    assert service.run() is False
+
+    assert "probe" not in order
+
+
 def test_a_tick_that_raises_does_not_end_the_service(monkeypatch, tmp_path):
-    """Kodi starts a service script once, so the loop outlives a failing
-    tick and the next tick runs."""
+    """Kodi starts a service script once, so the start outlives the failing
+    tick it makes ahead of the preparation, and the loop a failing tick of
+    its own: the next tick runs."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
@@ -2207,7 +2402,7 @@ def test_a_tick_that_raises_does_not_end_the_service(monkeypatch, tmp_path):
 
     assert service.run() is False
 
-    assert ticks == [1, 1]
+    assert ticks == [1, 1, 1]
     assert service._stopping.is_set() is True
 
 

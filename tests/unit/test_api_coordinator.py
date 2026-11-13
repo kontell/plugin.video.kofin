@@ -608,6 +608,95 @@ def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeyp
     assert set(store.records(pinned=False)) == {"c"}
 
 
+@pytest.mark.parametrize(
+    "online, order",
+    [(True, ["refresh", "apply"]), (False, ["apply", "refresh", "apply"])],
+)
+def test_the_catch_up_leads_the_pass_only_while_the_server_answers(
+    store, monkeypatch, online, order
+):
+    """What an earlier session left pending and what the server has since
+    are one pass when the catch-up goes first. Away from the server the
+    pending work is applied before any stage that would wait on it."""
+    from kofin.sync.backends.api import library
+
+    calls = []
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    monkeypatch.setattr(library.state, "is_online", lambda: online)
+    monkeypatch.setattr(w, "refresh", lambda: calls.append("refresh"))
+    monkeypatch.setattr(w, "apply", lambda native: calls.append("apply"))
+    monkeypatch.setattr(w, "playlists_pass", lambda: None)
+    monkeypatch.setattr(
+        library,
+        "Native",
+        lambda *args, **kwargs: SimpleNamespace(
+            setup=lambda: None,
+            restore_settings=lambda: None,
+            refile_removed=lambda: False,
+        ),
+    )
+    monkeypatch.setattr(library.api_playlists, "owed", lambda: False)
+    monkeypatch.setattr(library, "status", lambda *a, **k: None)
+    monkeypatch.setattr(
+        library.Credentials, "load", lambda: SimpleNamespace(server_id="s", user_id="u")
+    )
+    w.stop_thread = False
+    w.startup_done = False
+    monkeypatch.setattr(
+        library.xbmc,
+        "Monitor",
+        lambda: SimpleNamespace(
+            abortRequested=lambda: False, waitForAbort=lambda seconds: True
+        ),
+    )
+
+    w.run()
+
+    assert calls == order
+
+
+def test_a_catch_up_that_brings_nothing_is_no_change_to_settle_for(store, monkeypatch):
+    """The pass waits for more of a change that was just published. A
+    catch-up with nothing in it is none, and the work pending before it is
+    applied by the tick that asked."""
+    from kofin.sync.backends.api.library import CATCHUP_OVERLAP
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+
+    server = Server({LIB: [movie()]})
+    store.publish([movie()], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed([], server_time=1200)
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+
+    w.catch_up()
+
+    assert w._published_at == 0.0
+    assert store.watermark()[0] == unix_to_watermark(1200 - CATCHUP_OVERLAP)
+
+    server.libraries[LIB][0]["Overview"] = "Edited"
+    feed.records = [ChangeRecord("a", "Updated", library_ids=[LIB])]
+    w.catch_up()
+
+    assert w._published_at > 0.0
+
+
+def test_a_catch_up_by_save_date_that_brings_nothing_is_no_change_either(
+    store, monkeypatch
+):
+    from kofin.sync.changefeed import unix_to_watermark
+
+    server = Server({LIB: [movie()]})
+    store.publish([movie()], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    w = worker(store, server, [LIB], monkeypatch)
+    server.libraries[LIB] = []
+
+    w.catch_up()
+
+    assert w._published_at == 0.0
+    assert set(store.records(pinned=False)) == {"a"}
+
+
 def test_first_content_reloads_the_skin_once_per_kind_and_waits_for_playback(
     store, monkeypatch
 ):

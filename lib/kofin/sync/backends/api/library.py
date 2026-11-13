@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
-from kofin.core import memory, settings, toast
+from kofin.core import memory, settings, state, toast
 from kofin.core.http import HttpError, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -557,7 +557,6 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
-        # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():
             failed = False
             try:
@@ -569,15 +568,22 @@ class Library(threading.Thread):
                 LOG.exception(
                     "rows Kodi removed not put back; the next complete listing does"
                 )
-            try:
-                self.apply(native)
-            except InterruptedError:
-                break
-            except Exception as error:
-                # A failed native job must not stop a newer server edit
-                # from replacing its payload, or poison jobs never heal.
-                self._log_failure("API native work remains pending", error)
-                failed = True
+            # Away from the server the pending work is applied before
+            # anything asks for it: each stage below can wait out a
+            # transport's retries. While the server answers, the stages go
+            # first and the pass after them takes what was pending with what
+            # they bring, so the work an earlier session left and the
+            # catch-up of this one are one pass.
+            if not state.is_online():
+                try:
+                    self.apply(native)
+                except InterruptedError:
+                    break
+                except Exception as error:
+                    # A failed native job must not stop a newer server edit
+                    # from replacing its payload, or poison jobs never heal.
+                    self._log_failure("API native work remains pending", error)
+                    failed = True
             # Local delivery and individual events can fail permanently
             # (e.g. an item deleted before its update event is processed).
             # Neither may prevent enumeration from repairing the snapshot.
@@ -1088,7 +1094,10 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        self.publish(items, membership=membership, removed=removed)
+        if items or removed:
+            # A catch-up that brought nothing is no change for the pass to
+            # wait on (PASS_SETTLE).
+            self.publish(items, membership=membership, removed=removed)
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
@@ -1139,7 +1148,8 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        self.publish(items + boxsets, membership=membership)
+        if items or boxsets:
+            self.publish(items + boxsets, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 

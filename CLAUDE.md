@@ -387,6 +387,25 @@ What remains is kofin's own:
   is pending (`Library.apply`). `store.tombstones` starts from the pending removals:
   joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
   on the LibreELEC box on every pass.
+- **While the server answers, a tick's catch-up goes before its pass** (`Library._run`,
+  `state.is_online`). A session that ends on a play leaves the play's echo pending, and the next
+  start applied it before asking the server anything: a pass of its own, with the catch-up
+  7.4 s behind it on the Bravia and its content in a second pass. Away from the server the
+  pass still goes first, since every stage ahead of it can wait out a transport's retries. A
+  catch-up that brings nothing publishes nothing (`Library.catch_up`), or the pass after it
+  would wait out `PASS_SETTLE` for no change.
+- **A reconnect's catch-up does not wait for the session to settle** (`Service._run_post_connect`,
+  `SESSION_SETTLE_SECONDS`). The two seconds are for the socket's session, which only the
+  capabilities and the who's-watching restore attach to. The parked user data is replayed, the
+  catch-up is asked for, and the rest of the two seconds is waited after: a television that wakes
+  learns what the server gained from that catch-up alone, asked 0.75 s after the socket came
+  back on the Bravia where it had been 2.5 s.
+- **The server is asked before the backend is prepared** (`Service.run`, `_start_followers`).
+  The probe, SyncPlay and the websocket read nothing the preparation makes. The library
+  entries read the feature table and the library thread the interfaces, so the tick starts
+  those once `_backend_prepared` is set. Whatever runs first at Kodi's start is slow, because
+  every add-on's scripts share the interpreter lock: on the Bravia the server answered 2.8 s
+  after the service's first line where it had taken 3.8 s, and the 2.8 s is `import requests`.
 - **A pass that fails the same way again waits twice as long before the next try, up to the
   catch-up interval, unless new work is pending** (`Library.apply`, `RETRY_FIRST`,
   `RETRY_MAX`, `Store.pending_signature`). A failure no pass can mend retried every five

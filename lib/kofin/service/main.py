@@ -80,6 +80,10 @@ SERVER_LIFECYCLE_MESSAGES = {
 # recycles the socket routinely, and Kodi replays every queued toast at wake.
 LOST_TOAST_GRACE_SECONDS = 90.0
 
+# How long after the websocket opens the service registers its capabilities:
+# the server attaches the socket's session asynchronously.
+SESSION_SETTLE_SECONDS = 2.0
+
 # How long after Play all's queue is full the service starts it
 # (_ipc_start_queue): the script that filled it can end over 100 ms after the
 # first track was asked for. The wait for the queue to fill is capped at
@@ -194,6 +198,11 @@ class Service(xbmc.Monitor):
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
         self._online = False
+        # Whether ``run`` has prepared the backend, and whether a connection
+        # still owes what it starts that reads the preparation
+        # (_start_followers).
+        self._backend_prepared = False
+        self._followers_owed = False
         # Raised by the websocket's disconnect callback, consumed by the next
         # tick: a dropped socket asks for a *probe* rather than declaring the
         # server gone (see _verify_connection).
@@ -234,6 +243,13 @@ class Service(xbmc.Monitor):
         """Run until abort or restart; returns True when a rebuild is wanted."""
         LOG.debug("--->>> kofin service %s", addon_version())
         LOG.debug("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        # The server is asked before anything is prepared. The probe, the
+        # websocket and SyncPlay read none of it, and at Kodi's start the
+        # preparation shares the interpreter lock with every other add-on's
+        # scripts. What a connection starts that does read it waits for the
+        # preparation (_start_followers).
+        if not self.abortRequested():
+            self._guarded_tick()
         self._settle_left_tempo()
         try:
             self._prepare_api_backend()
@@ -243,6 +259,7 @@ class Service(xbmc.Monitor):
             LOG.exception(
                 "API backend preparation failed; native sync remains disabled"
             )
+        self._backend_prepared = True
         started = time.time()
         try:
             while not self.abortRequested():
@@ -353,6 +370,9 @@ class Service(xbmc.Monitor):
             # at all until one of them answers False.
             self._recover_threads()
             self.player.sweep_live_streams()
+        if self._followers_owed and self._backend_prepared and self._online:
+            self._followers_owed = False
+            self._start_followers()
 
     def _republish_online(self) -> None:
         """Re-raise the online flag when something else lowered it.
@@ -467,6 +487,15 @@ class Service(xbmc.Monitor):
         self._reap_websocket()
         if self.ws is None:
             self._start_websocket()
+        self._followers_owed = True
+
+    def _start_followers(self) -> None:
+        """What a connection starts that reads what ``run`` prepares: the
+        library entries read the capability report, and the library thread
+        the interfaces it found. The downloads and the backdrop go with
+        them, since nothing waits on either. The tick of the connection runs
+        this, or the first tick after the preparation when the connection
+        was made ahead of it."""
         try:
             from kofin.sync.dynamic import publish_from
 
@@ -861,15 +890,15 @@ class Service(xbmc.Monitor):
     def _on_ws_connected(self) -> None:
         """Runs on the websocket's own receive loop — toast, spawn, return.
 
-        The post-connect work blocks for seconds (a deliberate settle wait,
-        capabilities registration, the who's-watching restore, the catch-up
-        enqueue), and for as long as on_open runs nothing is read off the
-        socket — inbound Play/SyncPlay commands and pongs stall at exactly
-        the moment the server pushes state at a fresh session. So the work
-        moves to a worker; the pending flag makes a connect that lands mid-run
-        schedule one more pass rather than pile up threads or be skipped —
-        each pass re-reads current state, so the last one always serves the
-        live session.
+        The post-connect work blocks for seconds (the parked-userdata
+        replay, the catch-up enqueue, a deliberate settle wait, capabilities
+        registration, the who's-watching restore), and for as long as on_open
+        runs nothing is read off the socket — inbound Play/SyncPlay commands
+        and pongs stall at exactly the moment the server pushes state at a
+        fresh session. So the work moves to a worker; the pending flag makes
+        a connect that lands mid-run schedule one more pass rather than pile
+        up threads or be skipped — each pass re-reads current state, so the
+        last one always serves the live session.
         """
         with self._conn_toast_lock:
             self._down_since = None
@@ -894,21 +923,26 @@ class Service(xbmc.Monitor):
         monitor = xbmc.Monitor()
         while self._post_connect_pending.is_set() and not monitor.abortRequested():
             self._post_connect_pending.clear()
-            # The server registers the socket's session asynchronously; give
-            # it a beat before attaching capabilities to that session.
-            monitor.waitForAbort(2)
-            self._register_capabilities()
-            # Capabilities attach this device's session; re-apply the Who's
-            # watching? set the plugin saved, which does not survive a new
-            # session (Kodi restart or a reconnect that minted a fresh one).
-            self._restore_additional_users()
+            connected = time.monotonic()
             # Before the catch-up, deliberately: the replay writes what this
             # device did offline, and the FastSync that follows pulls the
             # server's answer back down. The other order would apply the
             # server's stale view first and then overwrite it, so every
             # replayed item would flicker through the wrong state.
             self._replay_pending_userdata()
+            # Ahead of the session's settle: neither the replay nor the
+            # catch-up is the socket session's, and the catch-up is all that
+            # brings a device that slept what the server gained meanwhile.
             self._catch_up_after_reconnect()
+            settle = SESSION_SETTLE_SECONDS - (time.monotonic() - connected)
+            # A wait of no whole millisecond is Kodi's spelling of "for ever".
+            if settle >= 0.001:
+                monitor.waitForAbort(settle)
+            self._register_capabilities()
+            # Capabilities attach this device's session; re-apply the Who's
+            # watching? set the plugin saved, which does not survive a new
+            # session (Kodi restart or a reconnect that minted a fresh one).
+            self._restore_additional_users()
             if self.syncplay is not None:
                 # After any WS drop assume kicked; the manager probes
                 # /SyncPlay/List and rejoins on its own thread.
