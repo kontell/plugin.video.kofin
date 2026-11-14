@@ -109,6 +109,61 @@ def test_provider_lists_the_layout_and_answers_existence_offline(store, monkeypa
     assert rendered[-1][0][0] == tv
 
 
+def test_the_tvshows_root_hashes_each_show_from_the_kept_episode_rows(
+    store, monkeypatch
+):
+    """Kodi skips a show folder whose hash matches the one it stored, so the
+    hash must be the same whether the episodes came from their payloads or
+    from the rows kept for them, and a second listing reads no payload."""
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import metadata, provider
+
+    store.publish(show_bundle(episodes=3) + show_bundle(SHOW2), library=LIB)
+    hashes = []
+    monkeypatch.setattr(
+        provider.metadata,
+        "listitem",
+        lambda item, server, key, library, separator, seasons, episodes, **k: (
+            item["Id"],
+            metadata.show_hash(episodes),
+        ),
+    )
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, items, n: hashes.append({e[1][0]: e[1][1] for e in items}),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
+    read = []
+    payloads = store.payloads
+
+    def counted(ids):
+        ids = list(ids)
+        read.extend(ids)
+        return payloads(ids)
+
+    monkeypatch.setattr(provider, "Store", lambda key: store)
+    monkeypatch.setattr(store, "payloads", counted)
+    root = paths.library_dir(store.namespace, LIB, "tvshows")
+
+    provider.serve(Request(root, 1, {}))
+    provider.serve(Request(root, 1, {}))
+
+    assert len(read) == 5
+    assert (
+        hashes[0]
+        == hashes[1]
+        == {
+            show: metadata.show_hash([i for i in items if i["Type"] == "Episode"])
+            for show, items in (
+                (SHOW, show_bundle(episodes=3)),
+                (SHOW2, show_bundle(SHOW2)),
+            )
+        }
+    )
+
+
 def test_a_catalogue_that_cannot_be_read_answers_that_the_row_exists(
     store, monkeypatch
 ):

@@ -30,6 +30,10 @@ from kofin.sync.backends.api.kinds import FEATURE_FIELDS, NAMES
 SERVER = "http://fixture.invalid"
 
 
+def _like(text):
+    return "".join(c.lower() if c.isascii() else c for c in text)
+
+
 def filed_under(file, rule):
     """Whether a row's file answers a filter rule on its path or its file
     name, the two fields the backend filters by."""
@@ -629,6 +633,19 @@ class Kodi:
         }[kind]
         if "filter" in params:
             rule = params["filter"]
+            named = [
+                part
+                for part in rule.get("and", ())
+                if part.get("field") == "artist" and part.get("operator") == "is"
+            ]
+            if named:
+                # Kodi's "is" is SQL LIKE: ASCII case folds, nothing else.
+                rule = {"and": [part for part in rule["and"] if part not in named]}
+                rows = [
+                    r
+                    for r in rows
+                    if all(_like(r["artist"]) == _like(part["value"]) for part in named)
+                ]
             if kind == "Audio" and "albumid" in rule:
                 rows = [r for r in rows if r["albumid"] == rule["albumid"]]
             elif kind == "Audio":

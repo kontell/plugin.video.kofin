@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import xbmc
 
-from kofin.core import memory, settings, toast
+from kofin.core import memory, settings, state, toast
 from kofin.core.http import HttpError, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -557,7 +557,6 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
-        # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():
             failed = False
             try:
@@ -569,15 +568,22 @@ class Library(threading.Thread):
                 LOG.exception(
                     "rows Kodi removed not put back; the next complete listing does"
                 )
-            try:
-                self.apply(native)
-            except InterruptedError:
-                break
-            except Exception as error:
-                # A failed native job must not stop a newer server edit
-                # from replacing its payload, or poison jobs never heal.
-                self._log_failure("API native work remains pending", error)
-                failed = True
+            # Away from the server the pending work is applied before
+            # anything asks for it: each stage below can wait out a
+            # transport's retries. While the server answers, the stages go
+            # first and the pass after them takes what was pending with what
+            # they bring, so the work an earlier session left and the
+            # catch-up of this one are one pass.
+            if not state.is_online():
+                try:
+                    self.apply(native)
+                except InterruptedError:
+                    break
+                except Exception as error:
+                    # A failed native job must not stop a newer server edit
+                    # from replacing its payload, or poison jobs never heal.
+                    self._log_failure("API native work remains pending", error)
+                    failed = True
             # Local delivery and individual events can fail permanently
             # (e.g. an item deleted before its update event is processed).
             # Neither may prevent enumeration from repairing the snapshot.
@@ -972,6 +978,7 @@ class Library(threading.Thread):
         began = time.monotonic()
         self.publish(
             items + boxsets,
+            settle=False,
             membership=membership,
             complete_libraries=committed,
             complete_boxsets=complete and movies_selected,
@@ -1088,8 +1095,8 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        self.publish(items, membership=membership, removed=removed)
-        self.apply_userdata(change_set.userdata)
+        self.publish(items, settle=False, membership=membership, removed=removed)
+        self.apply_userdata(change_set.userdata, settle=False)
         if change_set.envelope.server_time:
             self.store.set_watermark(
                 watermark=changefeed.unix_to_watermark(
@@ -1139,7 +1146,7 @@ class Library(threading.Thread):
         self.arrivals.published(
             items, self.store.known(i["Id"] for i in items), membership
         )
-        self.publish(items + boxsets, membership=membership)
+        self.publish(items + boxsets, settle=False, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
@@ -1243,9 +1250,9 @@ class Library(threading.Thread):
         item = self.player.current_item() if self.player is not None else None
         return str((item or {}).get("Id") or "")
 
-    def apply_userdata(self, data: list[Any]) -> None:
+    def apply_userdata(self, data: list[Any], settle: bool = True) -> None:
         """Merge the server's user data into the catalogue, except for the
-        item this Kodi is playing.
+        item this Kodi is playing. ``settle`` as for ``publish``.
 
         Kodi's player owns the row of what it plays. That something came
         for it is kept, and the entry the server sends when the playback
@@ -1270,16 +1277,24 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
-            self._published_at = time.monotonic()
+            if settle:
+                self._published_at = time.monotonic()
         # Only now. A release has no queue behind it: dropped before a
         # publish that failed, its entry was gone for good.
         for item_id in settled:
             self._held_userdata.pop(item_id, None)
 
-    def publish(self, items: list[dict[str, Any]], **placement: Any) -> None:
+    def publish(
+        self, items: list[dict[str, Any]], settle: bool = True, **placement: Any
+    ) -> None:
         """Publish full items as the server sent them, all but the user data
         of the item this Kodi is playing, which is held like an entry sent
         for it (apply_userdata) while the item keeps what the catalogue has.
+
+        ``settle`` has the next pass wait for more of the same change
+        (PASS_SETTLE): an event or an edit's re-read can be followed by the
+        server's echo of it. A listing or a catch-up is an answer as of one
+        moment, and nothing follows it.
         """
         playing = self._playing()
         if playing:
@@ -1295,7 +1310,8 @@ class Library(threading.Thread):
                     item["UserData"] = known.get("UserData") or {}
                 break
         self.store.publish(items, **placement)
-        self._published_at = time.monotonic()
+        if settle:
+            self._published_at = time.monotonic()
 
     def announce_new_content(self) -> None:
         """Announce what the pass filed of the new content catch-ups brought."""

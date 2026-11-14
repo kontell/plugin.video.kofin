@@ -295,12 +295,13 @@ What remains is kofin's own:
   artists and MusicBrainz ids. That reads the whole library (5 s for 22,382 songs on the
   Bravia), so it runs only when due (`MusicPass.check_due`): a repair, the pass after Kodi
   announces a music scan or clean that was not the pass's own (`Native.note_music_changes`),
-  an album that moved, a pass whose songs span `Readback.WHOLE_LIBRARY_FOLDERS` directories,
-  and, for its library alone, a directory a pass was to list and did not
-  (`Native.music_owed`). The pass does not compare every song because the service just
-  started, so a music scan Kodi ran while the service was not listening (its own update on
-  startup, a service restart) and that stopped part way leaves its lost songs until one of
-  those is next due. Kodi announces the end of
+  a pass whose songs and moved albums span `Readback.WHOLE_LIBRARY_FOLDERS` directories, and,
+  for its library alone, a directory a pass was to list and did not (`Native.music_owed`).
+  Below that, an album that moved has the songs placed in its directory compared, read with
+  it. The pass does not compare every song because the service just started, so a music scan
+  Kodi ran while the service was not listening (its own update on startup, a service restart)
+  and that stopped part way leaves its lost songs until one of those is next due. Kodi
+  announces the end of
   every scan, the hold's included, and names no directory, so the pass hears them on its own
   Monitor and takes as many as it ran for its own: the hold, and each directory scan once
   `lost_songs` has checked what it re-listed (`Native.credit_music_scans`). A scan the pass did
@@ -374,19 +375,46 @@ What remains is kofin's own:
   library's song mappings once (`MusicPass.song_mappings`) and skips the lost-song check when it
   scanned nothing. On the Bravia each whole read costs a second or two (31,210 placements 0.96 s,
   every mapping 2.2 s), and one song's play count paid five of them, plus the whole library read
-  back: 22 s from the song's end to the bar going.
+  back: 22 s from the song's end to the bar going. Kodi's rows likewise: a pass that looks up
+  fewer than `Readback.WHOLE_LIBRARY_ROWS` of a library's movies, albums or artists
+  (`Native._look_up`, counting its upserts and its tombstones) reads each movie by its folder,
+  each album by its id with its directory for the id, and each artist by name, where a library's
+  movie listing took 1.9 to 2.6 s on the Bravia and its songs 3 s; a movie pass counts the
+  library for the root-scan share instead of listing it. Kodi's `is` is SQL `LIKE`, which folds
+  ASCII case alone, so an artist named outside ASCII, or one the filter misses, is read from the
+  listing (`Readback.artist`).
 - **A pass waits for its change to settle, and skips what a small pass does not need.**
   `Library.apply` starts a pass once nothing has been published for `PASS_SETTLE` and no event
   waits in the queue, at most `PASS_SETTLE_MAX` after the work appeared: marking an episode
   watched publishes the outbox's re-read and, half a second later, the server's echo with the
   season, and each pass costs seconds whatever it holds (two of 2.9 and 3.2 s on the Bravia
-  became one of 1.9 s). After the pass, movie folders are bound only when it filed movies, the
+  became one of 1.9 s). A complete listing and a catch-up publish with `settle=False`
+  (`Library.publish`, `apply_userdata`): each is the server's answer as of one moment and
+  nothing follows it, so the pass after it starts in the same tick, a second sooner. After
+  the pass, movie folders are bound only when it filed movies, the
   feature stamp is written only when it moved, and the heap is collected and trimmed only after
   a large pass, a whole music read or a music scan (which reads every album payload). The
   folders of an older profile's movies are still bound once a service generation, when nothing
   is pending (`Library.apply`). `store.tombstones` starts from the pending removals:
   joined the other way, SQLite walked every placement with a subquery each, 0.69 s for nothing
   on the LibreELEC box on every pass.
+- **While the server answers, a tick's catch-up goes before its pass** (`Library._run`,
+  `state.is_online`). A session that ends on a play leaves the play's echo pending, and the next
+  start applied it before asking the server anything: a pass of its own, with the catch-up
+  7.4 s behind it on the Bravia and its content in a second pass. Away from the server the
+  pass still goes first, since every stage ahead of it can wait out a transport's retries.
+- **A reconnect's catch-up does not wait for the session to settle** (`Service._run_post_connect`,
+  `SESSION_SETTLE_SECONDS`). The two seconds are for the socket's session, which only the
+  capabilities and the who's-watching restore attach to. The parked user data is replayed, the
+  catch-up is asked for, and the rest of the two seconds is waited after: a television that wakes
+  learns what the server gained from that catch-up alone, asked 0.75 s after the socket came
+  back on the Bravia where it had been 2.5 s.
+- **The server is asked before the backend is prepared** (`Service.run`, `_start_followers`).
+  The probe, SyncPlay and the websocket read nothing the preparation makes. The library
+  entries read the feature table and the library thread the interfaces, so the tick starts
+  those once `_backend_prepared` is set. Whatever runs first at Kodi's start is slow, because
+  every add-on's scripts share the interpreter lock: on the Bravia the server answered 2.8 s
+  after the service's first line where it had taken 3.8 s, and the 2.8 s is `import requests`.
 - **A pass that fails the same way again waits twice as long before the next try, up to the
   catch-up interval, unless new work is pending** (`Library.apply`, `RETRY_FIRST`,
   `RETRY_MAX`, `Store.pending_signature`). A failure no pass can mend retried every five
@@ -418,9 +446,27 @@ What remains is kofin's own:
   box and left it unable to answer ssh until it was power-cycled; the pass that followed
   would have loaded all 6,616 for planning. `store.pending_work` carries a payload only for
   a tombstone, records read theirs through `PayloadWindow` (200 ids a query, at most 512
-  held), listings walk their scope through one, and the tvshows root reduces each episode to
-  `metadata.episode_row` as it reads it. `store.records()` is still eager for the callers
+  held), listings walk their scope through one, and the tvshows root reads each episode's
+  numbering from `api_episode_row` (below). `store.records()` is still eager for the callers
   that need every row.
+- **The tvshows root reads no episode payload that has not moved** (`Store.episode_rows`,
+  `api_episode_row`, `metadata.EPISODE_ROW_FORMAT`). The show hashes need every episode's
+  season and number, and reading 4,339 payloads for them was 3.5 s of a 4.1 s root listing on
+  the Bravia, on every scan of the root, Kodi's own Update library included. A row is kept
+  beside the payload generation and the format it was reduced under, so only an episode whose
+  payload moved is read again; 0.45 s once kept. Raise `EPISODE_ROW_FORMAT` when
+  `episode_row` or `episode_numbers` reads a payload differently, or the kept rows go on
+  hashing the old reading.
+- **A new episode of a show Kodi lists under our folder is scanned by the show's folder**
+  (`Native._show_directories`, `SHOW_FOLDER_SCANS`). A scan of a folder bound as one show finds
+  the show by the folder's path (`CVideoDatabase::GetTvShowId`) and lists that folder alone:
+  0.3 s against 5.4 s for one episode on the Bravia. Kodi makes that folder's item itself,
+  without the tag the root's listing carries, so a show with no row, a show whose row another
+  source's folder lists, more than `SHOW_FOLDER_SCANS` shows, and an episode a pass that did
+  not complete left to a folder scan go to the root. The last matters because Kodi skips a
+  folder whose listing matches its stored hash, and a folder scan stores Kodi's own hash of
+  the listing where a root scan stores the provider's; the next root scan lists that show
+  once more for it.
 - **An empty premiere or aired date is no opinion, never a patch.** Kodi fills a missing date
   itself (its zero date on the P1D, which reads back empty; a sibling's date on the LibreELEC
   box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a
@@ -686,17 +732,20 @@ What remains is kofin's own:
   move when Kodi files the item. `sync/playlists.py` keeps the files, the naming, the state and
   the prune rules; `apply_one` and `reconcile` take a `resolver` (`backends/api/playlists.py`),
   which gives a line for an item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
-  from the server's listing. Widget refresh is Kodi's own where Kodi announces: a setter that
-  moves a play count, a last played or a resume point does, the music hold hides a pass's,
-  and the first-content reload is the one builtin the pass fires. **A setter that changes
-  only art or tags announces nothing** (22.0b2: `SetMovieDetails` writes through
-  `UpdateDetailsForMovie` and `RemoveArtForItem`, and neither reaches `AnnounceUpdate`; the
-  notification socket stayed silent on the P1D while an art key and a tag were added and
-  taken off), and a home widget reloads on an announcement alone. So a pass that put a
-  download's badge on a row or took it off ends with one scan of nowhere
-  (`Native.announce_writes`, `Applier.badges_moved`): after its last setter, through `scan`
-  so that a running scan is waited for and not stopped, and without Kodi's dialog. Other
-  art-only patches still reach no widget until something else announces.
+  from the server's listing. Widget refresh is Kodi's own where Kodi announces: a video setter
+  that moves a play count or a last played does (`SetPlayCount`), an album's setter does, the
+  music hold hides a pass's, and the first-content reload is the one builtin the pass fires.
+  **A video setter that moves anything else announces nothing a widget hears**
+  (`SetMovieDetails` writes through `UpdateDetailsForMovie` and `RemoveArtForItem`, neither
+  reaches `AnnounceUpdate`, and a resume point is a bookmark write that announces nothing;
+  the `GUI_MSG_UPDATE_ITEM` it sends instead never reaches a widget's `CDirectoryProvider`,
+  which lists itself again on `OnUpdate`, `OnRemove`, `OnRefresh`, `OnScanFinished` and
+  `OnCleanFinished` alone). An on-screen widget kept a movie's old title and poster until
+  its Home section was left and shown again. So a pass whose video patches moved any field
+  but those two, or cleared a season's name (sent as an empty title no readback compares),
+  ends with one scan of nowhere (`Native.announce_writes`, `Applier.unannounced`,
+  `patch.ANNOUNCED`): after its last setter, through `scan` so that a running scan is waited
+  for and not stopped, and without Kodi's dialog.
   **`libraryNodes` is the one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,

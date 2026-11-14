@@ -1104,10 +1104,16 @@ def inputs_token(
     )
 
 
+# What ``episode_row`` makes of a payload, as a number. The store keeps each
+# episode's row beside it (Store.episode_rows), and a row kept under another
+# number is reduced again: raised when ``episode_row`` or ``episode_numbers``
+# reads a payload differently.
+EPISODE_ROW_FORMAT = 1
+
+
 def episode_row(item: dict[str, Any]) -> Optional[tuple[str, int, int]]:
     """All the show hash takes from an episode: its id and numbering, or
-    None for one Kodi cannot file. A listing reduces each payload to this
-    and lets the payload go."""
+    None for one Kodi cannot file."""
     numbers = episode_numbers(item)
     if numbers is None:
         return None

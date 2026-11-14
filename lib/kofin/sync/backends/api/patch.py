@@ -30,7 +30,7 @@ from .kinds import (
     rpc,
     rpc_batch,
 )
-from .readback import OWN_FOLDER, artist_key
+from .readback import OWN_FOLDER
 from .records import Record
 from . import downloaded
 from .store import Mapping, hash_matches, payload_hash
@@ -95,6 +95,13 @@ def assets_dropped(previous: dict[str, Any], applied: dict[str, Any]) -> bool:
     return bool(_listed(previous["asset_files"]) - _listed(applied.get("asset_files")))
 
 
+# The fields a video setter announces when it moves them: it calls
+# CVideoDatabase::SetPlayCount, which announces OnUpdate. Every other field,
+# the resume point included, is written without an announcement a home
+# widget hears.
+ANNOUNCED = frozenset(("playcount", "lastplayed"))
+
+
 class Patch:
     def __init__(
         self,
@@ -142,9 +149,10 @@ class Applier:
         self.downloaded: set[str] = set()
         self.downloaded_series: dict[str, set[str]] = {}
         self._downloaded_seasons: dict[str, set[int]] = {}
-        # Whether a patch of this pass puts a download's badge on a row or
-        # takes it off: Kodi announces neither (Native.announce_writes).
-        self.badges_moved = False
+        # Whether a video patch of this pass moves a field outside ANNOUNCED,
+        # or clears a season's name: Kodi's setter announces neither
+        # (Native.announce_writes).
+        self.unannounced = False
         # Folders of movies whose listing dropped a version file or an
         # extra this pass: cleaned once the pass has applied
         # (Native.retire_assets).
@@ -327,11 +335,9 @@ class Applier:
             albumid = self.native.music.album_id(record)
             if albumid is None:
                 return None
-            return self.readback.scope("MusicAlbum", record.library).get(albumid)
+            return self.readback.album(record.library, albumid)
         if kind == "MusicArtist":
-            return self.readback.scope("MusicArtist", record.library).get(
-                artist_key(record.item.get("Name"))
-            )
+            return self.readback.artist(record.library, record.item.get("Name"))
         if kind == "Season":
             number = record.item.get("IndexNumber")
             if number is None:
@@ -485,7 +491,7 @@ class Applier:
         applied = _with_asset_files(applied, assets, files, previous)
         self._note_dropped_assets(record, previous, applied)
         return self._compared(
-            record, row, kodi_id, desired, applied, previous, mapping, repair, mark
+            record, row, kodi_id, desired, applied, previous, mapping, repair
         )
 
     def _filed_row(self, record: Record) -> dict:
@@ -658,7 +664,6 @@ class Applier:
         previous: dict[str, Any],
         mapping: Optional[Mapping],
         repair: bool,
-        mark: str,
     ) -> Optional[Patch]:
         """The patch for a row that differs from the desired state, or None
         for one acknowledged as it stands. Repair re-sends a row whose
@@ -687,8 +692,11 @@ class Applier:
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
-        if (downloaded.BADGE_ART in (row.get("art") or {})) != bool(mark):
-            self.badges_moved = True
+        if clearing or any(
+            key not in ANNOUNCED and not matches(row, {key: value})
+            for key, value in compare.items()
+        ):
+            self.unannounced = True
         return Patch(record, kodi_id, desired, compare, applied)
 
     def plan_music(
@@ -722,7 +730,7 @@ class Applier:
                 # listing this pass: the row still carries the old ones.
                 raise RuntimeError("song awaits its directory's rescan")
         elif kind == "MusicAlbum":
-            owner = self.native.music.album_owner(kodi_id)
+            owner = self.native.music.album_owner(kodi_id, record.library)
             if owner is not None and owner != record.item_id:
                 # Kodi merged two of our albums into one row; the first owns
                 # its art and description, the other is mapped and left.

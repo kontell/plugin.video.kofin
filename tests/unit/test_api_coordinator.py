@@ -608,6 +608,130 @@ def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeyp
     assert set(store.records(pinned=False)) == {"c"}
 
 
+@pytest.mark.parametrize(
+    "online, order",
+    [(True, ["refresh", "apply"]), (False, ["apply", "refresh", "apply"])],
+)
+def test_the_catch_up_leads_the_pass_only_while_the_server_answers(
+    store, monkeypatch, online, order
+):
+    """What an earlier session left pending and what the server has since
+    are one pass when the catch-up goes first. Away from the server the
+    pending work is applied before any stage that would wait on it."""
+    from kofin.sync.backends.api import library
+
+    calls = []
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    monkeypatch.setattr(library.state, "is_online", lambda: online)
+    monkeypatch.setattr(w, "refresh", lambda: calls.append("refresh"))
+    monkeypatch.setattr(w, "apply", lambda native: calls.append("apply"))
+    monkeypatch.setattr(w, "playlists_pass", lambda: None)
+    monkeypatch.setattr(
+        library,
+        "Native",
+        lambda *args, **kwargs: SimpleNamespace(
+            setup=lambda: None,
+            restore_settings=lambda: None,
+            refile_removed=lambda: False,
+        ),
+    )
+    monkeypatch.setattr(library.api_playlists, "owed", lambda: False)
+    monkeypatch.setattr(library, "status", lambda *a, **k: None)
+    monkeypatch.setattr(
+        library.Credentials, "load", lambda: SimpleNamespace(server_id="s", user_id="u")
+    )
+    w.stop_thread = False
+    w.startup_done = False
+    monkeypatch.setattr(
+        library.xbmc,
+        "Monitor",
+        lambda: SimpleNamespace(
+            abortRequested=lambda: False, waitForAbort=lambda seconds: True
+        ),
+    )
+
+    w.run()
+
+    assert calls == order
+
+
+def _settling(w, monkeypatch):
+    """Whether the pass would wait now, with the settle as shipped."""
+    from kofin.sync.backends.api import library
+
+    monkeypatch.setattr(library, "PASS_SETTLE", 1.0)
+    w._pending_since = None
+    return w._settling()
+
+
+def test_a_catch_up_is_no_change_for_the_pass_to_settle_for(store, monkeypatch):
+    """The pass waits for more of a change an event or an edit published,
+    since the server's echo can follow it. A catch-up is the server's answer
+    as of one moment, its items and its user data alike, and the pass after
+    it starts in the same tick."""
+    from kofin.sync.backends.api.library import CATCHUP_OVERLAP
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    server.libraries[LIB][0]["Overview"] = "Edited"
+    feed = Feed(
+        [ChangeRecord("a", "Updated", library_ids=[LIB])],
+        userdata=[{"ItemId": "b", "Played": True, "PlayCount": 1}],
+        server_time=1200,
+    )
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+
+    w.catch_up()
+
+    records = store.records(pinned=False)
+    assert records["a"].item["Overview"] == "Edited"
+    assert records["b"].item["UserData"]["PlayCount"] == 1
+    assert store.watermark()[0] == unix_to_watermark(1200 - CATCHUP_OVERLAP)
+    assert not _settling(w, monkeypatch)
+
+    w.apply_userdata([{"ItemId": "b", "Played": False, "PlayCount": 0}])
+
+    assert _settling(w, monkeypatch)
+
+
+def test_a_catch_up_by_save_date_is_no_change_to_settle_for_either(store, monkeypatch):
+    from kofin.sync.changefeed import unix_to_watermark
+
+    server = Server({LIB: [movie(DateLastSaved="2026-10-09T00:00:00Z")]})
+    store.publish([movie()], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    server.libraries[LIB][0]["Overview"] = "Edited"
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.catch_up()
+
+    assert store.records(pinned=False)["a"].item["Overview"] == "Edited"
+    assert not _settling(w, monkeypatch)
+
+
+def test_a_complete_listing_is_no_change_to_settle_for(store, monkeypatch):
+    server = Server({LIB: [movie(), movie("b")]})
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.full_sync()
+
+    assert set(store.records(pinned=False)) == {"a", "b"}
+    assert not _settling(w, monkeypatch)
+
+
+def test_an_event_s_publish_is_still_a_change_to_settle_for(store, monkeypatch):
+    store.publish([movie()], library=LIB)
+    server = Server({LIB: [movie(Overview="Edited")]})
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.command("changed", ["a"])
+
+    assert store.records(pinned=False)["a"].item["Overview"] == "Edited"
+    assert _settling(w, monkeypatch)
+
+
 def test_first_content_reloads_the_skin_once_per_kind_and_waits_for_playback(
     store, monkeypatch
 ):
