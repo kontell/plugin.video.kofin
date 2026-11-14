@@ -15,6 +15,7 @@ from tests.unit.apifixtures import (  # noqa: F401
     SHOW,
     SHOW2,
     backend,
+    album_bundle,
     boxset,
     episode,
     kodi,
@@ -483,7 +484,10 @@ def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi)
     assert methods(kodi, "VideoLibrary.GetEpisodeDetails")
 
 
-def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend, kodi):
+def test_episode_and_show_removals_confirm_by_the_stored_id(store, backend, kodi):
+    """A mapped episode is removed by the id stored for it. An episode whose
+    show is leaving in the same pass is a child of that show: the show's
+    removal takes it, and it is not listed or removed on its own."""
     store.publish(
         show_bundle(episodes=3) + show_bundle(SHOW2, episodes=1, prefix="f"),
         library=LIB,
@@ -493,16 +497,29 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
     store.publish([], removed=["ea13"])
     backend.reconcile()
     assert len(methods(kodi, "VideoLibrary.RemoveEpisode")) == 1
-    # One scoped listing finds the row by its current id, one confirms
-    # the removal; no details read by a stored id.
-    assert len(methods(kodi, "VideoLibrary.GetEpisodes")) == 2
-    assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
+    assert methods(kodi, "VideoLibrary.GetEpisodeDetails")
+    assert not methods(kodi, "VideoLibrary.GetEpisodes")
+    assert not methods(kodi, "Files.GetFileDetails")
     assert set(kodi.owned("Episode")) == {"ea11", "ea12", "fb21"}
+    assert not store.pending()
+    show_id = store.mapping(SHOW2).kodi_id
     kodi.calls.clear()
     store.publish([], removed=[SHOW2, "fb21", SHOW2[:4] + "s1"])
     backend.reconcile()
     assert len(methods(kodi, "VideoLibrary.RemoveTVShow")) == 1
+    assert methods(kodi, "VideoLibrary.GetTVShowDetails")
+    assert not methods(kodi, "VideoLibrary.GetTVShows")
     assert not methods(kodi, "VideoLibrary.RemoveEpisode")
+    assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
+    # One probe for episodes another source filed on the row. None here, so
+    # no source is asked.
+    assert [
+        p.get("tvshowid")
+        for p in methods(kodi, "VideoLibrary.GetEpisodes")
+        if (p.get("filter") or {}).get("operator") == "doesnotcontain"
+    ] == [show_id]
+    assert not methods(kodi, "Files.GetSources")
+    assert not methods(kodi, "Files.GetFileDetails")
     assert set(kodi.owned("Series")) == {SHOW}
     assert paths.show_dir(store.namespace, LIB, SHOW2) not in kodi.bindings
     assert paths.show_dir(store.namespace, LIB, SHOW2) not in store.bindings()
@@ -511,6 +528,161 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
         for r in kodi.rows["Season"].values()
     )
     assert not store.pending()
+
+
+def test_a_mapped_movie_and_music_video_leave_by_their_stored_id(store, backend, kodi):
+    store.publish([movie(), movie("b"), musicvideo()], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([], removed=["a"])
+    backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.RemoveMovie")) == 1
+    assert methods(kodi, "VideoLibrary.GetMovieDetails")
+    # The movie's folder is listed for version rows; the library is not.
+    assert folder_listings(kodi) == [paths.movie_dir(store.namespace, LIB, "a")]
+    assert not methods(kodi, "Files.GetFileDetails")
+    assert set(kodi.owned("Movie")) == {"b"}
+    assert not store.pending()
+    kodi.calls.clear()
+    store.publish([], removed=["m"])
+    backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.RemoveMusicVideo")) == 1
+    assert methods(kodi, "VideoLibrary.GetMusicVideoDetails")
+    assert not methods(kodi, "VideoLibrary.GetMusicVideos")
+    assert not methods(kodi, "Files.GetFileDetails")
+    assert kodi.owned("MusicVideo") == {}
+    assert not store.pending()
+
+
+def folder_listings(kodi):
+    """The path each VideoLibrary.GetMovies call was filtered on."""
+    return [p["filter"]["value"] for p in methods(kodi, "VideoLibrary.GetMovies")]
+
+
+def test_a_removal_kodi_could_not_answer_for_stays_pending(
+    store, backend, kodi, monkeypatch
+):
+    """An id Kodi refuses is a row that is gone. A read Kodi could not
+    answer says nothing about the row: before the call the row is not
+    removed, after it the removal is not confirmed, and either way the
+    removal stays pending for the next pass."""
+    from kofin.core import kodirpc
+
+    store.publish([movie(), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    answered = kodirpc.call
+    unreachable = {"before": False}
+
+    def call(method, params=None):
+        if method == "VideoLibrary.GetMovieDetails" and (
+            unreachable["before"] or methods(kodi, "VideoLibrary.RemoveMovie")
+        ):
+            return kodirpc.FAILED
+        return answered(method, params)
+
+    monkeypatch.setattr(kodirpc, "call", call)
+    unreachable["before"] = True
+    kodi.calls.clear()
+    store.publish([], removed=["a"])
+    with pytest.raises(RuntimeError, match="could not be asked"):
+        backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.RemoveMovie")
+    assert store.state("a").status == "pending"
+    unreachable["before"] = False
+    kodi.calls.clear()
+    with pytest.raises(RuntimeError, match="could not be asked"):
+        backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.RemoveMovie")) == 1
+    assert store.state("a").status == "pending"
+    monkeypatch.setattr(kodirpc, "call", answered)
+    backend.reconcile()
+    assert not store.pending()
+    assert set(kodi.owned("Movie")) == {"b", "c"}
+
+
+def test_one_removal_asks_for_a_survivor_not_every_placement(
+    store, backend, kodi, monkeypatch
+):
+    """One movie of a library that still has another is not a clear. The
+    decision is one survivor row; the catalogue is not read whole, and a
+    song of the same library is not what keeps it."""
+    from kofin.sync.backends.api.store import Store
+
+    store.publish([movie(), movie("b")] + album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    songs = dict(kodi.songs)
+    wholes = []
+    survivors = []
+    entries_at = Store.entries_at
+    has_survivor = Store.has_survivor
+    monkeypatch.setattr(
+        Store,
+        "entries_at",
+        lambda self, generation: wholes.append(generation)
+        or entries_at(self, generation),
+    )
+    monkeypatch.setattr(
+        Store,
+        "has_survivor",
+        lambda self, *args, **kwargs: survivors.append(args)
+        or has_survivor(self, *args, **kwargs),
+    )
+    kodi.calls.clear()
+    store.publish([], removed=["a"])
+    backend.reconcile()
+    assert wholes == [] and survivors
+    # The movie's own folder is unbound. A library clear is the root, remove.
+    assert not [
+        params
+        for params in methods(kodi, "VideoLibrary.SetSourceContent")
+        if params.get("clearmode") == "remove"
+    ]
+    assert folder_listings(kodi) == [paths.movie_dir(store.namespace, LIB, "a")]
+    assert not methods(kodi, "Files.GetFileDetails")
+    assert len(methods(kodi, "VideoLibrary.RemoveMovie")) == 1
+    assert set(kodi.owned("Movie")) == {"b"}
+    assert kodi.songs == songs
+    assert not store.pending()
+
+
+def test_a_library_of_movies_and_songs_clears_its_video(store, backend, kodi):
+    """Songs are not video rows. A library whose every movie is leaving
+    still clears in one call, and the songs stay."""
+    store.publish([movie(), movie("b")] + album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    songs = dict(kodi.songs)
+    assert songs
+    kodi.calls.clear()
+    store.publish([], removed=["a", "b"])
+    backend.reconcile()
+    assert methods(kodi, "VideoLibrary.SetSourceContent") == [
+        {
+            "path": paths.library_root(store.namespace, LIB),
+            "content": "none",
+            "clearmode": "remove",
+            "refresh": False,
+        }
+    ]
+    assert kodi.owned("Movie") == {}
+    assert kodi.songs == songs
+    assert not store.pending()
+
+
+def test_an_empty_forget_opens_no_transaction(store, monkeypatch):
+    """A removal that settled nothing still calls forget_many. An empty
+    batch opens no connection and no transaction."""
+    from kofin.sync.backends.api import store as store_module
+
+    opened = []
+    database = store_module.Database
+
+    def spy(*args, **kwargs):
+        opened.append(1)
+        return database(*args, **kwargs)
+
+    monkeypatch.setattr(store_module, "Database", spy)
+    assert store.forget_many([]) == 0
+    assert opened == []
 
 
 def test_unnumbered_special_and_empty_season_apply_without_a_row(store, backend, kodi):
@@ -1306,6 +1478,29 @@ def test_collections_without_a_kodi_set_apply_without_a_row(store, backend, kodi
         backend.reconcile()
 
 
+def test_the_collection_a_movie_did_not_take_is_edited_alone(store, backend, kodi):
+    """A movie in two collections files the one it took. The other,
+    edited while no movie is in the pass, still has no row, and is
+    acknowledged without one."""
+    store.publish(
+        [
+            movie(),
+            boxset("winner", "Alpha", ["a"]),
+            boxset("loser", "Zeta", ["a"]),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    assert store.mapping("loser").kodi_id is None
+    kodi.calls.clear()
+    store.publish([boxset("loser", "Zeta", ["a"], Overview="edited")])
+    backend.reconcile()
+    assert not store.pending()
+    assert store.mapping("loser").kodi_id is None
+    assert not methods(kodi, "VideoLibrary.SetMovieSetDetails")
+    assert kodi.owned("Movie")["a"]["set"] == "Alpha"
+
+
 def _reimported_pair(store, backend, kodi):
     """A library with one collection, imported, removed and published again;
     returns the set's row as the first import left it."""
@@ -1407,6 +1602,37 @@ def test_the_collection_a_movie_falls_back_to_is_planned_with_it(store, backend,
     sets = {r["title"]: r for r in kodi.rows["BoxSet"].values()}
     assert sets["Zeta"]["plot"] == "The other one"
     assert store.mapping("loser").kodi_id == sets["Zeta"]["setid"]
+
+
+def test_a_collection_of_the_same_title_is_planned_with_it(store, backend, kodi):
+    """Kodi holds one set of the title, and the lowest id owns it. A movie
+    of the other brings that owner into the pass. The other is acknowledged
+    with no row, so its plot is not written over the set."""
+    store.publish(
+        [
+            movie(),
+            movie("b"),
+            boxset("one", "Dune", ["a"], Overview="From the first"),
+            boxset("two", "Dune", ["b"], Overview="From the second"),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    assert not store.pending()
+    row = next(iter(kodi.rows["BoxSet"].values()))
+    assert row["plot"] == "From the first"
+    assert store.mapping("one").kodi_id == row["setid"]
+    assert store.mapping("two").kodi_id == row["setid"]
+    row["plot"] = "From the second"
+    kodi.calls.clear()
+    store.publish([movie("b", Overview="Edited")])
+    backend.reconcile()
+    assert not store.pending()
+    assert [
+        p.get("plot") for p in methods(kodi, "VideoLibrary.SetMovieSetDetails")
+    ] == ["From the first"]
+    assert row["plot"] == "From the first"
+    assert store.mapping("two").kodi_id == row["setid"]
 
 
 def test_only_a_movie_filed_under_a_collection_brings_it_into_the_pass(
@@ -1663,9 +1889,92 @@ def test_a_movie_folder_read_keeps_the_version_rows_kodi_filed_apart(
     assert readback.scope("Movie", LIB)["a"]["movieid"] == own
 
 
+def test_a_version_file_is_removed_with_its_movie(store, backend, kodi):
+    """A version Kodi filed as its own movie is found under the movie's
+    folder, the first source's version URL included: that source is the
+    movie's file now, and the URL can still be a row of its own. One
+    listing of the folder finds them; the library is not listed and the
+    add-on is not asked about any file."""
+    store.publish(
+        [
+            movie(
+                MediaSources=[
+                    {"Id": "s1", "Name": "Director's Cut", "Container": "mkv"},
+                    {"Id": "s2", "Name": "Theatrical Cut", "Container": "mkv"},
+                ]
+            ),
+            # The other movie stays, so this removal is not a library clear.
+            movie("b"),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    own = store.mapping("a").kodi_id
+    first = paths.version_url(store.namespace, LIB, "a", "s1")
+    second = paths.version_url(store.namespace, LIB, "a", "s2")
+    apart = max(kodi.rows["Movie"]) + 1
+    earlier = apart + 1
+    kodi.rows["Movie"][apart] = dict(
+        copy.deepcopy(kodi.rows["Movie"][own]),
+        movieid=apart,
+        file=second,
+    )
+    kodi.rows["Movie"][earlier] = dict(
+        copy.deepcopy(kodi.rows["Movie"][own]),
+        movieid=earlier,
+        file=first,
+    )
+    kodi.calls.clear()
+    store.publish([], removed=["a"])
+    backend.reconcile()
+    assert not methods(kodi, "Files.GetFileDetails")
+    assert folder_listings(kodi) == [paths.movie_dir(store.namespace, LIB, "a")]
+    assert {p["movieid"] for p in methods(kodi, "VideoLibrary.RemoveMovie")} == {
+        own,
+        apart,
+        earlier,
+    }
+    assert own not in kodi.rows["Movie"]
+    assert apart not in kodi.rows["Movie"] and earlier not in kodi.rows["Movie"]
+    assert set(kodi.owned("Movie")) == {"b"}
+    assert not store.pending()
+
+
+def test_a_version_file_grouped_under_another_movie_is_left_there(store, backend, kodi):
+    """A version grouped under another movie is that movie's row, filed
+    under its own folder, and is not removed."""
+    store.publish(
+        [
+            movie(
+                MediaSources=[
+                    {"Id": "s1", "Name": "Director's Cut", "Container": "mkv"},
+                    {"Id": "s2", "Name": "Theatrical Cut", "Container": "mkv"},
+                ]
+            ),
+            movie("b"),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    own = store.mapping("a").kodi_id
+    other = store.mapping("b").kodi_id
+    version = paths.version_url(store.namespace, LIB, "a", "s2")
+    kodi.rows["Movie"][other]["versions"] = [version]
+    kodi.calls.clear()
+    store.publish([], removed=["a"])
+    backend.reconcile()
+    assert other in kodi.rows["Movie"]
+    assert {"movieid": other} not in methods(kodi, "VideoLibrary.RemoveMovie")
+    assert {"movieid": own} in methods(kodi, "VideoLibrary.RemoveMovie")
+    assert folder_listings(kodi) == [paths.movie_dir(store.namespace, LIB, "a")]
+    assert set(kodi.owned("Movie")) == {"b"}
+    assert not store.pending()
+
+
 def test_a_tombstone_whose_row_kodi_already_deleted_is_forgotten(store, backend, kodi):
-    """A Clean that answered False for the tombstone, or a reissued id, must
-    not keep the removal pending on a details read that can never succeed."""
+    """A stored id Kodi has dropped, or given to another row, is read and
+    then left alone. Neither keeps the removal pending, and the foreign
+    row is not removed."""
     store.publish([movie(), movie("b"), movie("c")], library=LIB)
     backend.reconcile()
     gone = store.mapping("a").kodi_id
@@ -1682,7 +1991,7 @@ def test_a_tombstone_whose_row_kodi_already_deleted_is_forgotten(store, backend,
     backend.reconcile()
     assert not store.pending()
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
-    assert not methods(kodi, "VideoLibrary.GetMovieDetails")
+    assert methods(kodi, "VideoLibrary.GetMovieDetails")
     assert reissued in kodi.rows["Movie"]
     assert set(kodi.owned("Movie")) == {"c"}
 

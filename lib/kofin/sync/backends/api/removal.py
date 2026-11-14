@@ -1,24 +1,26 @@
 """Applying tombstones: a library whole, or one row at a time, every removal
 confirmed before the store lets go of it.
 
-The kind table says how each kind leaves. A row kind has its own remove call
-and one readback per scope confirms it. A parent kind -- a season, or an
-episode whose show is going too -- leaves with the show, and is acknowledged
-only once the show's removal is confirmed. A members kind -- a set -- leaves
-once the movies that filed it have been patched off it and its empty row has
-been removed by its id; that happens after the apply pass, in
-``finish_sets``. A rescan kind -- a song, and the album and artist Kodi
-derives from it -- leaves through the complete listing of its directory: the
-audio API has no remove call, so the directory is scanned without the song
-and one readback of the directory confirms it; the derived kinds are let go
-with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
-forgotten on the strength of an accepted call.
+The kind table says how each kind leaves. A mapped row kind is removed by
+the id stored for it and confirmed by reading that id back; the library
+listing is the fallback when the id is missing or names a row that is not
+ours. A parent kind -- a season, or an episode whose show is going too --
+leaves with the show, and is acknowledged only once the show's removal is
+confirmed. A members kind -- a set -- leaves once the movies that filed it
+have been patched off it and its empty row has been removed by its id; that
+happens after the apply pass, in ``finish_sets``. A rescan kind -- a song,
+and the album and artist Kodi derives from it -- leaves through the complete
+listing of its directory: the audio API has no remove call, so the directory
+is scanned without the song and one readback of the directory confirms it;
+the derived kinds are let go with their songs, since Kodi's own cleanup
+drops their empty rows. Nothing is forgotten on the strength of an accepted
+call.
 """
 
 import threading
 import time
 from collections.abc import Callable, Collection, Iterable
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 from kofin.core import kodirpc
 from kofin.core.log import Logger
@@ -31,6 +33,27 @@ if TYPE_CHECKING:
     from .native import Native
 
 LOG = Logger(__name__)
+
+# Kinds that leave through a directory listing. They do not keep a video
+# library from being cleared, and a library of only these is never cleared.
+_RESCAN = tuple(kind for kind, table in KINDS.items() if table.removal == "rescan")
+
+
+class _Attempt(NamedTuple):
+    """One row a removal call was made for, and how it was found.
+
+    ``fast`` is a mapped id that ``Readback.owns`` accepted. Its
+    confirmation reads that id back. A fallback row is confirmed by the
+    listing, which is what found it. ``version_ids`` are the other movie
+    rows of a fast movie's version files, from its folder; a fallback
+    movie finds those from the listing instead.
+    """
+
+    item_id: str
+    placed: Entry
+    fast: bool
+    kodi_id: int
+    version_ids: tuple[int, ...]
 
 
 def _fail(
@@ -331,9 +354,18 @@ def remove(
     if not removals:
         scan_owed(native)
         return set()
-    placement: dict[str, Entry] = dict(entries)
-    placement.update(tombstones)
-    cleared = _clear_whole_libraries(native, pending, placement, removals, errors)
+    # The pending removals' own placements. Walking ``entries`` would read
+    # every placement in the catalogue to decide a clear one row can answer.
+    placement = dict(tombstones)
+    for item_id in removals:
+        if item_id not in placement:
+            try:
+                placement[item_id] = entries[item_id]
+            except KeyError:
+                pass
+    cleared = _clear_whole_libraries(
+        native, pending, placement, removals, entries.generation, errors
+    )
     remove_music(native, pending, placement, removals, errors)
     rows, children = _gather_rows(native, pending, placement, removals, cleared)
     attempted = _remove_rows(native, pending, rows, children, errors)
@@ -375,19 +407,23 @@ def _clear_whole_libraries(
     pending: PendingWork,
     placement: dict[str, Entry],
     removals: set[str],
+    generation: int,
     errors: list[Exception],
 ) -> set[str]:
     """A library none of whose members survive goes in one call; Kodi's
     RemoveContentForPath deletes every row filed beneath its root. Music
-    has no such call and leaves by its directories (remove_music)."""
+    has no such call and leaves by its directories (remove_music). One
+    movie or one show does not: a survivor is one row, not the catalogue."""
     store = native.store
     by_library: dict[str, set[str]] = {}
-    for item_id, entry in placement.items():
+    for item_id in removals:
+        entry = placement.get(item_id)
+        if entry is None or not entry.library or KINDS[entry.kind].removal == "rescan":
+            continue
         by_library.setdefault(entry.library, set()).add(item_id)
     cleared: set[str] = set()
     for library, members in sorted(by_library.items()):
-        members = {i for i in members if KINDS[placement[i].kind].removal != "rescan"}
-        if not library or not members or not members <= removals:
+        if store.has_survivor(library, generation, _RESCAN):
             continue
         kinds = {placement[i].kind for i in members}
         others: list[str] = []
@@ -511,13 +547,21 @@ def _remove_rows(
     rows: list[tuple[str, Entry]],
     children: dict[str, list[str]],
     errors: list[Exception],
-) -> list[tuple[str, Entry]]:
-    """One removal call per row, by the id the scoped readback holds now;
-    returns the rows attempted. The other sources a row's removal takes
-    rows of are owed a scan first (``scan_owed``), and a row whose other
-    sources cannot be read stays."""
+) -> list[_Attempt]:
+    """One removal call per row; returns the rows attempted.
+
+    The id stored for the item is removed when that row is still ours.
+    Kodi may have deleted it, or reissued it: the video tables' ids are
+    plain INTEGER PRIMARY KEYs, so a stored id that is missing or names
+    another row falls back to the listing. Every show owes a scan of any
+    source that filed an episode on its row. Those episodes stay linked
+    when the row is still under our folder, and ``RemoveTVShow`` deletes
+    them. A movie found by the listing owes the source of a file that is
+    not ours. A row whose other sources cannot be read stays. An id the
+    stored row check rejected is not removed.
+    """
     store = native.store
-    attempted: list[tuple[str, Entry]] = []
+    attempted: list[_Attempt] = []
     for item_id, placed in rows:
         table = KINDS[placed.kind]
         if table.remove is None:
@@ -525,21 +569,17 @@ def _remove_rows(
         try:
             if native.abort():
                 raise InterruptedError("native sync stopped")
-            # The scoped readback is the source of truth, not the stored
-            # mapping: Kodi may have deleted that row already -- a Clean
-            # answered False for this very tombstone -- or reissued its id
-            # to a foreign row, since the video tables' ids are plain
-            # INTEGER PRIMARY KEYs. A row the scope owns is removed by the
-            # id it has now; an item absent from the scope is already gone,
-            # and so are a vanished show's episodes.
-            row = _row(native, placed, item_id)
-            if row is None:
+            located = _locate(native, placed, item_id)
+            if located is None:
                 _forget_with_children(store, pending, children, item_id)
                 continue
+            row, fast, versions = located
             if placed.kind == "Series":
                 store.owe_scans(sources_of(native, {row["tvshowid"]}))
-            elif placed.kind == "Movie" and not native.readback.own_file(
-                placed.library, item_id, row
+            elif (
+                not fast
+                and placed.kind == "Movie"
+                and not native.readback.own_file(placed.library, item_id, row)
             ):
                 store.owe_scans(sources_holding([row.get("file") or ""]))
             rpc(table.remove, {table.id_param: row[table.id_param]})
@@ -548,10 +588,24 @@ def _remove_rows(
             elif placed.kind == "Movie":
                 # Version files Kodi imported as movies of their own, which
                 # the user has not grouped yet, leave with the movie.
-                for version in native.readback.version_rows(placed.library, item_id):
-                    rpc(table.remove, {table.id_param: version[table.id_param]})
+                if fast:
+                    for version_id in versions:
+                        rpc(table.remove, {table.id_param: version_id})
+                else:
+                    for version in native.readback.version_rows(
+                        placed.library, item_id
+                    ):
+                        rpc(table.remove, {table.id_param: version[table.id_param]})
                 native.unbind_movie(placed.library, item_id)
-            attempted.append((item_id, placed))
+            attempted.append(
+                _Attempt(
+                    item_id,
+                    placed,
+                    fast,
+                    int(row[table.id_param]),
+                    tuple(versions),
+                )
+            )
         except InterruptedError:
             raise
         except Exception as error:
@@ -562,26 +616,46 @@ def _remove_rows(
 def _confirm_rows(
     native: "Native",
     pending: PendingWork,
-    attempted: list[tuple[str, Entry]],
+    attempted: list[_Attempt],
     children: dict[str, list[str]],
     errors: list[Exception],
 ) -> None:
-    """One readback per scope: anything still there stays pending, children
-    included, and a child whose show was settled before it was gathered, or
-    whose removal never got as far as a call, goes with the show's state."""
+    """Anything still there stays pending, children included, and a child
+    whose show was settled before it was gathered, or whose removal never
+    got as far as a call, goes with the show's state.
+
+    A mapped id is confirmed by reading it back. Refused, or now a
+    different item, is success; a read Kodi could not answer leaves the
+    removal pending. The listing is asked only for a row that was found
+    that way, and only those rows drop the scope cache: after a delete of
+    an id just checked, absence is the result, and a movie missing from
+    the listing is looked up by listing its folder.
+    """
     store = native.store
-    if attempted:
+    if any(not attempt.fast for attempt in attempted):
         native.readback.clear()
-    removed_shows = {i for i, p in attempted if p.kind == "Series"}
-    for item_id, placed in attempted:
+    removed_shows = {a.item_id for a in attempted if a.placed.kind == "Series"}
+    for attempt in attempted:
+        item_id, placed = attempt.item_id, attempt.placed
         if placed.kind == "Episode" and placed.parent_id in removed_shows:
             survived = False
+        elif attempt.fast:
+            try:
+                survived = any(
+                    _still_ours(native, placed, item_id, kodi_id)
+                    for kodi_id in (attempt.kodi_id,) + attempt.version_ids
+                )
+            except InterruptedError:
+                raise
+            except Exception as error:
+                _fail_with_children(store, pending, children, item_id, error, errors)
+                continue
         else:
-            survived = _row(native, placed, item_id) is not None
-        if survived or (
-            placed.kind == "Movie"
-            and native.readback.version_rows(placed.library, item_id)
-        ):
+            survived = _row(native, placed, item_id) is not None or (
+                placed.kind == "Movie"
+                and bool(native.readback.version_rows(placed.library, item_id))
+            )
+        if survived:
             _fail_with_children(
                 store,
                 pending,
@@ -746,9 +820,70 @@ def _ours_in_set(native: "Native", title: str) -> bool:
     return False
 
 
+def _locate(
+    native: "Native", placed: Entry, item_id: str
+) -> Optional[tuple[dict[str, Any], bool, list[int]]]:
+    """The row to remove, whether the stored id still names it, and the
+    other movie ids of a fast movie's version files.
+
+    A stored id of 0 is no id. An id Kodi refuses, or a row that is not
+    this item, falls through to the listing (``_row``): a merged show and
+    a grouped movie are found there, and so is an id Kodi has already
+    dropped or given to another row. A read Kodi could not answer raises,
+    and the removal stays pending.
+    """
+    mapping = native.store.mapping(item_id)
+    if mapping is not None and mapping.kodi_id:
+        row = native.readback.lookup(placed.kind, mapping.kodi_id)
+        # owns, not holds: a row this pass adopted (a show found through
+        # its episodes, a movie found by its file) is the fallback. holds
+        # would take it for the fast path and skip the other source.
+        if (
+            row
+            and native.readback.owns(placed.kind, row, placed.library, placed.parent_id)
+            == item_id
+        ):
+            versions: list[int] = []
+            if placed.kind == "Movie":
+                versions = _version_ids(native, placed, item_id, row)
+            return row, True, versions
+    found = _row(native, placed, item_id)
+    if found is None:
+        return None
+    return found, False, []
+
+
+def _version_ids(
+    native: "Native", placed: Entry, item_id: str, row: dict[str, Any]
+) -> list[int]:
+    """Movie ids of this item's version files that Kodi filed as movies of
+    their own: the rows under the movie's folder that are this item's,
+    the movie's own row aside. A version grouped under another movie is
+    that movie's row, filed under its folder, and is left there."""
+    owner = row.get("movieid")
+    return [
+        version["movieid"]
+        for version in native.readback.movie_folder(placed.library, item_id)
+        if version.get("movieid") != owner
+        and native.readback.owns("Movie", version, placed.library, placed.parent_id)
+        == item_id
+    ]
+
+
+def _still_ours(native: "Native", placed: Entry, item_id: str, kodi_id: int) -> bool:
+    """Whether ``kodi_id`` is still this item's row. An id Kodi refuses, or
+    one Kodi has given to another item, is gone; a read Kodi could not
+    answer raises."""
+    row = native.readback.lookup(placed.kind, kodi_id)
+    return row is not None and native.readback.holds(
+        placed.kind, row, placed.library, item_id, placed.parent_id
+    )
+
+
 def _row(native: "Native", placed: Entry, item_id: str) -> Optional[dict[str, Any]]:
-    """The row an item to remove has now: a show's through its episodes as
-    well (Readback.show), since another source's folder may list it."""
+    """The row an item to remove has now, from the listing: a show's
+    through its episodes as well (Readback.show), since another source's
+    folder may list it. The fallback when the stored id is not ours."""
     if placed.kind == "Series":
         return native.readback.show(placed.library, item_id)
     if placed.kind == "Movie":

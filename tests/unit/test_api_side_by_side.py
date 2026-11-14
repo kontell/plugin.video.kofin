@@ -454,6 +454,28 @@ def test_a_viewers_command_tries_the_pass_at_once(failing):
     assert runs == [100, 105, 108]
 
 
+def test_a_mapped_show_still_on_our_folder_owes_the_other_source(store, backend, kodi):
+    """We scanned last: the row keeps our folder and our id, and their
+    episode stays on it. RemoveTVShow deletes that episode, so the source
+    is recorded from it before the call. The show is not listed to find it."""
+    other = "b2" * 16
+    store.publish(show_bundle() + show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    tvshowid, _ = merge(kodi, keep_ids=True)
+    kodi.sources = [{"file": "/local/Shows/", "label": "Shows"}]
+    kodi.calls.clear()
+    store.publish(show_bundle(other, prefix="f"), library=LIB)
+    backend.reconcile()
+    calls = [method for method, _ in kodi.calls]
+    assert calls.index("VideoLibrary.GetEpisodes") < calls.index(
+        "VideoLibrary.RemoveTVShow"
+    )
+    assert {"tvshowid": tvshowid} in methods(kodi, "VideoLibrary.RemoveTVShow")
+    assert not methods(kodi, "VideoLibrary.GetTVShows")
+    assert "/local/Shows/" in kodi.scanned
+    assert not store.pending()
+
+
 def test_a_shared_show_leaving_alone_has_the_other_source_scanned(
     store, backend, kodi, monkeypatch
 ):

@@ -184,19 +184,16 @@ class MusicPass:
             )
         return found
 
-    def import_missing(
-        self, upserts: dict[str, Record], library: str, entries: abc.Mapping[str, Entry]
-    ) -> None:
-        """Have Kodi list every directory of the library that needs it, and
-        put back to pending whatever the scan should have filed and did
-        not."""
-        folders = self.directories(upserts, library, entries)
-        expected = sum(
-            1
-            for r in upserts.values()
-            if r.kind == "Audio" and r.library == library and r.parent_id in folders
-        )
-        self.scan(library, folders, expected=expected)
+    def finish(self, library: str, entries: abc.Mapping[str, Entry]) -> None:
+        """Put back to pending whatever the scans just run should have
+        filed and did not, and mark a library compared only once that
+        check has run.
+
+        A directory this pass was to list and did not leaves the library
+        owing a whole compare, which finds the rows it holds. A scan that
+        raised never reaches here, so a sweep a repair or a foreign scan
+        marked stays due for the library.
+        """
         # Every directory of the library this pass re-listed, the removal's
         # scans before this one included: none other can have lost a song.
         rescanned = {folder for lib, folder in self.rescanned if lib == library}
@@ -211,16 +208,15 @@ class MusicPass:
                 )
         # Every directory this pass re-listed has been checked.
         self.native.credit_music_scans(library)
-        # Only now: a scan that raised leaves the library to be compared
-        # whole again, and so does one that left a directory it was to list
-        # unread, whose rows only a whole compare finds again.
         unread = {
             pair for pair in self.rescanned if pair[0] == library and pair[1] != "*"
         } - self.listed
         if unread:
             self.native.music_checked.discard(library)
+            self.native.music_owed.add(library)
         elif library in self._compared:
             self.native.music_checked.add(library)
+            self.native.music_owed.discard(library)
 
     def scan(self, library: str, folders: set[str], expected: int = 0) -> None:
         """Have Kodi list the changed album directories again.
@@ -326,16 +322,18 @@ class MusicPass:
 
     def directories(
         self, upserts: dict[str, Record], library: str, entries: abc.Mapping[str, Entry]
-    ) -> set[str]:
-        """The album directories whose listing Kodi must read again.
+    ) -> tuple[set[str], set[str]]:
+        """The album directories whose listing Kodi must read again, split
+        into those that hold a song with no row and the rest.
 
-        A song with no row is missing; one whose tag hash moved since its
-        row was acknowledged needs its tags re-read, which the scanner does
-        only for a directory whose listing changed; one that moved album
-        leaves its old directory only when that directory is listed without
-        it. And a directory holding rows no live song of ours claims -- the
-        old half of a move, or a listing that failed half way -- is settled
-        by its complete listing too.
+        A directory in both is returned with the new song only, and scanned
+        once. A song with no row is missing; one whose tag hash moved since
+        its row was acknowledged needs its tags re-read, which the scanner
+        does only for a directory whose listing changed; one that moved
+        album leaves its old directory only when that directory is listed
+        without it. And a directory holding rows no live song of ours
+        claims -- the old half of a move, or a listing that failed half
+        way -- is settled by its complete listing too.
 
         Two kinds of applied song join the comparison uninvited: one Kodi
         does not hold (as ``lost_songs``), and one whose album's payload
@@ -350,7 +348,8 @@ class MusicPass:
             for r in upserts.values()
             if r.kind == "Audio" and r.library == library
         }
-        folders: set[str] = set()
+        fresh: set[str] = set()
+        rest: set[str] = set()
         changed_albums = {
             r.item_id
             for r in upserts.values()
@@ -395,8 +394,8 @@ class MusicPass:
             began = time.monotonic()
             self.native.progress.note(progress.label("Audio"))
 
-            def moved(record: Record) -> None:
-                folders.add(record.parent_id)
+            def moved(record: Record, *, missing: bool) -> None:
+                (fresh if missing else rest).add(record.parent_id)
                 if record.item_id not in upserts:
                     revived[record.item_id] = record
 
@@ -410,18 +409,18 @@ class MusicPass:
                 mapping = mappings.get(item_id)
                 applied = mapping.applied if mapping else {}
                 if row is None:
-                    moved(record)
+                    moved(record, missing=True)
                 elif mapping is None:
                     # Imported but never acknowledged (a userdata patch
                     # failed): the row has the tags of the listing that made
                     # it unless the payload has moved since.
                     if record.generation > 1:
-                        moved(record)
+                        moved(record, missing=False)
                 else:
                     tagged.append(record)
                 previous = applied.get("dir")
                 if previous and previous != folder:
-                    folders.add(previous)
+                    rest.add(previous)
             # The walk is the long part (a payload parsed and a tag hash for
             # each song), so it is the part the bar counts.
             saved = self.native.progress.phase(len(tagged), progress.label("Audio"))
@@ -431,7 +430,7 @@ class MusicPass:
                     if mappings[record.item_id].applied.get("tag") != self.tag_hash(
                         record
                     ):
-                        moved(record)
+                        moved(record, missing=False)
             finally:
                 self.native.progress.restore(saved)
             if revived:
@@ -442,36 +441,37 @@ class MusicPass:
                 " %d applied songs put back",
                 len(songs),
                 time.monotonic() - began,
-                len(folders),
+                len(fresh | rest),
                 len(revived),
             )
-        if not whole:
-            return folders
-        for folder, rows in self.native.readback.folders(library).items():
-            for item_id in rows:
-                placed = entries.get(item_id)
-                if (
-                    placed is None
-                    or placed.kind != "Audio"
-                    or placed.library != library
-                    or placed.parent_id != folder
-                ):
-                    folders.add(folder)
-                    break
-        self._compared.add(library)
-        return folders
+        if whole:
+            for folder, rows in self.native.readback.folders(library).items():
+                for item_id in rows:
+                    placed = entries.get(item_id)
+                    if (
+                        placed is None
+                        or placed.kind != "Audio"
+                        or placed.library != library
+                        or placed.parent_id != folder
+                    ):
+                        rest.add(folder)
+                        break
+            self._compared.add(library)
+        rest -= fresh
+        return fresh, rest
 
     def check_due(
         self, library: str, songs: dict[str, Record], changed_albums: Collection[str]
     ) -> bool:
         """Whether this pass compares every song of the library with Kodi's
-        rows: once a library after the service starts, after a repair or a
-        music scan or clean that was not the pass's own
-        (``Native.note_music_changes``), when an album's payload moved, and
-        when the pass's songs span enough directories that the library is
-        read whole anyway."""
+        rows: a sweep is marked and this library has not been compared
+        since (a repair, a music scan or clean that was not the pass's
+        own), a pass left one of its directories unread, an album's payload
+        moved, or the pass's songs span enough directories that the
+        library is read whole anyway."""
         return (
-            library not in self.native.music_checked
+            (self.native.music_sweep and library not in self.native.music_checked)
+            or library in self.native.music_owed
             or bool(changed_albums)
             or len({r.parent_id for r in songs.values()})
             >= self.native.readback.WHOLE_LIBRARY_FOLDERS

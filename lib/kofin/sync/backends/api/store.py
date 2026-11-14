@@ -148,6 +148,11 @@ class Placements(abc.Mapping):
         for item_id in wanted:
             self._known[item_id] = found.get(item_id)
 
+    @property
+    def generation(self) -> int:
+        """The catalogue generation these placements were read at."""
+        return self._generation
+
     def whole(self) -> dict[str, Entry]:
         if self._whole is None:
             self._whole = self._store.entries_at(self._generation)
@@ -774,6 +779,31 @@ class Store(Catalogue):
                 )
             }
 
+    def has_survivor(
+        self, library: str, generation: int, exclude_kinds: Collection[str]
+    ) -> bool:
+        """Whether ``library`` has a member at ``generation``, not of
+        ``exclude_kinds``, with no removal pending. One row answers, on the
+        same generation predicate as ``entries_at``."""
+        excluded = list(exclude_kinds)
+        kind_sql = ""
+        if excluded:
+            kind_sql = " AND e.kind NOT IN (%s)" % ",".join("?" * len(excluded))
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                """SELECT 1 FROM api_entry e
+                WHERE e.namespace=? AND e.added<=?
+                AND (e.removed IS NULL OR e.removed>?) AND e.library=?"""
+                + kind_sql
+                + """ AND NOT EXISTS (SELECT 1 FROM api_item i
+                    WHERE i.namespace=e.namespace AND i.item_id=e.item_id
+                    AND i.status='pending' AND i.operation='remove')
+                LIMIT 1""",
+                [self.namespace, generation, generation, library] + excluded,
+            ).fetchone()
+        return row is not None
+
     def filed_under(self, kind: str, parent_id: str) -> list[str]:
         """The ids of one kind filed under a parent, live and not leaving."""
         with Database() as db:
@@ -1335,7 +1365,11 @@ class Store(Catalogue):
 
     def forget_many(self, rows: Iterable[tuple[str, int]]) -> int:
         """One transaction for a batch of removal acknowledgements; returns
-        how many matched their desired generation."""
+        how many matched their desired generation. An empty batch opens no
+        transaction: a removal that settled nothing still calls this."""
+        rows = list(rows)
+        if not rows:
+            return 0
         count = 0
         with Database() as db:
             self._prepare(db.cursor)
