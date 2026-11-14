@@ -524,8 +524,9 @@ class Native:
     def announce_writes(self) -> None:
         """``library_event`` for what a pass wrote, at its end.
 
-        A setter that changes only art or tags announces nothing, and a home
-        widget reloads on an announcement and on nothing else. Issued
+        A video setter announces only a play count or a last played it
+        moved (patch.ANNOUNCED), and a home widget reloads on an
+        announcement and on nothing else. Issued
         through ``scan``, which waits for a running scan instead of stopping
         it, and never with Kodi's dialog, which would come up for a scan of
         nothing.
@@ -1253,14 +1254,14 @@ class Native:
         # Applier.run leaves no acknowledgement queued; this is that,
         # said here.
         applier.commit()
-        if applier.badges_moved:
+        if applier.unannounced:
             # After every setter of the pass, and once for all of them.
             try:
                 self.announce_writes()
             except InterruptedError:
                 raise
             except Exception:
-                LOG.exception("home widgets not told of a download's badge")
+                LOG.exception("home widgets not told of the pass's writes")
 
     def _release(self, completed: bool, large: bool) -> None:
         """What the pass held, given back: the heap after a large pass or a

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kofin.sync.backends.api import capabilities, metadata, paths
+from kofin.sync.backends.api import capabilities, metadata, native, paths
 from kofin.sync.backends.api.capabilities import ALL
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
@@ -678,7 +678,8 @@ def test_a_movie_without_versions_or_extras_never_scans_its_folder(
     root = paths.library_dir(store.namespace, LIB, "movies")
     store.publish([movie(Overview="Changed")], library=LIB)
     backend.reconcile()
-    assert kodi.scanned == [root]
+    # The plot's patch is announced by a scan of nowhere (announce_writes).
+    assert kodi.scanned == [root, native.NOWHERE]
     assert kodi.listed == []
     assert store.mapping("a").applied["assets"] == ""
     assert not store.pending()

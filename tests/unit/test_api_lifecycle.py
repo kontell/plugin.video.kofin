@@ -2399,6 +2399,48 @@ def test_a_count_kodi_ran_ahead_on_is_brought_back_to_the_servers(store, backend
     assert not store.pending()
 
 
+def scans(kodi):
+    return [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")]
+
+
+def test_a_video_patch_kodi_does_not_announce_ends_the_pass_with_one_library_event(
+    store, backend, kodi
+):
+    """Kodi's video setters announce a play count or a last played they
+    moved and nothing else, and a home widget lists itself again on an
+    announcement alone, so a pass that patched anything else ends with one
+    scan of a directory that is not there, after its last setter."""
+    backend.setup()
+    store.publish(show_bundle(episodes=2) + [movie()], library=LIB)
+    backend.reconcile()
+    played = {"Played": True, "PlayCount": 1, "PlaybackPositionTicks": 120000000}
+    # A play count from the server: Kodi announces it.
+    kodi.calls.clear()
+    store.publish([movie(UserData=played)])
+    backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.SetMovieDetails")) == 1
+    assert scans(kodi) == []
+    # A movie's plot and an episode's: two setters, one event after both.
+    kodi.calls.clear()
+    store.publish(
+        [movie(UserData=played, Overview="Edited"), episode("ea11", Overview="Edited")]
+    )
+    backend.reconcile()
+    called = [method for method, _ in kodi.calls]
+    setters = [i for i, m in enumerate(called) if ".Set" in m and m.endswith("Details")]
+    assert len(setters) == 2
+    assert scans(kodi) == [native.NOWHERE]
+    assert called.index("VideoLibrary.Scan") > max(setters)
+    assert methods(kodi, "VideoLibrary.Scan")[0]["showdialogs"] is False
+    # A pass that writes nothing announces nothing.
+    kodi.calls.clear()
+    store.publish([movie(UserData=played, Overview="Edited")])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetMovieDetails")
+    assert scans(kodi) == []
+    assert not store.pending()
+
+
 def test_a_later_stamp_of_kodis_own_is_the_same_play():
     """The server stamps a play when it starts and Kodi when it ends, so a
     later stamp of Kodi's is no difference to write back."""

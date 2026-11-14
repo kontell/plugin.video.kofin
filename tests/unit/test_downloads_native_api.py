@@ -280,21 +280,14 @@ def scans(kodi):
 
 
 def test_a_badge_that_moved_ends_the_pass_with_one_library_event(store, backend, kodi):
-    """Kodi announces nothing for a setter that changes only art or tags,
-    and a home widget reloads on an announcement alone, so a pass that moved
-    a badge ends with one scan of a directory that is not there, after the
+    """A badge is art, which Kodi's setters do not announce: a pass that
+    moved one ends with one scan of a directory that is not there, after the
     last setter, however many rows the download marked."""
     from tests.unit.apifixtures import show_bundle
 
     backend.setup()
     store.publish(show_bundle(episodes=2) + [movie()], library=LIB)
     backend.reconcile()
-    kodi.calls.clear()
-    # A patch that moves no badge is not announced for.
-    store.publish([movie(Overview="Edited")])
-    backend.reconcile()
-    assert len(methods(kodi, "VideoLibrary.SetMovieDetails")) == 1
-    assert scans(kodi) == []
     # The episode, its season and its show: three setters, one event, and
     # the event after the last of them.
     row = downloaded_episode()
