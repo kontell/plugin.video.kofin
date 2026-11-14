@@ -1571,3 +1571,106 @@ def test_a_stop_ends_the_placement_of_new_items_between_its_requests(
         w.catch_up()
     assert asked == ["n000"]
     assert store.watermark()[0] == unix_to_watermark(500)
+
+
+def _artist_with_albums(server, store):
+    """An artist's folder with two albums of two songs each, published and
+    on the server; the albums' parent is the artist's folder."""
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST, album_bundle
+
+    items = album_bundle(ALBUM, ARTIST, 2, "t", ParentId=ARTIST)
+    items += album_bundle(ALBUM2, ARTIST, 2, "u", ParentId=ARTIST)[1:]
+    store.publish(items, library=LIB)
+    server.libraries[LIB] = [dict(i) for i in items]
+    return items
+
+
+def _removed(store, items):
+    return {
+        i["Id"]
+        for i in items
+        if (state := store.state(i["Id"])) is not None and state.operation == "remove"
+    }
+
+
+def test_an_artist_removed_takes_the_albums_the_server_no_longer_lists(
+    store, monkeypatch
+):
+    """Deleting an artist's folder, Jellyfin announces the artist alone: its
+    songs are gone and each album still answers by id, in no listing. The
+    removal asks for the albums and songs inside the library and removes
+    what is not there."""
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST
+
+    server = Server({LIB: []})
+    items = _artist_with_albums(server, store)
+    w = worker(store, server, [LIB], monkeypatch)
+    # The artist and the first album's folder are gone; the second album
+    # was moved out of the folder first, and is still listed.
+    server.libraries[LIB] = [
+        i for i in items if i["Id"] == ALBUM2 or i.get("AlbumId") == ALBUM2
+    ]
+    w.command("removed", [ARTIST])
+    assert _removed(store, items) == {ARTIST, ALBUM, "tc31", "tc32"}
+    assert store.state(ALBUM2).operation == "upsert"
+
+
+def test_a_catch_up_removes_a_removed_artists_unlisted_albums(store, monkeypatch):
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST
+
+    server = Server({LIB: []})
+    items = _artist_with_albums(server, store)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    server.libraries[LIB] = []
+    feed = Feed([ChangeRecord(ARTIST, "Removed")], server_time=1200)
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    w.catch_up()
+    assert _removed(store, items) == {
+        ARTIST,
+        ALBUM,
+        ALBUM2,
+        "tc31",
+        "tc32",
+        "ud41",
+        "ud42",
+    }
+
+
+def test_an_album_the_removal_names_with_its_artist_takes_its_songs(store, monkeypatch):
+    """An album's removal does not take its songs, so an album the batch
+    already names with its artist has its songs asked for as well."""
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST
+
+    server = Server({LIB: []})
+    items = _artist_with_albums(server, store)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    server.libraries[LIB] = []
+    feed = Feed(
+        [ChangeRecord(ARTIST, "Removed"), ChangeRecord(ALBUM, "Removed")],
+        server_time=1200,
+    )
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    w.catch_up()
+    assert _removed(store, items) == {
+        ARTIST,
+        ALBUM,
+        ALBUM2,
+        "tc31",
+        "tc32",
+        "ud41",
+        "ud42",
+    }
+
+
+def test_a_removal_of_no_artist_asks_the_server_nothing(store, monkeypatch):
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    asked = []
+    original = server.items
+    server.items = lambda params: asked.append(params) or original(params)
+    w = worker(store, server, [LIB], monkeypatch)
+    w.command("removed", ["a"])
+    assert store.state("a").operation == "remove"
+    assert asked == []

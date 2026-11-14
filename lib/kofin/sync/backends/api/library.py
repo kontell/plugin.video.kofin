@@ -1059,6 +1059,73 @@ class Library(threading.Thread):
             members.update(record.item.get("KofinMembers") or [])
         return members
 
+    def _orphaned(self, removed: Collection[str]) -> list[str]:
+        """The albums, and their songs, that a removed artist took with it
+        unannounced.
+
+        Deleting an artist's folder, Jellyfin announces the artist's removal
+        alone. It deletes the songs below it without a word and keeps each
+        album, its parent gone, answering a request for its id though no
+        listing holds it, the next library scan's included. So the albums
+        whose payload names a removed artist, or a removed item the
+        catalogue does not place, as their parent are asked for with their
+        songs inside their library, and what the server does not list goes
+        with the artist. An album the removal already names is asked for
+        too: its removal does not take its songs, which leave only by their
+        own.
+        """
+        if not removed:
+            return []
+        placed = self.store.placements(removed)
+        parents = {
+            item_id
+            for item_id in removed
+            if (entry := placed.get(item_id)) is None or entry.kind == "MusicArtist"
+        }
+        if not parents:
+            return []
+        albums: dict[str, list[str]] = {}
+        for record in self.store.records(kind="MusicAlbum", pinned=False).values():
+            if record.item.get("ParentId") in parents:
+                albums.setdefault(record.library, []).append(record.item_id)
+        named = set(removed)
+        gone: list[str] = []
+        for library, album_ids in sorted(albums.items()):
+            wanted = album_ids + self.store.placed_in("Audio", library, album_ids)
+            listed = self._listed_in(library, wanted)
+            gone.extend(i for i in wanted if i not in listed and i not in named)
+        if gone:
+            LOG.debug(
+                "%d album(s) and song(s) of a removed artist the server no longer"
+                " lists: removed with it",
+                len(gone),
+            )
+        return gone
+
+    def _listed_in(self, library: str, ids: list[str]) -> set[str]:
+        """Which of ``ids`` the server lists inside ``library``."""
+        listed: set[str] = set()
+        for start in range(0, len(ids), IDS_PER_REQUEST):
+            if self._stop_event.is_set():
+                raise InterruptedError("item fetch stopped")
+            page = self.api.items(
+                {
+                    "userId": self.api.user_id,
+                    "ParentId": library,
+                    "Recursive": True,
+                    "Ids": ",".join(ids[start : start + IDS_PER_REQUEST]),
+                    "EnableImages": False,
+                    "EnableUserData": False,
+                }
+            )
+            rows = page.get("Items")
+            if not isinstance(rows, list):
+                raise ValueError("incomplete item fetch")
+            listed.update(
+                str(i["Id"]) for i in rows if isinstance(i, dict) and i.get("Id")
+            )
+        return listed
+
     def catch_up(self) -> None:
         """Changes since the watermark, on the shared change-feed contract."""
         watermark, _ = self.store.watermark()
@@ -1080,6 +1147,7 @@ class Library(threading.Thread):
             LOG.debug("sync queue retention exceeded; scheduling a full enumeration")
             self._full_due = True
         removed = [r.id for r in change_set.records if r.status == "Removed"]
+        removed += self._orphaned(removed)
         self.store.invalidate(self._removed_collection_members(removed))
         wanted = {}
         for record in change_set.records:
@@ -1467,8 +1535,9 @@ class Library(threading.Thread):
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
         if command == "removed":
-            self.store.invalidate(self._removed_collection_members(data))
-            self.store.publish([], removed=data)
+            removed = list(data) + self._orphaned(data)
+            self.store.invalidate(self._removed_collection_members(removed))
+            self.store.publish([], removed=removed)
             return
         if command == "userdata":
             self.apply_userdata(data)

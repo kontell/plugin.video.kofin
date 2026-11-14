@@ -356,7 +356,12 @@ class Server:
     def items(self, params):
         if params.get("Ids"):
             wanted = params["Ids"].split(",")
-            rows = [copy.deepcopy(i) for i in self.all_items() if i["Id"] in wanted]
+            within = (
+                self.libraries[params["ParentId"]]
+                if params.get("ParentId") in self.libraries
+                else self.all_items()
+            )
+            rows = [copy.deepcopy(i) for i in within if i["Id"] in wanted]
             return {"Items": rows, "TotalRecordCount": len(rows)}
         types = (params.get("IncludeItemTypes") or "").split(",")
         parent = params.get("ParentId")
