@@ -139,6 +139,119 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
     assert not store.pending()
 
 
+def test_a_new_episode_of_a_filed_show_is_scanned_by_the_show_s_folder(
+    store, backend, kodi
+):
+    """The root's listing names every show of the library, built from the
+    catalogue. A show Kodi already lists under our folder is found by its
+    folder's path, so its new episode is filed by a scan of that folder."""
+    store.publish(show_bundle() + show_bundle(SHOW2), library=LIB)
+    backend.reconcile()
+    root = paths.library_dir(store.namespace, LIB, "tvshows")
+    assert kodi.scanned == [root]
+
+    kodi.scanned.clear()
+    store.publish(
+        [episode("ea13", number=3), episode("eb23", SHOW2, number=3)],
+        membership=LIB,
+    )
+    backend.reconcile()
+
+    assert kodi.scanned == [
+        paths.show_dir(store.namespace, LIB, SHOW),
+        paths.show_dir(store.namespace, LIB, SHOW2),
+    ]
+    assert {"ea13", "eb23"} <= set(kodi.owned("Episode"))
+    assert not store.pending()
+
+
+def test_a_new_show_is_scanned_from_the_root(store, backend, kodi):
+    """Kodi makes the item of a folder it is asked for itself, without the
+    tag the root's listing gives a show: a show with no row needs the root,
+    and so does every other show's episode in the same pass."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+
+    store.publish([episode("ea13", number=3)] + show_bundle(SHOW2), membership=LIB)
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert {"ea13", "eb21", "eb22"} <= set(kodi.owned("Episode"))
+    assert not store.pending()
+
+
+def test_new_episodes_of_many_shows_are_scanned_from_the_root(
+    store, backend, kodi, monkeypatch
+):
+    monkeypatch.setattr(native, "SHOW_FOLDER_SCANS", 1)
+    store.publish(show_bundle() + show_bundle(SHOW2), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+
+    store.publish(
+        [episode("ea13", number=3), episode("eb23", SHOW2, number=3)],
+        membership=LIB,
+    )
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert not store.pending()
+
+
+def test_an_episode_a_show_folder_scan_did_not_file_is_scanned_from_the_root(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi skips a folder whose listing matches the hash it stored for it,
+    and a folder scan hashes the folder differently from the root's
+    listing: an episode a folder scan left unfiled is the root's next."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+    scan = kodi.scan
+
+    def skipping(directory):
+        location = paths.parse(directory)
+        if location is not None and location.series:
+            kodi.scanned.append(directory)
+            kodi.monitor.finished += 1
+            return
+        scan(directory)
+
+    monkeypatch.setattr(kodi, "scan", skipping)
+    store.publish([episode("ea13", number=3)], membership=LIB)
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert kodi.scanned == [paths.show_dir(store.namespace, LIB, SHOW)]
+    assert store.pending()
+
+    kodi.scanned.clear()
+    backend.reconcile()
+
+    assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
+    assert "ea13" in kodi.owned("Episode")
+    assert not store.pending()
+
+
+def test_an_episode_filed_by_its_show_s_folder_is_scanned_there_again(
+    store, backend, kodi
+):
+    """Only a pass that did not complete sends the episodes it left to a
+    folder scan to the root: Kodi removing the row again is a new episode
+    like any other."""
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    folder = paths.show_dir(store.namespace, LIB, SHOW)
+    for _ in range(2):
+        kodi.scanned.clear()
+        row = kodi.owned("Episode")["ea12"]
+        del kodi.rows["Episode"][row["episodeid"]]
+        store.invalidate(["ea12"])
+        backend.reconcile()
+        assert kodi.scanned == [folder]
+        assert "ea12" in kodi.owned("Episode")
+
+
 def test_episode_refresh_changes_id_and_restores_userdata(store, backend, kodi):
     store.publish(show_bundle(), library=LIB)
     backend.reconcile()
@@ -1823,14 +1936,12 @@ def test_a_movie_refresh_is_confirmed_by_its_folder_at_most_once_a_second(
     store.publish([movie(People=[{"Name": "Recast", "Type": "Actor"}])])
     backend.reconcile()
     assert not store.pending()
-    library = paths.library_dir(store.namespace, LIB, "movies")
     folder = paths.movie_dir(store.namespace, LIB, "a")
-    # The plan's one listing of the library, then the movie's folder alone:
-    # thirty polls of 100 ms, read a handful of times, not thirty.
-    assert lists[0][1] == library
-    polls = [value for _, value in lists[1:]]
-    assert polls and set(polls) == {folder}
-    assert len(polls) <= 6
+    # The plan reads the movie's folder, and so does every poll: thirty
+    # polls of 100 ms, read a handful of times, not thirty.
+    reads = [value for _, value in lists]
+    assert reads and set(reads) == {folder}
+    assert len(reads) <= 7
     assert store.mapping("a").kodi_id in kodi.rows["Movie"]
 
 
@@ -2288,6 +2399,73 @@ def test_a_count_kodi_ran_ahead_on_is_brought_back_to_the_servers(store, backend
     assert not store.pending()
 
 
+def scans(kodi):
+    return [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")]
+
+
+def test_a_video_patch_kodi_does_not_announce_ends_the_pass_with_one_library_event(
+    store, backend, kodi
+):
+    """Kodi's video setters announce a play count or a last played they
+    moved and nothing else, and a home widget lists itself again on an
+    announcement alone, so a pass that patched anything else ends with one
+    scan of a directory that is not there, after its last setter."""
+    backend.setup()
+    store.publish(show_bundle(episodes=2) + [movie()], library=LIB)
+    backend.reconcile()
+    played = {"Played": True, "PlayCount": 1, "PlaybackPositionTicks": 120000000}
+    # A play count from the server: Kodi announces it.
+    kodi.calls.clear()
+    store.publish([movie(UserData=played)])
+    backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.SetMovieDetails")) == 1
+    assert scans(kodi) == []
+    # A movie's plot and an episode's: two setters, one event after both.
+    kodi.calls.clear()
+    store.publish(
+        [movie(UserData=played, Overview="Edited"), episode("ea11", Overview="Edited")]
+    )
+    backend.reconcile()
+    called = [method for method, _ in kodi.calls]
+    setters = [i for i, m in enumerate(called) if ".Set" in m and m.endswith("Details")]
+    assert len(setters) == 2
+    assert scans(kodi) == [native.NOWHERE]
+    assert called.index("VideoLibrary.Scan") > max(setters)
+    assert methods(kodi, "VideoLibrary.Scan")[0]["showdialogs"] is False
+    # A pass that writes nothing announces nothing.
+    kodi.calls.clear()
+    store.publish([movie(UserData=played, Overview="Edited")])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetMovieDetails")
+    assert scans(kodi) == []
+    assert not store.pending()
+
+
+def test_a_withdrawn_season_name_ends_the_pass_with_one_library_event(
+    store, backend, kodi
+):
+    """A withdrawn name is sent as an empty title that no readback can
+    compare, and Kodi announces it no more than a rename: the pass that
+    clears it ends with the scan of nowhere, and the passes after it have
+    nothing of the name left to send."""
+    backend.setup()
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1, Name="Book Uno")])
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1)])
+    backend.reconcile()
+    assert [p["title"] for p in methods(kodi, "VideoLibrary.SetSeasonDetails")] == [""]
+    assert scans(kodi) == [native.NOWHERE]
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1)])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert scans(kodi) == []
+    assert not store.pending()
+
+
 def test_a_later_stamp_of_kodis_own_is_the_same_play():
     """The server stamps a play when it starts and Kodi when it ends, so a
     later stamp of Kodi's is no difference to write back."""
@@ -2512,3 +2690,68 @@ def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
     )
     removal.clear_library(native, LIB, {"Movie"}, rows=5)
     assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
+
+
+def _movie_listings(kodi, store, library=LIB):
+    """The GetMovies calls that list a library's rows: a count asks for
+    none."""
+    root = paths.library_dir(store.namespace, library, "movies")
+    return [
+        p
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+        if p.get("properties") and (p.get("filter") or {}).get("value") == root
+    ]
+
+
+def test_a_small_movie_pass_reads_its_movies_by_their_folders(store, backend, kodi):
+    """A pass that files, patches or removes a few movies reads each by its
+    folder, and the library is counted, never listed."""
+    store.publish([movie(), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([movie("d")], membership=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert store.mapping("d").kodi_id in kodi.rows["Movie"]
+    # Three movies of four present: scanned by its folder, not the root.
+    assert kodi.scanned[-1] == paths.movie_dir(store.namespace, LIB, "d")
+    assert _movie_listings(kodi, store) == []
+    folders = {
+        (p.get("filter") or {}).get("value")
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+        if p.get("properties")
+    }
+    assert folders == {paths.movie_dir(store.namespace, LIB, "d")}
+    kodi.calls.clear()
+    store.publish([movie(Overview="Changed")])
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.rows["Movie"][store.mapping("a").kodi_id]["plot"] == "Changed"
+    assert _movie_listings(kodi, store) == []
+    kodi.calls.clear()
+    store.publish([], removed=["b"])
+    backend.reconcile()
+    assert not store.pending()
+    assert store.mapping("b") is None
+    assert len(kodi.rows["Movie"]) == 3
+    assert _movie_listings(kodi, store) == []
+
+
+def test_a_pass_of_many_movies_lists_the_library(store, backend, kodi):
+    """From WHOLE_LIBRARY_ROWS movies on, the library is read in one
+    listing, not a folder at a time."""
+    from kofin.sync.backends.api.readback import Readback
+
+    many = Readback.WHOLE_LIBRARY_ROWS
+    store.publish([movie("m%02d" % n) for n in range(many)], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([movie("m%02d" % n, Overview="Changed") for n in range(many)])
+    backend.reconcile()
+    assert not store.pending()
+    assert _movie_listings(kodi, store)
+    root = paths.library_dir(store.namespace, LIB, "movies")
+    assert all(
+        (p.get("filter") or {}).get("value") in (None, root)
+        for p in methods(kodi, "VideoLibrary.GetMovies")
+    )

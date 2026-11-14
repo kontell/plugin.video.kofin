@@ -220,15 +220,12 @@ def serve(request: "Request") -> None:
             seasons: dict[str, list[dict[str, Any]]] = {}
             for record in store.records(kind="Season", library=library).values():
                 seasons.setdefault(record.parent_id, []).append(record.item)
-            # Only the numbering reaches the show hash; the payloads are read
-            # a chunk at a time and let go.
-            episodes: dict[str, list[Any]] = {}
-            window = PayloadWindow(store)
-            lazy = store.records(kind="Episode", library=library, payloads=False)
-            for record in window.walk(lazy.values()):
-                row = metadata.episode_row(record.item)
-                if row is not None:
-                    episodes.setdefault(record.parent_id, []).append(row)
+            # Only the numbering reaches the show hash, and the store keeps
+            # it per payload: no episode's payload is read for a show nothing
+            # changed in.
+            episodes = store.episode_rows(
+                library, metadata.episode_row, metadata.EPISODE_ROW_FORMAT
+            )
             entries = [
                 (
                     paths.show_dir(key, library, series_id),

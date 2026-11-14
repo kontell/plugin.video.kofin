@@ -126,6 +126,85 @@ def test_payload_window_holds_a_bounded_number_of_payloads(store):
     assert window.reads == 7
 
 
+def test_episode_rows_read_a_payload_only_once_it_moves(store, monkeypatch):
+    """The tvshows root needs every episode's numbering for its show hashes.
+    A row is kept per payload generation and format, so an unchanged library
+    is answered without a payload, and only a moved, new or reformatted
+    episode is read again."""
+    from kofin.sync.backends.api import metadata
+
+    store.publish(
+        show_bundle(episodes=3)
+        + show_bundle(SHOW2, episodes=1)
+        + [episode("ea19", season_number=0, number=0)],
+        library=LIB,
+    )
+    store.publish([movie()], library=LIB2)
+    read = []
+    payloads = store.payloads
+
+    def counted(ids):
+        ids = list(ids)
+        read.extend(ids)
+        return payloads(ids)
+
+    monkeypatch.setattr(store, "payloads", counted)
+
+    def rows(format=1):
+        return {
+            show: sorted(found)
+            for show, found in store.episode_rows(
+                LIB, metadata.episode_row, format
+            ).items()
+        }
+
+    first = rows()
+    # An unnumbered special has no row and no show hash entry, as before.
+    assert first == {
+        SHOW: [("ea11", 1, 1), ("ea12", 1, 2), ("ea13", 1, 3)],
+        SHOW2: [("eb21", 1, 1)],
+    }
+    assert sorted(read) == ["ea11", "ea12", "ea13", "ea19", "eb21"]
+
+    read.clear()
+    assert rows() == first and read == []
+
+    store.publish([episode("ea12", number=7)])
+    assert rows()[SHOW] == [("ea11", 1, 1), ("ea12", 1, 7), ("ea13", 1, 3)]
+    assert read == ["ea12"]
+
+    read.clear()
+    store.publish([], removed=["ea13"])
+    assert rows()[SHOW] == [("ea11", 1, 1), ("ea12", 1, 7)]
+    assert read == []
+
+    read.clear()
+    assert rows(format=2) == {
+        SHOW: [("ea11", 1, 1), ("ea12", 1, 7)],
+        SHOW2: [("eb21", 1, 1)],
+    }
+    assert sorted(read) == ["ea11", "ea12", "ea19", "eb21"]
+
+
+def test_a_forgotten_episode_leaves_its_kept_row(store):
+    from kofin.sync.backends.api import metadata
+    from kofin.sync.private import Database
+
+    store.publish(show_bundle(episodes=1), library=LIB)
+    store.episode_rows(LIB, metadata.episode_row, 1)
+    store.publish([], removed=["ea11"])
+    generation = store.state("ea11").desired
+
+    assert store.forget_many([("ea11", generation)]) == 1
+
+    with Database() as db:
+        kept = db.cursor.execute(
+            "SELECT item_id FROM api_episode_row WHERE namespace=?",
+            (store.namespace,),
+        ).fetchall()
+    assert kept == []
+
+
 def test_payload_hash_leaves_out_the_user_data_key():
     from kofin.sync.backends.api.store import _digest, hash_matches, payload_hash
 

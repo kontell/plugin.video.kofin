@@ -39,6 +39,10 @@ T = TypeVar("T")
 # A pass scans a movies root once instead of the missing movies' folders by
 # name when at least this share of the library is missing.
 ROOT_SCAN_SHARE = 0.5
+# The most shows a pass scans by their own folders for new episodes; past
+# it the library's root is scanned once. Each folder is a scan of its own: a
+# call, a wait for the scanner and an announcement to the home widgets.
+SHOW_FOLDER_SCANS = 5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
 ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
@@ -210,6 +214,9 @@ class Native:
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: set[str] = set()
+        # library -> the episodes a pass that did not complete had the
+        # scanner file from their shows' own folders (_show_directories).
+        self._folder_scanned: dict[str, set[str]] = {}
         # Rows a refresh of the pass's replaced, by (kind, old Kodi id): Kodi
         # announces the old row's removal, and its number can come back as
         # the new row's (refile_removed).
@@ -517,8 +524,9 @@ class Native:
     def announce_writes(self) -> None:
         """``library_event`` for what a pass wrote, at its end.
 
-        A setter that changes only art or tags announces nothing, and a home
-        widget reloads on an announcement and on nothing else. Issued
+        A video setter announces only a play count or a last played it
+        moved (patch.ANNOUNCED), and a home widget reloads on an
+        announcement and on nothing else. Issued
         through ``scan``, which waits for a running scan instead of stopping
         it, and never with Kodi's dialog, which would come up for a scan of
         nothing.
@@ -981,6 +989,7 @@ class Native:
             collections = metadata.collections_of(boxsets)
             self.join_sets(pending, entries, sets, collections)
             upserts = self._upserts(pending, entries)
+            self._look_up({i: (r.kind, r.library) for i, r in upserts.items()})
             self.progress.begin(len(upserts))
             large = large or len(upserts) >= PRELOAD_ALL_MAPPINGS
             self._apply(applier, upserts, entries, collections, repair, errors)
@@ -990,6 +999,8 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
+            # Every episode a folder scan was asked for is filed.
+            self._folder_scanned.clear()
             if stamped != self.features or serializer != metadata.SERIALIZER:
                 self.store.remember_features(self.features, metadata.SERIALIZER)
         finally:
@@ -1046,6 +1057,7 @@ class Native:
             )
             repair = True
         self.readback.clear()
+        self.readback.look_up({})
         self.music = MusicPass(self)
         self.note_music_changes()
         if repair:
@@ -1071,6 +1083,15 @@ class Native:
             entries.whole()
         return pending, entries
 
+    def _look_up(self, items: dict[str, tuple[str, str]]) -> None:
+        """Tell the readback how many rows of each library the pass looks
+        up, from each item's kind and library: a small pass reads its own
+        movies, albums and artists alone."""
+        counts: dict[tuple[str, str], int] = {}
+        for scope in items.values():
+            counts[scope] = counts.get(scope, 0) + 1
+        self.readback.look_up(counts)
+
     def _remove(
         self, pending: PendingWork, entries: Placements, errors: list[Exception]
     ) -> None:
@@ -1079,7 +1100,15 @@ class Native:
         go of its set before the set can and rejoin as upserts, and a
         whole-library clear puts other libraries' shows back."""
         self.store.invalidate(removal.set_members(pending))
-        removal.remove(self, pending, entries, self.store.tombstones(), errors)
+        tombstones = self.store.tombstones()
+        looked_up = {
+            item_id: (entry.kind, entry.library)
+            for item_id in pending
+            if (entry := entries.get(item_id)) is not None
+        }
+        looked_up.update((i, (e.kind, e.library)) for i, e in tombstones.items())
+        self._look_up(looked_up)
+        removal.remove(self, pending, entries, tombstones, errors)
         for item_id, generation, operation, _ in self.store.pending_work():
             if operation == "upsert" and item_id not in pending:
                 pending[item_id] = (generation, operation, {})
@@ -1225,14 +1254,14 @@ class Native:
         # Applier.run leaves no acknowledgement queued; this is that,
         # said here.
         applier.commit()
-        if applier.badges_moved:
+        if applier.unannounced:
             # After every setter of the pass, and once for all of them.
             try:
                 self.announce_writes()
             except InterruptedError:
                 raise
             except Exception:
-                LOG.exception("home widgets not told of a download's badge")
+                LOG.exception("home widgets not told of the pass's writes")
 
     def _release(self, completed: bool, large: bool) -> None:
         """What the pass held, given back: the heap after a large pass or a
@@ -1433,6 +1462,10 @@ class Native:
                     expected.update(counts)
                     movie_folders.extend(folders)
                     asset_directories.extend(later)
+                elif content == "tvshows":
+                    named, counts = self._show_directories(library, root, missing)
+                    directories.extend(named)
+                    expected.update(counts)
                 else:
                     directories.append(root)
                     expected[root] = sum(
@@ -1471,12 +1504,26 @@ class Native:
             )
             return missing, 0
         kind = "Movie" if content == "movies" else "MusicVideo"
-        present = self.readback.scope(kind, library)
-        missing = [
-            r
-            for r in upserts.values()
-            if r.kind == kind and r.library == library and r.item_id not in present
+        wanted = [
+            r for r in upserts.values() if r.kind == kind and r.library == library
         ]
+        if kind == "Movie" and self.readback.by_row(kind, library):
+            # Each movie by its folder, and the library's rows counted.
+            missing = [
+                r
+                for r in wanted
+                if self.readback.listed_movie(library, r.item_id) is None
+            ]
+            counted = (
+                self._count(paths.parse(paths.library_dir(self.key, library, content)))
+                if missing
+                else None
+            )
+            present = len(wanted) - len(missing) if counted is None else counted
+        else:
+            listed = self.readback.scope(kind, library)
+            missing = [r for r in wanted if r.item_id not in listed]
+            present = len(listed)
         if kind == "Movie" and missing:
             # Only a movie Kodi has filed for us can sit on a row
             # another source's file lists (Readback.movie), and a
@@ -1488,7 +1535,7 @@ class Native:
                 if r.item_id not in filed
                 or self.readback.movie(library, r.item_id) is None
             ]
-        return missing, len(present)
+        return missing, present
 
     def _movie_directories(
         self,
@@ -1530,6 +1577,44 @@ class Native:
             if folder not in movie_folders and folder not in directories
         ]
         return directories, expected, movie_folders, later
+
+    def _show_directories(
+        self, library: str, root: str, missing: list[Record]
+    ) -> tuple[list[str], dict[str, int]]:
+        """Directories for the shows and episodes the scanner has not filed.
+
+        A new episode of a show Kodi lists under our folder is scanned by
+        that show's folder. Asked for a folder bound as one show, the scanner
+        finds the show by the folder's path (CVideoDatabase::GetTvShowId) and
+        lists that folder alone, where a scan of the root has the provider
+        list every show of the library first.
+
+        The scanner makes the folder's item itself, without the tag the
+        root's listing gives a show, so the root is scanned for a show with
+        no row, and for one whose row another source's folder lists. It is
+        scanned as well when more than SHOW_FOLDER_SCANS shows have new
+        episodes, and for an episode a pass that did not complete left to a
+        folder scan: Kodi skips a folder whose listing matches the hash it
+        stored for it, and under the root a show carries a hash of the
+        provider's.
+        """
+        shows = self.readback.scope("Series", library)
+        asked = self._folder_scanned.pop(library, set())
+        folders: dict[str, int] = {}
+        for record in missing:
+            if (
+                record.kind != "Episode"
+                or record.parent_id not in shows
+                or record.item_id in asked
+            ):
+                folders = {}
+                break
+            folder = paths.show_dir(self.key, library, record.parent_id)
+            folders[folder] = folders.get(folder, 0) + 1
+        if not folders or len(folders) > SHOW_FOLDER_SCANS:
+            return [root], {root: sum(1 for r in missing if r.kind == "Episode")}
+        self._folder_scanned[library] = {r.item_id for r in missing}
+        return sorted(folders), dict(folders)
 
     def scan_video(self, video: VideoScan) -> None:
         """Have Kodi's video scanner list what plan_video named.

@@ -12,7 +12,10 @@ A music directory is read on its own, one filtered listing, until a pass
 asks for the whole library (``folders``, ``songs_in`` from
 ``WHOLE_LIBRARY_FOLDERS`` directories on); then every song is read in one
 listing (paged, 5,000 to a page), split by directory here, and every
-directory is answered from it.
+directory is answered from it. A library's movies, albums and artists are
+read a row at a time while the pass looks up fewer than
+``WHOLE_LIBRARY_ROWS`` of them (``look_up``): a movie by its folder, an
+album by its id and an artist by its name.
 """
 
 import time
@@ -64,14 +67,50 @@ class Readback:
         # (kind, library, item id) -> the row a show or a movie missing from
         # its listing was found by, or None (show, movie).
         self._adopted: dict[tuple[str, str, str], Optional[dict[str, Any]]] = {}
+        # The (kind, library) scopes the pass looks up few rows of
+        # (look_up), and the rows read one at a time for them: (library,
+        # item id) -> (movie row or None, its version rows); (library,
+        # albumid) -> album row; (library, artist key) -> artist row.
+        self._few: set[tuple[str, str]] = set()
+        self._movies: dict[
+            tuple[str, str], tuple[Optional[dict[str, Any]], list[dict[str, Any]]]
+        ] = {}
+        self._albums: dict[tuple[str, int], Optional[dict[str, Any]]] = {}
+        self._artists: dict[tuple[str, str], Optional[dict[str, Any]]] = {}
 
     def clear(self) -> None:
+        """Drop every reading; what the pass looks up (look_up) stays."""
         self._scopes.clear()
         self._folders.clear()
         self._directories.clear()
         self._full.clear()
         self._versions.clear()
         self._adopted.clear()
+        self._movies.clear()
+        self._albums.clear()
+        self._artists.clear()
+
+    # A pass that looks up fewer rows of a library's movies, albums or
+    # artists than this reads each alone; from this many on, the library in
+    # one listing. One row costs Kodi a filtered listing or a details call,
+    # the library a listing of every row with its art.
+    WHOLE_LIBRARY_ROWS = 32
+    BY_ROW = ("Movie", "MusicAlbum", "MusicArtist")
+
+    def look_up(self, counts: dict[tuple[str, str], int]) -> None:
+        """How many rows of each (kind, library) the pass is about to look
+        up. A movie, album or artist scope with few is read a row at a time
+        until something reads it whole; any other, and one not named, is
+        read whole."""
+        self._few = {
+            (kind, library)
+            for (kind, library), count in counts.items()
+            if kind in self.BY_ROW and count < self.WHOLE_LIBRARY_ROWS
+        }
+
+    def by_row(self, kind: str, library: str) -> bool:
+        """Whether the pass reads the scope's rows one at a time."""
+        return (kind, library) in self._few and (kind, library, "") not in self._scopes
 
     @staticmethod
     def complete(reply: Any, key: str) -> list[dict[str, Any]]:
@@ -181,6 +220,8 @@ class Readback:
     def version_rows(self, library: str, item_id: str) -> list[dict[str, Any]]:
         """The movie rows Kodi holds for an item's version files beside the
         row that owns its identity: ungrouped versions."""
+        if self.by_row("Movie", library):
+            return list(self._movie_folder(library, item_id)[1])
         return self.versions_in(library).get(item_id, [])
 
     def versions_in(self, library: str) -> dict[str, list[dict[str, Any]]]:
@@ -399,6 +440,15 @@ class Readback:
             for key in [k for k in self._directories if k[0] == library]:
                 self._directories.pop(key, None)
             return
+        if kind == "Movie":
+            for movie in [k for k in self._movies if k[0] == library]:
+                self._movies.pop(movie, None)
+        elif kind == "MusicAlbum":
+            for album in [k for k in self._albums if k[0] == library]:
+                self._albums.pop(album, None)
+        elif kind == "MusicArtist":
+            for artist in [k for k in self._artists if k[0] == library]:
+                self._artists.pop(artist, None)
         self._scopes.pop((kind, library, parent_id), None)
         self._full.pop((kind, library, parent_id), None)
         self._versions.pop((kind, library, parent_id), None)
@@ -448,6 +498,8 @@ class Readback:
         row is read by id when its turn comes."""
         key = (kind, library, parent_id)
         if key in self._full or kind in ("Audio", "MusicAlbum", "MusicArtist"):
+            return
+        if self.by_row(kind, library):
             return
         known = len(self.scope(kind, library, parent_id))
         if count < 2 or count < known * self.FULL_SHARE:
@@ -504,6 +556,9 @@ class Readback:
         scope_key = (kind, library, parent_id)
         if scope_key in self._scopes:
             self._scopes[scope_key][cache_key] = row
+        if kind == "Movie" and (library, str(cache_key)) in self._movies:
+            versions = self._movies[(library, str(cache_key))][1]
+            self._movies[(library, str(cache_key))] = (row, versions)
 
     def refreshed(
         self,
@@ -530,6 +585,8 @@ class Readback:
                 self._versions.setdefault(scope_key, {})[item_id] = list(versions)
             else:
                 self._versions.get(scope_key, {}).pop(item_id, None)
+        if kind == "Movie" and (library, item_id) in self._movies:
+            self._movies[(library, item_id)] = (row, list(versions or ()))
         if kind == "Series":
             for child in ("Episode", "Season"):
                 self._scopes.pop((child, library, item_id), None)
@@ -628,13 +685,118 @@ class Readback:
         library's listing does not reach. Kodi still finds the movie by our
         file, a version of it (GetMovieId), so the row is the one our URL
         names (``own_file``)."""
-        found: Optional[dict[str, Any]] = self.scope("Movie", library).get(item_id)
+        found = self.listed_movie(library, item_id)
         if found is not None:
             return found
         key = ("Movie", library, item_id)
         if key not in self._adopted:
             self._adopted[key] = self._adopt_movie(library, item_id)
         return self._adopted[key]
+
+    def listed_movie(self, library: str, item_id: str) -> Optional[dict[str, Any]]:
+        """Our row for a movie as the library's listing has it: from the
+        listing, or from the movie's folder while the pass reads the
+        library's movies a row at a time (``by_row``)."""
+        if self.by_row("Movie", library):
+            return self._movie_folder(library, item_id)[0]
+        found: Optional[dict[str, Any]] = self.scope("Movie", library).get(item_id)
+        return found
+
+    def _movie_folder(
+        self, library: str, item_id: str
+    ) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
+        key = (library, item_id)
+        if key not in self._movies:
+            self._movies[key] = self.item("Movie", library, item_id)
+        return self._movies[key]
+
+    def album(self, library: str, albumid: int) -> Optional[dict[str, Any]]:
+        """The album row Kodi filed our songs under, by its id: from the
+        library's album listing, or alone while the pass reads the library's
+        albums a row at a time (``by_row``). The id comes from songs of ours
+        on the row, so the listing, filtered on our folder, holds it too."""
+        if not self.by_row("MusicAlbum", library):
+            return self.scope("MusicAlbum", library).get(albumid)
+        key = (library, albumid)
+        if key not in self._albums:
+            table = KINDS["MusicAlbum"]
+            try:
+                reply = rpc(
+                    table.getter,
+                    {
+                        table.id_param: albumid,
+                        "properties": properties(
+                            "MusicAlbum", self.features, minimal=True
+                        ),
+                    },
+                )
+            except RuntimeError:
+                # Refused: no album of that id any more.
+                reply = None
+            row = reply.get(table.result_key) if isinstance(reply, dict) else None
+            self._albums[key] = row if isinstance(row, dict) and row else None
+        return self._albums[key]
+
+    def artist(self, library: str, name: Optional[str]) -> Optional[dict[str, Any]]:
+        """The artist row of a name: from the library's artist listing, or
+        alone while the pass reads the library's artists a row at a time
+        (``by_row``). Kodi's "is" is SQL LIKE, which folds ASCII case only,
+        so a name outside ASCII, or one the filter does not find, is read
+        from the listing, where names are compared casefolded."""
+        key = artist_key(name)
+        if not self.by_row("MusicArtist", library) or not key.isascii():
+            return self.scope("MusicArtist", library).get(key)
+        if (library, key) not in self._artists:
+            rows = self._paged(
+                KINDS["MusicArtist"],
+                {
+                    "properties": properties(
+                        "MusicArtist", self.features, minimal=True
+                    ),
+                    "albumartistsonly": False,
+                    "filter": {
+                        "and": [
+                            self._path_filter(
+                                paths.library_dir(self.key, library, "music")
+                            ),
+                            {
+                                "field": "artist",
+                                "operator": "is",
+                                "value": (name or "").strip(" \t\n\r\v\f"),
+                            },
+                        ]
+                    },
+                },
+            )
+            named = [
+                row
+                for row in rows
+                if artist_key(row.get("artist") or row.get("label")) == key
+            ]
+            if not named:
+                return self.scope("MusicArtist", library).get(key)
+            # Two artists of one name: as in the listing, neither is claimed.
+            self._artists[(library, key)] = named[0] if len(named) == 1 else None
+        return self._artists[(library, key)]
+
+    def album_folders(self, albumid: int) -> set[tuple[str, str]]:
+        """The (library, directory) pairs of every song of ours Kodi files
+        under an album row."""
+        rows = self._paged(
+            KINDS["Audio"], {"properties": ["file"], "filter": {"albumid": albumid}}
+        )
+        found: set[tuple[str, str]] = set()
+        for row in rows:
+            location, item_id = paths.parse_item(row.get("file") or "")
+            if (
+                location is not None
+                and location.key == self.key
+                and location.library
+                and location.folder
+                and item_id
+            ):
+                found.add((location.library, location.folder))
+        return found
 
     def _adopt_movie(self, library: str, item_id: str) -> Optional[dict[str, Any]]:
         try:
