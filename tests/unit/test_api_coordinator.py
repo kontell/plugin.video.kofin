@@ -1513,6 +1513,33 @@ def test_a_catch_up_removes_a_removed_artists_unlisted_albums(store, monkeypatch
     }
 
 
+def test_an_album_the_removal_names_with_its_artist_takes_its_songs(store, monkeypatch):
+    """An album's removal does not take its songs, so an album the batch
+    already names with its artist has its songs asked for as well."""
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST
+
+    server = Server({LIB: []})
+    items = _artist_with_albums(server, store)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    server.libraries[LIB] = []
+    feed = Feed(
+        [ChangeRecord(ARTIST, "Removed"), ChangeRecord(ALBUM, "Removed")],
+        server_time=1200,
+    )
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    w.catch_up()
+    assert _removed(store, items) == {
+        ARTIST,
+        ALBUM,
+        ALBUM2,
+        "tc31",
+        "tc32",
+        "ud41",
+        "ud42",
+    }
+
+
 def test_a_removal_of_no_artist_asks_the_server_nothing(store, monkeypatch):
     server = Server({LIB: [movie(), movie("b")]})
     store.publish([movie(), movie("b")], library=LIB)

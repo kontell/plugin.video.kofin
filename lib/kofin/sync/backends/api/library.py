@@ -1063,7 +1063,9 @@ class Library(threading.Thread):
         whose payload names a removed artist, or a removed item the
         catalogue does not place, as their parent are asked for with their
         songs inside their library, and what the server does not list goes
-        with the artist.
+        with the artist. An album the removal already names is asked for
+        too: its removal does not take its songs, which leave only by their
+        own.
         """
         if not removed:
             return []
@@ -1077,13 +1079,14 @@ class Library(threading.Thread):
             return []
         albums: dict[str, list[str]] = {}
         for record in self.store.records(kind="MusicAlbum", pinned=False).values():
-            if record.item.get("ParentId") in parents and record.item_id not in removed:
+            if record.item.get("ParentId") in parents:
                 albums.setdefault(record.library, []).append(record.item_id)
+        named = set(removed)
         gone: list[str] = []
         for library, album_ids in sorted(albums.items()):
             wanted = album_ids + self.store.placed_in("Audio", library, album_ids)
             listed = self._listed_in(library, wanted)
-            gone.extend(i for i in wanted if i not in listed)
+            gone.extend(i for i in wanted if i not in listed and i not in named)
         if gone:
             LOG.debug(
                 "%d album(s) and song(s) of a removed artist the server no longer"
