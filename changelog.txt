@@ -1,6 +1,9 @@
 v1.0.0
 - The server's certificate is always checked. "Verify SSL certificate" is gone.
 - A certificate authority given to Kodi is trusted, including through a proxy.
+- New and changed items reach Kodi sooner.
+- Home screen widgets show edited titles and artwork straight away.
+- Removing an artist on the server removes its albums from Kodi.
 
 v0.96.8
 - Logging in as another account replaces the previous account's library.
