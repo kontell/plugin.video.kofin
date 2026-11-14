@@ -742,9 +742,10 @@ What remains is kofin's own:
   which lists itself again on `OnUpdate`, `OnRemove`, `OnRefresh`, `OnScanFinished` and
   `OnCleanFinished` alone). An on-screen widget kept a movie's old title and poster until
   its Home section was left and shown again. So a pass whose video patches moved any field
-  but those two ends with one scan of nowhere (`Native.announce_writes`,
-  `Applier.unannounced`, `patch.ANNOUNCED`): after its last setter, through `scan` so that a
-  running scan is waited for and not stopped, and without Kodi's dialog.
+  but those two, or cleared a season's name (sent as an empty title no readback compares),
+  ends with one scan of nowhere (`Native.announce_writes`, `Applier.unannounced`,
+  `patch.ANNOUNCED`): after its last setter, through `scan` so that a running scan is waited
+  for and not stopped, and without Kodi's dialog.
   **`libraryNodes` is the one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,

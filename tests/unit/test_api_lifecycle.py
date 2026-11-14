@@ -2441,6 +2441,31 @@ def test_a_video_patch_kodi_does_not_announce_ends_the_pass_with_one_library_eve
     assert not store.pending()
 
 
+def test_a_withdrawn_season_name_ends_the_pass_with_one_library_event(
+    store, backend, kodi
+):
+    """A withdrawn name is sent as an empty title that no readback can
+    compare, and Kodi announces it no more than a rename: the pass that
+    clears it ends with the scan of nowhere, and the passes after it have
+    nothing of the name left to send."""
+    backend.setup()
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1, Name="Book Uno")])
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1)])
+    backend.reconcile()
+    assert [p["title"] for p in methods(kodi, "VideoLibrary.SetSeasonDetails")] == [""]
+    assert scans(kodi) == [native.NOWHERE]
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1)])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert scans(kodi) == []
+    assert not store.pending()
+
+
 def test_a_later_stamp_of_kodis_own_is_the_same_play():
     """The server stamps a play when it starts and Kodi when it ends, so a
     later stamp of Kodi's is no difference to write back."""

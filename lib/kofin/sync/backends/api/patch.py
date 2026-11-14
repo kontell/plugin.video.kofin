@@ -149,8 +149,9 @@ class Applier:
         self.downloaded: set[str] = set()
         self.downloaded_series: dict[str, set[str]] = {}
         self._downloaded_seasons: dict[str, set[int]] = {}
-        # Whether a video patch of this pass moves a field Kodi's setter
-        # does not announce (UNANNOUNCED, Native.announce_writes).
+        # Whether a video patch of this pass moves a field outside ANNOUNCED,
+        # or clears a season's name: Kodi's setter announces neither
+        # (Native.announce_writes).
         self.unannounced = False
         # Folders of movies whose listing dropped a version file or an
         # extra this pass: cleaned once the pass has applied
@@ -691,7 +692,7 @@ class Applier:
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
-        if any(
+        if clearing or any(
             key not in ANNOUNCED and not matches(row, {key: value})
             for key, value in compare.items()
         ):
