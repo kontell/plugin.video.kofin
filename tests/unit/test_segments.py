@@ -778,6 +778,25 @@ def test_play_next_uses_synced_library_row_path(engine, monkeypatch):
     assert engine.builtins == ['PlayMedia("%s",noresume)' % path]
 
 
+def test_play_next_has_the_next_episode_follow_the_playing_version(engine):
+    from kofin.core import state
+
+    engine.arm([], next_episode=NEXT_EPISODE)
+    engine.player._item["MediaSourceName"] = "Greyscale"
+    engine.segments._start_next_episode()
+    assert state.followed_version("ep2") == "Greyscale"
+    # Taken once.
+    assert state.followed_version("ep2") is None
+
+
+def test_play_next_of_a_single_version_episode_still_asks_nothing(engine):
+    from kofin.core import state
+
+    engine.arm([], next_episode=NEXT_EPISODE)
+    engine.segments._start_next_episode()
+    assert state.followed_version("ep2") == ""
+
+
 def test_the_credits_overlay_hides_on_the_deadline_too(engine):
     # The hide deadline applies to the whole overlay, Play Next included.
     FakeAddon.store["skipPromptHidePercent"] = "50"

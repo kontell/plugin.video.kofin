@@ -1,8 +1,9 @@
 """Playback resolve: PlaybackInfo -> stream URL -> setResolvedUrl.
 
-No interactive dialogs in this path — the device profile decides everything.
-The resolved play's state is queued for the service-side player to claim and
-report (state.push_play_item).
+The device profile decides how an item is served. The one question this path
+asks is which version to play, of a movie or an episode Kodi has no versions
+of (choose_source). The resolved play's state is queued for the service-side
+player to claim and report (state.push_play_item).
 """
 
 import os
@@ -26,6 +27,7 @@ from kofin.core.urls import (
     PARAM_MEDIA_SOURCE,
     PARAM_SUBTITLE_INDEX,
     PARAM_TRANSCODE,
+    PARAM_UNATTENDED,
     STREAM_REQUEST_PARAMS,
 )
 from kofin.plugin import listitems, subtitles
@@ -73,6 +75,9 @@ REALTIME_PROPERTY = "isrealtimestream"
 CHAPTER_IMAGE_WIDTH = 640
 CHAPTER_METHODS = frozenset({"DirectPlay", "DirectStream"})
 CHAPTER_TYPES = frozenset({"Movie", "Episode", "MusicVideo", "Video"})
+
+# Kodi's own "Versions": the version picker's heading.
+VERSIONS_HEADING = 40000
 
 
 def chapter_art(
@@ -192,6 +197,65 @@ def pick_media_source(
                 return source
         LOG.warning("mediasourceid %s not in PlaybackInfo; using first source", wanted)
     return sources[0]
+
+
+def versions_unfiled(item: JsonDict) -> bool:
+    """Whether Kodi has no versions of this item to choose between: an
+    episode on every Kodi, since Kodi groups versions of a movie alone, and a
+    movie on a Kodi without the video_versions feature."""
+    kind = item.get("Type")
+    if kind == "Episode":
+        return True
+    if kind != "Movie":
+        return False
+    from kofin.sync.backends.api.capabilities import has
+
+    return not has("video_versions")
+
+
+def _source_name(source: JsonDict) -> str:
+    return str(source.get("Name") or "").strip()
+
+
+def choose_source(request: Request, item: JsonDict) -> Optional[str]:
+    """The media source of a play that names none: the version the viewer
+    picks, "" for the server's default, None when the viewer cancelled.
+
+    Only an item with several sources that Kodi offers no versions of asks.
+    A play no one at this Kodi started (PARAM_UNATTENDED) takes the default,
+    and one Play Next started takes the version named like the one that was
+    playing, or the default when none is.
+    """
+    sources = [
+        source
+        for source in item.get("MediaSources") or []
+        if isinstance(source, dict) and source.get("Id")
+    ]
+    if len(sources) < 2 or not versions_unfiled(item):
+        return ""
+    if request.params.get(PARAM_UNATTENDED) == "1":
+        return ""
+    followed = state.followed_version(str(item.get("Id") or ""))
+    if followed is not None:
+        wanted = followed.casefold()
+        return next(
+            (
+                str(source["Id"])
+                for source in sources
+                if wanted and _source_name(source).casefold() == wanted
+            ),
+            "",
+        )
+    labels: list[str | xbmcgui.ListItem] = [
+        _source_name(source) or str(item.get("Name") or source["Id"])
+        for source in sources
+    ]
+    index = xbmcgui.Dialog().select(
+        xbmc.getLocalizedString(VERSIONS_HEADING), labels, preselect=0
+    )
+    if index < 0:
+        return None
+    return str(sources[index]["Id"])
 
 
 def stream_url(
@@ -350,6 +414,8 @@ def play_state(
         "PlayMethod": play_method,
         "PlaySessionId": play_session_id,
         "MediaSourceId": source.get("Id", ""),
+        # The version Play Next has the next episode follow.
+        "MediaSourceName": source.get("Name", ""),
         "DeviceId": device_id,
         "Runtime": int(source.get("RunTimeTicks") or item.get("RunTimeTicks") or 0),
         "AudioStreamIndex": source.get("DefaultAudioStreamIndex"),
@@ -794,6 +860,15 @@ def play(request: Request) -> None:
             )
             return
 
+        if not request.params.get(PARAM_MEDIA_SOURCE):
+            chosen = choose_source(request, item)
+            if chosen is None:
+                LOG.debug("no version chosen for %s", item_id)
+                _unresolved(request)
+                return
+            if chosen:
+                request.params[PARAM_MEDIA_SOURCE] = chosen
+
         config = deviceprofile.ProfileConfig.from_settings()
         profile = deviceprofile.build(
             config,
@@ -951,9 +1026,14 @@ def _close_live_stream(api: Api, live_stream_id: str) -> None:
         LOG.warning("live stream close failed: %s", error)
 
 
+def _unresolved(request: Request) -> None:
+    """Answer the handle, when there is one, with nothing to play."""
+    if request.handle >= 0:
+        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
+
+
 def _fail(request: Request, message_id: int = 30018) -> None:
     """A failed resolve: the handle answered with nothing, and a toast that
     says why — the server, or (30720) an offline play with no download."""
-    if request.handle >= 0:
-        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
+    _unresolved(request)
     toast.show(settings.localized(message_id), toast.ERROR, time_ms=4000)

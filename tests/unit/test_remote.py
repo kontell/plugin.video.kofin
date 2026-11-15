@@ -262,6 +262,8 @@ def test_a_junk_start_index_plays_from_the_beginning(monkeypatch):
     played.clear()
     handler._play({"ItemIds": ["a", "b"], "StartIndex": -5, "PlayCommand": "PlayNow"})
     assert len(played) == 2
+    # Whoever sent the command may not be at this Kodi: nothing asks.
+    assert all("unattended=1" in url for url in played)
 
 
 # --- the start-position seek leaves the websocket thread ---------------------

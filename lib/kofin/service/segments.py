@@ -822,6 +822,8 @@ class SegmentEngine:
         url = library_video_path(item_id, "episode") or plugin_url(
             {"mode": "play", "id": item_id}
         )
+        playing = self.player.current_item() or {}
+        state.follow_version(item_id, str(playing.get("MediaSourceName") or ""))
         xbmc.executebuiltin('PlayMedia("%s",noresume)' % url)
 
     def _notify(self, message: str, level: str = toast.INFO) -> None:

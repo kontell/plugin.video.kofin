@@ -27,6 +27,9 @@ STREAM_REQUEST_PARAMS = (
     PARAM_SUBTITLE_INDEX,
     PARAM_BURN_SUBS,
 )
+# A play no one at this Kodi started (a SyncPlay group start, the server's
+# remote control): the play route asks nothing.
+PARAM_UNATTENDED = "unattended"
 
 
 def plugin_url(params: dict[str, str]) -> str:

@@ -25,11 +25,13 @@ def jellyfin(item):
     return providers.JellyfinProvider(FakeApi(item))
 
 
-def test_play_target_url_is_byte_identical_to_the_pre_seam_builder():
+def test_play_target_url_is_an_unattended_play_at_the_group_position():
     target = jellyfin({"Id": ITEM_ID, "Type": "Movie"}).play_target(ITEM_ID, 1230000)
 
     assert target["url"] == (
-        "plugin://plugin.video.kofin/?mode=play&id=" + ITEM_ID + "&startticks=1230000"
+        "plugin://plugin.video.kofin/?mode=play&id="
+        + ITEM_ID
+        + "&unattended=1&startticks=1230000"
     )
     assert target["audio"] is False
 
@@ -192,7 +194,9 @@ def test_a_provider_this_member_lacks_plays_its_key_as_a_jellyfin_item():
     target = registry.play_target(ITEM_ID, 0, provider="pvr.kofin")
 
     assert target["url"] == (
-        "plugin://plugin.video.kofin/?mode=play&id=" + ITEM_ID + "&startticks=0"
+        "plugin://plugin.video.kofin/?mode=play&id="
+        + ITEM_ID
+        + "&unattended=1&startticks=0"
     )
     assert "runtime_ticks" not in target
 

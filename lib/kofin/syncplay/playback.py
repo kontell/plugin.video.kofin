@@ -607,8 +607,8 @@ class PlaybackController:
         plugin process resolves it (device profile, direct-play vs
         transcode, PlaybackInfo at ``startticks``) and pushes the play state
         for the service player to claim — exactly the path a user-initiated
-        play takes. SyncPlay group starts are unattended by definition; the
-        plugin play path has no dialogs, so nothing needs suppressing.
+        play takes, except that its URL says it is unattended, so the play
+        route asks nothing.
         """
         playlist_type = xbmc.PLAYLIST_MUSIC if target["audio"] else xbmc.PLAYLIST_VIDEO
         playlist = xbmc.PlayList(playlist_type)

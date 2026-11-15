@@ -164,6 +164,13 @@ What remains is kofin's own:
   it streamed media the initiator was playing locally. `resolve_downloaded` queues the play
   state as the stream path does, so the service reports the play. A request naming a
   source, a track or a bitrate still streams — a download has only the tracks it was made with.
+- **A play that names no source asks which version, where Kodi has none to offer**
+  (`plugin/play.py::choose_source`): an episode with several sources on every Kodi, since Kodi
+  groups versions of a movie alone, and a movie on a Kodi without `video_versions`. A play
+  nobody at this Kodi started asks nothing: SyncPlay's and the remote control's URLs carry
+  `unattended`. Play Next plays the next episode's library path, which can carry no parameter
+  of kofin's, so the version it follows travels by name through `state.follow_version`, and a
+  name the next episode lacks is its default version. A download still plays without asking.
 - **A scanner ListItem never stamps a zero resume point** (`metadata.listitem` stamps one only
   for a position above zero). Kodi's scanner persists any *set* point —
   `CBookmark::IsSet` is `totalTimeInSeconds > 0` — as a type-1 bookmark, and the in-progress

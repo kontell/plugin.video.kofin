@@ -16,7 +16,7 @@ import xbmc
 
 from kofin.core import kodirpc, toast
 from kofin.core.log import Logger
-from kofin.core.urls import plugin_url
+from kofin.core.urls import PARAM_UNATTENDED, plugin_url
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager
@@ -116,7 +116,10 @@ class RemoteHandler:
         playlist = xbmc.PlayList(
             xbmc.PLAYLIST_MUSIC if _is_audio(ordered[0]) else xbmc.PLAYLIST_VIDEO
         )
-        urls = [plugin_url({"mode": "play", "id": item_id}) for item_id in ordered]
+        urls = [
+            plugin_url({"mode": "play", "id": item_id, PARAM_UNATTENDED: "1"})
+            for item_id in ordered
+        ]
 
         if command == "PlayNow":
             playlist.clear()

@@ -319,3 +319,24 @@ def test_a_claim_by_item_leaves_an_older_live_entry_for_its_close(queue):
 
     assert state.claim_play_item_of("c1")["Path"] == "http://new"
     assert state.claim_play_item("http://old")["LiveStreamId"] == "ls-old"
+
+
+def test_a_followed_version_is_taken_once_by_its_own_item():
+    state.follow_version("ep2", "Greyscale")
+    assert state.followed_version("ep9") is None
+    assert state.followed_version("ep2") == "Greyscale"
+    assert state.followed_version("ep2") is None
+
+
+def test_a_stale_followed_version_is_dropped(monkeypatch):
+    state.follow_version("ep2", "Greyscale")
+    later = state.time.time() + state.NEXT_VERSION_TTL_SECONDS + 1
+    monkeypatch.setattr(state.time, "time", lambda: later)
+    assert state.followed_version("ep2") is None
+    assert FakeWindow.store.get(state.PROP_NEXT_VERSION) is None
+
+
+def test_clear_all_drops_a_followed_version():
+    state.follow_version("ep2", "Greyscale")
+    state.clear_all()
+    assert state.followed_version("ep2") is None

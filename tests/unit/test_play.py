@@ -11,7 +11,7 @@ SERVER = "http://s:8096"
 def test_the_play_route_imports_no_pipeline_module():
     """A cold click pays every import the route makes, so the route's own
     source is read: its backend imports are the three the resolve needs and
-    the capability report inside the live-item check, and nothing at module
+    the capability report inside the version check, and nothing at module
     level. A fresh interpreter then imports those three, and the backend
     modules it loads are exactly the ones the resolve stands on; the
     serializer, the provider, the readback and the capability report are the
@@ -39,6 +39,7 @@ def test_the_play_route_imports_no_pipeline_module():
             for alias in node.names:
                 backend.add((node.module, alias.name, inside.get(id(node), "<module>")))
     assert backend == {
+        ("kofin.sync.backends.api.capabilities", "has", "versions_unfiled"),
         ("kofin.sync.backends.api.paths", "key_from_url", "play"),
         ("kofin.sync.backends.api.store", "namespace", "play"),
         ("kofin.sync.backends.api.identity", "native_id_for", "play"),
@@ -882,6 +883,172 @@ def test_play_without_mediasourceid_uses_first_source(resume_env, monkeypatch):
     monkeypatch.setattr(play, "stream_url", capture_stream_url)
     run_play({"id": "ep1"}, resume=False)
     assert chosen == ["src-primary"]
+
+
+VERSIONS = [
+    {"Id": "src-hd", "Name": "1080p", "SupportsDirectStream": True, "Container": "mkv"},
+    {
+        "Id": "src-uhd",
+        "Name": "2160p",
+        "SupportsDirectStream": True,
+        "Container": "mkv",
+    },
+]
+
+
+@pytest.fixture
+def versions_env(resume_env, monkeypatch):
+    """A movie with two versions on a Kodi without video_versions; the
+    dialog answers from ``dialog.select_answers``."""
+    from tests.unit.fakes import FakeDialog
+
+    api = resume_env["api"]
+    api._item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Name": "A Movie",
+        "RunTimeTicks": 1500 * 10_000_000,
+        "MediaSources": [dict(source) for source in VERSIONS],
+    }
+    asked = []
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        asked.append(kwargs.get("media_source_id"))
+        return {
+            "MediaSources": [dict(source) for source in VERSIONS],
+            "PlaySessionId": "ps1",
+        }
+
+    api.playback_info = playback_info
+    played = []
+
+    def capture_stream_url(server, item, source, device_id, play_session_id):
+        played.append(source.get("Id"))
+        return ("http://s/stream", "DirectStream")
+
+    monkeypatch.setattr(play, "stream_url", capture_stream_url)
+    features = set()
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.capabilities.has", lambda name: name in features
+    )
+    monkeypatch.setattr("xbmc.getLocalizedString", lambda string_id: "#%d" % string_id)
+    dialog = FakeDialog()
+    monkeypatch.setattr("xbmcgui.Dialog", lambda: dialog)
+    toasts = []
+    monkeypatch.setattr(play.toast, "show", lambda *a, **k: toasts.append(a))
+    outcomes = []
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, li: outcomes.append(ok)
+    )
+    return {
+        "api": api,
+        "asked": asked,
+        "played": played,
+        "features": features,
+        "dialog": dialog,
+        "toasts": toasts,
+        "outcomes": outcomes,
+    }
+
+
+def test_a_movie_kodi_has_no_versions_of_asks_which_to_play(versions_env):
+    versions_env["dialog"].select_answers = [1]
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == [("#40000", ["1080p", "2160p"], 0)]
+    # The pick is named to the server and played.
+    assert versions_env["asked"] == ["src-uhd"]
+    assert versions_env["played"] == ["src-uhd"]
+    assert versions_env["outcomes"] == [True]
+    claimed = play.state.claim_play_item("http://s/stream")
+    assert claimed is not None and claimed["MediaSourceName"] == "2160p"
+    assert claimed["Streams"]["Request"]["mediasourceid"] == "src-uhd"
+
+
+def test_a_cancelled_version_choice_plays_nothing_and_reports_no_error(versions_env):
+    versions_env["dialog"].select_answers = [-1]
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["asked"] == []
+    assert versions_env["outcomes"] == [False]
+    assert versions_env["toasts"] == []
+
+
+def test_a_kodi_with_video_versions_asks_nothing_for_a_movie(versions_env):
+    versions_env["features"].add("video_versions")
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == [None]
+    assert versions_env["played"] == ["src-hd"]
+
+
+def test_an_episode_asks_on_every_kodi(versions_env):
+    versions_env["features"].add("video_versions")
+    versions_env["api"]._item["Type"] = "Episode"
+    versions_env["dialog"].select_answers = [0]
+    run_play({"id": "m1"}, resume=False)
+    assert len(versions_env["dialog"].selects) == 1
+    assert versions_env["asked"] == ["src-hd"]
+
+
+def test_other_kinds_with_several_sources_ask_nothing(versions_env):
+    versions_env["api"]._item["Type"] = "MusicVideo"
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == [None]
+
+
+def test_a_single_version_asks_nothing(versions_env):
+    versions_env["api"]._item["MediaSources"] = [dict(VERSIONS[0])]
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+
+
+def test_a_play_that_names_its_source_asks_nothing(versions_env):
+    run_play({"id": "m1", "mediasourceid": "src-uhd"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == ["src-uhd"]
+
+
+def test_an_unattended_play_takes_the_default_without_asking(versions_env):
+    run_play({"id": "m1", "unattended": "1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == [None]
+    assert versions_env["played"] == ["src-hd"]
+
+
+def test_play_next_follows_the_playing_version_by_name(versions_env):
+    versions_env["api"]._item["Type"] = "Episode"
+    play.state.follow_version("m1", "2160P")
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == ["src-uhd"]
+
+
+def test_play_next_takes_the_default_when_no_version_has_the_name(versions_env):
+    versions_env["api"]._item["Type"] = "Episode"
+    play.state.follow_version("m1", "Greyscale")
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == [None]
+
+
+def test_a_hint_for_another_episode_still_asks(versions_env):
+    versions_env["api"]._item["Type"] = "Episode"
+    play.state.follow_version("other", "2160p")
+    versions_env["dialog"].select_answers = [0]
+    run_play({"id": "m1"}, resume=False)
+    assert len(versions_env["dialog"].selects) == 1
+
+
+def test_a_downloaded_movie_plays_its_download_without_asking(
+    versions_env, monkeypatch
+):
+    monkeypatch.setattr(play, "downloaded_file", lambda item_id: "/dl/m1.mkv")
+    monkeypatch.setattr(
+        play, "catalogue_item", lambda item_id: versions_env["api"]._item
+    )
+    run_play({"id": "m1"}, resume=False)
+    assert versions_env["dialog"].selects == []
+    assert versions_env["asked"] == []
 
 
 def test_unreadable_row_falls_back_to_the_server_position(resume_env, monkeypatch):
