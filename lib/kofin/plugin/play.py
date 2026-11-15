@@ -1,8 +1,8 @@
 """Playback resolve: PlaybackInfo -> stream URL -> setResolvedUrl.
 
 The device profile decides how an item is served. The one question this path
-asks is which version to play, of a movie or an episode Kodi has no versions
-of (choose_source). The resolved play's state is queued for the service-side
+asks is which version to play, of an item Kodi has no versions of
+(plugin/versions.py). The resolved play's state is queued for the service-side
 player to claim and report (state.push_play_item).
 """
 
@@ -30,7 +30,7 @@ from kofin.core.urls import (
     PARAM_UNATTENDED,
     STREAM_REQUEST_PARAMS,
 )
-from kofin.plugin import listitems, subtitles
+from kofin.plugin import listitems, subtitles, versions
 from kofin.plugin.listitems import AUDIO_TYPES
 from kofin.sync import private
 from kofin.plugin.router import Request
@@ -75,9 +75,6 @@ REALTIME_PROPERTY = "isrealtimestream"
 CHAPTER_IMAGE_WIDTH = 640
 CHAPTER_METHODS = frozenset({"DirectPlay", "DirectStream"})
 CHAPTER_TYPES = frozenset({"Movie", "Episode", "MusicVideo", "Video"})
-
-# Kodi's own "Versions": the version picker's heading.
-VERSIONS_HEADING = 40000
 
 
 def chapter_art(
@@ -197,65 +194,6 @@ def pick_media_source(
                 return source
         LOG.warning("mediasourceid %s not in PlaybackInfo; using first source", wanted)
     return sources[0]
-
-
-def versions_unfiled(item: JsonDict) -> bool:
-    """Whether Kodi has no versions of this item to choose between: an
-    episode on every Kodi, since Kodi groups versions of a movie alone, and a
-    movie on a Kodi without the video_versions feature."""
-    kind = item.get("Type")
-    if kind == "Episode":
-        return True
-    if kind != "Movie":
-        return False
-    from kofin.sync.backends.api.capabilities import has
-
-    return not has("video_versions")
-
-
-def _source_name(source: JsonDict) -> str:
-    return str(source.get("Name") or "").strip()
-
-
-def choose_source(request: Request, item: JsonDict) -> Optional[str]:
-    """The media source of a play that names none: the version the viewer
-    picks, "" for the server's default, None when the viewer cancelled.
-
-    Only an item with several sources that Kodi offers no versions of asks.
-    A play no one at this Kodi started (PARAM_UNATTENDED) takes the default,
-    and one Play Next started takes the version named like the one that was
-    playing, or the default when none is.
-    """
-    sources = [
-        source
-        for source in item.get("MediaSources") or []
-        if isinstance(source, dict) and source.get("Id")
-    ]
-    if len(sources) < 2 or not versions_unfiled(item):
-        return ""
-    if request.params.get(PARAM_UNATTENDED) == "1":
-        return ""
-    followed = state.followed_version(str(item.get("Id") or ""))
-    if followed is not None:
-        wanted = followed.casefold()
-        return next(
-            (
-                str(source["Id"])
-                for source in sources
-                if wanted and _source_name(source).casefold() == wanted
-            ),
-            "",
-        )
-    labels: list[str | xbmcgui.ListItem] = [
-        _source_name(source) or str(item.get("Name") or source["Id"])
-        for source in sources
-    ]
-    index = xbmcgui.Dialog().select(
-        xbmc.getLocalizedString(VERSIONS_HEADING), labels, preselect=0
-    )
-    if index < 0:
-        return None
-    return str(sources[index]["Id"])
 
 
 def stream_url(
@@ -451,11 +389,16 @@ def play_state(
     return play_item
 
 
-def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
+def prefetch_segments(
+    api: Api, item: JsonDict, source_id: str = ""
+) -> Optional[list[JsonDict]]:
     """Warm the media-segments fetch on the play path: the parsed
     segments ride the play-state queue so the service-side checker is armed
     before the first frame, killing the t≈0 Intro race. None on failure —
-    the service then falls back to its own bounded-retry fetch."""
+    the service then falls back to its own bounded-retry fetch.
+
+    The segments are those of the source that plays: Jellyfin keeps a
+    version's segments under its own item id, which is its source id."""
     if item.get("Type") not in ("Movie", "Episode"):
         return []
     if not settings.get_bool("mediaSegmentsEnabled"):
@@ -463,7 +406,7 @@ def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
     from kofin.core.segments import parse_segments
 
     try:
-        return parse_segments(api.media_segments(item.get("Id", "")))
+        return parse_segments(api.media_segments(source_id or item.get("Id", "")))
     except Exception as error:
         LOG.debug("segments prefetch failed for %s: %s", item.get("Id"), error)
         return None
@@ -705,11 +648,16 @@ def resolve_downloaded(
     LOG.debug("play %s via Download", item.get("Id", ""))
     sources = item.get("MediaSources") or [{}]
     # The claim shape the streamed play pushes: DirectPlay, since Kodi opens
-    # the file; the "source" is the id alone, so the runtime is the item's
-    # and no server-side default track index rides along.
+    # the file. The "source" is the downloaded one's id and the name Play
+    # Next follows, nothing else, so the runtime is the item's and no
+    # server-side default track index rides along; a download is always of
+    # the item's first source.
     play_item = play_state(
         item,
-        {"Id": sources[0].get("Id") or item.get("Id", "")},
+        {
+            "Id": sources[0].get("Id") or item.get("Id", ""),
+            "Name": sources[0].get("Name", ""),
+        },
         path,
         "DirectPlay",
         uuid4().hex,
@@ -744,6 +692,9 @@ def play(request: Request) -> None:
     if key and key != namespace(creds.server_id, creds.user_id):
         _fail(request)
         return
+    # Play Next's hint is spent by this play whichever way it goes, so a
+    # later play of the item asks.
+    followed = state.followed_version(item_id)
     # A play from a library row: its URL is the provider's, or names the row
     # outright. Only such a play resumes at Kodi's bookmark
     # (resume_start_ticks); the native id found below is stamped on every
@@ -821,8 +772,19 @@ def play(request: Request) -> None:
                 request.params["dbid"] = str(native_id)
             else:
                 request.params.pop("dbid", None)
+        if not local_path and not request.params.get(PARAM_MEDIA_SOURCE):
+            chosen = versions.choose(
+                item, request.params.get(PARAM_UNATTENDED) == "1", followed
+            )
+            if chosen is None:
+                LOG.debug("no version chosen for %s", item_id)
+                _unresolved(request)
+                return
+            if chosen:
+                request.params[PARAM_MEDIA_SOURCE] = chosen
+        source_id = request.params.get(PARAM_MEDIA_SOURCE) or item_id
         segments_thread = threading.Thread(
-            target=lambda: segments_box.append(prefetch_segments(api, item)),
+            target=lambda: segments_box.append(prefetch_segments(api, item, source_id)),
             name="kofin-segments-prefetch",
             daemon=True,
         )
@@ -859,15 +821,6 @@ def play(request: Request) -> None:
                 _joined_segments(segments_thread, segments_box),
             )
             return
-
-        if not request.params.get(PARAM_MEDIA_SOURCE):
-            chosen = choose_source(request, item)
-            if chosen is None:
-                LOG.debug("no version chosen for %s", item_id)
-                _unresolved(request)
-                return
-            if chosen:
-                request.params[PARAM_MEDIA_SOURCE] = chosen
 
         config = deviceprofile.ProfileConfig.from_settings()
         profile = deviceprofile.build(

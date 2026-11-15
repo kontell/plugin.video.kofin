@@ -119,7 +119,7 @@ PROP_LISTING_FLIGHT = "kofin.listing.flight"
 PROP_QUEUE_OWNER = "kofin.queue.owner"
 
 # The version Play Next has the next episode play (service/segments.py,
-# plugin/play.py::choose_source). Earns its place because Play Next plays the
+# plugin/versions.py). Earns its place because Play Next plays the
 # episode's library path, which Kodi matches its row by and which carries no
 # parameter of kofin's: the service that starts the play and the plugin
 # process that resolves it share nothing else. A hint older than

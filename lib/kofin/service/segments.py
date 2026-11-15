@@ -356,7 +356,11 @@ class SegmentEngine:
                 if halt.is_set():
                     return
                 try:
-                    segments = parse_segments(self.api.media_segments(item["Id"]))
+                    # The version that plays: its segments are under its
+                    # own item id, which is its source id.
+                    segments = parse_segments(
+                        self.api.media_segments(item.get("MediaSourceId") or item["Id"])
+                    )
                     break
                 except Exception as error:
                     LOG.warning(

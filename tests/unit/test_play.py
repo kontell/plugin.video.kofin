@@ -10,9 +10,8 @@ SERVER = "http://s:8096"
 
 def test_the_play_route_imports_no_pipeline_module():
     """A cold click pays every import the route makes, so the route's own
-    source is read: its backend imports are the three the resolve needs and
-    the capability report inside the version check, and nothing at module
-    level. A fresh interpreter then imports those three, and the backend
+    source is read: its backend imports are the three the resolve needs,
+    and nothing at module level. A fresh interpreter then imports those three, and the backend
     modules it loads are exactly the ones the resolve stands on; the
     serializer, the provider, the readback and the capability report are the
     pass's and stay out."""
@@ -39,7 +38,6 @@ def test_the_play_route_imports_no_pipeline_module():
             for alias in node.names:
                 backend.add((node.module, alias.name, inside.get(id(node), "<module>")))
     assert backend == {
-        ("kofin.sync.backends.api.capabilities", "has", "versions_unfiled"),
         ("kofin.sync.backends.api.paths", "key_from_url", "play"),
         ("kofin.sync.backends.api.store", "namespace", "play"),
         ("kofin.sync.backends.api.identity", "native_id_for", "play"),
@@ -448,6 +446,14 @@ def test_prefetch_segments_warm_path(monkeypatch):
     )
     segments = play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"})
     assert segments == [{"Type": "Introduction", "Start": 0.0, "End": 30.0}]
+
+
+def test_prefetch_segments_asks_for_the_version_that_plays(monkeypatch):
+    monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
+    api = FakeApi(media_segments={"Items": []})
+    play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"}, "e1-uncensored")
+    play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"})
+    assert api.args("media_segments") == [("e1-uncensored",), ("e1",)]
 
 
 def test_prefetch_segments_skips_non_video_and_disabled(monkeypatch):
@@ -964,6 +970,32 @@ def test_a_movie_kodi_has_no_versions_of_asks_which_to_play(versions_env):
     assert claimed["Streams"]["Request"]["mediasourceid"] == "src-uhd"
 
 
+def test_the_picked_version_brings_its_own_segments(versions_env, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(
+        play,
+        "prefetch_segments",
+        lambda api, item, source_id="": fetched.append(source_id) or [],
+    )
+    versions_env["dialog"].select_answers = [1]
+    run_play({"id": "m1"}, resume=False)
+    assert fetched == ["src-uhd"]
+    claimed = play.state.claim_play_item("http://s/stream")
+    assert claimed is not None and claimed["Segments"] == []
+
+
+def test_a_play_without_versions_fetches_the_items_segments(versions_env, monkeypatch):
+    fetched = []
+    monkeypatch.setattr(
+        play,
+        "prefetch_segments",
+        lambda api, item, source_id="": fetched.append(source_id) or [],
+    )
+    versions_env["features"].add("video_versions")
+    run_play({"id": "m1"}, resume=False)
+    assert fetched == ["m1"]
+
+
 def test_a_cancelled_version_choice_plays_nothing_and_reports_no_error(versions_env):
     versions_env["dialog"].select_answers = [-1]
     run_play({"id": "m1"}, resume=False)
@@ -1049,6 +1081,27 @@ def test_a_downloaded_movie_plays_its_download_without_asking(
     run_play({"id": "m1"}, resume=False)
     assert versions_env["dialog"].selects == []
     assert versions_env["asked"] == []
+    # The download is the first source, and Play Next follows it by name.
+    claimed = play.state.claim_play_item("/dl/m1.mkv")
+    assert claimed is not None and claimed["MediaSourceName"] == "1080p"
+
+
+@pytest.mark.parametrize(
+    "params, downloaded",
+    [({"unattended": "1"}, False), ({"mediasourceid": "src-hd"}, False), ({}, True)],
+)
+def test_a_play_that_does_not_ask_still_spends_play_nexts_hint(
+    versions_env, monkeypatch, params, downloaded
+):
+    versions_env["api"]._item["Type"] = "Episode"
+    if downloaded:
+        monkeypatch.setattr(play, "downloaded_file", lambda item_id: "/dl/m1.mkv")
+        monkeypatch.setattr(
+            play, "catalogue_item", lambda item_id: versions_env["api"]._item
+        )
+    play.state.follow_version("m1", "2160p")
+    run_play(dict({"id": "m1"}, **params), resume=False)
+    assert play.state.followed_version("m1") is None
 
 
 def test_unreadable_row_falls_back_to_the_server_position(resume_env, monkeypatch):

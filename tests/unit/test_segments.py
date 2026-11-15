@@ -789,7 +789,7 @@ def test_play_next_has_the_next_episode_follow_the_playing_version(engine):
     assert state.followed_version("ep2") is None
 
 
-def test_play_next_of_a_single_version_episode_still_asks_nothing(engine):
+def test_play_next_of_an_unnamed_version_leaves_an_empty_name(engine):
     from kofin.core import state
 
     engine.arm([], next_episode=NEXT_EPISODE)
@@ -966,6 +966,17 @@ def test_prepare_falls_back_to_service_fetch(engine):
     engine.segments.prepare_segment_state(threading.Event())
     assert engine.segments._segments_loaded
     assert engine.segments._segments[0]["Type"] == "Introduction"
+
+
+def test_the_service_fetch_asks_for_the_playing_versions_segments(engine):
+    engine.player._item = {
+        "Id": "ep1",
+        "Type": "Episode",
+        "SeriesId": "show1",
+        "MediaSourceId": "ep1-uncensored",
+    }
+    engine.segments.prepare_segment_state(threading.Event())
+    assert ("media_segments", "ep1-uncensored") in engine.api.calls
 
 
 def test_prepare_retries_once_then_degrades(engine):
