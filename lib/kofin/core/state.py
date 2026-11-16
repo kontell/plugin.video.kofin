@@ -118,6 +118,16 @@ PROP_LISTING_FLIGHT = "kofin.listing.flight"
 # never race on a read and an increment.
 PROP_QUEUE_OWNER = "kofin.queue.owner"
 
+# The version Play Next has the next episode play (service/segments.py,
+# plugin/versions.py). Earns its place because Play Next plays the
+# episode's library path, which Kodi matches its row by and which carries no
+# parameter of kofin's: the service that starts the play and the plugin
+# process that resolves it share nothing else. A hint older than
+# NEXT_VERSION_TTL_SECONDS is a Play Next that never reached the play route,
+# and a person starting that episode later is asked.
+PROP_NEXT_VERSION = "kofin.next.version"
+NEXT_VERSION_TTL_SECONDS = 60
+
 # The lyrics channel. These earn their place for the same reason as
 # PROP_CONTEXT_BITRATES: a skin or a script can only read window properties,
 # and lyrics cannot reach one any other way -- Kodi's music database has no
@@ -473,6 +483,28 @@ def clear_playing_id() -> None:
     _window().clearProperty(PROP_PLAYING_ID)
 
 
+def follow_version(item_id: str, name: str) -> None:
+    """Have the next play of ``item_id`` take its version called ``name``
+    without asking, or the server's default when it has none by that name."""
+    _publish_json(PROP_NEXT_VERSION, {"Id": item_id, "Name": name, "At": time.time()})
+
+
+def followed_version(item_id: str) -> Optional[str]:
+    """The version name Play Next left for the play of ``item_id``, taken
+    once; None when that play is not one Play Next started."""
+    hint = _json(PROP_NEXT_VERSION, dict)
+    if not item_id or hint.get("Id") != item_id:
+        return None
+    _window().clearProperty(PROP_NEXT_VERSION)
+    try:
+        age = time.time() - float(hint.get("At") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= age <= NEXT_VERSION_TTL_SECONDS:
+        return None
+    return str(hint.get("Name") or "")
+
+
 def set_native_hold(scanner: str) -> str:
     """Start a hold on the named scanner; returns the token to release it by."""
     token = scanner + ":" + uuid.uuid4().hex
@@ -642,6 +674,7 @@ def clear_all() -> None:
         PROP_MENU_WHO,
         PROP_MENU_SYNCPLAY,
         PROP_SYNCSESSION,
+        PROP_NEXT_VERSION,
     ]
     for prop in props:
         window.clearProperty(prop)

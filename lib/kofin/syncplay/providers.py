@@ -16,7 +16,7 @@ from typing import Optional, Protocol, TypedDict
 from urllib.parse import quote
 
 from kofin.core.log import Logger
-from kofin.core.urls import plugin_url
+from kofin.core.urls import PARAM_UNATTENDED, plugin_url
 from kofin.syncplay.ports import JsonDict, SyncPlayApi
 
 LOG = Logger(__name__)
@@ -77,7 +77,8 @@ class JellyfinProvider:
         if not item:
             raise LookupError("item lookup failed")
 
-        params = {"mode": "play", "id": str(key)}
+        # A group start is nobody's at this Kodi: the play route asks nothing.
+        params = {"mode": "play", "id": str(key), PARAM_UNATTENDED: "1"}
 
         # Always sent, and never negative: omitted, the play route falls back
         # to the member's own resume point; and the estimate can extrapolate

@@ -4,6 +4,7 @@ v1.0.0
 - New and changed items reach Kodi sooner.
 - Home screen widgets show edited titles and artwork straight away.
 - Removing an artist on the server removes its albums from Kodi.
+- Choose which version of a movie or episode to play when Kodi does not offer the choice itself.
 
 v0.96.8
 - Logging in as another account replaces the previous account's library.

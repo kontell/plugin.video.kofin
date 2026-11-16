@@ -1,8 +1,9 @@
 """Playback resolve: PlaybackInfo -> stream URL -> setResolvedUrl.
 
-No interactive dialogs in this path — the device profile decides everything.
-The resolved play's state is queued for the service-side player to claim and
-report (state.push_play_item).
+The device profile decides how an item is served. The one question this path
+asks is which version to play, of an item Kodi has no versions of
+(plugin/versions.py). The resolved play's state is queued for the service-side
+player to claim and report (state.push_play_item).
 """
 
 import os
@@ -26,9 +27,10 @@ from kofin.core.urls import (
     PARAM_MEDIA_SOURCE,
     PARAM_SUBTITLE_INDEX,
     PARAM_TRANSCODE,
+    PARAM_UNATTENDED,
     STREAM_REQUEST_PARAMS,
 )
-from kofin.plugin import listitems, subtitles
+from kofin.plugin import listitems, subtitles, versions
 from kofin.plugin.listitems import AUDIO_TYPES
 from kofin.sync import private
 from kofin.plugin.router import Request
@@ -350,6 +352,8 @@ def play_state(
         "PlayMethod": play_method,
         "PlaySessionId": play_session_id,
         "MediaSourceId": source.get("Id", ""),
+        # The version Play Next has the next episode follow.
+        "MediaSourceName": source.get("Name", ""),
         "DeviceId": device_id,
         "Runtime": int(source.get("RunTimeTicks") or item.get("RunTimeTicks") or 0),
         "AudioStreamIndex": source.get("DefaultAudioStreamIndex"),
@@ -385,11 +389,16 @@ def play_state(
     return play_item
 
 
-def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
+def prefetch_segments(
+    api: Api, item: JsonDict, source_id: str = ""
+) -> Optional[list[JsonDict]]:
     """Warm the media-segments fetch on the play path: the parsed
     segments ride the play-state queue so the service-side checker is armed
     before the first frame, killing the t≈0 Intro race. None on failure —
-    the service then falls back to its own bounded-retry fetch."""
+    the service then falls back to its own bounded-retry fetch.
+
+    The segments are those of the source that plays: Jellyfin keeps a
+    version's segments under its own item id, which is its source id."""
     if item.get("Type") not in ("Movie", "Episode"):
         return []
     if not settings.get_bool("mediaSegmentsEnabled"):
@@ -397,7 +406,7 @@ def prefetch_segments(api: Api, item: JsonDict) -> Optional[list[JsonDict]]:
     from kofin.core.segments import parse_segments
 
     try:
-        return parse_segments(api.media_segments(item.get("Id", "")))
+        return parse_segments(api.media_segments(source_id or item.get("Id", "")))
     except Exception as error:
         LOG.debug("segments prefetch failed for %s: %s", item.get("Id"), error)
         return None
@@ -639,11 +648,16 @@ def resolve_downloaded(
     LOG.debug("play %s via Download", item.get("Id", ""))
     sources = item.get("MediaSources") or [{}]
     # The claim shape the streamed play pushes: DirectPlay, since Kodi opens
-    # the file; the "source" is the id alone, so the runtime is the item's
-    # and no server-side default track index rides along.
+    # the file. The "source" is the downloaded one's id and the name Play
+    # Next follows, nothing else, so the runtime is the item's and no
+    # server-side default track index rides along; a download is always of
+    # the item's first source.
     play_item = play_state(
         item,
-        {"Id": sources[0].get("Id") or item.get("Id", "")},
+        {
+            "Id": sources[0].get("Id") or item.get("Id", ""),
+            "Name": sources[0].get("Name", ""),
+        },
         path,
         "DirectPlay",
         uuid4().hex,
@@ -678,6 +692,9 @@ def play(request: Request) -> None:
     if key and key != namespace(creds.server_id, creds.user_id):
         _fail(request)
         return
+    # Play Next's hint is spent by this play whichever way it goes, so a
+    # later play of the item asks.
+    followed = state.followed_version(item_id)
     # A play from a library row: its URL is the provider's, or names the row
     # outright. Only such a play resumes at Kodi's bookmark
     # (resume_start_ticks); the native id found below is stamped on every
@@ -755,8 +772,19 @@ def play(request: Request) -> None:
                 request.params["dbid"] = str(native_id)
             else:
                 request.params.pop("dbid", None)
+        if not local_path and not request.params.get(PARAM_MEDIA_SOURCE):
+            chosen = versions.choose(
+                item, request.params.get(PARAM_UNATTENDED) == "1", followed
+            )
+            if chosen is None:
+                LOG.debug("no version chosen for %s", item_id)
+                _unresolved(request)
+                return
+            if chosen:
+                request.params[PARAM_MEDIA_SOURCE] = chosen
+        source_id = request.params.get(PARAM_MEDIA_SOURCE) or item_id
         segments_thread = threading.Thread(
-            target=lambda: segments_box.append(prefetch_segments(api, item)),
+            target=lambda: segments_box.append(prefetch_segments(api, item, source_id)),
             name="kofin-segments-prefetch",
             daemon=True,
         )
@@ -951,9 +979,14 @@ def _close_live_stream(api: Api, live_stream_id: str) -> None:
         LOG.warning("live stream close failed: %s", error)
 
 
+def _unresolved(request: Request) -> None:
+    """Answer the handle, when there is one, with nothing to play."""
+    if request.handle >= 0:
+        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
+
+
 def _fail(request: Request, message_id: int = 30018) -> None:
     """A failed resolve: the handle answered with nothing, and a toast that
     says why — the server, or (30720) an offline play with no download."""
-    if request.handle >= 0:
-        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
+    _unresolved(request)
     toast.show(settings.localized(message_id), toast.ERROR, time_ms=4000)

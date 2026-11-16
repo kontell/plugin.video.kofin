@@ -356,7 +356,11 @@ class SegmentEngine:
                 if halt.is_set():
                     return
                 try:
-                    segments = parse_segments(self.api.media_segments(item["Id"]))
+                    # The version that plays: its segments are under its
+                    # own item id, which is its source id.
+                    segments = parse_segments(
+                        self.api.media_segments(item.get("MediaSourceId") or item["Id"])
+                    )
                     break
                 except Exception as error:
                     LOG.warning(
@@ -822,6 +826,8 @@ class SegmentEngine:
         url = library_video_path(item_id, "episode") or plugin_url(
             {"mode": "play", "id": item_id}
         )
+        playing = self.player.current_item() or {}
+        state.follow_version(item_id, str(playing.get("MediaSourceName") or ""))
         xbmc.executebuiltin('PlayMedia("%s",noresume)' % url)
 
     def _notify(self, message: str, level: str = toast.INFO) -> None:
