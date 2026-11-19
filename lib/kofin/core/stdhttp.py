@@ -303,6 +303,7 @@ class StdlibHttp(Http):
         """The exchange itself, on the watched connection: the answer and its
         body."""
         connection = watch.connection
+        self._refuse_if_stopped(method, url)
         try:
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
@@ -315,11 +316,7 @@ class StdlibHttp(Http):
             watch.on(connection)
             # The watcher may have fired while the replacement connected,
             # finding no socket to shut; it is not watching any more.
-            if watch.fired:
-                self._drop()
-                raise Abandoned(
-                    "%s %s: abandoned while stopping (%s)" % (method, url, error)
-                ) from error
+            self._refuse_if_stopped(method, url)
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
 
@@ -329,6 +326,15 @@ class StdlibHttp(Http):
             self._drop()
             raise
         return raw, payload
+
+    def _refuse_if_stopped(self, method: str, url: str) -> None:
+        """Send nothing once the stop has risen, asked again right before the
+        send: it can rise while the connection is made, before the watcher
+        is there to see it, and a request sent then sets the server to work
+        (PlaybackInfo opens a live stream) for an answer nobody reads."""
+        if self._abort is not None and self._abort():
+            self._drop()
+            raise Abandoned("%s %s: not sent, stopping" % (method, url))
 
     @contextmanager
     def _watched(self, connection: http.client.HTTPConnection) -> Iterator[_Watch]:

@@ -553,3 +553,22 @@ def test_a_stop_during_the_body_of_a_closing_answer_ends_the_read(monkeypatch):
         released.set()
         server.join()
         listener.close()
+
+
+def test_a_stop_raised_while_connecting_sends_nothing(monkeypatch):
+    """The watcher starts once the connection is made, so the send asks
+    again: a request sent after the stop sets the server to work for an
+    answer nobody reads."""
+    stop = {"raised": False}
+
+    class SlowConnect(FakeConnection):
+        def connect(self):
+            stop["raised"] = True  # Back pressed during the handshake
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", SlowConnect)
+    transport = stdhttp.StdlibHttp(abort=lambda: stop["raised"])
+    with pytest.raises(http_module.Abandoned):
+        transport.request("POST", "http://s/Items/x/PlaybackInfo", retries=0)
+    connection = SlowConnect.instances[-1]
+    assert connection.requests == []
+    assert connection.closed
