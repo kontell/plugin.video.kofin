@@ -312,7 +312,7 @@ class StdlibHttp(Http):
                 raise
             LOG.debug("pooled connection was dead; reconnecting for %s", url)
             connection, _ = self._connection(origin, connect_timeout, read_timeout)
-            watch.connection = connection
+            watch.on(connection)
             # The watcher may have fired while the replacement connected,
             # finding no socket to shut; it is not watching any more.
             if watch.fired:
@@ -364,7 +364,7 @@ class StdlibHttp(Http):
                 if not abort():
                     continue
                 watch.fired = True
-                sock = watch.connection.sock
+                sock = watch.sock
                 if sock is not None:
                     try:
                         socket.socket.shutdown(sock, socket.SHUT_RDWR)
@@ -384,11 +384,20 @@ class StdlibHttp(Http):
 
 class _Watch:
     """A request in flight under a stop check: the connection it is on, which
-    the free retry replaces, and whether the watcher cut it short."""
+    the free retry replaces, its socket, and whether the watcher cut it short.
+
+    The socket is held from when the connection was made, not read off it at
+    the stop: an answer that closes the connection (``will_close``) has
+    ``getresponse()`` close the connection, leaving ``connection.sock`` None
+    while the body is still read from that socket."""
 
     def __init__(self, connection: http.client.HTTPConnection) -> None:
-        self.connection = connection
         self.fired = False
+        self.on(connection)
+
+    def on(self, connection: http.client.HTTPConnection) -> None:
+        self.connection = connection
+        self.sock = connection.sock
 
 
 def _split(url: str, params: dict[str, Any] | None) -> tuple[tuple[str, str, int], str]:

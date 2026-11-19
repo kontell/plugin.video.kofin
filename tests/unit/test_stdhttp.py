@@ -18,6 +18,10 @@ import pytest
 from kofin.core import http as http_module
 from kofin.core import stdhttp
 
+# Taken before the autouse fixture swaps in the fakes, for the tests that
+# need http.client's own handling of a real socket.
+REAL_HTTP_CONNECTION = http.client.HTTPConnection
+
 
 class FakeRaw:
     """What http.client hands back."""
@@ -511,3 +515,41 @@ def test_no_watcher_outlives_its_request():
     transport = stdhttp.StdlibHttp(abort=lambda: False)
     assert transport.request("GET", "http://s/Items").status_code == 200
     assert _watchers() == []
+
+
+def test_a_stop_during_the_body_of_a_closing_answer_ends_the_read(monkeypatch):
+    """An answer that closes the connection leaves connection.sock None once
+    its headers are read, and the body is still read from that socket."""
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", REAL_HTTP_CONNECTION)
+    listener = socket.create_server(("127.0.0.1", 0))
+    released = threading.Event()
+
+    def serve():
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(65536)
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n"
+                b"Content-Length: 100\r\n\r\n"  # and the body withheld
+            )
+            released.wait(10)
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    stop = threading.Event()
+    transport = stdhttp.StdlibHttp(abort=stop.is_set)
+    threading.Timer(0.3, stop.set).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(http_module.Abandoned):
+            transport.request(
+                "GET",
+                "http://127.0.0.1:%d/Items" % listener.getsockname()[1],
+                timeout=(1.0, 5.0),
+            )
+        assert time.monotonic() - started < 1.5  # not the 5 s read budget
+        assert _watchers() == []
+    finally:
+        released.set()
+        server.join()
+        listener.close()
