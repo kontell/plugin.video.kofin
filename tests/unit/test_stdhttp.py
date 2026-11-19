@@ -9,6 +9,9 @@ one connection without inheriting a dead one.
 """
 
 import http.client
+import socket
+import threading
+import time
 
 import pytest
 
@@ -441,3 +444,70 @@ def test_the_transport_imports_without_requests():
         "transport'" % lib
     )
     subprocess.check_call([sys.executable, "-c", code])
+
+
+# -- a stop while a request waits --------------------------------------------
+#
+# The play route wires Kodi's stop check in. Kodi's GUI thread waits for a
+# stopped script and every thread it started, and a socket read cannot hear a
+# flag, so the transport has to end the wait itself.
+
+
+class SilentConnection(FakeConnection):
+    """A server that has the request and never answers: getresponse() blocks
+    reading a real socket, as http.client's does, until it is shut down."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sock, self._server_end = socket.socketpair()
+        self.sock.settimeout(5.0)
+
+    def getresponse(self):
+        if not self.sock.recv(1):
+            raise http.client.RemoteDisconnected("closed without response")
+        return FakeRaw()
+
+    def close(self):
+        super().close()
+        self.sock.close()
+        self._server_end.close()
+
+
+def _watchers():
+    return [
+        thread for thread in threading.enumerate() if thread.name == "kofin-http-stop"
+    ]
+
+
+def test_a_stop_while_the_server_works_abandons_the_request_at_once(monkeypatch):
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", SilentConnection)
+    stop = threading.Event()
+    transport = stdhttp.StdlibHttp(abort=stop.is_set)
+    threading.Timer(0.2, stop.set).start()
+    started = time.monotonic()
+
+    with pytest.raises(http_module.Abandoned):
+        transport.request("GET", "http://s/Items", timeout=(1.0, 5.0))
+
+    # Well inside the 5 s read budget, which a blocked read would have spent.
+    assert time.monotonic() - started < 1.0
+    # Dropped rather than offered to the next call with an answer still owed.
+    assert SilentConnection.instances[-1].closed
+    assert _watchers() == []
+
+
+def test_nothing_is_sent_once_the_stop_is_raised():
+    """The route is being stopped and Kodi's GUI waits on it, so a request
+    made now is refused before a connection is opened."""
+    transport = stdhttp.StdlibHttp(abort=lambda: True)
+    with pytest.raises(http_module.Abandoned):
+        transport.request("GET", "http://s/Items")
+    assert FakeConnection.instances == []
+    assert _watchers() == []
+
+
+def test_no_watcher_outlives_its_request():
+    """Kodi does not finish a script while a thread it started is alive."""
+    transport = stdhttp.StdlibHttp(abort=lambda: False)
+    assert transport.request("GET", "http://s/Items").status_code == 200
+    assert _watchers() == []

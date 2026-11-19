@@ -329,7 +329,8 @@ def test_a_stopping_service_abandons_the_ladder_instead_of_replaying(monkeypatch
     monkeypatch.setattr(transport, "session", lambda: session)
 
     stopping["yes"] = True
-    with pytest.raises(http.ServerUnreachable) as raised:
+    # Its own type, so a caller can tell a stop from an outage.
+    with pytest.raises(http.Abandoned) as raised:
         transport.request("GET", "http://s/x")
 
     assert len(session.calls) == 1  # the one in flight, and no replay

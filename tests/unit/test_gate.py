@@ -239,3 +239,40 @@ def test_a_request_turned_away_has_imported_none_of_the_rest_of_kofin():
         "assert loaded == ['kofin', 'kofin.plugin', 'kofin.plugin.gate'], loaded\n"
     ) % (str(ROOT / "lib"), str(ROOT / "default.py"))
     subprocess.check_call([sys.executable, "-c", code])
+
+
+class _Monitor:
+    made = 0
+
+    def __init__(self):
+        _Monitor.made += 1
+
+    def abortRequested(self):
+        return False
+
+
+def test_a_play_carries_a_stop_check_from_the_entry_script(ended, monkeypatch):
+    """Kodi raises a stop only on the Monitors alive when it stops the
+    script, so a play's is made before kofin's imports, not in the route."""
+    import xbmc
+
+    _Monitor.made = 0
+    monkeypatch.setattr(xbmc, "Monitor", _Monitor)
+    seen = []
+    _run_default(monkeypatch, [BASE, "7", "?mode=play&id=x"], seen.append)
+    assert _Monitor.made == 1
+    assert seen[0].stop() is False
+
+
+def test_a_listing_makes_no_monitor(ended, monkeypatch):
+    """A Monitor nobody waits on costs every Python thread in Kodi a step per
+    announcement, and a skin asks for listings constantly."""
+    import xbmc
+
+    _Monitor.made = 0
+    monkeypatch.setattr(xbmc, "Monitor", _Monitor)
+    seen = []
+    for query in ("?mode=browse&view=a", "?mode=playall&id=x", ""):
+        _run_default(monkeypatch, [BASE, "7", query], seen.append)
+    assert _Monitor.made == 0
+    assert [request.stop for request in seen] == [None, None, None]

@@ -194,11 +194,14 @@ class Api:
         )
 
     @classmethod
-    def for_plugin(cls, creds: Credentials) -> "Api":
+    def for_plugin(
+        cls, creds: Credentials, abort: Optional[Callable[[], bool]] = None
+    ) -> "Api":
         """The plugin process's client: the stdlib transport and the
-        interactive retry and timeout budget."""
+        interactive retry and timeout budget. ``abort`` is the route's stop
+        check, for a route Kodi can stop while it waits (the play resolve)."""
         return cls.from_credentials(
-            plugin_transport(settings.user_agent()),
+            plugin_transport(settings.user_agent(), abort=abort),
             creds,
             interactive=True,
         )

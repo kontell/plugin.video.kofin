@@ -56,6 +56,14 @@ class ServerUnreachable(JellyfinError):
     pass
 
 
+class Abandoned(ServerUnreachable):
+    """The caller's stop request ended the exchange, not the server.
+
+    A ServerUnreachable so every existing handler still treats it as a failed
+    request; its own type so a caller can tell a cancel from an outage and
+    say nothing to the viewer about it."""
+
+
 class Unauthorized(JellyfinError):
     pass
 
@@ -84,14 +92,14 @@ def run_ladder(
     for attempt_index in range(retries + 1):
         if attempt_index:
             if abort is not None and abort():
-                raise ServerUnreachable(
+                raise Abandoned(
                     "%s %s: abandoned while stopping (%s)" % (method, url, last_error)
                 )
             delay = BACKOFF_BASE_SECONDS * (2 ** (attempt_index - 1))
             time.sleep(delay + random.uniform(0, delay / 2))
             # sleep() cannot see the flag; check again.
             if abort is not None and abort():
-                raise ServerUnreachable(
+                raise Abandoned(
                     "%s %s: abandoned while stopping (%s)" % (method, url, last_error)
                 )
         try:
@@ -152,18 +160,23 @@ def run_ladder(
     raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
-def plugin_transport(user_agent: str = "") -> Http:
+def plugin_transport(
+    user_agent: str = "", abort: Callable[[], bool] | None = None
+) -> Http:
     """The transport for the *plugin* process.
 
     Standard library rather than ``requests``, because the requests import is
     paid on every cold click (kofin/core/stdhttp.py explains the split).
+    ``abort`` is the route's stop check; with one, a request in flight when
+    Kodi stops the script is abandoned rather than awaited, and none is sent
+    after it (see ``StdlibHttp``).
 
     Imported here rather than at module load so this module stays free of
     both trees until something actually asks for one.
     """
     from kofin.core.stdhttp import StdlibHttp
 
-    return StdlibHttp(user_agent)
+    return StdlibHttp(user_agent, abort=abort)
 
 
 class StreamedResponse:
