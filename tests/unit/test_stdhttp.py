@@ -572,3 +572,44 @@ def test_a_stop_raised_while_connecting_sends_nothing(monkeypatch):
     connection = SlowConnect.instances[-1]
     assert connection.requests == []
     assert connection.closed
+
+
+def test_a_deadline_check_cuts_an_answer_trickling_in(monkeypatch):
+    """A connect and a read budget bound each wait, not the exchange: a server
+    sending a byte inside every read budget keeps a request going. A check
+    that rises at a deadline ends it there, however the server answers."""
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", REAL_HTTP_CONNECTION)
+    listener = socket.create_server(("127.0.0.1", 0))
+    released = threading.Event()
+
+    def serve():
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(65536)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+            for _ in range(100):  # a byte every 0.2 s: 20 s for the body
+                if released.wait(0.2):
+                    return
+                try:
+                    conn.sendall(b".")
+                except OSError:
+                    return
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    started = time.monotonic()
+    transport = stdhttp.StdlibHttp(abort=lambda: time.monotonic() - started > 0.5)
+    try:
+        with pytest.raises(http_module.Abandoned):
+            transport.request(
+                "POST",
+                "http://127.0.0.1:%d/LiveStreams/Close" % listener.getsockname()[1],
+                timeout=(2.0, 3.0),
+                retries=0,
+            )
+        assert time.monotonic() - started < 1.5
+        assert _watchers() == []
+    finally:
+        released.set()
+        server.join()
+        listener.close()

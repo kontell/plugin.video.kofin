@@ -2041,6 +2041,35 @@ def test_a_stop_raised_mid_resolve_hands_nothing_on(live_env, stop_flag, monkeyp
     assert _claim() is None
 
 
+def test_a_stopped_plays_close_runs_to_a_deadline(live_env, stop_flag, monkeypatch):
+    """A connect and a read budget are not a deadline: a server answering
+    slowly can stretch them. The close's transport is cut once
+    CLOSE_DEADLINE_SECONDS have passed, as a stopped request is."""
+    clock = {"now": 100.0}
+    monkeypatch.setattr(play.time, "monotonic", lambda: clock["now"])
+    api = live_env["api"]
+    closers = []
+
+    def close(stream_id, timeout=None):
+        closers.append(live_env["wired"]["abort"])
+
+    api.close_live_stream = close
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        stop_flag["raised"] = True
+        return info
+
+    api.playback_info = playback_info
+    run_play({"id": "c1"}, resume=False)
+    [deadline] = closers
+    assert deadline() is False  # the close may still be sent
+    clock["now"] += play.CLOSE_DEADLINE_SECONDS + 0.01
+    assert deadline() is True
+
+
 def test_a_play_cancelled_while_it_imported_asks_nothing(
     resume_env, stop_flag, monkeypatch
 ):

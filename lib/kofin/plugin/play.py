@@ -8,6 +8,7 @@ player to claim and report (state.push_play_item).
 
 import os
 import threading
+import time
 from collections.abc import Callable
 from typing import Any, Optional
 from uuid import uuid4
@@ -1016,6 +1017,13 @@ def _stop_check() -> Callable[[], bool]:
     return xbmc.Monitor().abortRequested
 
 
+# How long a stopped play's live-stream close may take, start to finish. Kodi's
+# GUI is waiting for the thread that sends it, so it is a deadline rather than
+# a connect and a read budget, which a server can stretch by answering slowly.
+# A server that answers at all answers a close in a round trip.
+CLOSE_DEADLINE_SECONDS = 2.0
+
+
 def _abandon(
     request: Request,
     creds: Credentials,
@@ -1030,10 +1038,13 @@ def _abandon(
     LOG.debug("play %s abandoned (%s)", item_id, reason)
     if live_stream_id:
         # On a transport of its own: the route's sends nothing once the stop
-        # is raised, and this has to reach the server to free the tuner. On
-        # the teardown budget, not the interactive 30 s read: Kodi's GUI is
-        # waiting for this thread, and a close that fails is only logged.
-        _close_live_stream(Api.for_plugin(creds), live_stream_id, LEAVE_TIMEOUT)
+        # is raised, and this has to reach the server to free the tuner. Its
+        # own stop check is the deadline, so the watcher that cuts a stopped
+        # request cuts this one when the deadline passes; a close that fails
+        # is only logged.
+        deadline = time.monotonic() + CLOSE_DEADLINE_SECONDS
+        closer = Api.for_plugin(creds, abort=lambda: time.monotonic() > deadline)
+        _close_live_stream(closer, live_stream_id, LEAVE_TIMEOUT)
     _unresolved(request)
 
 
