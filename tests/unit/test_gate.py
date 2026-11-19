@@ -181,8 +181,10 @@ def _run_default(monkeypatch, argv, handler):
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(router, "_resolve", lambda mode: handler)
     path = str(ROOT / "default.py")
+    namespace = {"__file__": path}
     with open(path, encoding="utf-8") as source:
-        exec(compile(source.read(), path, "exec"), {"__file__": path})
+        exec(compile(source.read(), path, "exec"), namespace)
+    return namespace
 
 
 def test_the_entry_script_holds_a_slot_for_as_long_as_the_listing_is_built(
@@ -319,3 +321,27 @@ def test_a_listing_or_a_probe_makes_no_monitor(ended, monkeypatch):
         _run_default(monkeypatch, [BASE, "7", query], seen.append)
     assert _Monitor.made == 0
     assert [request.stop for request in seen] == [None, None, None, None]
+
+
+def test_the_parked_interpreter_keeps_no_monitor(ended, monkeypatch):
+    """With <reuselanguageinvoker> Kodi parks the interpreter with default.py's
+    globals, and nothing on a parked thread takes a Monitor's callbacks off."""
+    import gc
+    import weakref
+
+    import xbmc
+
+    alive = weakref.WeakSet()
+
+    class Monitor(_Monitor):
+        def __init__(self):
+            super().__init__()
+            alive.add(self)
+
+    monkeypatch.setattr(xbmc, "Monitor", Monitor)
+    namespace = _run_default(
+        monkeypatch, [BASE, "7", "?mode=play&id=x"], lambda request: None
+    )
+    gc.collect()
+    assert namespace["_STOP"] is None
+    assert len(alive) == 0

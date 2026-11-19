@@ -26,4 +26,8 @@ if _flight is not None:
 
         dispatch(sys.argv, stop=_STOP)
     finally:
+        # A reused interpreter parks with this module's globals, and a Monitor
+        # kept in one collects a callback per announcement until the next
+        # script runs; the Request that also held the check died with the call.
+        _STOP = None
         gate.leave(_flight)
