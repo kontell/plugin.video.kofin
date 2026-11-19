@@ -1,3 +1,6 @@
+v1.0.1
+- Several new movies or episodes are added faster, with less flicker on the home screen.
+
 v1.0.0
 - The server's certificate is always checked. "Verify SSL certificate" is gone.
 - A certificate authority given to Kodi is trusted, including through a proxy.

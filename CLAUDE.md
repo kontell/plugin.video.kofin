@@ -482,6 +482,15 @@ What remains is kofin's own:
   folder whose listing matches its stored hash, and a folder scan stores Kodi's own hash of
   the listing where a root scan stores the provider's; the next root scan lists that show
   once more for it.
+- **A pass's folders under one library root are scanned as one multipath, within a budget of
+  listings** (`Native.scan_units`, `paths.multipath`, `MULTIPATH_LISTINGS`). How Kodi scans a
+  `multipath://` directory, and why a listing made before the scan has to outlast all of it, is
+  in `kodi-library-data`'s plugin-sources page. New movies' folders, the show folders of new
+  episodes and the asset folders end in one `OnScanFinished` per root instead of one each: ten
+  folders took 18.3 s and 60 widget listings one at a time on the LibreELEC box, 2.0 s and 6 as
+  one scan; 12.9 s against 1.0 s on the Bravia. A folder counts one listing and an extras folder
+  four, its `_prepare_scan` probes with it; past the budget the last folders' extras are phantom
+  discs. A root, an extras directory and another source's directory are scanned alone.
 - **An empty premiere or aired date is no opinion, never a patch.** Kodi fills a missing date
   itself (its zero date on the P1D, which reads back empty; a sibling's date on the LibreELEC
   box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a

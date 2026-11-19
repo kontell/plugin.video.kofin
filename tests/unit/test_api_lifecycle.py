@@ -144,7 +144,8 @@ def test_a_new_episode_of_a_filed_show_is_scanned_by_the_show_s_folder(
 ):
     """The root's listing names every show of the library, built from the
     catalogue. A show Kodi already lists under our folder is found by its
-    folder's path, so its new episode is filed by a scan of that folder."""
+    folder's path, so its new episode is filed by a scan of that folder,
+    and the folders of two such shows are one scan."""
     store.publish(show_bundle() + show_bundle(SHOW2), library=LIB)
     backend.reconcile()
     root = paths.library_dir(store.namespace, LIB, "tvshows")
@@ -158,8 +159,12 @@ def test_a_new_episode_of_a_filed_show_is_scanned_by_the_show_s_folder(
     backend.reconcile()
 
     assert kodi.scanned == [
-        paths.show_dir(store.namespace, LIB, SHOW),
-        paths.show_dir(store.namespace, LIB, SHOW2),
+        paths.multipath(
+            [
+                paths.show_dir(store.namespace, LIB, SHOW),
+                paths.show_dir(store.namespace, LIB, SHOW2),
+            ]
+        )
     ]
     assert {"ea13", "eb23"} <= set(kodi.owned("Episode"))
     assert not store.pending()
@@ -2209,15 +2214,16 @@ def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
 
 
 def test_two_new_movies_scanned_by_name_forget_their_root_once(store, backend, kodi):
-    """Kodi holds the root from the first import's scan; forgotten before the
-    first folder below it, it stays forgotten for the second."""
+    """Kodi holds the root from the first import's scan; it is forgotten
+    once, before the one scan of the two folders below it."""
     backend.setup()
     store.publish([movie(i) for i in "abc"], library=LIB)
     backend.reconcile()
     store.publish([movie(i) for i in "abcde"], library=LIB)
     backend.reconcile()
     folders = [paths.movie_dir(store.namespace, LIB, i) for i in "de"]
-    assert [f for f in kodi.scanned if f in folders] == folders
+    scans = [d for d in kodi.scanned if set(paths.folders_of(d)) & set(folders)]
+    assert [sorted(paths.folders_of(d)) for d in scans] == [folders]
     assert kodi.forgotten == [paths.library_dir(store.namespace, LIB, "movies")]
     assert kodi.skipped == []
     assert {"d", "e"} <= set(kodi.owned("Movie"))
