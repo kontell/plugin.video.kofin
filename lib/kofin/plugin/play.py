@@ -756,6 +756,10 @@ def play(request: Request) -> None:
     try:
         try:
             item = api.item(item_id)
+        except Abandoned:
+            # A fetch the stop cut short is no outage to play around: the
+            # play ends here, below.
+            raise
         except JellyfinError as error:
             if not local_path:
                 raise
@@ -817,6 +821,18 @@ def play(request: Request) -> None:
         # A download of an item the catalogue does not hold: the claim needs
         # the item DTO, so it is resolved here, with the start position.
         if local_path:
+            segments = _joined_segments(segments_thread, segments_box)
+            # The download is handed on without the checks further down, so
+            # it takes the last look here, after the last wait.
+            if stop():
+                _abandon(
+                    request,
+                    creds,
+                    opened_live_stream,
+                    item_id,
+                    "stopped before the download was handed on",
+                )
+                return
             resolve_downloaded(
                 request,
                 item,
@@ -825,7 +841,7 @@ def play(request: Request) -> None:
                 creds.device_id,
                 start_ticks,
                 dbid,
-                _joined_segments(segments_thread, segments_box),
+                segments,
             )
             return
 

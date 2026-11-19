@@ -2063,3 +2063,47 @@ def test_the_stop_check_default_py_made_is_the_one_used(resume_env, monkeypatch)
     play.play(Request("plugin://x/", 1, {"id": "ep1"}, False, stop=lambda: True))
     assert outcomes == [False]
     assert resume_env["wired"] == {}
+
+
+def test_a_cancel_never_falls_back_to_the_download(downloaded_env, monkeypatch):
+    """The download fallback is for a server that is not answering. A fetch
+    the stop cut short ends the play rather than resolving the file."""
+    from kofin.core import state
+    from kofin.core.http import Abandoned
+
+    outcomes, toasts = _outcomes(monkeypatch)
+    monkeypatch.setattr(play, "catalogue_item", lambda item_id: None)
+    monkeypatch.setattr(
+        play, "download_item", lambda item_id: {"Id": "ep1", "Type": "Episode"}
+    )
+
+    def abandoned(item_id):
+        raise Abandoned("GET /Items/ep1: abandoned while stopping")
+
+    downloaded_env["api"].item = abandoned
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert downloaded_env["li"].path == ""
+    assert state.claim_play_item("/dl/ep1.mp4") is None
+
+
+def test_a_stop_before_a_download_is_handed_on_resolves_nothing(
+    downloaded_env, stop_flag, monkeypatch
+):
+    from kofin.core import state
+
+    outcomes, toasts = _outcomes(monkeypatch)
+    monkeypatch.setattr(play, "catalogue_item", lambda item_id: None)
+    fetched = downloaded_env["api"].item
+
+    def item(item_id):
+        stop_flag["raised"] = True  # cancelled while the server answered
+        return fetched(item_id)
+
+    downloaded_env["api"].item = item
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert downloaded_env["li"].path == ""
+    assert state.claim_play_item("/dl/ep1.mp4") is None
