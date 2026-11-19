@@ -63,28 +63,50 @@ def bounded(argv: list[str]) -> str:
             return ""
     except ValueError:
         return ""
-    query = (argv[2] if len(argv) > 2 else "").lstrip("?").rstrip("/")
-    mode = ""
+    query = _query(argv)
+    params = _params(query)
+    if params.get("kodi_action") or params.get("mode", "") not in BOUNDED_MODES:
+        return ""
+    return argv[0] + "?" + query
+
+
+def plays(argv: list[str]) -> bool:
+    """Whether the request is a play, as dispatch will decide it but before
+    its imports, for the stop check default.py makes: ``mode=play``, or a
+    file under the native path (a song in its album directory, an extra in
+    its movie's extras folder, both named by the path alone). Never a
+    cleaner's ``kodi_action`` probe, which carries the stored play URL and
+    is routed to its own check."""
+    if not argv:
+        return False
+    params = _params(_query(argv))
+    if params.get("kodi_action"):
+        return False
+    if params.get("mode") == "play":
+        return True
+    return NATIVE_MARK in argv[0] and not argv[0].endswith("/")
+
+
+def _query(argv: list[str]) -> str:
+    return (argv[2] if len(argv) > 2 else "").lstrip("?").rstrip("/")
+
+
+def _params(query: str) -> dict[str, str]:
+    """The query's parameters as the router's ``parse_qsl`` reads them: the
+    last value of a name, a name with no value left out."""
     if "%" in query or "+" in query:
         # An escape somewhere in it: read as the router will, at the price
         # of the one import, so that an escaped name or value cannot make
         # the two disagree about which route this is.
         from urllib.parse import parse_qsl
 
-        params = dict(parse_qsl(query))
-        if params.get("kodi_action"):
-            return ""
-        mode = params.get("mode", "")
-    else:
-        for part in query.split("&"):
-            name, _, value = part.partition("=")
-            if name == "kodi_action" and value:
-                return ""
-            if name == "mode":
-                mode = value
-    if mode not in BOUNDED_MODES:
-        return ""
-    return argv[0] + "?" + query
+        return dict(parse_qsl(query))
+    params: dict[str, str] = {}
+    for part in query.split("&"):
+        name, _, value = part.partition("=")
+        if name and value:
+            params[name] = value
+    return params
 
 
 def _live(held: str, now: float) -> bool:

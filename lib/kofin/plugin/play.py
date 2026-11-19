@@ -8,6 +8,8 @@ player to claim and report (state.push_play_item).
 
 import os
 import threading
+import time
+from collections.abc import Callable
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -16,8 +18,8 @@ import xbmcgui
 import xbmcplugin
 
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
-from kofin.core.api import Api
-from kofin.core.http import JellyfinError
+from kofin.core.api import LEAVE_TIMEOUT, Api
+from kofin.core.http import Abandoned, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.core.urls import (
@@ -673,6 +675,12 @@ def resolve_downloaded(
 
 
 def play(request: Request) -> None:
+    stop = request.stop or _stop_check()
+    if stop():
+        # Cancelled while the interpreter was still importing: nothing has
+        # been asked of anyone yet.
+        _unresolved(request)
+        return
     # One connection to kofin.db for the life of this interpreter, as the
     # provider keeps.
     private.pool_connections(True)
@@ -732,7 +740,7 @@ def play(request: Request) -> None:
     except ValueError:
         bitrate_mbps = 0.0
 
-    api = Api.for_plugin(creds)
+    api = Api.for_plugin(creds, abort=stop)
     http = api.http
     # The media-segments prefetch shares nothing with PlaybackInfo or the
     # subtitle fetches, so it runs beside them instead of after them and its
@@ -749,6 +757,10 @@ def play(request: Request) -> None:
     try:
         try:
             item = api.item(item_id)
+        except Abandoned:
+            # A fetch the stop cut short is no outage to play around: the
+            # play ends here, below.
+            raise
         except JellyfinError as error:
             if not local_path:
                 raise
@@ -810,6 +822,18 @@ def play(request: Request) -> None:
         # A download of an item the catalogue does not hold: the claim needs
         # the item DTO, so it is resolved here, with the start position.
         if local_path:
+            segments = _joined_segments(segments_thread, segments_box)
+            # The download is handed on without the checks further down, so
+            # it takes the last look here, after the last wait.
+            if stop():
+                _abandon(
+                    request,
+                    creds,
+                    opened_live_stream,
+                    item_id,
+                    "stopped before the download was handed on",
+                )
+                return
             resolve_downloaded(
                 request,
                 item,
@@ -818,7 +842,7 @@ def play(request: Request) -> None:
                 creds.device_id,
                 start_ticks,
                 dbid,
-                _joined_segments(segments_thread, segments_box),
+                segments,
             )
             return
 
@@ -880,6 +904,9 @@ def play(request: Request) -> None:
             if force_xcode:
                 url = deny_video_stream_copy(url)
                 url = deny_audio_stream_copy(url)
+    except Abandoned as error:
+        _abandon(request, creds, opened_live_stream, item_id, str(error))
+        return
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
         _close_live_stream(api, opened_live_stream)
@@ -958,6 +985,14 @@ def play(request: Request) -> None:
         segments = _joined_segments(segments_thread, segments_box)
         if segments is not None:
             play_item["Segments"] = segments
+        # Last look before anything is handed on: a subtitle fetch the stop
+        # cuts short ends without an error, so nothing above has noticed it,
+        # and a play queued or resolved now is one nobody will watch.
+        if stop():
+            _abandon(
+                request, creds, opened_live_stream, item_id, "stopped after the fetches"
+            )
+            return
         state.push_play_item(play_item)
     except Exception:
         # Nothing will play or report what PlaybackInfo opened.
@@ -967,14 +1002,62 @@ def play(request: Request) -> None:
     _resolve_to(request, li, url)
 
 
-def _close_live_stream(api: Api, live_stream_id: str) -> None:
+def _stop_check() -> Callable[[], bool]:
+    """Whether Kodi has asked this resolve to stop: the viewer cancelled its
+    busy dialog, or Kodi is going down. For a play reached without the check
+    default.py makes before its imports.
+
+    Kodi's GUI thread waits up to five seconds for a script it stops, and for
+    every thread that script started, so each step the resolve takes after
+    the stop is a step of frozen GUI. Kodi raises the flag only on the
+    Monitors alive when it stops the script
+    (``XBPython::NotifyScriptAborting``): one made after a cancel never hears
+    it, which is why default.py makes a play's first.
+    """
+    return xbmc.Monitor().abortRequested
+
+
+# How long a stopped play's live-stream close may take, start to finish. Kodi's
+# GUI is waiting for the thread that sends it, so it is a deadline rather than
+# a connect and a read budget, which a server can stretch by answering slowly.
+# A server that answers at all answers a close in a round trip.
+CLOSE_DEADLINE_SECONDS = 2.0
+
+
+def _abandon(
+    request: Request,
+    creds: Credentials,
+    live_stream_id: str,
+    item_id: str,
+    reason: str,
+) -> None:
+    """A resolve Kodi stopped: the handle answered with nothing, a live stream
+    PlaybackInfo opened closed, and no toast — the viewer asked for this.
+    ``reason`` says where the stop caught it: the request cut short or not
+    sent, or the last look before the hand-off."""
+    LOG.debug("play %s abandoned (%s)", item_id, reason)
+    if live_stream_id:
+        # On a transport of its own: the route's sends nothing once the stop
+        # is raised, and this has to reach the server to free the tuner. Its
+        # own stop check is the deadline, so the watcher that cuts a stopped
+        # request cuts this one when the deadline passes; a close that fails
+        # is only logged.
+        deadline = time.monotonic() + CLOSE_DEADLINE_SECONDS
+        closer = Api.for_plugin(creds, abort=lambda: time.monotonic() > deadline)
+        _close_live_stream(closer, live_stream_id, LEAVE_TIMEOUT)
+    _unresolved(request)
+
+
+def _close_live_stream(
+    api: Api, live_stream_id: str, timeout: Optional[tuple[float, float]] = None
+) -> None:
     """Close a live stream PlaybackInfo opened for a play that will not
     happen: the server keeps it, and the tuner behind it, until a session
     report names it or it is closed."""
     if not live_stream_id:
         return
     try:
-        api.close_live_stream(live_stream_id)
+        api.close_live_stream(live_stream_id, timeout=timeout)
     except Exception as error:
         LOG.warning("live stream close failed: %s", error)
 

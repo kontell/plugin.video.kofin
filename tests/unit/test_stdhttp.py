@@ -9,11 +9,18 @@ one connection without inheriting a dead one.
 """
 
 import http.client
+import socket
+import threading
+import time
 
 import pytest
 
 from kofin.core import http as http_module
 from kofin.core import stdhttp
+
+# Taken before the autouse fixture swaps in the fakes, for the tests that
+# need http.client's own handling of a real socket.
+REAL_HTTP_CONNECTION = http.client.HTTPConnection
 
 
 class FakeRaw:
@@ -441,3 +448,168 @@ def test_the_transport_imports_without_requests():
         "transport'" % lib
     )
     subprocess.check_call([sys.executable, "-c", code])
+
+
+# -- a stop while a request waits --------------------------------------------
+#
+# The play route wires Kodi's stop check in. Kodi's GUI thread waits for a
+# stopped script and every thread it started, and a socket read cannot hear a
+# flag, so the transport has to end the wait itself.
+
+
+class SilentConnection(FakeConnection):
+    """A server that has the request and never answers: getresponse() blocks
+    reading a real socket, as http.client's does, until it is shut down."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sock, self._server_end = socket.socketpair()
+        self.sock.settimeout(5.0)
+
+    def getresponse(self):
+        if not self.sock.recv(1):
+            raise http.client.RemoteDisconnected("closed without response")
+        return FakeRaw()
+
+    def close(self):
+        super().close()
+        self.sock.close()
+        self._server_end.close()
+
+
+def _watchers():
+    return [
+        thread for thread in threading.enumerate() if thread.name == "kofin-http-stop"
+    ]
+
+
+def test_a_stop_while_the_server_works_abandons_the_request_at_once(monkeypatch):
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", SilentConnection)
+    stop = threading.Event()
+    transport = stdhttp.StdlibHttp(abort=stop.is_set)
+    threading.Timer(0.2, stop.set).start()
+    started = time.monotonic()
+
+    with pytest.raises(http_module.Abandoned):
+        transport.request("GET", "http://s/Items", timeout=(1.0, 5.0))
+
+    # Well inside the 5 s read budget, which a blocked read would have spent.
+    assert time.monotonic() - started < 1.0
+    # Dropped rather than offered to the next call with an answer still owed.
+    assert SilentConnection.instances[-1].closed
+    assert _watchers() == []
+
+
+def test_nothing_is_sent_once_the_stop_is_raised():
+    """The route is being stopped and Kodi's GUI waits on it, so a request
+    made now is refused before a connection is opened."""
+    transport = stdhttp.StdlibHttp(abort=lambda: True)
+    with pytest.raises(http_module.Abandoned):
+        transport.request("GET", "http://s/Items")
+    assert FakeConnection.instances == []
+    assert _watchers() == []
+
+
+def test_no_watcher_outlives_its_request():
+    """Kodi does not finish a script while a thread it started is alive."""
+    transport = stdhttp.StdlibHttp(abort=lambda: False)
+    assert transport.request("GET", "http://s/Items").status_code == 200
+    assert _watchers() == []
+
+
+def test_a_stop_during_the_body_of_a_closing_answer_ends_the_read(monkeypatch):
+    """An answer that closes the connection leaves connection.sock None once
+    its headers are read, and the body is still read from that socket."""
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", REAL_HTTP_CONNECTION)
+    listener = socket.create_server(("127.0.0.1", 0))
+    released = threading.Event()
+
+    def serve():
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(65536)
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n"
+                b"Content-Length: 100\r\n\r\n"  # and the body withheld
+            )
+            released.wait(10)
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    stop = threading.Event()
+    transport = stdhttp.StdlibHttp(abort=stop.is_set)
+    threading.Timer(0.3, stop.set).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(http_module.Abandoned):
+            transport.request(
+                "GET",
+                "http://127.0.0.1:%d/Items" % listener.getsockname()[1],
+                timeout=(1.0, 5.0),
+            )
+        assert time.monotonic() - started < 1.5  # not the 5 s read budget
+        assert _watchers() == []
+    finally:
+        released.set()
+        server.join()
+        listener.close()
+
+
+def test_a_stop_raised_while_connecting_sends_nothing(monkeypatch):
+    """The watcher starts once the connection is made, so the send asks
+    again: a request sent after the stop sets the server to work for an
+    answer nobody reads."""
+    stop = {"raised": False}
+
+    class SlowConnect(FakeConnection):
+        def connect(self):
+            stop["raised"] = True  # Back pressed during the handshake
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", SlowConnect)
+    transport = stdhttp.StdlibHttp(abort=lambda: stop["raised"])
+    with pytest.raises(http_module.Abandoned):
+        transport.request("POST", "http://s/Items/x/PlaybackInfo", retries=0)
+    connection = SlowConnect.instances[-1]
+    assert connection.requests == []
+    assert connection.closed
+
+
+def test_a_deadline_check_cuts_an_answer_trickling_in(monkeypatch):
+    """A connect and a read budget bound each wait, not the exchange: a server
+    sending a byte inside every read budget keeps a request going. A check
+    that rises at a deadline ends it there, however the server answers."""
+    monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", REAL_HTTP_CONNECTION)
+    listener = socket.create_server(("127.0.0.1", 0))
+    released = threading.Event()
+
+    def serve():
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(65536)
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+            for _ in range(100):  # a byte every 0.2 s: 20 s for the body
+                if released.wait(0.2):
+                    return
+                try:
+                    conn.sendall(b".")
+                except OSError:
+                    return
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    started = time.monotonic()
+    transport = stdhttp.StdlibHttp(abort=lambda: time.monotonic() - started > 0.5)
+    try:
+        with pytest.raises(http_module.Abandoned):
+            transport.request(
+                "POST",
+                "http://127.0.0.1:%d/LiveStreams/Close" % listener.getsockname()[1],
+                timeout=(2.0, 3.0),
+                retries=0,
+            )
+        assert time.monotonic() - started < 1.5
+        assert _watchers() == []
+    finally:
+        released.set()
+        server.join()
+        listener.close()

@@ -433,3 +433,13 @@ A copy of a real profile: 23,735 songs, 8,338 of them played on the server. Kofi
 - [PASS] After the clean start in the instructions: the service reported `private_state=ready`, **Library status** opened the report, and the music import ran.
 - [PASS] The instructions reworded to go back to 0.29 first, on a throwaway profile marked `sql`: the text viewer opened with every line in order, no script error was logged, and Back closed it.
 - [PENDING] A profile with `kofin.db` deleted but the SQL build's rows still in Kodi: the same instructions, once the library thread has found them.
+
+## A cancelled play stops instead of freezing Kodi (run 2026-11-19, LibreELEC on a Pi 3, Kodi 22.0 RC2)
+
+A movie played by `Player.Open` over JSON-RPC and cancelled by `Input.Back` while the busy dialog showed. Kodi times the GUI's wait itself: `script termination took Nms`, or `script didn't stop in 5 seconds` when it gives up. Nothing played in any run.
+
+- [REPRO] 1.0.0, Back 0.6 s after the open: the script ignored the stop, fetched the item and PlaybackInfo, then waited 8.9 s on a sidecar subtitle the server did not serve inside its 8 s read budget. Kodi gave up at 5 s; the script ran 11.4 s. The subtitle answered in about a quarter of a second in every later run.
+- [REPRO] The first build of this fix made the Monitor in the play route. Back at 0.6 s, just after an add-on reload, arrived while the interpreter was still importing and was never heard: termination took 2,013 ms. Hence `default.py` makes a play's Monitor first.
+- [PASS] The same press on the final build: the stop was heard as the route started and nothing was requested. Termination 1,178 ms, the cold imports it waited behind included.
+- [PASS] Warm, six presses landing between the route's start and its hand-off, each logged as `abandoned (…)`: the item fetch or PlaybackInfo not sent, or the last look after the fetches. Termination 316–779 ms, of which 0.30–0.40 s is Kodi tearing the interpreter down after the script returns. No toast.
+- [PASS] The transport alone, on the Pi's Python 3.14 outside Kodi, against local servers that read the request and never answer, the stop raised 0.3 s in: HTTP and TLS 1.3 both abandoned within 0.03 s of it against an 8 s read budget, with no watcher thread left. The server answered too quickly in the Kodi runs for a press to land while a request waited.

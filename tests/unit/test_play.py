@@ -5,6 +5,18 @@ from kofin.plugin import play
 from kofin.plugin.router import dispatch
 from tests.unit.fakes import FakeApi
 
+
+@pytest.fixture(autouse=True)
+def stop_flag(monkeypatch):
+    """The play route's stop check, lowered unless a test raises it.
+
+    Kodistubs' Monitor answers True to abortRequested(), which would end every
+    resolve here as one Kodi had stopped."""
+    flag = {"raised": False}
+    monkeypatch.setattr(play, "_stop_check", lambda: lambda: flag["raised"])
+    return flag
+
+
 SERVER = "http://s:8096"
 
 
@@ -688,9 +700,12 @@ def resume_env(monkeypatch):
         def load(cls):
             return cls()
 
+    wired = {}
+
     class ApiFactory:
         @staticmethod
-        def for_plugin(creds):
+        def for_plugin(creds, abort=None):
+            wired["abort"] = abort
             return api
 
     built = {}
@@ -713,6 +728,7 @@ def resume_env(monkeypatch):
         "resolved": resolved,
         "addon": FakeAddon,
         "built": built,
+        "wired": wired,
     }
 
 
@@ -1905,7 +1921,7 @@ def test_a_failed_resolve_closes_the_live_stream_it_opened(live_env):
     """No play reports it, so nothing else would give the tuner back."""
     api = live_env["api"]
     closed = []
-    api.close_live_stream = closed.append
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(stream_id)
     api.playback_info = lambda *a, **k: {
         "MediaSources": [
             {"Id": "src1", "IsInfiniteStream": True, "LiveStreamId": "ls1"}
@@ -1921,7 +1937,7 @@ def test_a_failure_after_playback_info_closes_the_live_stream(live_env, monkeypa
     """Nothing will play or report what PlaybackInfo opened."""
     api = live_env["api"]
     closed = []
-    api.close_live_stream = closed.append
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(stream_id)
     opened = api.playback_info
 
     def playback_info(item_id, profile, start_ticks=0, **kwargs):
@@ -1951,3 +1967,172 @@ def test_an_item_on_demand_names_no_live_stream(resume_env):
 def test_an_item_on_demand_is_not_realtime(resume_env):
     run_play({"id": "ep1"}, resume=False)
     assert "isrealtimestream" not in resume_env["li"].props
+
+
+# --- a resolve Kodi stops -----------------------------------------------------
+#
+# Cancelling the busy dialog stops the script, and Kodi's GUI thread waits up to
+# five seconds for it and every thread it started; a resolve that carried on
+# kept the GUI frozen for as long as it ran.
+
+
+def _outcomes(monkeypatch):
+    outcomes, toasts = [], []
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, li: outcomes.append(ok)
+    )
+    monkeypatch.setattr(play.toast, "show", lambda *a, **k: toasts.append(a))
+    return outcomes, toasts
+
+
+def test_the_play_route_hands_its_stop_check_to_the_transport(resume_env, stop_flag):
+    run_play({"id": "ep1"}, resume=False)
+    abort = resume_env["wired"]["abort"]
+    assert abort() is False
+    stop_flag["raised"] = True
+    assert abort() is True
+
+
+def test_a_request_the_stop_cut_short_resolves_nothing_and_says_nothing(
+    resume_env, monkeypatch
+):
+    """A cancel is not an outage: no toast, and the handle answered empty."""
+    from kofin.core import state
+    from kofin.core.http import Abandoned
+
+    outcomes, toasts = _outcomes(monkeypatch)
+
+    def abandoned(*args, **kwargs):
+        raise Abandoned("POST /PlaybackInfo: abandoned while stopping")
+
+    resume_env["api"].playback_info = abandoned
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert state.claim_play_item_of("ep1") is None
+
+
+def test_a_stop_raised_mid_resolve_hands_nothing_on(live_env, stop_flag, monkeypatch):
+    """A subtitle fetch the stop cuts short ends without an error, so the route
+    looks once more before it queues or resolves anything; and the live stream
+    PlaybackInfo opened is closed, since no play will report it."""
+    outcomes, toasts = _outcomes(monkeypatch)
+    from kofin.core.api import LEAVE_TIMEOUT
+
+    api = live_env["api"]
+    closed = []
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(
+        (stream_id, timeout)
+    )
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        stop_flag["raised"] = True  # cancelled while the server answered
+        return info
+
+    api.playback_info = playback_info
+    run_play({"id": "c1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    # On the teardown budget: Kodi's GUI waits on this thread.
+    assert closed == [("ls1", LEAVE_TIMEOUT)]
+    assert _claim() is None
+
+
+def test_a_stopped_plays_close_runs_to_a_deadline(live_env, stop_flag, monkeypatch):
+    """A connect and a read budget are not a deadline: a server answering
+    slowly can stretch them. The close's transport is cut once
+    CLOSE_DEADLINE_SECONDS have passed, as a stopped request is."""
+    clock = {"now": 100.0}
+    monkeypatch.setattr(play.time, "monotonic", lambda: clock["now"])
+    api = live_env["api"]
+    closers = []
+
+    def close(stream_id, timeout=None):
+        closers.append(live_env["wired"]["abort"])
+
+    api.close_live_stream = close
+    opened = api.playback_info
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        info = opened(item_id, profile, start_ticks, **kwargs)
+        info["MediaSources"][0]["LiveStreamId"] = "ls1"
+        stop_flag["raised"] = True
+        return info
+
+    api.playback_info = playback_info
+    run_play({"id": "c1"}, resume=False)
+    [deadline] = closers
+    assert deadline() is False  # the close may still be sent
+    clock["now"] += play.CLOSE_DEADLINE_SECONDS + 0.01
+    assert deadline() is True
+
+
+def test_a_play_cancelled_while_it_imported_asks_nothing(
+    resume_env, stop_flag, monkeypatch
+):
+    """The stop can come before the route starts: a cold interpreter spends
+    most of a second importing on a Pi."""
+    outcomes, toasts = _outcomes(monkeypatch)
+    stop_flag["raised"] = True
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert resume_env["wired"] == {}  # no transport, so no request
+
+
+def test_the_stop_check_default_py_made_is_the_one_used(resume_env, monkeypatch):
+    """default.py makes a play's check before its imports; the route must
+    not make a later one that a cancel during them never reached."""
+    from kofin.plugin.router import Request
+
+    outcomes, _toasts = _outcomes(monkeypatch)
+    play.play(Request("plugin://x/", 1, {"id": "ep1"}, False, stop=lambda: True))
+    assert outcomes == [False]
+    assert resume_env["wired"] == {}
+
+
+def test_a_cancel_never_falls_back_to_the_download(downloaded_env, monkeypatch):
+    """The download fallback is for a server that is not answering. A fetch
+    the stop cut short ends the play rather than resolving the file."""
+    from kofin.core import state
+    from kofin.core.http import Abandoned
+
+    outcomes, toasts = _outcomes(monkeypatch)
+    monkeypatch.setattr(play, "catalogue_item", lambda item_id: None)
+    monkeypatch.setattr(
+        play, "download_item", lambda item_id: {"Id": "ep1", "Type": "Episode"}
+    )
+
+    def abandoned(item_id):
+        raise Abandoned("GET /Items/ep1: abandoned while stopping")
+
+    downloaded_env["api"].item = abandoned
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert downloaded_env["li"].path == ""
+    assert state.claim_play_item("/dl/ep1.mp4") is None
+
+
+def test_a_stop_before_a_download_is_handed_on_resolves_nothing(
+    downloaded_env, stop_flag, monkeypatch
+):
+    from kofin.core import state
+
+    outcomes, toasts = _outcomes(monkeypatch)
+    monkeypatch.setattr(play, "catalogue_item", lambda item_id: None)
+    fetched = downloaded_env["api"].item
+
+    def item(item_id):
+        stop_flag["raised"] = True  # cancelled while the server answered
+        return fetched(item_id)
+
+    downloaded_env["api"].item = item
+    run_play({"id": "ep1"}, resume=False)
+    assert outcomes == [False]
+    assert toasts == []
+    assert downloaded_env["li"].path == ""
+    assert state.claim_play_item("/dl/ep1.mp4") is None
