@@ -40,11 +40,22 @@ T = TypeVar("T")
 # name when at least this share of the library is missing.
 ROOT_SCAN_SHARE = 0.5
 # The most shows a pass scans by their own folders for new episodes; past
-# it the library's root is scanned once. Each folder is a scan of its own: a
-# call, a wait for the scanner and an announcement to the home widgets.
+# it the library's root is scanned once. A show filed by a scan of its
+# folder is listed once more by the next scan of the root (_show_directories).
 SHOW_FOLDER_SCANS = 5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
+# The listings below a movie's extras folder that _prepare_scan has Kodi
+# make before the folder is scanned: the folder and the disc folders the
+# scanner probes for in it.
+EXTRAS_PROBES = ("", "VIDEO_TS/", "BDMV/")
+# The listings one multipath scan may count on Kodi's directory cache to
+# keep (Native.scan_units). The cache holds fifty and drops the least
+# recently used (DirectoryCache.cpp); the scan lists each folder in turn,
+# and each extras folder's probes have to outlast every listing made before
+# the scanner reaches it. The rest of the cache is left to whatever else
+# Kodi lists meanwhile.
+MULTIPATH_LISTINGS = 30
 ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
 # A video scan expected to file at least this many rows runs with Kodi's
 # "Download actor thumbnails" off (Native.without_actor_thumbs).
@@ -634,6 +645,9 @@ class Native:
     ) -> None:
         """Scan each directory in turn and wait for the scanner to go idle.
 
+        A directory may be a multipath of folders under one library root
+        (scan_units): one scan, its bar and its count are the folders'.
+
         ``expected`` maps a directory to the rows its scan should add; while
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
@@ -675,7 +689,7 @@ class Native:
             def scanned(serial: int = serial) -> bool:
                 return finished() > serial and self._idle(scanner)
 
-            location = paths.parse(directory)
+            location = paths.parse(paths.folders_of(directory)[0])
             heading = self.scan_heading(location, scanner)
             goal = int(expected.get(directory) or 0)
             saved = self.progress.phase(goal, heading) if goal else None
@@ -712,7 +726,7 @@ class Native:
                     self.progress.restore(saved)
         if scanner == "music":
             for directory in directories:
-                location = paths.parse(directory)
+                location = paths.parse(paths.folders_of(directory)[0])
                 if location is not None and location.library:
                     self.readback.forget_music(location.library)
         else:
@@ -880,8 +894,8 @@ class Native:
         if directory not in self._extras_folders:
             return
         extras = directory + paths.EXTRAS
-        for probe in (extras, extras + "VIDEO_TS/", extras + "BDMV/"):
-            rpc("Files.GetDirectory", {"directory": probe, "media": "video"})
+        for probe in EXTRAS_PROBES:
+            rpc("Files.GetDirectory", {"directory": extras + probe, "media": "video"})
 
     def _forget_listing(self, directory: str) -> None:
         """Have Kodi drop its cached listing of ``directory``: the provider
@@ -1616,6 +1630,46 @@ class Native:
         self._folder_scanned[library] = {r.item_id for r in missing}
         return sorted(folders), dict(folders)
 
+    def scan_units(self, directories: list[str]) -> list[str]:
+        """The directories to scan, with the movie and show folders under
+        each library root put together as multipath scans, in the order the
+        roots first come. Each scan has a start and a wait of its own, and
+        ends in an OnScanFinished that every video widget on Home lists
+        itself again for.
+
+        The probes of every extras folder in a multipath are made before
+        the scan starts (_prepare_scan), so one carries at most
+        MULTIPATH_LISTINGS listings: a folder is one, an extras folder its
+        probes as well. A library root, an extras directory and another
+        source's directory are scanned alone; a root's scan takes in every
+        folder below it."""
+        units: list[list[str]] = []
+        open_units: dict[str, list[str]] = {}
+        spent: dict[str, int] = {}
+        for directory in directories:
+            location = paths.parse(directory)
+            if (
+                location is None
+                or location.library is None
+                or location.content is None
+                or location.extras
+                or (location.movie is None and location.series is None)
+            ):
+                units.append([directory])
+                continue
+            root = paths.library_dir(location.key, location.library, location.content)
+            cost = 1 + (len(EXTRAS_PROBES) if directory in self._extras_folders else 0)
+            folders = open_units.get(root)
+            if folders is None or spent[root] + cost > MULTIPATH_LISTINGS:
+                folders = [directory]
+                units.append(folders)
+                open_units[root] = folders
+                spent[root] = cost
+                continue
+            folders.append(directory)
+            spent[root] += cost
+        return [paths.multipath(u) if len(u) > 1 else u[0] for u in units]
+
     def scan_video(self, video: VideoScan) -> None:
         """Have Kodi's video scanner list what plan_video named.
 
@@ -1632,32 +1686,34 @@ class Native:
             if location is not None and location.library is not None
         }
 
-        def prepare(directory: str) -> None:
-            location = paths.parse(directory)
-            if (
-                location is not None
-                and location.movie is not None
-                and location.library is not None
-            ):
-                root = paths.library_dir(location.key, location.library, "movies")
-                if root in owed:
-                    owed.discard(root)
-                    self._forget_listing(root)
-            self._prepare_scan(directory)
+        def prepare(unit: str) -> None:
+            for directory in paths.folders_of(unit):
+                location = paths.parse(directory)
+                if (
+                    location is not None
+                    and location.movie is not None
+                    and location.library is not None
+                ):
+                    root = paths.library_dir(location.key, location.library, "movies")
+                    if root in owed:
+                        owed.discard(root)
+                        self._forget_listing(root)
+                self._prepare_scan(directory)
 
+        units = self.scan_units(video.directories)
+        expected = {
+            unit: sum(video.expected.get(d, 0) for d in paths.folders_of(unit))
+            for unit in units
+        }
         try:
             if video.movie_folders:
                 # Without noupdate for the scan: the scanner skips a noupdate
                 # folder it was not told to scan everything of.
                 self.bind_folders("movies", video.movie_folders, force=True)
-            if video.directories:
+            if units:
                 self.store.expect_many(video.expectations)
                 with self.without_actor_thumbs(sum(video.expected.values())):
-                    self.scan(
-                        video.directories,
-                        expected=video.expected,
-                        prepare=prepare,
-                    )
+                    self.scan(units, expected=expected, prepare=prepare)
         finally:
             # The flag goes back whether the scan finished or not, and
             # whether the lift itself finished: without it Kodi's own Update

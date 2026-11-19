@@ -21,6 +21,7 @@ a scan of a root walks every folder the root lists.
 
 import copy
 import re
+from collections import OrderedDict
 from urllib.parse import parse_qs, urlsplit
 
 
@@ -87,7 +88,11 @@ class Kodi:
         # "Download actor thumbnails" as each video scan found it.
         self.scan_actor_thumbs = []
         self.listed = []
-        # Kodi's directory cache, of the directories that matter here: a
+        # Kodi's directory cache of plugin listings: fifty, the least
+        # recently used dropped (DirectoryCache.cpp), filled by the pass's
+        # own listings and by the folders a scan lists.
+        self.dircache = OrderedDict()
+        # The directories that matter for a scan's existence check: a
         # scanned movies root, and what a forget request took out of it.
         self.cached = set()
         self.forgotten = []
@@ -217,13 +222,32 @@ class Kodi:
             ]
             self.rows["Episode"][row["episodeid"]] = row
 
+    def _cache(self, directory):
+        self.dircache.pop(directory, None)
+        self.dircache[directory] = True
+        while len(self.dircache) > 50:
+            self.dircache.popitem(last=False)
+
+    def _in_cache(self, directories):
+        """A lookup that finds every listing touches it, as FileExists does."""
+        if not all(d in self.dircache for d in directories):
+            return False
+        for directory in directories:
+            self.dircache.move_to_end(directory)
+        return True
+
     def scan(self, directory):
+        """One scan, one announcement: a multipath's folders are scanned in
+        path order (CVideoInfoScanner::Start keeps them in a std::set)."""
         self.scanned.append(directory)
+        for folder in sorted(set(paths.folders_of(directory))):
+            self._scan_one(folder)
+        self.monitor.finished += 1
+
+    def _scan_one(self, directory):
         if directory == native.NOWHERE or paths.parse(directory) is None:
             # A directory that is not there, or another source's, whose rows
-            # are not modelled: nothing is walked, and the scan ends with the
-            # announcement all the same.
-            self.monitor.finished += 1
+            # are not modelled: nothing is walked.
             return
         self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
         location = paths.parse(directory)
@@ -233,12 +257,14 @@ class Kodi:
             root = paths.library_dir(self.key, library, "movies")
             if location.movie is None:
                 self.cached.add(root)
+                self._cache(root)
             elif root in self.cached:
                 # The cached root lists files, never this folder: Kodi says
                 # the folder does not exist and skips the scan.
                 self.skipped.append(directory)
-                self.monitor.finished += 1
                 return
+            else:
+                self._cache(directory)
         if location.content in ("movies", "musicvideos"):
             kind = "Movie" if location.content == "movies" else "MusicVideo"
             present = self.owned(kind)
@@ -286,10 +312,10 @@ class Kodi:
         else:
             # Kodi lists a directly scanned show folder itself, with no tag:
             # only a show that already exists gains episodes.
+            self._cache(directory)
             row = self.owned("Series").get(location.series)
             if row is not None:
                 self._import_episodes(row, library, location.series)
-        self.monitor.finished += 1
 
     def _scan_movie_assets(self, record):
         """A movie folder scanned by name. Each further version file, whose
@@ -327,9 +353,10 @@ class Kodi:
         probes = {extras, extras + "VIDEO_TS/", extras + "BDMV/"}
         if self.settings.get("videolibrary.ignorevideoextras"):
             return
-        if not self.dirnames.get(folder) or not probes <= set(self.listed):
+        if not self.dirnames.get(folder) or not self._in_cache(sorted(probes)):
             self.phantoms.append(folder)
             return
+        self._cache(extras)
         self.extras[owner["movieid"]] = [paths.extra_name(f) for f in features]
         self.extra_files[owner["movieid"]] = [
             paths.extra_url(self.key, record.library, record.item_id, stem, f)
@@ -806,9 +833,11 @@ class Kodi:
             if query == paths.FORGET + "=1":
                 # Kodi drops the entry, asks the provider, and is refused.
                 self.cached.discard(directory)
+                self.dircache.pop(directory, None)
                 self.forgotten.append(directory)
                 raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
+            self._cache(params["directory"])
             return {"files": [], "limits": {"total": 0}}
         if method == "Files.GetSources":
             return {"sources": list(self.sources)}
