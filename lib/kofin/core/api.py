@@ -133,8 +133,9 @@ def library_folders(api: "Api", ids: Iterable[str]) -> tuple[list[JsonDict], lis
 # Connect/read budget for the lyrics fetch. Deliberately far below the
 # transport default: see Api.lyrics.
 LYRICS_TIMEOUT = (2.0, 3.0)
-# The SyncPlay leave on the teardown path: inside Kodi's five-second
-# script-stop grace even when the server never answers.
+# The SyncPlay leave on the teardown path, and the live-stream close of a play
+# Kodi stopped (plugin/play.py): inside Kodi's five-second script-stop grace
+# even when the server never answers.
 LEAVE_TIMEOUT = (2.0, 3.0)
 
 # The splashscreen is a WebP the server may render (and transcode) on demand,
@@ -367,8 +368,14 @@ class Api:
     def device_sessions(self, device_id: str) -> list[JsonDict]:
         return self._get_list("/Sessions", {"deviceId": device_id})
 
-    def close_live_stream(self, live_stream_id: str) -> None:
-        self.post("/LiveStreams/Close", params={"liveStreamId": live_stream_id})
+    def close_live_stream(
+        self, live_stream_id: str, timeout: Optional[tuple[float, float]] = None
+    ) -> None:
+        self.post(
+            "/LiveStreams/Close",
+            params={"liveStreamId": live_stream_id},
+            timeout=timeout,
+        )
 
     def close_transcode(self, device_id: str, play_session_id: str) -> None:
         self.delete(

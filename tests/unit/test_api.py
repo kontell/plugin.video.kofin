@@ -53,6 +53,20 @@ def test_urls_and_auth_header(api):
     assert 'Token="tok"' in call["headers"]["Authorization"]
 
 
+def test_a_live_stream_close_can_carry_a_short_budget(api):
+    """The close a stopped play sends runs while Kodi's GUI waits on it."""
+    from kofin.core.api import LEAVE_TIMEOUT
+
+    client, transport = api
+    client.close_live_stream("ls1", timeout=LEAVE_TIMEOUT)
+    client.close_live_stream("ls2")
+    assert [call["kwargs"]["timeout"] for call in transport.calls] == [
+        LEAVE_TIMEOUT,
+        None,
+    ]
+    assert transport.calls[0]["url"].endswith("/LiveStreams/Close")
+
+
 def test_the_syncplay_leave_carries_its_own_short_budget(api):
     """SyncPlayManager.stop sends it on the service main thread during
     teardown, so it fits Kodi's script-stop grace even when the server

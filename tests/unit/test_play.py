@@ -1921,7 +1921,7 @@ def test_a_failed_resolve_closes_the_live_stream_it_opened(live_env):
     """No play reports it, so nothing else would give the tuner back."""
     api = live_env["api"]
     closed = []
-    api.close_live_stream = closed.append
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(stream_id)
     api.playback_info = lambda *a, **k: {
         "MediaSources": [
             {"Id": "src1", "IsInfiniteStream": True, "LiveStreamId": "ls1"}
@@ -1937,7 +1937,7 @@ def test_a_failure_after_playback_info_closes_the_live_stream(live_env, monkeypa
     """Nothing will play or report what PlaybackInfo opened."""
     api = live_env["api"]
     closed = []
-    api.close_live_stream = closed.append
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(stream_id)
     opened = api.playback_info
 
     def playback_info(item_id, profile, start_ticks=0, **kwargs):
@@ -2017,9 +2017,13 @@ def test_a_stop_raised_mid_resolve_hands_nothing_on(live_env, stop_flag, monkeyp
     looks once more before it queues or resolves anything; and the live stream
     PlaybackInfo opened is closed, since no play will report it."""
     outcomes, toasts = _outcomes(monkeypatch)
+    from kofin.core.api import LEAVE_TIMEOUT
+
     api = live_env["api"]
     closed = []
-    api.close_live_stream = closed.append
+    api.close_live_stream = lambda stream_id, timeout=None: closed.append(
+        (stream_id, timeout)
+    )
     opened = api.playback_info
 
     def playback_info(item_id, profile, start_ticks=0, **kwargs):
@@ -2032,7 +2036,8 @@ def test_a_stop_raised_mid_resolve_hands_nothing_on(live_env, stop_flag, monkeyp
     run_play({"id": "c1"}, resume=False)
     assert outcomes == [False]
     assert toasts == []
-    assert closed == ["ls1"]
+    # On the teardown budget: Kodi's GUI waits on this thread.
+    assert closed == [("ls1", LEAVE_TIMEOUT)]
     assert _claim() is None
 
 

@@ -17,7 +17,7 @@ import xbmcgui
 import xbmcplugin
 
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
-from kofin.core.api import Api
+from kofin.core.api import LEAVE_TIMEOUT, Api
 from kofin.core.http import Abandoned, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -1014,19 +1014,23 @@ def _abandon(
     LOG.debug("play %s abandoned (%s)", item_id, reason)
     if live_stream_id:
         # On a transport of its own: the route's sends nothing once the stop
-        # is raised, and this has to reach the server to free the tuner.
-        _close_live_stream(Api.for_plugin(creds), live_stream_id)
+        # is raised, and this has to reach the server to free the tuner. On
+        # the teardown budget, not the interactive 30 s read: Kodi's GUI is
+        # waiting for this thread, and a close that fails is only logged.
+        _close_live_stream(Api.for_plugin(creds), live_stream_id, LEAVE_TIMEOUT)
     _unresolved(request)
 
 
-def _close_live_stream(api: Api, live_stream_id: str) -> None:
+def _close_live_stream(
+    api: Api, live_stream_id: str, timeout: Optional[tuple[float, float]] = None
+) -> None:
     """Close a live stream PlaybackInfo opened for a play that will not
     happen: the server keeps it, and the tuner behind it, until a session
     report names it or it is closed."""
     if not live_stream_id:
         return
     try:
-        api.close_live_stream(live_stream_id)
+        api.close_live_stream(live_stream_id, timeout=timeout)
     except Exception as error:
         LOG.warning("live stream close failed: %s", error)
 
