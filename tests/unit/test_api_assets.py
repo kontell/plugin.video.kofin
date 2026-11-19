@@ -425,6 +425,65 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert kodi.scanned == [root, folder]
 
 
+def _new_movies_with_extras(store, backend, kodi, count=15):
+    """Twenty movies filed by the root, then ``count`` new ones with extras,
+    few enough to be scanned by their folders."""
+    backend.setup()
+    old = ["o%02d" % n for n in range(20)]
+    store.publish([movie(i) for i in old], library=LIB)
+    backend.reconcile()
+    kodi.scanned.clear()
+    new = ["n%02d" % n for n in range(count)]
+    store.publish(
+        [movie(i) for i in old] + [assets_movie(Id=i) for i in new], library=LIB
+    )
+    backend.reconcile()
+    folders = {paths.movie_dir(store.namespace, LIB, i) for i in new}
+    scans = [d for d in kodi.scanned if set(paths.folders_of(d)) & folders]
+    assert {f for d in scans for f in paths.folders_of(d)} == folders
+    return new, scans
+
+
+def test_new_movie_folders_share_scans_the_directory_cache_can_serve(
+    store, backend, kodi
+):
+    """New movies' folders are scanned together, each scan carrying no more
+    extras folders than Kodi's directory cache keeps the probes of until the
+    scanner reaches them: every extras folder is filed, none is a phantom."""
+    new, scans = _new_movies_with_extras(store, backend, kodi)
+    per_scan = native.MULTIPATH_LISTINGS // (1 + len(native.EXTRAS_PROBES))
+    assert len(scans) == -(-len(new) // per_scan) > 1
+    assert all(len(paths.folders_of(d)) <= per_scan for d in scans)
+    assert not kodi.phantoms
+    for item_id in new:
+        assert kodi.extras[store.mapping(item_id).kodi_id] == [
+            "Deleted Scene",
+            "Making Of",
+        ]
+    assert not store.pending()
+
+
+def test_one_scan_of_every_folder_loses_extras_to_the_directory_cache(
+    store, backend, kodi, monkeypatch
+):
+    """What the limit is for: probed all at once, the last folders' probes
+    are pushed out of the cache by the listings before them, and their
+    extras folders are phantom discs."""
+    monkeypatch.setattr(native, "MULTIPATH_LISTINGS", 1000)
+    _, scans = _new_movies_with_extras(store, backend, kodi)
+    assert len(scans) == 1
+    assert kodi.phantoms
+
+
+def test_a_multipath_names_its_folders():
+    folders = [paths.movie_dir(KEY, LIB, i) for i in ("a", "b")]
+    url = paths.multipath(folders)
+    assert url.startswith("multipath://") and "plugin://" not in url
+    assert paths.folders_of(url) == folders
+    assert paths.folders_of(folders[0]) == [folders[0]]
+    assert paths.describe(url) == "movies movie a and 1 more folder(s)"
+
+
 def test_kodi_ignoring_extras_is_left_alone_and_scans_the_folder_once(
     store, backend, kodi
 ):

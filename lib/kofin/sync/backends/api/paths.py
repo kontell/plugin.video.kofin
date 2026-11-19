@@ -21,9 +21,17 @@ whole.
 
 import re
 from dataclasses import dataclass
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, Optional
-from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qs,
+    parse_qsl,
+    quote,
+    unquote,
+    urlencode,
+    urlsplit,
+    urlunsplit,
+)
 
 from kofin.core.urls import PARAM_MEDIA_SOURCE
 
@@ -203,6 +211,25 @@ def movie_dir(key: str, library: str, item_id: str) -> str:
     """One folder per movie, so a change re-scans one folder and the extras
     Kodi looks for beside a movie have somewhere to live."""
     return library_dir(key, library, "movies") + item_id + "/"
+
+
+MULTIPATH = "multipath://"
+
+
+def multipath(folders: Sequence[str]) -> str:
+    """One scanner directory for several folders. Kodi's video scanner
+    splits a multipath into its paths and scans each, with the paths below
+    it, in one job that ends in one OnScanFinished (CVideoInfoScanner::Start,
+    CMultiPathDirectory::GetPaths). Each path is encoded as CURL::Encode
+    does."""
+    return MULTIPATH + "".join(quote(folder, safe="!()") + "/" for folder in folders)
+
+
+def folders_of(directory: str) -> list[str]:
+    """The folders a scanner directory names: a multipath's, or itself."""
+    if not directory.startswith(MULTIPATH):
+        return [directory]
+    return [unquote(part) for part in directory[len(MULTIPATH) :].split("/") if part]
 
 
 def forgetting(directory: str) -> str:
@@ -451,7 +478,10 @@ def parse_item(url: str) -> tuple[Optional[Location], str]:
 
 def describe(url: str) -> str:
     """A log-safe name for a scanner directory: its content and folder."""
-    location = parse(url)
+    folders = folders_of(url)
+    if len(folders) > 1:
+        return "%s and %d more folder(s)" % (describe(folders[0]), len(folders) - 1)
+    location = parse(folders[0])
     if location is None:
         return "directory"
     parts = [location.content or "root"]
