@@ -292,3 +292,11 @@ def test_a_native_path_still_reaches_the_provider(monkeypatch):
     router.dispatch([native, "7", ""])
     router.dispatch(["plugin://plugin.video.kofin/native/", "8", ""])
     assert [request.handle for request in served] == [7, 8]
+
+
+def test_dispatch_hands_the_stop_check_to_the_request(routed):
+    def check():
+        return False
+
+    router.dispatch(argv("?mode=play&id=x"), stop=check)
+    assert routed[0][1].stop is check

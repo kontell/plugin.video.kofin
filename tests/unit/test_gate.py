@@ -181,8 +181,10 @@ def _run_default(monkeypatch, argv, handler):
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(router, "_resolve", lambda mode: handler)
     path = str(ROOT / "default.py")
+    namespace = {"__file__": path}
     with open(path, encoding="utf-8") as source:
-        exec(compile(source.read(), path, "exec"), {"__file__": path})
+        exec(compile(source.read(), path, "exec"), namespace)
+    return namespace
 
 
 def test_the_entry_script_holds_a_slot_for_as_long_as_the_listing_is_built(
@@ -239,3 +241,107 @@ def test_a_request_turned_away_has_imported_none_of_the_rest_of_kofin():
         "assert loaded == ['kofin', 'kofin.plugin', 'kofin.plugin.gate'], loaded\n"
     ) % (str(ROOT / "lib"), str(ROOT / "default.py"))
     subprocess.check_call([sys.executable, "-c", code])
+
+
+KEY = "0" * 32
+LIBRARY = "1" * 32
+SONG = BASE + "native/%s/%s/music/album1/song1.flac" % (KEY, LIBRARY)
+EXTRA = BASE + "native/%s/%s/movies/movie1/extras/Behind the Scenes.mkv" % (
+    KEY,
+    LIBRARY,
+)
+MOVIE_DIR = BASE + "native/%s/%s/movies/movie1/" % (KEY, LIBRARY)
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [
+        ([BASE, "7", "?mode=play&id=x"], True),
+        # A library row's play URL, as a play from the row hands it over.
+        ([MOVIE_DIR, "7", "?mode=play&id=x"], True),
+        ([BASE, "7", "?mode=pl%61y&id=x"], True),  # escaped, as the router reads it
+        ([SONG, "7", ""], True),  # a song is its file path, no query
+        ([EXTRA, "7", ""], True),
+        # A clean's probe of the stored play URL: routed to check_exists.
+        ([BASE, "7", "?mode=play&id=x&kodi_action=check_exists"], False),
+        ([SONG, "7", "?kodi_action=check_exists"], False),
+        ([MOVIE_DIR, "7", ""], False),  # a native folder is a listing
+        ([BASE, "7", "?mode=playall&id=x"], False),
+        ([BASE, "7", "?mode=browse&view=a"], False),
+        ([BASE, "7", ""], False),
+        ([], False),
+    ],
+)
+def test_plays_are_told_apart_before_the_imports(argv, expected):
+    """The same cases dispatch treats as plays, which it learns for a song or
+    an extra only after its imports, from the parsed native path."""
+    assert gate.plays(argv) is expected
+
+
+class _Monitor:
+    made = 0
+
+    def __init__(self):
+        _Monitor.made += 1
+
+    def abortRequested(self):
+        return False
+
+
+def test_a_play_carries_a_stop_check_from_the_entry_script(ended, monkeypatch):
+    """Kodi raises a stop only on the Monitors alive when it stops the
+    script, so a play's is made before kofin's imports, not in the route."""
+    import xbmc
+
+    _Monitor.made = 0
+    monkeypatch.setattr(xbmc, "Monitor", _Monitor)
+    seen = []
+    _run_default(monkeypatch, [BASE, "7", "?mode=play&id=x"], seen.append)
+    _run_default(monkeypatch, [SONG, "8", ""], seen.append)
+    assert _Monitor.made == 2
+    assert [request.params.get("mode") for request in seen] == ["play", "play"]
+    assert [request.stop() for request in seen] == [False, False]
+
+
+def test_a_listing_or_a_probe_makes_no_monitor(ended, monkeypatch):
+    """A Monitor nobody waits on costs every Python thread in Kodi a step per
+    announcement. A skin asks for listings constantly, and a library clean
+    probes every stored play URL while it announces a removal per row."""
+    import xbmc
+
+    _Monitor.made = 0
+    monkeypatch.setattr(xbmc, "Monitor", _Monitor)
+    seen = []
+    for query in (
+        "?mode=browse&view=a",
+        "?mode=playall&id=x",
+        "",
+        "?mode=play&id=x&kodi_action=check_exists",
+    ):
+        _run_default(monkeypatch, [BASE, "7", query], seen.append)
+    assert _Monitor.made == 0
+    assert [request.stop for request in seen] == [None, None, None, None]
+
+
+def test_the_parked_interpreter_keeps_no_monitor(ended, monkeypatch):
+    """With <reuselanguageinvoker> Kodi parks the interpreter with default.py's
+    globals, and nothing on a parked thread takes a Monitor's callbacks off."""
+    import gc
+    import weakref
+
+    import xbmc
+
+    alive = weakref.WeakSet()
+
+    class Monitor(_Monitor):
+        def __init__(self):
+            super().__init__()
+            alive.add(self)
+
+    monkeypatch.setattr(xbmc, "Monitor", Monitor)
+    namespace = _run_default(
+        monkeypatch, [BASE, "7", "?mode=play&id=x"], lambda request: None
+    )
+    gc.collect()
+    assert namespace["_STOP"] is None
+    assert len(alive) == 0

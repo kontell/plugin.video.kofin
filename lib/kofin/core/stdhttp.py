@@ -21,14 +21,18 @@ from __future__ import annotations
 
 import http.client
 import json
+import socket
 import ssl
 import threading
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import quote, urlencode, urlsplit
 
 from kofin.core.http import (
     DEFAULT_TIMEOUT,
     METHOD_RETRIES,
+    Abandoned,
     Http,
     StreamedResponse,
     run_ladder,
@@ -44,6 +48,10 @@ LOG = Logger(__name__)
 # something we dislike". OSError covers socket timeouts, refusals and resets;
 # HTTPException covers the protocol-level failures http.client raises.
 _TRANSPORT_ERRORS = (http.client.HTTPException, OSError)
+
+# How often a request in flight looks at the stop check, and so how long a
+# cancel waits on the transport once it is raised.
+STOP_POLL_SECONDS = 0.1
 
 
 class Response:
@@ -91,8 +99,10 @@ class StdlibHttp(Http):
     so the reply one reads is not its own.
     """
 
-    def __init__(self, user_agent: str = "") -> None:
-        super().__init__(user_agent=user_agent)
+    def __init__(
+        self, user_agent: str = "", abort: Callable[[], bool] | None = None
+    ) -> None:
+        super().__init__(abort=abort, user_agent=user_agent)
         self._local = threading.local()
         # Every connection this transport has opened, so close() can release
         # the ones belonging to threads that have since finished.
@@ -218,7 +228,11 @@ class StdlibHttp(Http):
                 url,
             )
 
-        # The abort check is None in the plugin process: nothing wires one in.
+        # The abort check is the route's, where one wires it in (the play
+        # route); the others pass none. Once it is raised nothing is sent: the
+        # route is being stopped, and Kodi's GUI waits on it.
+        if self._abort is not None and self._abort():
+            raise Abandoned("%s %s: not sent, stopping" % (method, url))
         result: Response = run_ladder(
             method, url, retries, attempt, _TRANSPORT_ERRORS, abort=self._abort
         )
@@ -246,15 +260,63 @@ class StdlibHttp(Http):
         did act: both propagate.
         """
         connection, fresh = self._connection(origin, connect_timeout, read_timeout)
+        with self._watched(connection) as watch:
+            try:
+                raw, payload = self._converse(
+                    watch,
+                    fresh,
+                    origin,
+                    method,
+                    target,
+                    body,
+                    headers,
+                    connect_timeout,
+                    read_timeout,
+                    url,
+                )
+            except _TRANSPORT_ERRORS as error:
+                if watch.fired:
+                    raise Abandoned(
+                        "%s %s: abandoned while stopping (%s)" % (method, url, error)
+                    ) from error
+                raise
+        if watch.fired or raw.will_close:
+            # The server is done with this socket, or the watcher shut it
+            # after the answer landed; do not offer it to the next call as
+            # though it were alive.
+            self._drop()
+        return Response(raw.status, payload, url, dict(raw.getheaders()))
+
+    def _converse(
+        self,
+        watch: _Watch,
+        fresh: bool,
+        origin: tuple[str, str, int],
+        method: str,
+        target: str,
+        body: bytes | None,
+        headers: dict[str, str],
+        connect_timeout: float,
+        read_timeout: float,
+        url: str,
+    ) -> tuple[http.client.HTTPResponse, bytes]:
+        """The exchange itself, on the watched connection: the answer and its
+        body."""
+        connection = watch.connection
+        self._refuse_if_stopped(method, url)
         try:
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
         except _TRANSPORT_ERRORS as error:
             self._drop()
-            if fresh or isinstance(error, TimeoutError):
+            if fresh or isinstance(error, TimeoutError) or watch.fired:
                 raise
             LOG.debug("pooled connection was dead; reconnecting for %s", url)
             connection, _ = self._connection(origin, connect_timeout, read_timeout)
+            watch.on(connection)
+            # The watcher may have fired while the replacement connected,
+            # finding no socket to shut; it is not watching any more.
+            self._refuse_if_stopped(method, url)
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
 
@@ -263,11 +325,85 @@ class StdlibHttp(Http):
         except _TRANSPORT_ERRORS:
             self._drop()
             raise
-        if raw.will_close:
-            # The server is done with this socket; do not offer it to the next
-            # call as though it were alive.
+        return raw, payload
+
+    def _refuse_if_stopped(self, method: str, url: str) -> None:
+        """Send nothing once the stop has risen, asked again right before the
+        send: it can rise while the connection is made, before the watcher
+        is there to see it, and a request sent then sets the server to work
+        (PlaybackInfo opens a live stream) for an answer nobody reads."""
+        if self._abort is not None and self._abort():
             self._drop()
-        return Response(raw.status, payload, url, dict(raw.getheaders()))
+            raise Abandoned("%s %s: not sent, stopping" % (method, url))
+
+    @contextmanager
+    def _watched(self, connection: http.client.HTTPConnection) -> Iterator[_Watch]:
+        """Cut the exchange short when the stop check rises while it waits.
+
+        Kodi's GUI thread waits for a stopped script, and for every thread it
+        started, to finish (``CPythonInvoker::stop`` waits up to five seconds
+        on the event ``onExecutionDone`` sets once those threads are gone).
+        A socket read cannot hear a flag, so a request waiting on a slow
+        server froze the GUI for as long as it waited. So a watcher shuts the
+        socket down from beside the request, and the read the request is
+        blocked in returns at once.
+
+        Shut down rather than closed: a ``close()`` from another thread does
+        not wake the read, which waits out its timeout and then fails on a bad
+        descriptor, where a shutdown returns it at once. And the plain
+        socket's shutdown, on a TLS socket too: ``SSLSocket.shutdown`` also
+        drops its SSL object, and a read after that goes to the raw socket.
+        Polling for readiness from the request's own thread was the
+        alternative, and a fresh TLS 1.3 connection is readable before any
+        answer: the server's session tickets arrive straight after the
+        handshake, with no application data in them.
+        """
+        watch = _Watch(connection)
+        abort = self._abort
+        if abort is None:
+            yield watch
+            return
+        done = threading.Event()
+
+        def run() -> None:
+            while not done.wait(STOP_POLL_SECONDS):
+                if not abort():
+                    continue
+                watch.fired = True
+                sock = watch.sock
+                if sock is not None:
+                    try:
+                        socket.socket.shutdown(sock, socket.SHUT_RDWR)
+                    except OSError:
+                        # Already closed by the request's own failure path.
+                        pass
+                return
+
+        watcher = threading.Thread(target=run, name="kofin-http-stop", daemon=True)
+        watcher.start()
+        try:
+            yield watch
+        finally:
+            done.set()
+            watcher.join()
+
+
+class _Watch:
+    """A request in flight under a stop check: the connection it is on, which
+    the free retry replaces, its socket, and whether the watcher cut it short.
+
+    The socket is held from when the connection was made, not read off it at
+    the stop: an answer that closes the connection (``will_close``) has
+    ``getresponse()`` close the connection, leaving ``connection.sock`` None
+    while the body is still read from that socket."""
+
+    def __init__(self, connection: http.client.HTTPConnection) -> None:
+        self.fired = False
+        self.on(connection)
+
+    def on(self, connection: http.client.HTTPConnection) -> None:
+        self.connection = connection
+        self.sock = connection.sock
 
 
 def _split(url: str, params: dict[str, Any] | None) -> tuple[tuple[str, str, int], str]:

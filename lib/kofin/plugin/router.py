@@ -23,11 +23,15 @@ class Request:
         handle: int,
         params: Params,
         resume: bool = False,
+        stop: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.base_url = base_url
         self.handle = handle
         self.params = params
         self.resume = resume
+        # Whether Kodi has asked this invocation to stop, for a play: made in
+        # default.py before the imports, so a cancel during them is heard.
+        self.stop = stop
 
 
 # The handler registry, as (module under kofin.plugin, attribute) pairs
@@ -121,7 +125,7 @@ def _root(request: Request) -> None:
     browse.root(request)
 
 
-def dispatch(argv: list[str]) -> None:
+def dispatch(argv: list[str], stop: Optional[Callable[[], bool]] = None) -> None:
     base_url = argv[0] if argv else ""
     handle = -1
     if len(argv) > 1:
@@ -137,7 +141,7 @@ def dispatch(argv: list[str]) -> None:
     # Kodi appends "resume:true|false" for video plugin items (the native
     # resume prompt's outcome).
     resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
-    request = Request(base_url, handle, params, resume)
+    request = Request(base_url, handle, params, resume, stop)
 
     # A path outside the provider's is not parsed, and pays for none of the
     # provider's imports.
