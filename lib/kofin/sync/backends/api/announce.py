@@ -7,6 +7,7 @@ libraries, the schedule) and a repair announce nothing, and a played item is
 never announced (newcontent.entry_for).
 """
 
+import time
 from typing import TYPE_CHECKING, Any, Optional
 from collections.abc import Collection, Iterable
 
@@ -29,6 +30,8 @@ LOG = Logger(__name__)
 # dropped there would never reach the downloads.
 LIMIT = 500
 TOAST_MS = 5000
+# Seconds before a music-library claim that failed is asked again.
+CLAIM_RETRY = 5.0
 
 
 class Arrivals:
@@ -45,6 +48,8 @@ class Arrivals:
         # music library. Not capped: a song dropped here is in the catalogue
         # and never offered again.
         self.songs: dict[str, str] = {}
+        # When a claim that failed is next asked (_claim_songs).
+        self.claim_retry_at = 0.0
 
     def published(
         self,
@@ -65,9 +70,17 @@ class Arrivals:
             elif entry.type == "Audio" and (membership or {}).get(entry.item_id):
                 self.songs[entry.item_id] = (membership or {})[entry.item_id]
 
-    def holding(self) -> bool:
-        """Whether anything waits for a pass, a claim or a toast."""
-        return bool(self.arriving or self.backlog or self.songs)
+    def announceable(self, player: Optional[xbmc.Player]) -> bool:
+        """Whether a toast waits that playback no longer holds back."""
+        return bool(self.backlog) and not self._held_back(player)
+
+    @staticmethod
+    def _held_back(player: Optional[xbmc.Player]) -> bool:
+        return (
+            player is not None
+            and player.isPlayingVideo()
+            and not xbmc.getCondVisibility("VideoPlayer.Content(livetv)")
+        )
 
     def flush(self, store: "Store", api: "Api", player: Optional[xbmc.Player]) -> None:
         """Hand what the pass has filed to the downloads, and announce it
@@ -100,7 +113,7 @@ class Arrivals:
         return landed
 
     def _claim_songs(self, store: "Store") -> None:
-        if not self.songs:
+        if not self.songs or time.monotonic() < self.claim_retry_at:
             return
         states = store.states(list(self.songs))
         filed: dict[str, str] = {}
@@ -117,10 +130,11 @@ class Arrivals:
         try:
             subscriptions.claim_library_songs(filed)
         except Exception:
-            # Asked again on the next flush: the catalogue holds these now,
+            # Asked again after CLAIM_RETRY: the catalogue holds these now,
             # and no later catch-up would offer them again.
             LOG.exception("music-library subscription claim failed")
             self.songs.update(filed)
+            self.claim_retry_at = time.monotonic() + CLAIM_RETRY
 
     def _announce(self, player: Optional[xbmc.Player]) -> None:
         if not self.backlog:
@@ -129,11 +143,7 @@ class Arrivals:
             # Read here, so turning it off silences what is already held.
             self.backlog = []
             return
-        if (
-            player is not None
-            and player.isPlayingVideo()
-            and not xbmc.getCondVisibility("VideoPlayer.Content(livetv)")
-        ):
+        if self._held_back(player):
             # Held, not dropped: the news keeps until the video ends.
             return
         pending, self.backlog = self.backlog, []

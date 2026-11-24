@@ -443,12 +443,15 @@ What remains is kofin's own:
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **A tick that finds nothing owed runs no stage until work arrives or a stage is due**
   (`Library._idle_until`, `_work_arrived`). The ticks after it look at the queue, the rows
-  Kodi removed, the store's wake and the next deadline (the catch-up, the folder bindings, a
-  held setting), and ask the store nothing: every stage twice a second with nothing to do was
-  10.6 % of a core on the LibreELEC box, and 0.12 % without. A stage that keeps work in memory
-  between ticks has to keep `_idle_until` from going idle, and a write another thread makes for
-  the library thread goes through a `Store` method that calls the wake (`store.wake_on_write`:
-  `local`, `invalidate`), or the work waits for the next catch-up.
+  Kodi removed, the store's wake, the end of a play and the next deadline (the catch-up, the
+  folder bindings, a held setting, the grace after a play, a song claim's retry), and ask the
+  store nothing: every stage twice a second with nothing to do was 10.6 % of a core on the
+  LibreELEC box, and 0.12 % without. What a play holds back waits idle as well, since the
+  server's save at the start of a play comes back while the item plays and is held to its end.
+  Work a stage keeps in memory between ticks needs a deadline in `_idle_until` or an arrival in
+  `_work_arrived`, and a write another thread makes for the library thread goes through a
+  `Store` method that calls the wake (`store.wake_on_write`: `local`, `invalidate`), or the
+  work waits for the next catch-up.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
   pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
   SQLite and held the store's write lock across a service restart. An empty batch opens no

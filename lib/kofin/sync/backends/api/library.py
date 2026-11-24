@@ -647,10 +647,8 @@ class Library(threading.Thread):
             self._repair
             or self._full_due
             or self._rebuilding
-            or self._held_userdata
-            or self._reload_owed
             or self._playlists_due
-            or self.arrivals.holding()
+            or self.arrivals.arriving
             or self._bar().attended
             or self.store.has_pending()
             or self.store.local_pending()
@@ -659,18 +657,42 @@ class Library(threading.Thread):
         due = [self._catchup_due, self._bindings_due]
         if native.settings_owed:
             due.append(self._settings_due)
+        due.extend(
+            stopped + HELD_USERDATA_GRACE
+            for _, stopped in self._held_userdata.values()
+            if stopped is not None
+        )
+        if self.arrivals.songs:
+            due.append(self.arrivals.claim_retry_at)
         return min(due)
 
     def _work_arrived(self, native: Native, idle_until: float) -> bool:
         """Whether an idle tick has work: a queued event or command, a row
-        Kodi removed, a write another thread made (wake), or a stage's
-        deadline."""
+        Kodi removed, a write another thread made (wake), a stage's
+        deadline, or the end of a play that held work back."""
         return (
             self._woken.is_set()
             or not self._queue.empty()
             or bool(native.monitor.lost)
             or time.monotonic() >= idle_until
+            or self._play_ended()
         )
+
+    def _play_ended(self) -> bool:
+        """Whether a play that held work back has ended: the user data
+        held for its item, a skin reload, or a toast."""
+        if self._held_userdata:
+            playing = self._playing()
+            if any(
+                stopped is None and item_id != playing
+                for item_id, (_, stopped) in self._held_userdata.items()
+            ):
+                return True
+        if self._reload_owed and not (
+            self.player is not None and self.player.isPlayingVideo()
+        ):
+            return True
+        return self.arrivals.announceable(self.player)
 
     def commands(self) -> None:
         failed = False

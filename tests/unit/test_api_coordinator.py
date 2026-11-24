@@ -792,17 +792,84 @@ def test_the_library_thread_is_woken_by_writes_only_while_it_runs(store, monkeyp
     assert not w._woken.is_set()
 
 
-@pytest.mark.parametrize("owed", ["pending", "outbox", "reload"])
+def test_user_data_held_for_a_play_waits_idle_for_the_stop_and_the_grace(
+    store, monkeypatch
+):
+    """The server's save at the start of a play comes back while the item
+    plays, and is held until a grace after the stop."""
+    from kofin.sync.backends.api.library import HELD_USERDATA_GRACE
+
+    playing = [True]
+
+    def prepare(w):
+        w.player = SimpleNamespace(
+            current_item=lambda: {"Id": "z"} if playing[0] else None,
+            isPlayingVideo=lambda: playing[0],
+        )
+
+    def on_tick(tick, w):
+        if tick == 3:
+            w.userdata([{"ItemId": "z", "PlayCount": 6}])
+        elif tick == 10:
+            playing[0] = False
+
+    w, ran = _loop(store, monkeypatch, ticks=60, prepare=prepare, on_tick=on_tick)
+    assert ran == [0, 3, 10, 10 + int(HELD_USERDATA_GRACE / 0.5)]
+    assert w._held_userdata == {}
+
+
+@pytest.mark.parametrize("held", ["reload", "toast"])
+def test_what_a_video_holds_back_runs_when_the_video_ends(store, monkeypatch, held):
+    from kofin.sync.backends.api import announce, library
+
+    playing = [True]
+    reloaded = []
+    monkeypatch.setattr(
+        library.xbmc,
+        "getCondVisibility",
+        lambda flag: flag.startswith("Library.HasContent"),
+    )
+    monkeypatch.setattr(library.xbmc, "executebuiltin", reloaded.append)
+    monkeypatch.setattr(announce.settings, "get_bool", lambda key: True)
+    monkeypatch.setattr(announce.newcontent, "summarize", lambda entries: [])
+
+    def prepare(w):
+        w.player = SimpleNamespace(
+            isPlayingVideo=lambda: playing[0], current_item=lambda: None
+        )
+        if held == "reload":
+            w._reload_owed = {"Movie"}
+        else:
+            w.arrivals.backlog = [object()]
+
+    def on_tick(tick, w):
+        if tick == 5:
+            playing[0] = False
+
+    w, ran = _loop(store, monkeypatch, ticks=20, prepare=prepare, on_tick=on_tick)
+    assert ran == [0, 5]
+    assert not w._reload_owed and not w.arrivals.backlog
+    assert reloaded == (["ReloadSkin()"] if held == "reload" else [])
+
+
+def test_a_failed_song_claim_is_a_deadline_for_an_idle_worker(store, monkeypatch):
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    w._catchup_due = w._bindings_due = 10**9
+    w._playlists_due = False
+    w.arrivals.songs = {"s": LIB}
+    w.arrivals.claim_retry_at = 500.0
+    native = SimpleNamespace(settings_owed=False)
+    assert w._idle_until(native) == 500.0
+
+
+@pytest.mark.parametrize("owed", ["pending", "outbox"])
 def test_a_stage_with_work_left_runs_on_every_tick(store, monkeypatch, owed):
     def prepare(w):
         if owed == "pending":
             store.publish([movie()], library=LIB)
             w.apply = lambda native: None
-        elif owed == "outbox":
-            store.local("a", {"playcount": 1})
         else:
-            w._reload_owed = {"Movie"}
-            w.player = SimpleNamespace(isPlayingVideo=lambda: True)
+            store.local("a", {"playcount": 1})
 
     _, ran = _loop(store, monkeypatch, ticks=5, prepare=prepare)
     assert ran == [0, 1, 2, 3, 4]
