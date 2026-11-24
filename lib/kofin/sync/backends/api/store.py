@@ -31,6 +31,33 @@ from .records import PayloadWindow, Record
 
 LOG = Logger(__name__)
 
+# The running library thread's wake, called after a write another thread can
+# make for it. Module state, deliberately: identity.current_store builds a
+# Store for every call, so no instance could carry it. Restart-safe: each
+# generation's library thread sets its own as it starts and clears only its
+# own as it ends (Library.run), so one still stopping cannot silence the next.
+_wake: Optional[Callable[[], None]] = None
+
+
+def wake_on_write(hook: Callable[[], None]) -> None:
+    """Have every outbox edit and every invalidation call ``hook``."""
+    global _wake
+    _wake = hook
+
+
+def stop_waking(hook: Callable[[], None]) -> None:
+    """Undo ``wake_on_write``, unless a later hook has replaced this one."""
+    global _wake
+    if _wake == hook:
+        _wake = None
+
+
+def _written() -> None:
+    hook = _wake
+    if hook is not None:
+        hook()
+
+
 # An episode as its show's hash reads it: id, season and number
 # (metadata.episode_row).
 EpisodeRow = tuple[str, int, int]
@@ -1506,6 +1533,7 @@ class Store(Catalogue):
                     " AND item_id IN (%s)" % ",".join("?" * len(chunk)),
                     [self.namespace] + chunk,
                 )
+        _written()
 
     # -- scanner bindings, watermarks --------------------------------------------
 
@@ -1759,6 +1787,7 @@ class Store(Catalogue):
                 "INSERT OR REPLACE INTO api_local_userdata VALUES (?,?,?)",
                 (self.namespace, item_id, encode(payload)),
             )
+        _written()
 
     def local_pending(self) -> list[tuple[str, dict[str, Any]]]:
         with Database() as db:

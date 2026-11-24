@@ -179,7 +179,7 @@ class Service(xbmc.Monitor):
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api, modal=self.modal)
         self.remote = RemoteHandler()
-        self.kodi_userdata = KodiUserData(self.api, self._wake_library)
+        self.kodi_userdata = KodiUserData(self.api)
         self.library: Optional[LibraryPort] = None
         self.downloads: Optional[DownloadsPort] = None
         self.syncplay: Optional[SyncPlayPort] = None
@@ -545,11 +545,6 @@ class Service(xbmc.Monitor):
 
         LOG.warning("library sync manager thread is gone; rebuilding")
         self.library = None
-
-    def _wake_library(self) -> None:
-        library = self.library
-        if library is not None:
-            library.wake()
 
     def _start_library(self) -> None:
         """Start the sync manager when there is anything to sync or resume.

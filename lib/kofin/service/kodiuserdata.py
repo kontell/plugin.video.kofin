@@ -21,7 +21,6 @@ user's edits are queued durably in kofin.db for the server.
 
 import queue
 import threading
-from collections.abc import Callable
 from typing import Any, Optional
 
 from kofin.core import kodirpc
@@ -73,10 +72,8 @@ class KodiUserData:
     arrive; marking a whole season watched fires one announcement per episode.
     """
 
-    def __init__(self, api: Api, wake: Callable[[], None]) -> None:
+    def __init__(self, api: Api) -> None:
         self.api = api
-        # Tells the library thread an edit is in the outbox.
-        self.wake = wake
         self._queue: queue.Queue[Optional[tuple[str, int, str, int]]] = queue.Queue()
         self._worker: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -153,4 +150,3 @@ class KodiUserData:
             if store.is_echo(item_id, "resume", {"position": position}):
                 return
             store.local(item_id, {"position": position})
-        self.wake()

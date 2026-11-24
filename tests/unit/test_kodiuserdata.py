@@ -74,8 +74,8 @@ def kodi_resume(monkeypatch):
     return box
 
 
-def drain(api, payloads, wake=lambda: None):
-    watcher = KodiUserData(api, wake)
+def drain(api, payloads):
+    watcher = KodiUserData(api)
     for payload in payloads:
         watcher.submit(payload)
     watcher.stop()  # the sentinel queues behind the work, so this drains it
@@ -117,7 +117,7 @@ def test_parse_covers_every_mapped_media_type():
 
 
 def test_no_worker_thread_without_work():
-    watcher = KodiUserData(RecordingApi(), lambda: None)
+    watcher = KodiUserData(RecordingApi())
     watcher.submit({"item": {"id": 1, "type": "tvshow"}, "playcount": 1})
     assert watcher._worker is None
     watcher.stop()  # a no-op, not a crash
@@ -179,16 +179,6 @@ def test_the_echo_of_the_passs_own_write_is_not_an_edit(outbox):
     outbox.echoes.add(("jf-ep-1", "playcount"))
     drain(RecordingApi(), [MARK_WATCHED])
     assert outbox.edits == []
-
-
-def test_an_edit_wakes_the_library_thread_and_an_echo_does_not(outbox):
-    """An idle library thread asks the outbox nothing until it is woken."""
-    woken = []
-    drain(RecordingApi(), [MARK_WATCHED], lambda: woken.append(True))
-    assert woken == [True]
-    outbox.echoes.add(("jf-ep-1", "playcount"))
-    drain(RecordingApi(), [MARK_UNWATCHED], lambda: woken.append(True))
-    assert woken == [True]
 
 
 @pytest.mark.parametrize("filed", [1200.0, 0.0])

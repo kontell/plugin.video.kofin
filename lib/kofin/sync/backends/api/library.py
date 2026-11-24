@@ -31,7 +31,7 @@ from . import announce, capabilities, metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
-from .store import REBUILDING, Store, namespace
+from .store import REBUILDING, Store, namespace, stop_waking, wake_on_write
 
 if TYPE_CHECKING:
     from kofin.core.api import Api
@@ -512,13 +512,17 @@ class Library(threading.Thread):
         self.enqueue_command("FastSync")
 
     def wake(self) -> None:
-        """Have the next tick run its stages: an edit is in the outbox."""
-        self._woken.set()
+        """Have the next tick run its stages: another thread wrote work for
+        this one (store.wake_on_write)."""
+        # A write on this thread is read by its own tick's _idle_until.
+        if threading.current_thread() is not self:
+            self._woken.set()
 
     # -- the loop ----------------------------------------------------------------
 
     def run(self) -> None:
         monitor = xbmc.Monitor()
+        wake_on_write(self.wake)
         try:
             # One connection to kofin.db for as long as this thread runs: it
             # is the thread that asks the store for work and the one every
@@ -534,6 +538,7 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("API video worker stopped")
         finally:
+            stop_waking(self.wake)
             self.stop_thread = True
             # A stop in the middle of a request leaves nobody to finish its
             # bar: the tick that would have settled it never ran.
@@ -658,7 +663,8 @@ class Library(threading.Thread):
 
     def _work_arrived(self, native: Native, idle_until: float) -> bool:
         """Whether an idle tick has work: a queued event or command, a row
-        Kodi removed, an edit in the outbox, or a stage's deadline."""
+        Kodi removed, a write another thread made (wake), or a stage's
+        deadline."""
         return (
             self._woken.is_set()
             or not self._queue.empty()

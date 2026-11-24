@@ -710,10 +710,9 @@ def test_a_settled_worker_runs_no_stage_until_something_is_due(store, monkeypatc
     "arrive",
     [
         lambda w: w.userdata([{"ItemId": "z", "Played": True}]),
-        lambda w: w.wake(),
         lambda w: w.native.monitor.lost.add(("movie", 7)),
     ],
-    ids=["event", "outbox", "kodi-removal"],
+    ids=["event", "kodi-removal"],
 )
 def test_work_that_arrives_runs_the_stages_on_the_next_tick(store, monkeypatch, arrive):
     def on_tick(tick, w):
@@ -736,6 +735,61 @@ def test_a_settled_worker_catches_up_when_the_catch_up_is_due(store, monkeypatch
     _, ran = _loop(store, monkeypatch, ticks=20, prepare=prepare)
     assert ran == [0, 10]
     assert caught == [True]
+
+
+@pytest.mark.parametrize("write", ["local", "invalidate"])
+def test_a_write_from_another_thread_runs_the_stages_on_the_next_tick(
+    store, monkeypatch, write
+):
+    """An outbox edit (KodiUserData) and an invalidation (a download's
+    badge) come from other threads, on a Store of their own."""
+    import threading
+
+    from kofin.sync.backends.api import store as store_module
+
+    other = type(store)(store.namespace)
+
+    def on_tick(tick, w):
+        if tick == 5:
+            if write == "local":
+                writer = threading.Thread(target=other.local, args=("a", {"x": 1}))
+            else:
+                writer = threading.Thread(target=other.invalidate, args=(["a"],))
+            writer.start()
+            writer.join()
+
+    _, ran = _loop(
+        store,
+        monkeypatch,
+        ticks=20,
+        prepare=lambda w: monkeypatch.setattr(store_module, "_wake", w.wake),
+        on_tick=on_tick,
+    )
+    assert ran[:2] == [0, 5]
+
+
+def test_the_library_thread_is_woken_by_writes_only_while_it_runs(store, monkeypatch):
+    from kofin.sync.backends.api import library
+    from kofin.sync.backends.api import store as store_module
+
+    monkeypatch.setattr(store_module, "_wake", None)
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    seen = []
+    monkeypatch.setattr(w, "_run", lambda monitor: seen.append(store_module._wake))
+    w._bar = lambda: SimpleNamespace(finish=lambda: None)
+    w.run()
+    assert seen == [w.wake]
+    assert store_module._wake is None
+    # One still stopping leaves the next generation's wake in place.
+    later = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    store_module.wake_on_write(w.wake)
+    store_module.wake_on_write(later.wake)
+    store_module.stop_waking(w.wake)
+    assert store_module._wake == later.wake
+    # The thread's own writes are read by its own tick.
+    monkeypatch.setattr(library.threading, "current_thread", lambda: w)
+    w.wake()
+    assert not w._woken.is_set()
 
 
 @pytest.mark.parametrize("owed", ["pending", "outbox", "reload"])
