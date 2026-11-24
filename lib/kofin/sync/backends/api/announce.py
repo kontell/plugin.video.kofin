@@ -65,6 +65,10 @@ class Arrivals:
             elif entry.type == "Audio" and (membership or {}).get(entry.item_id):
                 self.songs[entry.item_id] = (membership or {})[entry.item_id]
 
+    def holding(self) -> bool:
+        """Whether anything waits for a pass, a claim or a toast."""
+        return bool(self.arriving or self.backlog or self.songs)
+
     def flush(self, store: "Store", api: "Api", player: Optional[xbmc.Player]) -> None:
         """Hand what the pass has filed to the downloads, and announce it
         unless a video is playing."""

@@ -441,6 +441,14 @@ What remains is kofin's own:
   failure does not pull the catch-up forward.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
+- **A tick that finds nothing owed runs no stage until work arrives or a stage is due**
+  (`Library._idle_until`, `_work_arrived`). The ticks after it look at the queue, the outbox
+  wake, the rows Kodi removed and the next deadline (the catch-up, the folder bindings, a held
+  setting), and ask the store nothing: every stage twice a second with nothing to do was 10.6 %
+  of a core on the LibreELEC box, and 0.12 % without. A stage that keeps work in memory between
+  ticks has to keep `_idle_until` from going idle, and a thread that leaves the library thread
+  work anywhere but its queue has to call `Library.wake`, as `KodiUserData` does for the
+  outbox, or the work waits for the next catch-up.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
   pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
   SQLite and held the store's write lock across a service restart. An empty batch opens no

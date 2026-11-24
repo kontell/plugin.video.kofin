@@ -423,6 +423,9 @@ class Library(threading.Thread):
         self._stop_event = threading.Event()
         # (command, data), and a third member on an entry that is a retry.
         self._queue: queue.Queue[tuple[Any, ...]] = queue.Queue()
+        # Set by another thread that wrote work the queue does not carry
+        # (wake).
+        self._woken = threading.Event()
         self._catchup_due = 0.0
         self._full_due = False
         self._repair = False
@@ -508,14 +511,18 @@ class Library(threading.Thread):
     def refresh_libraries(self) -> None:
         self.enqueue_command("FastSync")
 
+    def wake(self) -> None:
+        """Have the next tick run its stages: an edit is in the outbox."""
+        self._woken.set()
+
     # -- the loop ----------------------------------------------------------------
 
     def run(self) -> None:
         monitor = xbmc.Monitor()
         try:
             # One connection to kofin.db for as long as this thread runs: it
-            # is the thread that asks the store for work twice a second and
-            # the one every pass runs on (private.hold_connections).
+            # is the thread that asks the store for work and the one every
+            # pass runs on (private.hold_connections).
             with private.hold_connections():
                 self._run(monitor)
         except EarlierLibrary as error:
@@ -557,7 +564,15 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
+        idle_until: Optional[float] = None
         while not self.stop_thread and not monitor.abortRequested():
+            if idle_until is not None and not self._work_arrived(native, idle_until):
+                # The wait still takes this thread's Monitor callbacks off.
+                if monitor.waitForAbort(0.5):
+                    break
+                continue
+            idle_until = None
+            self._woken.clear()
             failed = False
             try:
                 if native.refile_removed():
@@ -613,8 +628,43 @@ class Library(threading.Thread):
             else:
                 self._work_failures = {}
                 self._work_delay = RETRY_FIRST
+                idle_until = self._idle_until(native)
             if monitor.waitForAbort(0.5):
                 break
+
+    def _idle_until(self, native: Native) -> Optional[float]:
+        """When a stage is next due, or None while one still has work.
+
+        Until then the ticks run no stage: everything else that gives a
+        stage work arrives through ``_work_arrived``.
+        """
+        if (
+            self._repair
+            or self._full_due
+            or self._rebuilding
+            or self._held_userdata
+            or self._reload_owed
+            or self._playlists_due
+            or self.arrivals.holding()
+            or self._bar().attended
+            or self.store.has_pending()
+            or self.store.local_pending()
+        ):
+            return None
+        due = [self._catchup_due, self._bindings_due]
+        if native.settings_owed:
+            due.append(self._settings_due)
+        return min(due)
+
+    def _work_arrived(self, native: Native, idle_until: float) -> bool:
+        """Whether an idle tick has work: a queued event or command, a row
+        Kodi removed, an edit in the outbox, or a stage's deadline."""
+        return (
+            self._woken.is_set()
+            or not self._queue.empty()
+            or bool(native.monitor.lost)
+            or time.monotonic() >= idle_until
+        )
 
     def commands(self) -> None:
         failed = False

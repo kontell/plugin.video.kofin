@@ -50,6 +50,8 @@ class LibraryPort(Protocol):
 
     def refresh_libraries(self) -> None: ...
 
+    def wake(self) -> None: ...
+
 
 class DownloadsPort(Protocol):
     """What the service drives on the download manager."""
