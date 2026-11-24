@@ -633,6 +633,7 @@ def test_the_catch_up_leads_the_pass_only_while_the_server_answers(
             setup=lambda: None,
             restore_settings=lambda: None,
             refile_removed=lambda: False,
+            settings_owed=False,
         ),
     )
     monkeypatch.setattr(library.api_playlists, "owed", lambda: False)
@@ -653,6 +654,225 @@ def test_the_catch_up_leads_the_pass_only_while_the_server_answers(
     w.run()
 
     assert calls == order
+
+
+def _loop(store, monkeypatch, ticks, prepare=lambda w: None, on_tick=None):
+    """Run the library loop for ``ticks`` waits from a settled start: listed,
+    nothing pending, the catch-up half an hour off. Returns the worker and
+    the ticks whose stages ran, counted at the first stage."""
+    from kofin.sync.backends.api import library
+
+    clock = [1000.0]
+    store.set_watermark(watermark="x", enumerated=time.time())
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    w._catchup_due = clock[0] + library.CATCHUP_INTERVAL
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+    lost: set = set()
+
+    def refile_removed():
+        lost.clear()
+        return False
+
+    w.native = SimpleNamespace(
+        setup=lambda: None,
+        restore_settings=lambda: None,
+        refile_removed=refile_removed,
+        bind_movie_folders=lambda: None,
+        settings_owed=False,
+        monitor=SimpleNamespace(lost=lost),
+    )
+    monkeypatch.setattr(library, "Native", lambda *args, **kwargs: w.native)
+    monkeypatch.setattr(library.api_playlists, "owed", lambda: False)
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    tick = [0]
+    ran = []
+    monkeypatch.setattr(w, "flush_local", lambda: ran.append(tick[0]))
+    prepare(w)
+
+    def wait(seconds):
+        clock[0] += seconds
+        tick[0] += 1
+        if on_tick is not None:
+            on_tick(tick[0], w)
+        return tick[0] >= ticks
+
+    w.stop_thread = False
+    w._run(SimpleNamespace(abortRequested=lambda: False, waitForAbort=wait))
+    return w, ran
+
+
+def test_a_settled_worker_runs_no_stage_until_something_is_due(store, monkeypatch):
+    _, ran = _loop(store, monkeypatch, ticks=20)
+    assert ran == [0]
+
+
+@pytest.mark.parametrize(
+    "arrive",
+    [
+        lambda w: w.userdata([{"ItemId": "z", "Played": True}]),
+        lambda w: w.native.monitor.lost.add(("movie", 7)),
+    ],
+    ids=["event", "kodi-removal"],
+)
+def test_work_that_arrives_runs_the_stages_on_the_next_tick(store, monkeypatch, arrive):
+    def on_tick(tick, w):
+        if tick == 5:
+            arrive(w)
+
+    _, ran = _loop(store, monkeypatch, ticks=20, on_tick=on_tick)
+    assert ran == [0, 5]
+
+
+def test_a_settled_worker_catches_up_when_the_catch_up_is_due(store, monkeypatch):
+    from kofin.sync.backends.api.library import CATCHUP_INTERVAL
+
+    caught = []
+
+    def prepare(w):
+        w._catchup_due -= CATCHUP_INTERVAL - 5.0
+        w.catch_up = lambda: caught.append(True)
+
+    _, ran = _loop(store, monkeypatch, ticks=20, prepare=prepare)
+    assert ran == [0, 10]
+    assert caught == [True]
+
+
+@pytest.mark.parametrize("write", ["local", "invalidate"])
+def test_a_write_from_another_thread_runs_the_stages_on_the_next_tick(
+    store, monkeypatch, write
+):
+    """An outbox edit (KodiUserData) and an invalidation (a download's
+    badge) come from other threads, on a Store of their own."""
+    import threading
+
+    from kofin.sync.backends.api import store as store_module
+
+    other = type(store)(store.namespace)
+
+    def on_tick(tick, w):
+        if tick == 5:
+            if write == "local":
+                writer = threading.Thread(target=other.local, args=("a", {"x": 1}))
+            else:
+                writer = threading.Thread(target=other.invalidate, args=(["a"],))
+            writer.start()
+            writer.join()
+
+    _, ran = _loop(
+        store,
+        monkeypatch,
+        ticks=20,
+        prepare=lambda w: monkeypatch.setattr(store_module, "_wake", w.wake),
+        on_tick=on_tick,
+    )
+    assert ran[:2] == [0, 5]
+
+
+def test_the_library_thread_is_woken_by_writes_only_while_it_runs(store, monkeypatch):
+    from kofin.sync.backends.api import library
+    from kofin.sync.backends.api import store as store_module
+
+    monkeypatch.setattr(store_module, "_wake", None)
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    seen = []
+    monkeypatch.setattr(w, "_run", lambda monitor: seen.append(store_module._wake))
+    w._bar = lambda: SimpleNamespace(finish=lambda: None)
+    w.run()
+    assert seen == [w.wake]
+    assert store_module._wake is None
+    # One still stopping leaves the next generation's wake in place.
+    later = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    store_module.wake_on_write(w.wake)
+    store_module.wake_on_write(later.wake)
+    store_module.stop_waking(w.wake)
+    assert store_module._wake == later.wake
+    # The thread's own writes are read by its own tick.
+    monkeypatch.setattr(library.threading, "current_thread", lambda: w)
+    w.wake()
+    assert not w._woken.is_set()
+
+
+def test_user_data_held_for_a_play_waits_idle_for_the_stop_and_the_grace(
+    store, monkeypatch
+):
+    """The server's save at the start of a play comes back while the item
+    plays, and is held until a grace after the stop."""
+    from kofin.sync.backends.api.library import HELD_USERDATA_GRACE
+
+    playing = [True]
+
+    def prepare(w):
+        w.player = SimpleNamespace(
+            current_item=lambda: {"Id": "z"} if playing[0] else None,
+            isPlayingVideo=lambda: playing[0],
+        )
+
+    def on_tick(tick, w):
+        if tick == 3:
+            w.userdata([{"ItemId": "z", "PlayCount": 6}])
+        elif tick == 10:
+            playing[0] = False
+
+    w, ran = _loop(store, monkeypatch, ticks=60, prepare=prepare, on_tick=on_tick)
+    assert ran == [0, 3, 10, 10 + int(HELD_USERDATA_GRACE / 0.5)]
+    assert w._held_userdata == {}
+
+
+@pytest.mark.parametrize("held", ["reload", "toast"])
+def test_what_a_video_holds_back_runs_when_the_video_ends(store, monkeypatch, held):
+    from kofin.sync.backends.api import announce, library
+
+    playing = [True]
+    reloaded = []
+    monkeypatch.setattr(
+        library.xbmc,
+        "getCondVisibility",
+        lambda flag: flag.startswith("Library.HasContent"),
+    )
+    monkeypatch.setattr(library.xbmc, "executebuiltin", reloaded.append)
+    monkeypatch.setattr(announce.settings, "get_bool", lambda key: True)
+    monkeypatch.setattr(announce.newcontent, "summarize", lambda entries: [])
+
+    def prepare(w):
+        w.player = SimpleNamespace(
+            isPlayingVideo=lambda: playing[0], current_item=lambda: None
+        )
+        if held == "reload":
+            w._reload_owed = {"Movie"}
+        else:
+            w.arrivals.backlog = [object()]
+
+    def on_tick(tick, w):
+        if tick == 5:
+            playing[0] = False
+
+    w, ran = _loop(store, monkeypatch, ticks=20, prepare=prepare, on_tick=on_tick)
+    assert ran == [0, 5]
+    assert not w._reload_owed and not w.arrivals.backlog
+    assert reloaded == (["ReloadSkin()"] if held == "reload" else [])
+
+
+def test_a_failed_song_claim_is_a_deadline_for_an_idle_worker(store, monkeypatch):
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    w._catchup_due = w._bindings_due = 10**9
+    w._playlists_due = False
+    w.arrivals.songs = {"s": LIB}
+    w.arrivals.claim_retry_at = 500.0
+    native = SimpleNamespace(settings_owed=False)
+    assert w._idle_until(native) == 500.0
+
+
+@pytest.mark.parametrize("owed", ["pending", "outbox"])
+def test_a_stage_with_work_left_runs_on_every_tick(store, monkeypatch, owed):
+    def prepare(w):
+        if owed == "pending":
+            store.publish([movie()], library=LIB)
+            w.apply = lambda native: None
+        else:
+            store.local("a", {"playcount": 1})
+
+    _, ran = _loop(store, monkeypatch, ticks=5, prepare=prepare)
+    assert ran == [0, 1, 2, 3, 4]
 
 
 def _settling(w, monkeypatch):

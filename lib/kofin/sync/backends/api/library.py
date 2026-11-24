@@ -31,7 +31,7 @@ from . import announce, capabilities, metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
-from .store import REBUILDING, Store, namespace
+from .store import REBUILDING, Store, namespace, stop_waking, wake_on_write
 
 if TYPE_CHECKING:
     from kofin.core.api import Api
@@ -423,6 +423,9 @@ class Library(threading.Thread):
         self._stop_event = threading.Event()
         # (command, data), and a third member on an entry that is a retry.
         self._queue: queue.Queue[tuple[Any, ...]] = queue.Queue()
+        # Set by another thread that wrote work the queue does not carry
+        # (wake).
+        self._woken = threading.Event()
         self._catchup_due = 0.0
         self._full_due = False
         self._repair = False
@@ -508,14 +511,22 @@ class Library(threading.Thread):
     def refresh_libraries(self) -> None:
         self.enqueue_command("FastSync")
 
+    def wake(self) -> None:
+        """Have the next tick run its stages: another thread wrote work for
+        this one (store.wake_on_write)."""
+        # A write on this thread is read by its own tick's _idle_until.
+        if threading.current_thread() is not self:
+            self._woken.set()
+
     # -- the loop ----------------------------------------------------------------
 
     def run(self) -> None:
         monitor = xbmc.Monitor()
+        wake_on_write(self.wake)
         try:
             # One connection to kofin.db for as long as this thread runs: it
-            # is the thread that asks the store for work twice a second and
-            # the one every pass runs on (private.hold_connections).
+            # is the thread that asks the store for work and the one every
+            # pass runs on (private.hold_connections).
             with private.hold_connections():
                 self._run(monitor)
         except EarlierLibrary as error:
@@ -527,6 +538,7 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("API video worker stopped")
         finally:
+            stop_waking(self.wake)
             self.stop_thread = True
             # A stop in the middle of a request leaves nobody to finish its
             # bar: the tick that would have settled it never ran.
@@ -557,7 +569,15 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("playlist state not read; the next enumeration retries")
         self.startup_done = True
+        idle_until: Optional[float] = None
         while not self.stop_thread and not monitor.abortRequested():
+            if idle_until is not None and not self._work_arrived(native, idle_until):
+                # The wait still takes this thread's Monitor callbacks off.
+                if monitor.waitForAbort(0.5):
+                    break
+                continue
+            idle_until = None
+            self._woken.clear()
             failed = False
             try:
                 if native.refile_removed():
@@ -613,8 +633,66 @@ class Library(threading.Thread):
             else:
                 self._work_failures = {}
                 self._work_delay = RETRY_FIRST
+                idle_until = self._idle_until(native)
             if monitor.waitForAbort(0.5):
                 break
+
+    def _idle_until(self, native: Native) -> Optional[float]:
+        """When a stage is next due, or None while one still has work.
+
+        Until then the ticks run no stage: everything else that gives a
+        stage work arrives through ``_work_arrived``.
+        """
+        if (
+            self._repair
+            or self._full_due
+            or self._rebuilding
+            or self._playlists_due
+            or self.arrivals.arriving
+            or self._bar().attended
+            or self.store.has_pending()
+            or self.store.local_pending()
+        ):
+            return None
+        due = [self._catchup_due, self._bindings_due]
+        if native.settings_owed:
+            due.append(self._settings_due)
+        due.extend(
+            stopped + HELD_USERDATA_GRACE
+            for _, stopped in self._held_userdata.values()
+            if stopped is not None
+        )
+        if self.arrivals.songs:
+            due.append(self.arrivals.claim_retry_at)
+        return min(due)
+
+    def _work_arrived(self, native: Native, idle_until: float) -> bool:
+        """Whether an idle tick has work: a queued event or command, a row
+        Kodi removed, a write another thread made (wake), a stage's
+        deadline, or the end of a play that held work back."""
+        return (
+            self._woken.is_set()
+            or not self._queue.empty()
+            or bool(native.monitor.lost)
+            or time.monotonic() >= idle_until
+            or self._play_ended()
+        )
+
+    def _play_ended(self) -> bool:
+        """Whether a play that held work back has ended: the user data
+        held for its item, a skin reload, or a toast."""
+        if self._held_userdata:
+            playing = self._playing()
+            if any(
+                stopped is None and item_id != playing
+                for item_id, (_, stopped) in self._held_userdata.items()
+            ):
+                return True
+        if self._reload_owed and not (
+            self.player is not None and self.player.isPlayingVideo()
+        ):
+            return True
+        return self.arrivals.announceable(self.player)
 
     def commands(self) -> None:
         failed = False

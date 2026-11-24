@@ -2,6 +2,7 @@
 
 import copy
 import queue
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -428,6 +429,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._held_userdata = {}
     w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()
+    w._woken = threading.Event()
     w._published_at = 0.0
     w._pending_since = None
     # A pass right after a publish, as the tests expect; the settling has

@@ -247,7 +247,11 @@ def test_a_new_song_is_claimed_for_its_library_once_filed_and_never_announced(
     w.announce_new_content()
     assert claimed == [{song["Id"]: LIB for song in songs}]
     assert toasts.shown == [] and toasts.queued == []
-    # A claim that fails is asked again on the next flush.
+    # A claim that fails is asked again once CLAIM_RETRY has passed.
+    from kofin.sync.backends.api import announce
+
+    clock = [100.0]
+    monkeypatch.setattr(announce.time, "monotonic", lambda: clock[0])
     failing = [True]
 
     def claim(placed):
@@ -260,6 +264,10 @@ def test_a_new_song_is_claimed_for_its_library_once_filed_and_never_announced(
     w.announce_new_content()
     assert w.arrivals.songs == {songs[0]["Id"]: LIB}
     failing[0] = False
+    asked = len(claimed)
+    w.announce_new_content()
+    assert len(claimed) == asked
+    clock[0] += announce.CLAIM_RETRY
     w.announce_new_content()
     assert claimed[-1] == {songs[0]["Id"]: LIB} and w.arrivals.songs == {}
     assert ALBUM in store.known([ALBUM])  # the album was there before
