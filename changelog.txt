@@ -2,6 +2,7 @@ v1.0.1
 - Several new movies or episodes are added faster, with less flicker on the home screen.
 - Pressing Back while something is starting to play no longer freezes Kodi for several seconds.
 - Kofin uses far less of the processor while Kodi sits idle.
+- Refresh on a movie, show or episode asks the server for it again, and Jellyfin actions offers Refresh on an album or an artist.
 
 v1.0.0
 - The server's certificate is always checked. "Verify SSL certificate" is gone.
