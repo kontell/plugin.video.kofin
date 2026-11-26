@@ -443,3 +443,17 @@ A movie played by `Player.Open` over JSON-RPC and cancelled by `Input.Back` whil
 - [PASS] The same press on the final build: the stop was heard as the route started and nothing was requested. Termination 1,178 ms, the cold imports it waited behind included.
 - [PASS] Warm, six presses landing between the route's start and its hand-off, each logged as `abandoned (…)`: the item fetch or PlaybackInfo not sent, or the last look after the fetches. Termination 316–779 ms, of which 0.30–0.40 s is Kodi tearing the interpreter down after the script returns. No toast.
 - [PASS] The transport alone, on the Pi's Python 3.14 outside Kodi, against local servers that read the request and never answer, the stop raised 0.3 s in: HTTP and TLS 1.3 both abandoned within 0.03 s of it against an 8 s read budget, with no watcher thread left. The server answered too quickly in the Kodi runs for a press to land while a request waited.
+
+## A refresh asks the server again (run 2026-11-26, P1D Kodi 22 RC1 Flatpak)
+
+Jellyfin 12.4.0, KofinSyncQueue 12.0.0.6. Each video refresh was `VideoLibrary.Refresh*` over JSON-RPC, which runs the job the information dialog's Refresh button runs (`CVideoLibraryRefreshingJob`) and reaches the provider with the same `kodi_action=refresh_info`; the menu was driven through the GUI.
+
+- [REPRO] 1.0.0, a movie whose file had been replaced that morning: the server answered a list request before it had reattached the movie's user data, kept answering unplayed from its cache, and corrected itself at a restart with no event. The dialog's Refresh was answered from the catalogue and the row was filed again unwatched.
+- [PASS] The same movie on this build: the callback was passed on, the movie was asked for by id 0.7 s later, and the row read 2 plays, last played 2023-06-03, 4.7 s after the refresh began.
+- [PASS] An episode marked played and then unplayed on the server. The unplayed event carries no `LastPlayedDate` and `apply_userdata` merges it over the old one, so the catalogue kept the date and the row stood unwatched with a last-played date. A refresh of the episode asked for it by id and the pass cleared the date.
+- [PASS] The episode's show refreshed alone (`refreshepisodes` false): the row kept its id and no removal was announced, the callback named the show, and one request asked for the show, its season and its five episodes.
+- [PASS] An album row in the music library: Jellyfin actions listed Play all, Shuffle, Add to favourites, Download, Refresh, Settings. Refresh asked for the album and its seven songs in one request. On the album's artist row it asked for 19 items: the artist, both albums and their sixteen songs.
+- [PASS] A song row: Jellyfin actions listed Add to favourites, Download, Settings.
+- [PASS] With `kofin.native.refresh` set to an episode's id by hand, as the pass sets it, a refresh of that episode was answered and nothing was passed on or asked of the server. No refresh of the pass's own was due on the rig; that it names its item and takes the name down is `test_the_pass_names_the_item_it_has_kodi_refresh`.
+- [NOT RUN] A movie row's Jellyfin actions menu (no Refresh; `test_manage_options_offer_refresh_on_a_library_album_or_artist_alone`), and the dialog's own button on this build.
+

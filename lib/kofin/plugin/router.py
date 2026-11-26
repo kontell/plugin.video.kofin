@@ -78,6 +78,7 @@ ROUTES: dict[str, tuple[str, str]] = {
     "selectlibraries": ("librarypicker", "select_libraries"),
     "updatelibs": ("actions", "update_libraries"),
     "repairlibs": ("actions", "repair_libraries"),
+    "refreshitem": ("actions", "refresh_item"),
     "saveplaylist": ("actions", "save_playlist"),
 }
 

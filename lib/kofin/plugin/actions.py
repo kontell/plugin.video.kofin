@@ -233,6 +233,15 @@ def repair_libraries(request: Request) -> None:
     ipc.notify(ipc.REPAIR_LIBRARY, {"Id": ",".join(selected)})
 
 
+def refresh_item(request: Request) -> None:
+    """Have the service ask the server again for an album or an artist, with
+    its songs (ipc.REFRESH_ITEMS). The catalogue is the service's, so the
+    songs are found there and this names the one item."""
+    item_id = request.params.get("id", "")
+    if item_id:
+        ipc.notify(ipc.REFRESH_ITEMS, {"Id": item_id})
+
+
 def _selection_names(library_ids: list[str]) -> list[str]:
     """View names for the picker; falls back to the raw ids offline."""
     from kofin.sync import private as sync_db
