@@ -159,14 +159,17 @@ def test_unguarded_commands_are_not_gated(nonce_file):
 def test_every_library_command_is_guarded(nonce_file):
     """An update lists every library again and plans the removals that
     follow — the guard's own rationale — so UpdateLibrary carries the
-    secret like Remove and Repair do."""
+    secret like Remove and Repair do. A refresh names an artist and has
+    the server asked for every song under it."""
     secret = ipc.rotate_nonce()
     assert {
         ipc.REMOVE_LIBRARY,
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
+        ipc.REFRESH_ITEMS,
     } <= ipc.GUARDED
     assert ipc.verify(ipc.UPDATE_LIBRARY, {}, secret) is False
+    assert ipc.verify(ipc.REFRESH_ITEMS, {"Id": "artist"}, secret) is False
 
 
 def test_sync_library_is_not_a_message(monkeypatch):

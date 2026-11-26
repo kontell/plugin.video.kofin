@@ -102,6 +102,17 @@ PROP_SYNCSESSION = "syncsession.state"
 # outlived its pass never waits on the next one.
 PROP_NATIVE_HOLD = "kofin.native.hold"
 
+# The item the pass is having Kodi refresh (patch.Applier.refresh). Kodi asks
+# the scanner callback for a refreshed item the same way whoever pressed
+# Refresh, with kodi_action=refresh_info and nothing else, and a viewer's is
+# a request to ask the server again (ipc.REFRESH_ITEMS) where the pass's is
+# the catalogue being filed. Earns its place because the one that knows is
+# the service and the one that is asked is the *plugin* process, inside
+# Kodi's refresh job. Told apart in the service instead, every refresh of a
+# pass that files a library again would be a NotifyAll to every add-on's
+# Monitor. One value: the pass waits for each refresh before the next.
+PROP_NATIVE_REFRESH = "kofin.native.refresh"
+
 # The listings being built, per plugin URL: at most two builds of one URL at
 # a time, so a skin's home widgets asked for again at every visit to Home
 # cannot pile up until Kodi has no thread left to create. Named here, as
@@ -519,6 +530,20 @@ def native_hold(scanner: str) -> str:
 
 def clear_native_hold(scanner: str) -> None:
     _window().clearProperty(PROP_NATIVE_HOLD + "." + scanner)
+
+
+def set_native_refresh(item_id: str) -> None:
+    """Name the item the pass is about to have Kodi refresh."""
+    _window().setProperty(PROP_NATIVE_REFRESH, item_id)
+
+
+def native_refresh() -> str:
+    """The item the pass is refreshing, '' between its refreshes."""
+    return _window().getProperty(PROP_NATIVE_REFRESH)
+
+
+def clear_native_refresh() -> None:
+    _window().clearProperty(PROP_NATIVE_REFRESH)
 
 
 def set_context_bitrates(bitrates: str) -> None:

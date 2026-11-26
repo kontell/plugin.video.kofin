@@ -1894,3 +1894,91 @@ def test_a_removal_of_no_artist_asks_the_server_nothing(store, monkeypatch):
     w.command("removed", ["a"])
     assert store.state("a").operation == "remove"
     assert asked == []
+
+
+def _asked(server):
+    """Record the ids each request names."""
+    asked = []
+    items = server.items
+
+    def recording(params):
+        if params.get("Ids"):
+            asked.extend(params["Ids"].split(","))
+        return items(params)
+
+    server.items = recording
+    return asked
+
+
+def test_a_refresh_asks_for_a_show_with_its_seasons_and_episodes(store, monkeypatch):
+    """Kodi names the show alone, whatever the viewer answered about its
+    episodes, and a server that corrected an answer without announcing it
+    sends no event for any of them."""
+    from tests.unit.apifixtures import SHOW2
+
+    store.publish(show_bundle(episodes=2) + show_bundle(SHOW2, 1), library=LIB2)
+    fresh = show_bundle(episodes=2)
+    fresh[-1]["UserData"] = {"Played": True, "PlayCount": 2}
+    server = Server({LIB2: fresh + show_bundle(SHOW2, 1)})
+    asked = _asked(server)
+    w = worker(store, server, [LIB2], monkeypatch)
+    w._catchup_due = 10**9
+
+    w.command("RefreshItems", {"Id": SHOW})
+
+    assert sorted(asked) == sorted(i["Id"] for i in fresh)
+    assert store.records(pinned=False)["ea12"].item["UserData"]["PlayCount"] == 2
+    # Nothing new was named, so the catch-up is not brought forward.
+    assert w._catchup_due == 10**9
+    assert w._bar().attended
+
+
+def test_a_refresh_asks_for_an_album_or_an_artist_with_its_songs(store, monkeypatch):
+    """An album is its songs; an artist is the albums that credit it, their
+    songs and its songs without an album. Another artist's are not asked
+    for."""
+    from tests.unit.apifixtures import ALBUM, ALBUM2, ARTIST, ARTIST2, album_bundle
+    from tests.unit.apifixtures import song
+
+    other = "a7" * 16
+    items = album_bundle(ALBUM, ARTIST, 2, "t")
+    items += album_bundle(ALBUM2, ARTIST, 2, "u")[1:]
+    items += [song("single", None, 1, ARTIST)]
+    items += album_bundle(other, ARTIST2, 1, "v")
+    store.publish(items, library=LIB)
+    server = Server(
+        {LIB: [dict(i) for i in items]},
+        views=[{"Id": LIB, "CollectionType": "music", "Name": "Tunes"}],
+    )
+    for item in server.libraries[LIB]:
+        if item["Id"] == "tc32":
+            item["UserData"] = {"Played": True, "PlayCount": 5}
+    asked = _asked(server)
+    w = worker(store, server, [LIB], monkeypatch)
+
+    w.command("RefreshItems", {"Id": ALBUM})
+    assert sorted(asked) == sorted([ALBUM, "tc31", "tc32"])
+    assert store.records(pinned=False)["tc32"].item["UserData"]["PlayCount"] == 5
+
+    del asked[:]
+    w.command("RefreshItems", {"Id": ARTIST})
+    assert sorted(asked) == sorted(
+        [ARTIST, ALBUM, ALBUM2, "tc31", "tc32", "ud41", "ud42", "single"]
+    )
+
+
+def test_a_refresh_of_an_item_the_catalogue_lacks_is_a_catch_up(store, monkeypatch):
+    """As a change the websocket names is: its library is the catch-up's to
+    decide, and nothing is asked for by id."""
+    store.publish([movie()], library=LIB)
+    server = Server({LIB: [movie(), movie("b")]})
+    asked = _asked(server)
+    w = worker(store, server, [LIB], monkeypatch)
+    w._catchup_due = 10**9
+
+    w.command("RefreshItems", {"Id": "b"})
+    assert asked == []
+    assert w._catchup_due == 0
+
+    w.enqueue_command("RefreshItems", {"Id": "a"})
+    assert w._queue.get_nowait() == ("RefreshItems", {"Id": "a"})

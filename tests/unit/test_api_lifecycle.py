@@ -2761,3 +2761,45 @@ def test_a_pass_of_many_movies_lists_the_library(store, backend, kodi):
         (p.get("filter") or {}).get("value") in (None, root)
         for p in methods(kodi, "VideoLibrary.GetMovies")
     )
+
+
+def test_the_pass_names_the_item_it_has_kodi_refresh(store, backend, kodi, monkeypatch):
+    """Kodi's refresh job asks the provider for the item between the call
+    and the new row, and the provider passes a refresh nobody named to the
+    service as a viewer's: the name is up for exactly that long."""
+    from kofin.core import state
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    named = []
+    rpc = kodi.rpc
+
+    def refreshing(method, params=None):
+        if method == "VideoLibrary.RefreshEpisode":
+            named.append(state.native_refresh())
+        return rpc(method, params)
+
+    kodi.rpc = refreshing
+    store.publish([episode("ea11", People=[{"Name": "Other", "Type": "GuestStar"}])])
+    backend.reconcile()
+    assert named == ["ea11"]
+    assert state.native_refresh() == ""
+
+    # A refresh that is stopped takes its name down with it.
+    wait = backend.wait
+
+    def stopped(predicate, *args, **kwargs):
+        if not state.native_refresh():
+            return wait(predicate, *args, **kwargs)
+        named.append(state.native_refresh())
+        raise InterruptedError("native operation interrupted")
+
+    monkeypatch.setattr(backend, "wait", stopped)
+    store.publish([episode("ea12", People=[{"Name": "Other", "Type": "GuestStar"}])])
+    with pytest.raises(InterruptedError):
+        backend.reconcile()
+    assert named == ["ea11", "ea12", "ea12"]
+    assert state.native_refresh() == ""

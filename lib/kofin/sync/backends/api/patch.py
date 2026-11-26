@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import unquote
 
+from kofin.core import state
 from kofin.core.log import Logger
 from . import metadata, paths
 from .kinds import (
@@ -823,8 +824,6 @@ class Applier:
         if kind == "Series":
             params["refreshepisodes"] = False
         self.native.replaced.add((kind, kodi_id))
-        rpc(table.refresh, params)
-        self.native._async_pending = True
         last = [0.0]
         own_folder = kind in OWN_FOLDER
         versions: list[dict[str, Any]] = []
@@ -848,7 +847,16 @@ class Applier:
                 return found
             return None
 
-        row = self.native.wait(refreshed, busy=self.native._scanning)
+        # Kodi asks the provider for the item between the call and the row
+        # that carries the token, and the provider must not take the pass's
+        # refresh for a viewer's (state.PROP_NATIVE_REFRESH).
+        state.set_native_refresh(record.item_id)
+        try:
+            rpc(table.refresh, params)
+            self.native._async_pending = True
+            row = self.native.wait(refreshed, busy=self.native._scanning)
+        finally:
+            state.clear_native_refresh()
         assert row is not None  # wait returns only a value that holds
         self.native._async_pending = False
         if own_folder:

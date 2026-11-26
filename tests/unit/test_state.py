@@ -340,3 +340,15 @@ def test_clear_all_drops_a_followed_version():
     state.follow_version("ep2", "Greyscale")
     state.clear_all()
     assert state.followed_version("ep2") is None
+
+
+def test_the_pass_names_one_refresh_at_a_time():
+    """The provider reads whose refresh it is answering: the item the pass
+    named, and nobody's between the pass's refreshes."""
+    assert state.native_refresh() == ""
+    state.set_native_refresh("movie1")
+    assert state.native_refresh() == "movie1"
+    state.set_native_refresh("movie2")
+    assert state.native_refresh() == "movie2"
+    state.clear_native_refresh()
+    assert state.native_refresh() == ""

@@ -50,6 +50,7 @@ LIBRARY_COMMANDS = frozenset(
         ipc.REMOVE_LIBRARY,
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
+        ipc.REFRESH_ITEMS,
         ipc.SYNC_PLAYLISTS,
     }
 )

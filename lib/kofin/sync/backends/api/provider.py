@@ -5,6 +5,9 @@ spans minutes sees one complete membership throughout, and nothing here can
 turn a server outage into an empty directory.
 
 A music listing cannot fail halfway (``_music_folder``).
+
+A viewer's Refresh is answered from the catalogue too, and the service is
+told to ask the server for the item (``_viewer_asked``).
 """
 
 import time
@@ -278,6 +281,7 @@ def serve(request: "Request") -> None:
                 True,
             )
             _listing(request, [entry], "tvshows")
+            _viewer_asked(series_id)
             return
         records = store.records(
             kind="Episode",
@@ -371,6 +375,29 @@ def serve(request: "Request") -> None:
             )
         )
     _listing(request, entries, content)
+    if action == "refresh_info":
+        _viewer_asked(min(records))
+
+
+def _viewer_asked(item_id: str) -> None:
+    """Have the service ask the server for an item Kodi was told to refresh.
+
+    The listing handed over was the catalogue's, as every listing is: what
+    the server says now reaches Kodi through the pass that follows the
+    service's fetch (ipc.REFRESH_ITEMS). The pass's own refresh of a row is
+    the catalogue being filed and names its item first
+    (state.PROP_NATIVE_REFRESH), so only a refresh somebody else asked Kodi
+    for is passed on. Never raises: the refresh already has its answer.
+    """
+    try:
+        if state.native_refresh() == item_id:
+            return
+        from kofin.core import ipc
+
+        ipc.notify(ipc.REFRESH_ITEMS, {"Id": item_id})
+        LOG.debug("refresh of %s asked for outside the pass: passed on", item_id)
+    except Exception:
+        LOG.exception("refresh of %s not passed to the service", item_id)
 
 
 # -- movie versions and extras --------------------------------------------------

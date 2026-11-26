@@ -27,7 +27,7 @@ from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, kofindb, private
 from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
-from . import announce, capabilities, metadata, progress
+from . import announce, capabilities, metadata, paths, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
@@ -139,13 +139,29 @@ PASS_SETTLE = 1.0
 PASS_SETTLE_MAX = 3.0
 # What a viewer asks for by name: the bar is up from the request to the end
 # of the work (progress.Progress.attend).
-ATTENDED = ("SyncLibrary", "UpdateLibrary", "RepairLibrary", "RemoveLibrary")
+ATTENDED = (
+    "SyncLibrary",
+    "UpdateLibrary",
+    "RepairLibrary",
+    "RemoveLibrary",
+    "RefreshItems",
+)
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
     "MusicVideo": "MusicVideos",
     "Audio": "Music",
 }
+
+
+def _credited(album: dict[str, Any]) -> set[str]:
+    """The ids of the artists an album's payload credits."""
+    return {
+        str(credit["Id"])
+        for credits in (album.get("AlbumArtists"), album.get("ArtistItems"))
+        for credit in credits or []
+        if isinstance(credit, dict) and credit.get("Id")
+    }
 
 
 def status(value: str, listing: Iterable[str] = (), namespace: str = "") -> None:
@@ -490,6 +506,7 @@ class Library(threading.Thread):
             "UpdateLibrary",
             "RepairLibrary",
             "RemoveLibrary",
+            "RefreshItems",
             "SyncPlaylists",
             "SyncMusicPlaylists",
             "CleanupMusicPlaylists",
@@ -1391,6 +1408,42 @@ class Library(threading.Thread):
             items.extend(sets)
         return items, membership
 
+    def _with_members(self, ids: Sequence[str]) -> list[str]:
+        """``ids`` and what the catalogue files under each: a show's seasons
+        and episodes, an album's songs, and for an artist the albums that
+        credit it, their songs and its songs without an album.
+
+        A viewer who refreshes a show or an album means all of it
+        (ipc.REFRESH_ITEMS), and Kodi names the show or the album alone.
+        What the server has added or taken away since is the change feed's
+        to say: only what the catalogue already holds is asked for again.
+        """
+        placed = self.store.placements(ids)
+        wanted = list(ids)
+        artists: set[str] = set()
+        for item_id in ids:
+            entry = placed.get(item_id)
+            if entry is None:
+                continue
+            if entry.kind == "Series":
+                for kind in ("Season", "Episode"):
+                    wanted += self.store.placed_in(kind, entry.library, [item_id])
+            elif entry.kind == "MusicAlbum":
+                wanted += self.store.placed_in("Audio", entry.library, [item_id])
+            elif entry.kind == "MusicArtist":
+                artists.add(item_id)
+        if artists:
+            albums: dict[str, list[str]] = {}
+            for record in self.store.records(kind="MusicAlbum", pinned=False).values():
+                if artists & _credited(record.item):
+                    albums.setdefault(record.library, []).append(record.item_id)
+            singles = [paths.SINGLES + artist for artist in sorted(artists)]
+            for library in sorted(set(albums) | set(self.store.libraries("Audio"))):
+                credited = sorted(albums.get(library, ()))
+                wanted += credited
+                wanted += self.store.placed_in("Audio", library, credited + singles)
+        return list(dict.fromkeys(wanted))
+
     def _playing(self) -> str:
         """The item this Kodi is playing through kofin, or ''."""
         item = self.player.current_item() if self.player is not None else None
@@ -1632,6 +1685,10 @@ class Library(threading.Thread):
                 )
                 if items:
                     self.publish(items, membership=membership)
+            return
+        if command == "RefreshItems":
+            ids = [i for i in (data or {}).get("Id", "").split(",") if i]
+            self.command("changed", self._with_members(ids))
             return
         if command == "SyncLibrary":
             if not self.store.watermark()[1]:
