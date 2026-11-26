@@ -262,6 +262,13 @@ RESUMABLE_TYPES = PLAYABLE_TYPES - {"Audio", "AudioBook"}
 PLAY_ALL_TYPES = frozenset({"MusicAlbum", "MusicArtist", "MusicGenre"})
 
 
+# What Refresh is offered on: the music rows Kodi's own Refresh cannot reach.
+# Kodi refreshes an album or an artist from its music scraper and calls no
+# add-on, where its Refresh on a video row reaches the scanner callback and
+# needs no entry here (ipc.REFRESH_ITEMS).
+REFRESH_TYPES = frozenset({"MusicAlbum", "MusicArtist"})
+
+
 def _plays_all(item: dict) -> bool:
     item_type = item.get("Type")
     if item_type in PLAY_ALL_TYPES:
@@ -496,6 +503,14 @@ def _manage_options(item: dict, dynamic: bool) -> list[tuple[str, dict]]:
 
     if downloads_enabled():
         options.extend(_download_options(item))
+
+    # Only on a library row: a row of kofin's own listing was asked of the
+    # server when the listing was built. Core string 184, "Refresh", the word
+    # on the button of Kodi's own that cannot do this.
+    if not dynamic and item.get("Type") in REFRESH_TYPES:
+        options.append(
+            (xbmc.getLocalizedString(184), {"mode": "refreshitem", "id": item_id})
+        )
 
     # Two gates: the setting is whether the *user* wants deletion offered at
     # all, CanDelete is whether the *server* would allow it. The item manage()

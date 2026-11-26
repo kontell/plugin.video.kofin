@@ -759,6 +759,21 @@ def names(credits: Optional[Iterable[Any]]) -> list[str]:
     return result
 
 
+def credited_artists(album: dict[str, Any]) -> list[str]:
+    """The ids of the artists an album's payload credits, its album artists
+    first. The one answer to "whose album is this" for the catalogue: the
+    pass's check that an artist's albums are filed (MusicPass.credited) and
+    a refresh of an artist (Library._with_members) both ask it."""
+    result: list[str] = []
+    for credits in (album.get("AlbumArtists"), album.get("ArtistItems")):
+        for credit in credits or []:
+            if isinstance(credit, dict) and credit.get("Id"):
+                artist_id = str(credit["Id"])
+                if artist_id not in result:
+                    result.append(artist_id)
+    return result
+
+
 def song_year(item: dict[str, Any]) -> int:
     year = _int(item.get("ProductionYear"))
     return year if year > NO_YEAR else 0

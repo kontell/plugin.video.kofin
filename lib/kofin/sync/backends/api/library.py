@@ -27,7 +27,7 @@ from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, kofindb, private
 from kofin.sync.catalogue import BackendMismatch, EarlierLibrary
-from . import announce, capabilities, metadata, progress
+from . import announce, capabilities, metadata, paths, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
@@ -139,7 +139,13 @@ PASS_SETTLE = 1.0
 PASS_SETTLE_MAX = 3.0
 # What a viewer asks for by name: the bar is up from the request to the end
 # of the work (progress.Progress.attend).
-ATTENDED = ("SyncLibrary", "UpdateLibrary", "RepairLibrary", "RemoveLibrary")
+ATTENDED = (
+    "SyncLibrary",
+    "UpdateLibrary",
+    "RepairLibrary",
+    "RemoveLibrary",
+    "RefreshItems",
+)
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -490,6 +496,7 @@ class Library(threading.Thread):
             "UpdateLibrary",
             "RepairLibrary",
             "RemoveLibrary",
+            "RefreshItems",
             "SyncPlaylists",
             "SyncMusicPlaylists",
             "CleanupMusicPlaylists",
@@ -523,6 +530,12 @@ class Library(threading.Thread):
     def run(self) -> None:
         monitor = xbmc.Monitor()
         wake_on_write(self.wake)
+        # The name of the item a pass has Kodi refresh comes down as the
+        # refresh ends (patch.Applier.refresh), unless the thread died inside
+        # it. No pass of this generation has started one yet, so a name still
+        # up is such a leftover, and the provider would take a viewer's
+        # Refresh of that item for the pass's and tell nobody.
+        state.clear_native_refresh()
         try:
             # One connection to kofin.db for as long as this thread runs: it
             # is the thread that asks the store for work and the one every
@@ -1391,6 +1404,69 @@ class Library(threading.Thread):
             items.extend(sets)
         return items, membership
 
+    def _with_members(self, ids: Sequence[str]) -> list[str]:
+        """``ids`` and what the catalogue files under each: a show's seasons
+        and episodes, an album's songs, and for an artist the albums that
+        credit it, their songs and its songs without an album.
+
+        A viewer who refreshes a show or an album means all of it
+        (ipc.REFRESH_ITEMS), and Kodi names the show or the album alone.
+        What the server has added or taken away since is the change feed's
+        to say: only what the catalogue already holds is asked for again.
+        """
+        placed = self.store.placements(ids)
+        wanted = list(ids)
+        artists: set[str] = set()
+        for item_id in ids:
+            entry = placed.get(item_id)
+            if entry is None:
+                continue
+            if entry.kind == "Series":
+                for kind in ("Season", "Episode"):
+                    wanted += self.store.placed_in(kind, entry.library, [item_id])
+            elif entry.kind == "MusicAlbum":
+                wanted += self.store.placed_in("Audio", entry.library, [item_id])
+            elif entry.kind == "MusicArtist":
+                artists.add(item_id)
+        if artists:
+            # Every album's payload is read for its credits, because nothing
+            # shorter answers. The catalogue files an album under no parent
+            # (store.parent_of), so placed_in cannot find an artist's albums.
+            # And the server's list by ArtistIds is what it credits now, in
+            # every library: the albums to ask about are the ones Kodi shows
+            # under the artist, which are the catalogue's, and one the server
+            # has since credited to somebody else is what a refresh is for.
+            albums: dict[str, list[str]] = {}
+            for record in self.store.records(kind="MusicAlbum", pinned=False).values():
+                if artists.intersection(metadata.credited_artists(record.item)):
+                    albums.setdefault(record.library, []).append(record.item_id)
+            singles = [paths.SINGLES + artist for artist in sorted(artists)]
+            for library in sorted(set(albums) | set(self.store.libraries("Audio"))):
+                credited = sorted(albums.get(library, ()))
+                wanted += credited
+                wanted += self.store.placed_in("Audio", library, credited + singles)
+        return list(dict.fromkeys(wanted))
+
+    def refresh_items(self, ids: Sequence[str]) -> None:
+        """Ask the server for the items a viewer named, each with its
+        members, and publish what it answers (ipc.REFRESH_ITEMS).
+
+        Every one is asked for by id, in the catalogue or not. A change the
+        websocket names leaves an item the catalogue lacks to the catch-up,
+        and the catch-up cannot see what this is for: a server that
+        corrected an answer and announced nothing. The answer is whole as of
+        one moment, as a listing's is, so the pass does not wait for an echo
+        of it (``publish``).
+        """
+        wanted = self._with_members(ids)
+        if not wanted:
+            return
+        items, membership = self._resolve(
+            wanted, settings.get_list("librarySelection"), self._supported_views()
+        )
+        if items:
+            self.publish(items, settle=False, membership=membership)
+
     def _playing(self) -> str:
         """The item this Kodi is playing through kofin, or ''."""
         item = self.player.current_item() if self.player is not None else None
@@ -1632,6 +1708,9 @@ class Library(threading.Thread):
                 )
                 if items:
                     self.publish(items, membership=membership)
+            return
+        if command == "RefreshItems":
+            self.refresh_items([i for i in (data or {}).get("Id", "").split(",") if i])
             return
         if command == "SyncLibrary":
             if not self.store.watermark()[1]:

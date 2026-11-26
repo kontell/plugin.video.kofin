@@ -237,6 +237,26 @@ What remains is kofin's own:
   pass itself removed names no item by then. A refresh deletes the old row, announced, and
   SQLite can give the new row the old number, so the pass records what it refreshes
   (`Native.replaced`) and those announcements are dropped.
+- **A Refresh the pass did not ask for is a request to ask the server again**
+  (`provider._viewer_asked`, `ipc.REFRESH_ITEMS`, `Library._with_members`). Kodi's Refresh
+  reaches the provider as `kodi_action=refresh_info` whoever asked for it, and the provider
+  answers it from the catalogue like any listing: 1.0.0 filed the stale row again when the
+  server had corrected an answer without an event. The provider now tells the service, which
+  fetches the item with what the catalogue files under it (a show's seasons and episodes, an
+  album's songs, an artist's albums and their songs). It is not the websocket's `changed`:
+  every id is asked for, in the catalogue or not, because the catch-up cannot see a change
+  the server never announced, and the answer is published without settling, as a listing's
+  is. An artist's albums are the ones whose payload credits it (`metadata.credited_artists`,
+  the pass's own question): an album has no parent in the catalogue for `placed_in` to find
+  it by, and the server's `ArtistIds` list is what it credits now, not what Kodi shows under
+  the artist. The pass names the item it has Kodi
+  refresh in `state.PROP_NATIVE_REFRESH` for as long as Kodi can ask, so its own refreshes
+  send nothing; told apart in the service instead, every refresh of a pass would be a
+  NotifyAll to every add-on's Monitor. A name a thread that died mid-refresh left up is
+  cleared as the next library thread starts. `refile_removed` cannot stand in for the callback: a
+  show refreshed alone keeps its row and announces no removal. Kodi's Refresh on an album
+  or an artist runs its music scraper and calls no add-on, so the Jellyfin actions menu
+  offers Refresh on those two alone.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_folders`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner

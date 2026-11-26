@@ -35,6 +35,17 @@ REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
 
+# A viewer asking for items again, where no event would bring them: the
+# server corrected an answer without announcing it, or a change went
+# unheard. Two senders. Kodi's own Refresh on a movie, a show, an episode or
+# a music video reaches the scanner callback as kodi_action=refresh_info
+# (sync/backends/api/provider.py), which answers from the catalogue and
+# sends this. Kodi's Refresh on an album or an artist runs its music scraper
+# and calls no add-on, so the Jellyfin actions menu offers it for those
+# (plugin/context.py). Payload {"Id": "<item id or csv>"}; the library
+# thread asks the server for each with what the catalogue files under it.
+REFRESH_ITEMS = "RefreshItems"
+
 # SyncPlay: the root entry's plugin invocation asks the service — the single
 # owner of all SyncPlay state — to open the group menu on its worker thread.
 # No payload. The public SyncPlay provider contract is core/contract.py's.
@@ -81,6 +92,7 @@ _REGISTRY = frozenset(
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
+        REFRESH_ITEMS,
         SYNCPLAY_MENU,
         WHO_IS_WATCHING,
         DOWNLOAD_ADD,
@@ -101,9 +113,10 @@ _REGISTRY = frozenset(
 # as well (see nonce()). The download trio is here wholesale: REMOVE deletes
 # files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
 # UPDATE_LIBRARY lists every library again and plans the removals that
-# follow, so every library command is here. ATTACH_SUBTITLE is tens of
-# seconds of server-side ffmpeg for whoever is playing, so it sits with the
-# expensive set rather than the dialogs.
+# follow, so every library command is here: REFRESH_ITEMS names an artist
+# and has the server asked for every song under it. ATTACH_SUBTITLE is tens
+# of seconds of server-side ffmpeg for whoever is playing, so it sits with
+# the expensive set rather than the dialogs.
 GUARDED = frozenset(
     {
         RESTART,
@@ -111,6 +124,7 @@ GUARDED = frozenset(
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
+        REFRESH_ITEMS,
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,

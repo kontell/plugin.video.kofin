@@ -118,10 +118,8 @@ class MusicPass:
         if library not in self._credited:
             artists: dict[str, set[str]] = {}
             for album_id, item in self.album_items(library).items():
-                for credits in (item.get("AlbumArtists"), item.get("ArtistItems")):
-                    for credit in credits or []:
-                        if isinstance(credit, dict) and credit.get("Id"):
-                            artists.setdefault(str(credit["Id"]), set()).add(album_id)
+                for artist_id in metadata.credited_artists(item):
+                    artists.setdefault(artist_id, set()).add(album_id)
             self._credited[library] = artists
         return self._credited[library]
 

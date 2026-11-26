@@ -1099,3 +1099,15 @@ def test_a_failed_watched_mark_says_so(monkeypatch):
     actions.favorite(Request("plugin://x", 1, {"id": "m1"}))
 
     assert shown == ["S30507", "S30507", "S30507"]
+
+
+def test_refresh_names_the_item_and_leaves_its_songs_to_the_service(monkeypatch):
+    """The catalogue is the service's: the route names the album or the
+    artist, and what is filed under it is found there."""
+    sent = []
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
+    actions.refresh_item(Request("plugin://plugin.video.kofin/", -1, {"id": "album"}))
+    actions.refresh_item(Request("plugin://plugin.video.kofin/", -1, {}))
+    assert sent == [(ipc.REFRESH_ITEMS, {"Id": "album"})]

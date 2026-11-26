@@ -598,3 +598,20 @@ def test_series_offers_the_subscription_toggle(monkeypatch):
 
     album = {"Id": "al1", "Type": "MusicAlbum", "CanDownload": False}
     assert len(context._download_options(album)) == 1  # shows only
+
+
+def test_manage_options_offer_refresh_on_a_library_album_or_artist_alone(monkeypatch):
+    """Kodi's own Refresh on an album or an artist asks its music scraper
+    and reaches no add-on; on a video row it reaches the scanner callback,
+    which needs no entry of ours. A row of kofin's own listing was asked of
+    the server when the listing was built."""
+
+    def modes(kind, dynamic):
+        item = {"Id": "i1", "Type": kind, "UserData": {}}
+        return _options(monkeypatch, item, False, dynamic=dynamic)
+
+    for kind in ("MusicAlbum", "MusicArtist"):
+        assert ("K184", {"mode": "refreshitem", "id": "i1"}) in modes(kind, False)
+        assert "refreshitem" not in [p["mode"] for _, p in modes(kind, True)]
+    for kind in ("Audio", "MusicGenre", "Playlist", "Movie", "Series", "Episode"):
+        assert "refreshitem" not in [p["mode"] for _, p in modes(kind, False)]

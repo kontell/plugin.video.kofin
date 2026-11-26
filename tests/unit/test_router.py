@@ -47,6 +47,7 @@ ACTION_MODES = {
     "selectlibraries",
     "updatelibs",
     "repairlibs",
+    "refreshitem",
     "saveplaylist",
 }
 

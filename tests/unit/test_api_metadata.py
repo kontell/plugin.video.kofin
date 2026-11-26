@@ -683,3 +683,17 @@ def test_a_stamp_is_read_without_datetime_strptime(monkeypatch):
     assert metadata.same_play("2026-10-12 14:24:33", "2026-10-12 14:24:08")
     assert not metadata.same_play("2026-10-12 14:24:08", "2026-10-12 14:24:33")
     assert not metadata.same_play("not a date", "2026-10-12 14:24:33")
+
+
+def test_an_albums_credits_are_its_album_artists_then_its_artists():
+    """One answer for the pass's check that an artist's albums are filed
+    and for a refresh of an artist."""
+    album = {
+        "AlbumArtists": [{"Name": "Band", "Id": "b"}, {"Name": "Guest", "Id": "g"}],
+        "ArtistItems": [{"Name": "Guest", "Id": "g"}, {"Name": "Other", "Id": "o"}],
+    }
+    assert metadata.credited_artists(album) == ["b", "g", "o"]
+    assert metadata.credited_artists({}) == []
+    assert metadata.credited_artists(
+        {"AlbumArtists": None, "ArtistItems": ["Band", {"Name": "No id"}, {"Id": 7}]}
+    ) == ["7"]

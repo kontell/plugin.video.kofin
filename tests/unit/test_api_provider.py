@@ -365,3 +365,110 @@ def test_a_forget_request_is_refused_and_lists_nothing(store, monkeypatch):
     )
     provider.serve(Request(root, 1, dict(parse_qsl(urlsplit(url).query))))
     assert ended == [False] and rendered == []
+
+
+def _refreshes(store, monkeypatch):
+    """A show and a movie in the catalogue, the provider's Kodi calls
+    recorded, and what it tells the service."""
+    from kofin.core import ipc
+    from kofin.sync.backends.api import provider
+
+    store.publish(show_bundle() + [movie()], library=LIB)
+    rendered = []
+    sent = []
+    monkeypatch.setattr(provider.metadata, "listitem", lambda item, *a, **k: item["Id"])
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, items, n: rendered.append([e[1] for e in items]),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(provider.xbmcplugin, "setResolvedUrl", lambda *a: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
+    monkeypatch.setattr(
+        ipc, "notify", lambda method, data=None: sent.append((method, data))
+    )
+    return rendered, sent
+
+
+def test_a_refresh_from_outside_the_pass_is_passed_to_the_service(store, monkeypatch):
+    """Kodi asks for a refreshed item the same way whoever pressed Refresh.
+    A viewer's is answered from the catalogue like any listing, and the
+    service is told to ask the server for the item; the pass's own, which
+    names its item first, is the catalogue being filed."""
+    from kofin.core import ipc
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    rendered, sent = _refreshes(store, monkeypatch)
+    refreshing = [""]
+    monkeypatch.setattr(provider.state, "native_refresh", lambda: refreshing[0])
+    show = paths.show_dir(store.namespace, LIB, SHOW)
+    film = paths.movie_dir(store.namespace, LIB, "a")
+    refresh = {"kodi_action": "refresh_info"}
+
+    provider.serve(Request(show, 1, dict(refresh)))
+    provider.serve(Request(show, 1, dict(refresh, id="ea12")))
+    provider.serve(Request(film, 1, dict(refresh, id="a", mode="play")))
+    assert rendered == [[SHOW], ["ea12"], ["a"]]
+    assert sent == [
+        (ipc.REFRESH_ITEMS, {"Id": SHOW}),
+        (ipc.REFRESH_ITEMS, {"Id": "ea12"}),
+        (ipc.REFRESH_ITEMS, {"Id": "a"}),
+    ]
+
+    # The pass's own refresh of the episode, and a viewer's of the movie
+    # while the pass waits for it.
+    del sent[:]
+    refreshing[0] = "ea12"
+    provider.serve(Request(show, 1, dict(refresh, id="ea12")))
+    assert rendered[-1] == ["ea12"]
+    assert sent == []
+    provider.serve(Request(film, 1, dict(refresh, id="a", mode="play")))
+    assert sent == [(ipc.REFRESH_ITEMS, {"Id": "a"})]
+
+
+def test_only_a_refresh_that_was_answered_is_passed_on(store, monkeypatch):
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    rendered, sent = _refreshes(store, monkeypatch)
+    monkeypatch.setattr(provider.state, "native_refresh", lambda: "")
+    show = paths.show_dir(store.namespace, LIB, SHOW)
+
+    # A scan's listing, a clean's probe, and an item the catalogue lacks.
+    provider.serve(Request(show, 1, {}))
+    provider.serve(Request(show, 1, {"kodi_action": "check_exists", "id": "ea11"}))
+    provider.serve(Request(show, 1, {"kodi_action": "refresh_info", "id": "gone"}))
+    provider.serve(
+        Request(
+            paths.show_dir(store.namespace, LIB, SHOW2),
+            1,
+            {"kodi_action": "refresh_info"},
+        )
+    )
+    assert sent == []
+
+
+def test_a_refresh_is_answered_when_the_service_cannot_be_told(store, monkeypatch):
+    """The listing is handed over first, and nothing after it can fail the
+    refresh Kodi is waiting on."""
+    from kofin.core import ipc
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    rendered, _ = _refreshes(store, monkeypatch)
+
+    def unreadable():
+        raise RuntimeError("no window")
+
+    def unsent(method, data=None):
+        raise RuntimeError("no bus")
+
+    film = paths.movie_dir(store.namespace, LIB, "a")
+    request = {"kodi_action": "refresh_info", "id": "a", "mode": "play"}
+    monkeypatch.setattr(ipc, "notify", unsent)
+    provider.serve(Request(film, 1, dict(request)))
+    monkeypatch.setattr(provider.state, "native_refresh", unreadable)
+    provider.serve(Request(film, 1, dict(request)))
+    assert rendered == [["a"], ["a"]]
