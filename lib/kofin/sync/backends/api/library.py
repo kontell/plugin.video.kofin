@@ -154,16 +154,6 @@ HAS_CONTENT = {
 }
 
 
-def _credited(album: dict[str, Any]) -> set[str]:
-    """The ids of the artists an album's payload credits."""
-    return {
-        str(credit["Id"])
-        for credits in (album.get("AlbumArtists"), album.get("ArtistItems"))
-        for credit in credits or []
-        if isinstance(credit, dict) and credit.get("Id")
-    }
-
-
 def status(value: str, listing: Iterable[str] = (), namespace: str = "") -> None:
     """What the sync is doing, for the status dialog (status.py), under the
     account whose thread says so."""
@@ -540,6 +530,12 @@ class Library(threading.Thread):
     def run(self) -> None:
         monitor = xbmc.Monitor()
         wake_on_write(self.wake)
+        # The name of the item a pass has Kodi refresh comes down as the
+        # refresh ends (patch.Applier.refresh), unless the thread died inside
+        # it. No pass of this generation has started one yet, so a name still
+        # up is such a leftover, and the provider would take a viewer's
+        # Refresh of that item for the pass's and tell nobody.
+        state.clear_native_refresh()
         try:
             # One connection to kofin.db for as long as this thread runs: it
             # is the thread that asks the store for work and the one every
@@ -1433,9 +1429,16 @@ class Library(threading.Thread):
             elif entry.kind == "MusicArtist":
                 artists.add(item_id)
         if artists:
+            # Every album's payload is read for its credits, because nothing
+            # shorter answers. The catalogue files an album under no parent
+            # (store.parent_of), so placed_in cannot find an artist's albums.
+            # And the server's list by ArtistIds is what it credits now, in
+            # every library: the albums to ask about are the ones Kodi shows
+            # under the artist, which are the catalogue's, and one the server
+            # has since credited to somebody else is what a refresh is for.
             albums: dict[str, list[str]] = {}
             for record in self.store.records(kind="MusicAlbum", pinned=False).values():
-                if artists & _credited(record.item):
+                if artists.intersection(metadata.credited_artists(record.item)):
                     albums.setdefault(record.library, []).append(record.item_id)
             singles = [paths.SINGLES + artist for artist in sorted(artists)]
             for library in sorted(set(albums) | set(self.store.libraries("Audio"))):
@@ -1443,6 +1446,26 @@ class Library(threading.Thread):
                 wanted += credited
                 wanted += self.store.placed_in("Audio", library, credited + singles)
         return list(dict.fromkeys(wanted))
+
+    def refresh_items(self, ids: Sequence[str]) -> None:
+        """Ask the server for the items a viewer named, each with its
+        members, and publish what it answers (ipc.REFRESH_ITEMS).
+
+        Every one is asked for by id, in the catalogue or not. A change the
+        websocket names leaves an item the catalogue lacks to the catch-up,
+        and the catch-up cannot see what this is for: a server that
+        corrected an answer and announced nothing. The answer is whole as of
+        one moment, as a listing's is, so the pass does not wait for an echo
+        of it (``publish``).
+        """
+        wanted = self._with_members(ids)
+        if not wanted:
+            return
+        items, membership = self._resolve(
+            wanted, settings.get_list("librarySelection"), self._supported_views()
+        )
+        if items:
+            self.publish(items, settle=False, membership=membership)
 
     def _playing(self) -> str:
         """The item this Kodi is playing through kofin, or ''."""
@@ -1687,8 +1710,7 @@ class Library(threading.Thread):
                     self.publish(items, membership=membership)
             return
         if command == "RefreshItems":
-            ids = [i for i in (data or {}).get("Id", "").split(",") if i]
-            self.command("changed", self._with_members(ids))
+            self.refresh_items([i for i in (data or {}).get("Id", "").split(",") if i])
             return
         if command == "SyncLibrary":
             if not self.store.watermark()[1]:

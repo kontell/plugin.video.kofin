@@ -455,5 +455,7 @@ Jellyfin 12.4.0, KofinSyncQueue 12.0.0.6. Each video refresh was `VideoLibrary.R
 - [PASS] An album row in the music library: Jellyfin actions listed Play all, Shuffle, Add to favourites, Download, Refresh, Settings. Refresh asked for the album and its seven songs in one request. On the album's artist row it asked for 19 items: the artist, both albums and their sixteen songs.
 - [PASS] A song row: Jellyfin actions listed Add to favourites, Download, Settings.
 - [PASS] With `kofin.native.refresh` set to an episode's id by hand, as the pass sets it, a refresh of that episode was answered and nothing was passed on or asked of the server. No refresh of the pass's own was due on the rig; that it names its item and takes the name down is `test_the_pass_names_the_item_it_has_kodi_refresh`.
+- [PASS] After review, the refresh publishes without settling: an album's pass began 0.1 s after the server's answer, where it had waited 1.1 s.
+- [PASS] After review, `kofin.native.refresh` set by hand and the add-on bounced: the property was empty once the library thread had started.
 - [NOT RUN] A movie row's Jellyfin actions menu (no Refresh; `test_manage_options_offer_refresh_on_a_library_album_or_artist_alone`), and the dialog's own button on this build.
 

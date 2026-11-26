@@ -1928,9 +1928,11 @@ def test_a_refresh_asks_for_a_show_with_its_seasons_and_episodes(store, monkeypa
 
     assert sorted(asked) == sorted(i["Id"] for i in fresh)
     assert store.records(pinned=False)["ea12"].item["UserData"]["PlayCount"] == 2
-    # Nothing new was named, so the catch-up is not brought forward.
+    # Nothing is left to the catch-up, and the answer is whole as of one
+    # moment: the pass does not wait for an echo of it.
     assert w._catchup_due == 10**9
     assert w._bar().attended
+    assert not _settling(w, monkeypatch)
 
 
 def test_a_refresh_asks_for_an_album_or_an_artist_with_its_songs(store, monkeypatch):
@@ -1967,9 +1969,10 @@ def test_a_refresh_asks_for_an_album_or_an_artist_with_its_songs(store, monkeypa
     )
 
 
-def test_a_refresh_of_an_item_the_catalogue_lacks_is_a_catch_up(store, monkeypatch):
-    """As a change the websocket names is: its library is the catch-up's to
-    decide, and nothing is asked for by id."""
+def test_a_refresh_asks_by_id_for_an_item_the_catalogue_lacks(store, monkeypatch):
+    """A change the websocket names leaves such an item to the catch-up. A
+    catch-up cannot see what a refresh is for, a server that corrected an
+    answer and announced nothing, so what the viewer named is asked for."""
     store.publish([movie()], library=LIB)
     server = Server({LIB: [movie(), movie("b")]})
     asked = _asked(server)
@@ -1977,8 +1980,37 @@ def test_a_refresh_of_an_item_the_catalogue_lacks_is_a_catch_up(store, monkeypat
     w._catchup_due = 10**9
 
     w.command("RefreshItems", {"Id": "b"})
-    assert asked == []
+    assert asked == ["b"]
+    assert "b" in store.records(pinned=False)
+    assert w._catchup_due == 10**9
+
+    # One the server does not list either is nothing to publish.
+    before = store.generation()
+    w.command("RefreshItems", {"Id": "nowhere"})
+    assert store.generation() == before
+    assert w._catchup_due == 10**9
+
+    # The websocket's own rule is where it was.
+    w.command("changed", ["c"])
     assert w._catchup_due == 0
 
     w.enqueue_command("RefreshItems", {"Id": "a"})
     assert w._queue.get_nowait() == ("RefreshItems", {"Id": "a"})
+
+
+def test_the_library_thread_starts_with_no_refresh_named(store, monkeypatch):
+    """The pass takes the name down as its refresh ends, unless the thread
+    died inside it. Left up, the provider takes a viewer's Refresh of that
+    one item for the pass's and tells nobody."""
+    from kofin.core import state
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    state.set_native_refresh("left-by-a-thread-that-died")
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    seen = []
+    monkeypatch.setattr(w, "_run", lambda monitor: seen.append(state.native_refresh()))
+    w._bar = lambda: SimpleNamespace(finish=lambda: None)
+    w.run()
+    assert seen == [""]
