@@ -379,6 +379,17 @@ What remains is kofin's own:
   a playlist reconcile of 2,163 tracks took 4 min 37 s. The hold is the thread's and ends with
   the `with`, which is what keeps it out of the no-module-state rule; the plugin's
   process-wide pool is the other spelling and stays the plugin's.
+- **A download worker holds its connection too, without the memory map**
+  (`DownloadManager._run_worker`, `private.hold_connections(mapped=False)`). An idle worker
+  asks the store for work every 30 s, and LibreELEC builds SQLite with a 256 MB default mmap
+  size: a connection maps the whole file on its first read and unmaps it at close, 54 ms and
+  41 ms of processor on the Pi for a 186 MiB kofin.db against 2.6 ms and 0.4 ms without the
+  map. Seven workers each opening one a poll took 1.7 to 2.5 % of a core for an empty queue,
+  0.7 % holding it. A held connection keeps its map, and Kodi there is a 32-bit process with
+  2 GB of address space, so a worker's hold is unmapped; the library thread's still maps,
+  because a whole read of the payloads is 0.70 s mapped and 0.88 s without. What an idle poll
+  still costs is its read of `downloadsPauseDuringPlayback`: a setting read on a fresh
+  `xbmcaddon.Addon` is 25 ms there.
 - **A small pass reads only its own rows.** The pass's placements are a `Placements` map: the
   pending items' read up front, any other by the item, and every one only for a caller that
   walks the map (a collection's planning) or reads past `WHOLE_AFTER` items one at a time.

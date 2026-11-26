@@ -52,6 +52,7 @@ from kofin.downloads import (
     store,
     subscriptions,
 )
+from kofin.sync import private
 
 LOG = Logger(__name__)
 
@@ -358,45 +359,52 @@ class DownloadManager:
         wake = self._new_wake() if wake is None else wake
         api = self._api_factory()
         try:
-            while not self._should_stop():
-                self._drain_ops(own=wake)
-                if state.is_offline():
-                    # Hold the queue rather than burn it: every claim while
-                    # the server is gone would fail its attempts and settle.
-                    # Ops still drain above, so a cancel or a remove works
-                    # offline.
-                    self._progress.idle()
-                    if wake.wait(timeout=OFFLINE_POLL_SECONDS):
-                        wake.clear()
-                    continue
-                if self._paused_for_playback():
-                    # The gate is on claiming only: a transfer already
-                    # running finishes, and ops still drain above.
-                    self._progress.idle()
-                    if wake.wait(timeout=PLAYBACK_POLL_SECONDS):
-                        wake.clear()
-                    continue
-                row = store.claim(kinds)
-                if row is None:
-                    if not self._ops.empty():
-                        # Ops arrived while this worker was claiming: never
-                        # sleep on a non-empty queue.
+            # One connection to kofin.db for as long as this worker runs, so
+            # an idle poll is a statement. Unmapped: every worker holds one
+            # and none reads enough to want the file mapped
+            # (private.hold_connections).
+            with private.hold_connections(mapped=False):
+                while not self._should_stop():
+                    self._drain_ops(own=wake)
+                    if state.is_offline():
+                        # Hold the queue rather than burn it: every claim while
+                        # the server is gone would fail its attempts and settle.
+                        # Ops still drain above, so a cancel or a remove works
+                        # offline.
+                        self._progress.idle()
+                        if wake.wait(timeout=OFFLINE_POLL_SECONDS):
+                            wake.clear()
                         continue
-                    # Nothing left for this pool: the moment to pay for the
-                    # refreshes the finished items deferred.
-                    self._flush_refresh(force=True)
-                    self._progress.idle()
-                    if wake.wait(timeout=IDLE_POLL_SECONDS):
-                        wake.clear()
-                    continue
-                try:
-                    self._process(api, row)
-                except Exception:
-                    # Contain per item: a store hiccup must not kill the
-                    # worker for the rest of the generation.
-                    LOG.exception("download processing died for %s", row.jellyfin_id)
-                    store.fail(row.jellyfin_id, "internal error")
-                self._flush_refresh()
+                    if self._paused_for_playback():
+                        # The gate is on claiming only: a transfer already
+                        # running finishes, and ops still drain above.
+                        self._progress.idle()
+                        if wake.wait(timeout=PLAYBACK_POLL_SECONDS):
+                            wake.clear()
+                        continue
+                    row = store.claim(kinds)
+                    if row is None:
+                        if not self._ops.empty():
+                            # Ops arrived while this worker was claiming: never
+                            # sleep on a non-empty queue.
+                            continue
+                        # Nothing left for this pool: the moment to pay for the
+                        # refreshes the finished items deferred.
+                        self._flush_refresh(force=True)
+                        self._progress.idle()
+                        if wake.wait(timeout=IDLE_POLL_SECONDS):
+                            wake.clear()
+                        continue
+                    try:
+                        self._process(api, row)
+                    except Exception:
+                        # Contain per item: a store hiccup must not kill the
+                        # worker for the rest of the generation.
+                        LOG.exception(
+                            "download processing died for %s", row.jellyfin_id
+                        )
+                        store.fail(row.jellyfin_id, "internal error")
+                    self._flush_refresh()
         except Exception:  # pragma: no cover - the backstop, never expected
             LOG.exception("download worker died")
         finally:
@@ -1892,6 +1900,4 @@ def _same_folder(first: str, second: str) -> bool:
 
 
 def _root_memory_path() -> str:
-    from kofin.sync import private
-
     return os.path.join(private.addon_data_path(), ROOT_MEMORY)
