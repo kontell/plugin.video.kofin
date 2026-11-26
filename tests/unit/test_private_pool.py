@@ -94,6 +94,37 @@ def test_a_held_connection_serves_every_block_and_closes_with_the_hold(tmp_path)
         private.reset_overrides()
 
 
+def test_a_hold_may_read_without_a_memory_map(tmp_path, monkeypatch):
+    """A SQLite built with a default mmap size maps the whole file on a
+    connection's first read."""
+    private.reset_overrides()
+    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    connect = private.sqlite3.connect
+
+    def built_to_map(*args, **kwargs):
+        conn = connect(*args, **kwargs)
+        conn.execute("PRAGMA mmap_size=1048576")
+        return conn
+
+    def map_size():
+        with private.Database() as opened:
+            # No row at all from a SQLite built without memory mapping.
+            return opened.cursor.execute("PRAGMA mmap_size").fetchone()
+
+    monkeypatch.setattr(private.sqlite3, "connect", built_to_map)
+    try:
+        with private.hold_connections(mapped=False):
+            assert map_size() in (None, (0,))
+            # The outermost hold decides.
+            with private.hold_connections():
+                assert map_size() in (None, (0,))
+        with private.hold_connections():
+            assert map_size() in (None, (1048576,))
+        assert map_size() in (None, (1048576,))
+    finally:
+        private.reset_overrides()
+
+
 def test_a_hold_is_its_own_threads_and_a_failed_block_leaves_it_usable(tmp_path):
     import threading
 

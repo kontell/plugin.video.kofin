@@ -52,17 +52,24 @@ _held = threading.local()
 
 
 @contextmanager
-def hold_connections() -> Iterator[None]:
+def hold_connections(mapped: bool = True) -> Iterator[None]:
     """Keep this thread's private-database connection open across every
     ``Database`` block inside the ``with``.
 
     In WAL mode with nobody else connected, every open and close creates and
     tears down the WAL and its index; holding the connection turns a block
     into a statement.
+
+    A SQLite built with a default mmap size maps the whole file on a
+    connection's first read and keeps the map until it closes, and a 32-bit
+    Kodi has address space for a few such maps. ``mapped=False`` holds a
+    connection that reads without one, for a thread whose reads are small.
+    The outermost hold decides.
     """
     depth = getattr(_held, "depth", 0)
     if depth == 0:
         _held.connections = {}
+        _held.mapped = mapped
     _held.depth = depth + 1
     try:
         yield
@@ -154,6 +161,10 @@ class Database:
         return resolve_path(self.db_file)
 
     def _prepare(self) -> None:
+        if getattr(_held, "depth", 0) and not _held.mapped:
+            # Ahead of journal_mode, which reads the schema: the first read
+            # is what maps the file.
+            self.conn.execute("PRAGMA mmap_size=0")
         # WAL is configured only for Kofin's own file here.
         self.conn.execute("PRAGMA journal_mode=WAL")
         if self.path not in _tables_ensured:

@@ -2391,6 +2391,51 @@ def test_a_worker_claims_nothing_while_playback_holds_it(
     assert claimed == [manager_module.VIDEO_KINDS]
 
 
+def test_an_idle_worker_polls_on_the_one_connection_it_holds(
+    tmp_path, repoints, monkeypatch
+):
+    """A connection of its own per poll is an open and a close each time,
+    and on a SQLite built to map the file, the map with them."""
+    manager, _refreshes = make_manager(repoints)
+    monkeypatch.setattr(
+        manager, "_api_factory", lambda: type("Api", (), {"close": lambda self: None})()
+    )
+    connect = sync_db.sqlite3.connect
+    opened = []
+
+    def built_to_map(*args, **kwargs):
+        conn = connect(*args, **kwargs)
+        conn.execute("PRAGMA mmap_size=1048576")
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(sync_db.sqlite3, "connect", built_to_map)
+    wake = manager._new_wake()
+    polls = []
+
+    def wait(timeout=None):
+        with sync_db.Database() as held:
+            # No row at all from a SQLite built without memory mapping.
+            mapped = held.cursor.execute("PRAGMA mmap_size").fetchone()
+        polls.append((timeout, mapped))
+        if len(polls) == 3:
+            manager._stop.set()
+        return False
+
+    monkeypatch.setattr(wake, "wait", wait)
+
+    manager._run_worker(wake=wake)
+
+    assert [timeout for timeout, _mapped in polls] == [
+        manager_module.IDLE_POLL_SECONDS
+    ] * 3
+    assert all(mapped in (None, (0,)) for _timeout, mapped in polls)
+    assert len(opened) == 1
+    # The hold ends with the worker.
+    with pytest.raises(sync_db.sqlite3.ProgrammingError):
+        opened[0].execute("SELECT 1")
+
+
 def test_wake_lets_every_worker_recheck_immediately(tmp_path, repoints):
     """Player.OnStop nudges the pool rather than waiting out the poll — and
     it has to reach *every* worker, not whichever one happens to look."""
