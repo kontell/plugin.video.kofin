@@ -72,6 +72,29 @@ jobs:
         # a running Kodi and are not run in CI.
         run: pytest tests/unit -q -n 2
 
+  addon-checker:
+    name: addon-checker
+    # Team Kodi's checker, as the official repository runs it on a submission:
+    # on the zip's tree (the repository root holds tools/ and tests/, which
+    # the zip leaves out), against the Piers branch kofin is submitted to.
+    # It fetches the repository's add-on lists, and fails on a problem only;
+    # warnings are printed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install kodi-addon-checker
+        run: python -m pip install kodi-addon-checker==0.0.36
+      - name: Build and unpack the zip
+        run: |
+          python3 tools/build.py dist
+          python3 -m zipfile -e dist/plugin.video.kofin-*.zip checked
+      - name: kodi-addon-checker
+        working-directory: checked
+        run: kodi-addon-checker --branch piers plugin.video.kofin
+
   package:
     name: package
     # Independent of lint/test so a style failure still yields an install zip.
