@@ -979,6 +979,44 @@ def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
     assert notified == []
 
 
+# --- favourites ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "params, refreshed",
+    [
+        ({"mode": "favorite", "id": "jf1"}, ["Container.Refresh"]),
+        ({"mode": "favorite", "id": "jf1", "library": "1"}, []),
+    ],
+)
+def test_favorite_refreshes_only_a_kofin_listing(monkeypatch, params, refreshed):
+    """A kofin listing reads the server and shows the change at once; a library
+    row changes when the pass files it, and the pass's scan re-lists then."""
+    api = FakeApi(set_favorite=None)
+    builtins = []
+    monkeypatch.setattr(actions, "_api", lambda: api)
+    monkeypatch.setattr(actions.xbmc, "executebuiltin", builtins.append)
+
+    actions.favorite(Request("plugin://x", -1, params))
+
+    assert api.args("set_favorite") == [("jf1", True)]
+    assert builtins == refreshed
+
+
+def test_unfavorite_on_a_library_row_leaves_the_window(monkeypatch):
+    api = FakeApi(set_favorite=None)
+    builtins = []
+    monkeypatch.setattr(actions, "_api", lambda: api)
+    monkeypatch.setattr(actions.xbmc, "executebuiltin", builtins.append)
+
+    actions.unfavorite(
+        Request("plugin://x", -1, {"mode": "unfavorite", "id": "jf1", "library": "1"})
+    )
+
+    assert api.args("set_favorite") == [("jf1", False)]
+    assert builtins == []
+
+
 # --- the resume reset ---------------------------------------------------------
 
 

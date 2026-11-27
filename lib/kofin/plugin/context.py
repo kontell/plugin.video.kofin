@@ -490,8 +490,10 @@ def _manage_options(item: dict, dynamic: bool) -> list[tuple[str, dict]]:
         )
 
     fav_label = xbmc.getLocalizedString(14077 if is_favorite else 14076)
-    fav_mode = "unfavorite" if is_favorite else "favorite"
-    options.append((fav_label, {"mode": fav_mode, "id": item_id}))
+    fav_params = {"mode": "unfavorite" if is_favorite else "favorite", "id": item_id}
+    if not dynamic:
+        fav_params["library"] = "1"
+    options.append((fav_label, fav_params))
 
     # Extras belongs here rather than in its own context item: a context item's
     # <visible> can only ask Kodi, and ListItem.HasVideoExtras is movie-only
