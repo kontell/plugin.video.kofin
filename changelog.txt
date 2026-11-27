@@ -3,6 +3,7 @@ v1.0.1
 - Pressing Back while something is starting to play no longer freezes Kodi for several seconds.
 - Kofin uses far less of the processor while Kodi sits idle.
 - Refresh on a movie, show or episode asks the server for it again, and Jellyfin actions offers Refresh on an album or an artist.
+- Kofin opened from the Music section lists no video.
 
 v1.0.0
 - The server's certificate is always checked. "Verify SSL certificate" is gone.
