@@ -114,7 +114,8 @@
 - Kofin uses far less of the processor while Kodi sits idle.
 - Refresh on a movie, show or episode asks the server for it again, and Jellyfin actions offers Refresh on an album or an artist.
 - Kofin opened from the Music section lists no video.
-- Adding a favourite in the library no longer reloads the list twice.</news>
+- Adding a favourite in the library no longer reloads the list twice.
+- An item marked unwatched no longer keeps a last-played date.</news>
     <assets>
       <icon>resources/media/icon.png</icon>
       <fanart>resources/media/fanart.jpeg</fanart>
