@@ -129,7 +129,7 @@
   "#30318": "Grafikák tömörítése",
   "#30319": "A korlátozott méretű grafikák újrakódolása 90-es JPEG-minőséggel. Felbontáskorlát nélkül nincs hatása.",
   "#30320": "Grafikák maximális felbontása",
-  "#30321": "A szinkronizált grafikák magasságának korlátozása. Az Eredeti megtartja a kiszolgálón lévő méretet.",
+  "#30321": "A kiszolgálóról érkező grafikák méretének korlátozása. Az Automatikus a Kodi képgyorsítótárához igazodik: 1080p a hátterekhez, 720p a poszterekhez és a logókhoz.",
   "#30322": "Eredeti",
   "#30326": "Értesítés a kiszolgálókapcsolat változásairól",
   "#30327": "Értesítés megjelenítése, amikor a kiszolgáló csatlakozik, lecsatlakozik vagy újraindul.",

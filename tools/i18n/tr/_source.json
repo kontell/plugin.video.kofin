@@ -173,7 +173,7 @@
   "#30318": "Compress artwork",
   "#30319": "Re-encode capped artwork at JPEG quality 90. No effect without a resolution cap.",
   "#30320": "Maximum artwork resolution",
-  "#30321": "Cap the height of synced artwork. Original keeps the server size.",
+  "#30321": "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos.",
   "#30322": "Original",
   "#30323": "720p",
   "#30324": "1080p",
@@ -484,5 +484,7 @@
   "#30894": "No longer on the server",
   "#30895": "%s is no longer on the server and was removed from the library",
   "#30896": "The synced libraries stay in Kodi until you log in again; a different account removes them.",
-  "#30897": "Queued %s of %s tracks"
+  "#30897": "Queued %s of %s tracks",
+  "#30898": "480p",
+  "#30899": "540p"
 }

@@ -129,7 +129,7 @@
   "#30318": "Komprimovať grafiku",
   "#30319": "Znova zakóduje zmenšenú grafiku v kvalite JPEG 90. Bez obmedzenia rozlíšenia nemá účinok.",
   "#30320": "Maximálne rozlíšenie grafiky",
-  "#30321": "Obmedzí výšku synchronizovanej grafiky. Originál zachová veľkosť zo servera.",
+  "#30321": "Obmedzí veľkosť grafiky zo servera. Voľba Automaticky zodpovedá vyrovnávacej pamäti obrázkov Kodi: 1080p pre pozadia, 720p pre plagáty a logá.",
   "#30322": "Originál",
   "#30326": "Upozorniť na zmeny pripojenia k serveru",
   "#30327": "Zobrazí upozornenie, keď sa server pripojí, odpojí alebo reštartuje.",

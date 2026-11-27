@@ -129,7 +129,7 @@
   "#30318": "Comprimeix les imatges",
   "#30319": "Recodifica les imatges limitades amb qualitat JPEG 90. No té cap efecte sense un límit de resolució.",
   "#30320": "Resolució màxima de les imatges",
-  "#30321": "Limita l'alçada de les imatges sincronitzades. Original conserva la mida del servidor.",
+  "#30321": "Limita la mida de les imatges del servidor. Automàtic s'ajusta a la memòria cau d'imatges del Kodi: 1080p per als fons, 720p per als pòsters i els logotips.",
   "#30322": "Original",
   "#30326": "Notifica els canvis de connexió amb el servidor",
   "#30327": "Mostra una notificació quan el servidor es connecta, es desconnecta o es reinicia.",

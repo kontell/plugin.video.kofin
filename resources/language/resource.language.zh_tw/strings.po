@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "最大美工圖解析度"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "限制同步美工圖的高度。選「原始」則保留伺服器上的尺寸。"
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "限制從伺服器取得的美工圖尺寸。「自動」與 Kodi 的圖片快取一致：背景圖 1080p，海報和標誌 720p。"
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "已同步的媒體庫會保留在 Kodi 中，直到你再次登入；使
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "已將 %s / %s 首曲目加入佇列"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"

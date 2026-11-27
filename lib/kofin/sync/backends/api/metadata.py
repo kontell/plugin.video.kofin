@@ -1089,8 +1089,8 @@ def inputs_token(
     pass can skip building and comparing it (``patch.Applier.plan``). The
     token is that contract: an input missing from it freezes the state the
     next change of that input should have moved. Besides the caller's
-    arguments ``details`` reads the artwork cap and encoding
-    (``listitems.art_query``) and renders its timestamps in the local zone
+    arguments ``details`` reads the artwork caps and encoding
+    (``listitems.art_inputs``) and renders its timestamps in the local zone
     (``convert_to_local``); both are here, and anything new that
     ``details`` reads joins them.
     """
@@ -1103,7 +1103,7 @@ def inputs_token(
             separator,
             set_name or "",
             sorted(payload_hash(season) for season in seasons),
-            listitems.art_query(),
+            listitems.art_inputs(),
             # The zone, not the current offset: the names list both halves
             # of a zone with daylight saving, so a token does not flip twice
             # a year for a change that convert_to_local already renders

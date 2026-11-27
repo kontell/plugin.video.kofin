@@ -129,7 +129,7 @@
   "#30318": "Comprimă grafica",
   "#30319": "Recodează grafica limitată la calitatea JPEG 90. Niciun efect fără o limită de rezoluție.",
   "#30320": "Rezoluție maximă a graficii",
-  "#30321": "Limitează înălțimea graficii sincronizate. Original păstrează dimensiunea de pe server.",
+  "#30321": "Limitează dimensiunea graficii de pe server. Auto urmează memoria cache de imagini a Kodi: 1080p pentru fundaluri, 720p pentru postere și logouri.",
   "#30322": "Original",
   "#30326": "Notifică la schimbarea conexiunii cu serverul",
   "#30327": "Afișează o notificare când serverul se conectează, se deconectează sau repornește.",

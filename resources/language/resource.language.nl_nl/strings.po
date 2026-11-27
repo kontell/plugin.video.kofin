@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "Maximale resolutie van afbeeldingen"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "Begrens de hoogte van gesynchroniseerde afbeeldingen. 'Origineel' behoudt de grootte van de server."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "Begrens de grootte van afbeeldingen van de server. 'Automatisch' volgt de afbeeldingscache van Kodi: 1080p voor achtergronden, 720p voor posters en logo's."
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "De gesynchroniseerde bibliotheken blijven in Kodi tot je opnieuw inlogt;
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "%s van %s nummers in de wachtrij gezet"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"

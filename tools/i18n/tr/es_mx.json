@@ -129,7 +129,7 @@
   "#30318": "Comprimir las imágenes",
   "#30319": "Recodifica con calidad JPEG 90 las imágenes limitadas. No tiene efecto sin un límite de resolución.",
   "#30320": "Resolución máxima de las imágenes",
-  "#30321": "Limita la altura de las imágenes sincronizadas. Original conserva el tamaño del servidor.",
+  "#30321": "Limita el tamaño de las imágenes del servidor. Automático se ajusta a la caché de imágenes de Kodi: 1080p para los fondos, 720p para los pósters y los logotipos.",
   "#30322": "Original",
   "#30326": "Avisar de los cambios de conexión con el servidor",
   "#30327": "Muestra una notificación cuando el servidor se conecta, se desconecta o se reinicia.",

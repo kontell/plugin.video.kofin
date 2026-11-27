@@ -129,7 +129,7 @@
   "#30318": "Afbeeldingen comprimeren",
   "#30319": "Hercodeer begrensde afbeeldingen met JPEG-kwaliteit 90. Zonder resolutiebegrenzing heeft dit geen effect.",
   "#30320": "Maximale resolutie van afbeeldingen",
-  "#30321": "Begrens de hoogte van gesynchroniseerde afbeeldingen. 'Origineel' behoudt de grootte van de server.",
+  "#30321": "Begrens de grootte van afbeeldingen van de server. 'Automatisch' volgt de afbeeldingscache van Kodi: 1080p voor achtergronden, 720p voor posters en logo's.",
   "#30322": "Origineel",
   "#30326": "Melden bij wijzigingen in de serververbinding",
   "#30327": "Toon een melding wanneer de server verbinding maakt, de verbinding verbreekt of herstart.",

@@ -129,7 +129,7 @@
   "#30318": "Pakkaa kuvitus",
   "#30319": "Koodaa rajoitettu kuvitus uudelleen JPEG-laadulla 90. Ei vaikutusta ilman tarkkuusrajaa.",
   "#30320": "Kuvituksen enimmäistarkkuus",
-  "#30321": "Rajoita synkronoidun kuvituksen korkeutta. Alkuperäinen säilyttää palvelimen koon.",
+  "#30321": "Rajoita palvelimelta haettavan kuvituksen kokoa. Automaattinen noudattaa Kodin kuvavälimuistia: 1080p taustakuville, 720p julisteille ja logoille.",
   "#30322": "Alkuperäinen",
   "#30326": "Ilmoita palvelinyhteyden muutoksista",
   "#30327": "Näytä ilmoitus, kun palvelin yhdistää, katkaisee yhteyden tai käynnistyy uudelleen.",
