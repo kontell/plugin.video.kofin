@@ -659,6 +659,49 @@ def test_root_leads_with_continue_watching(monkeypatch, directory):
     assert "view=v1" in paths[3]  # the libraries follow them
 
 
+def test_root_from_the_music_window_lists_no_video(monkeypatch, directory):
+    """Opened with content_type=audio, the root keeps search and the
+    libraries that can hold audio, and leaves out every video listing."""
+    api = ResumeApi(
+        views=[
+            {"Id": "v1", "Name": "Movies", "CollectionType": "movies"},
+            {"Id": "v2", "Name": "Shows", "CollectionType": "tvshows"},
+            {"Id": "v3", "Name": "Music", "CollectionType": "music"},
+            {"Id": "v4", "Name": "Clips", "CollectionType": "musicvideos"},
+            {"Id": "v5", "Name": "Playlists", "CollectionType": "playlists"},
+            {"Id": "v6", "Name": "Mixed", "CollectionType": ""},
+            {"Id": "v7", "Name": "Recordings", "CollectionType": ""},
+        ]
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.root(Request("plugin://x", 1, {"content_type": "audio"}))
+
+    paths = [path for path, _li, _folder in directory["entries"]]
+    assert not any("mode=continuewatching" in path for path in paths)
+    assert not any("mode=nextepisodes" in path for path in paths)
+    assert "mode=search" in paths[0]
+    views = [path.split("view=")[1].split("&")[0] for path in paths if "view=" in path]
+    assert views == ["v3", "v5", "v6"]
+
+
+def test_root_from_the_video_window_lists_every_library(monkeypatch, directory):
+    api = ResumeApi(
+        views=[
+            {"Id": "v1", "Name": "Movies", "CollectionType": "movies"},
+            {"Id": "v3", "Name": "Music", "CollectionType": "music"},
+        ]
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.root(Request("plugin://x", 1, {"content_type": "video"}))
+
+    paths = [path for path, _li, _folder in directory["entries"]]
+    assert "mode=continuewatching" in paths[0]
+    views = [path.split("view=")[1].split("&")[0] for path in paths if "view=" in path]
+    assert views == ["v1", "v3"]
+
+
 def test_addon_media_joins_under_resources_media(monkeypatch):
     monkeypatch.setattr(browse.settings, "addon_path", lambda: "/tmp/kofin")
     assert browse._addon_media("person-search.png") == (
