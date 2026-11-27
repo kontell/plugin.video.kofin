@@ -728,7 +728,7 @@ msgid "Maximum artwork resolution"
 msgstr ""
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
 msgstr ""
 
 msgctxt "#30322"
@@ -2071,4 +2071,12 @@ msgstr ""
 
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
+msgstr ""
+
+msgctxt "#30898"
+msgid "480p"
+msgstr ""
+
+msgctxt "#30899"
+msgid "540p"
 msgstr ""

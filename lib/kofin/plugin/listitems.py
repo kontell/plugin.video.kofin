@@ -6,7 +6,7 @@ Kodistubs type check and exercised live.
 """
 
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -157,87 +157,119 @@ def person_thumb(server: str, person: JsonDict) -> str:
 # read constructs a fresh Addon each time (settings.get_addon), and art_for
 # runs once per item. Two seconds of memory survives any restart (it is time,
 # not a handle) and a settings change shows within them.
-_ART_QUERY: tuple[float, str, str] = (0.0, "", "")
+_ART_QUERY: tuple[float, str, str, str] = (0.0, "", "", "")
 ART_QUERY_TTL = 2.0
 # The longest side of a person's portrait, which is drawn as a thumb beside a
 # name, never across a screen.
 PERSON_MAX = 400
+# maxArtResolution's Automatic: each image at the height Kodi caches it at.
+AUTOMATIC_RES = -1
+# The heights Kodi caches an image at by default (imageres and fanartres,
+# CPicture::CacheTexture): a 16:9 image at 1080, any other at 720.
+IMAGE_RES = 720
+WIDE_RES = 1080
+# The item types whose own primary image is a frame of video, 16:9.
+WIDE_PRIMARY = frozenset({"Episode", "MusicVideo", "Video"})
 
 
-def art_query() -> str:
-    """The size cap and encoding the server applies to listed artwork.
+def art_query(wide: bool = False) -> str:
+    """The size cap and encoding the server applies to listed artwork:
+    ``wide`` for a 16:9 image (a backdrop, a landscape thumb, a frame of
+    video), and otherwise for the rest.
 
-    Kodi decodes and re-encodes every image it caches and caps the result at
-    its own fanart and thumb heights, so anything the server sends above the
-    cap is work for nothing. ``maxArtResolution`` asks the server for the
-    capped height (its own resize, cached server-side) and ``compressArt`` for
-    JPEG at quality 90, which only changes bytes once a resize happens.
+    Kodi decodes and re-encodes every image it caches and caps the result
+    (``IMAGE_RES``, ``WIDE_RES``), so anything the server sends above that is
+    work for nothing. ``maxArtResolution`` asks the server for a capped height
+    (its own resize, cached server-side), Automatic for Kodi's own, and
+    ``compressArt`` for JPEG at quality 90, which only changes bytes once a
+    resize happens.
     """
-    return _queries()[0]
+    queries = _queries()
+    return queries[1] if wide else queries[0]
+
+
+def art_inputs() -> Union[str, list[str]]:
+    """The artwork queries as one input of a row's acknowledgement: the one
+    query while both kinds of image share it, both while they differ."""
+    image, wide = art_query(), art_query(wide=True)
+    return image if image == wide else [image, wide]
 
 
 def person_query() -> str:
     """The cap and encoding for a person's portrait: ``PERSON_MAX`` on its
     longest side, or the artwork cap where that is the smaller."""
-    return _queries()[1]
+    return _queries()[2]
 
 
-def _queries() -> tuple[str, str]:
+def _queries() -> tuple[str, str, str]:
     global _ART_QUERY
     now = time.monotonic()
-    stamp, art, person = _ART_QUERY
+    stamp, image, wide, person = _ART_QUERY
     if now - stamp < ART_QUERY_TTL:
-        return art, person
-    maxheight = settings.get_int("maxArtResolution")
+        return image, wide, person
+    cap = settings.get_int("maxArtResolution")
     quality = "&Quality=90" if settings.get_bool("compressArt") else ""
-    art = "&MaxHeight=%d%s" % (maxheight, quality) if maxheight else ""
-    side = min(maxheight, PERSON_MAX) if maxheight else PERSON_MAX
+    image_cap, wide_cap = (IMAGE_RES, WIDE_RES) if cap == AUTOMATIC_RES else (cap, cap)
+    image = "&MaxHeight=%d%s" % (image_cap, quality) if image_cap > 0 else ""
+    wide = "&MaxHeight=%d%s" % (wide_cap, quality) if wide_cap > 0 else ""
+    side = min(image_cap, PERSON_MAX) if image_cap > 0 else PERSON_MAX
     person = "&MaxHeight=%d&MaxWidth=%d%s" % (side, side, quality)
-    _ART_QUERY = (now, art, person)
-    return art, person
+    _ART_QUERY = (now, image, wide, person)
+    return image, wide, person
 
 
 def forget_art_query() -> None:
     """Drop the memo (tests, and anything that changes the settings itself)."""
     global _ART_QUERY
-    _ART_QUERY = (0.0, "", "")
+    _ART_QUERY = (0.0, "", "", "")
 
 
 def art_for(item: JsonDict, server: str) -> dict[str, str]:
     """Art dict with parent fallbacks (series poster on episodes, etc.)."""
-    query = art_query()
+    image_query, wide_query = art_query(), art_query(wide=True)
 
     def image(
-        item_id: str, image_type: str, tag: str, index: Optional[int] = None
+        item_id: str,
+        image_type: str,
+        tag: str,
+        index: Optional[int] = None,
+        wide: bool = False,
     ) -> str:
         path = "%s/Items/%s/Images/%s" % (server, item_id, image_type)
         if index is not None:
             path += "/%d" % index
-        return path + "?tag=%s" % tag + query
+        return path + "?tag=%s" % tag + (wide_query if wide else image_query)
 
     art: dict[str, str] = {}
     item_id = item.get("Id", "")
     tags = item.get("ImageTags") or {}
 
     if tags.get("Primary"):
-        primary = image(item_id, "Primary", tags["Primary"])
+        primary = image(
+            item_id,
+            "Primary",
+            tags["Primary"],
+            wide=item.get("Type") in WIDE_PRIMARY,
+        )
         art["thumb"] = primary
         art["poster"] = primary
     if tags.get("Logo"):
         art["clearlogo"] = image(item_id, "Logo", tags["Logo"])
     if tags.get("Thumb"):
-        art["landscape"] = image(item_id, "Thumb", tags["Thumb"])
+        art["landscape"] = image(item_id, "Thumb", tags["Thumb"], wide=True)
     if tags.get("Banner"):
         art["banner"] = image(item_id, "Banner", tags["Banner"])
 
     backdrops = item.get("BackdropImageTags") or []
     if backdrops:
-        art["fanart"] = image(item_id, "Backdrop", backdrops[0], index=0)
+        art["fanart"] = image(item_id, "Backdrop", backdrops[0], index=0, wide=True)
     else:
         parent_backdrops = item.get("ParentBackdropImageTags") or []
         parent_id = item.get("ParentBackdropItemId")
         if parent_backdrops and parent_id:
-            art["fanart"] = image(parent_id, "Backdrop", parent_backdrops[0], index=0)
+            art["fanart"] = image(
+                parent_id, "Backdrop", parent_backdrops[0], index=0, wide=True
+            )
 
     series_id = item.get("SeriesId")
     series_tag = item.get("SeriesPrimaryImageTag")

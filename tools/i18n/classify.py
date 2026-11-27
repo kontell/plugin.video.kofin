@@ -49,6 +49,8 @@ PASSTHROUGH = {
     "#30323",  # 720p
     "#30324",  # 1080p
     "#30325",  # 2160p
+    "#30898",  # 480p
+    "#30899",  # 540p
     "#30604",  # 480p
     "#30605",  # 1440p
     # Bitrate spinner values: a number and an SI unit. Locales differ on the

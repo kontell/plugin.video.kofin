@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "Grafikák maximális felbontása"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "A szinkronizált grafikák magasságának korlátozása. Az Eredeti megtartja a kiszolgálón lévő méretet."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "A kiszolgálóról érkező grafikák méretének korlátozása. Az Automatikus a Kodi képgyorsítótárához igazodik: 1080p a hátterekhez, 720p a poszterekhez és a logókhoz."
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "A szinkronizált könyvtárak a Kodiban maradnak, amíg újra be nem jel
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "%s / %s szám sorba állítva"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"

@@ -129,7 +129,7 @@
   "#30318": "Bildmaterial komprimieren",
   "#30319": "Begrenztes Bildmaterial mit JPEG-Qualität 90 neu kodieren. Ohne Auflösungsbegrenzung wirkungslos.",
   "#30320": "Maximale Auflösung des Bildmaterials",
-  "#30321": "Die Höhe des synchronisierten Bildmaterials begrenzen. „Originalgröße“ behält die Größe vom Server bei.",
+  "#30321": "Die Größe des Bildmaterials vom Server begrenzen. „Automatisch“ folgt dem Bildcache von Kodi: 1080p für Hintergründe, 720p für Poster und Logos.",
   "#30322": "Originalgröße",
   "#30326": "Bei Änderungen der Serververbindung benachrichtigen",
   "#30327": "Eine Benachrichtigung anzeigen, wenn der Server sich verbindet, die Verbindung trennt oder neu startet.",

@@ -129,7 +129,7 @@
   "#30318": "Compresser les illustrations",
   "#30319": "Réencode les illustrations redimensionnées en JPEG qualité 90. Sans effet s'il n'y a pas de limite de résolution.",
   "#30320": "Résolution maximale des illustrations",
-  "#30321": "Limite la hauteur des illustrations synchronisées. Original conserve la taille du serveur.",
+  "#30321": "Limite la taille des illustrations provenant du serveur. Auto suit le cache d'images de Kodi : 1080p pour les arrière-plans, 720p pour les affiches et les logos.",
   "#30322": "Original",
   "#30326": "Notifier les changements de connexion au serveur",
   "#30327": "Affiche une notification lorsque le serveur se connecte, se déconnecte ou redémarre.",

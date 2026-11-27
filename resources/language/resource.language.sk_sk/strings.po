@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "Maximálne rozlíšenie grafiky"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "Obmedzí výšku synchronizovanej grafiky. Originál zachová veľkosť zo servera."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "Obmedzí veľkosť grafiky zo servera. Voľba Automaticky zodpovedá vyrovnávacej pamäti obrázkov Kodi: 1080p pre pozadia, 720p pre plagáty a logá."
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "Synchronizované knižnice zostanú v Kodi, kým sa znova neprihlásiš;
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "Zaradených %s z %s skladieb"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"

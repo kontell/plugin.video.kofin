@@ -129,7 +129,7 @@
   "#30318": "Comprimi le immagini",
   "#30319": "Ricodifica le immagini ridimensionate con qualità JPEG 90. Nessun effetto senza un limite di risoluzione.",
   "#30320": "Risoluzione massima delle immagini",
-  "#30321": "Limita l'altezza delle immagini sincronizzate. Originale mantiene la dimensione del server.",
+  "#30321": "Limita la dimensione delle immagini dal server. Auto segue la cache delle immagini di Kodi: 1080p per gli sfondi, 720p per poster e loghi.",
   "#30322": "Originale",
   "#30326": "Notifica i cambi di connessione al server",
   "#30327": "Mostra una notifica quando il server si connette, si disconnette o si riavvia.",

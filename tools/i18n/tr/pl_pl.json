@@ -129,7 +129,7 @@
   "#30318": "Kompresuj grafiki",
   "#30319": "Ponownie koduje ograniczone grafiki w jakości JPEG 90. Bez limitu rozdzielczości nie ma efektu.",
   "#30320": "Maksymalna rozdzielczość grafik",
-  "#30321": "Ogranicza wysokość synchronizowanych grafik. Oryginał zachowuje rozmiar z serwera.",
+  "#30321": "Ogranicza rozmiar grafik z serwera. Opcja Automatycznie dopasowuje go do pamięci podręcznej obrazów Kodi: 1080p dla teł, 720p dla plakatów i logo.",
   "#30322": "Oryginał",
   "#30326": "Powiadamiaj o zmianach połączenia z serwerem",
   "#30327": "Pokazuje powiadomienie, gdy serwer łączy się, rozłącza lub uruchamia ponownie.",

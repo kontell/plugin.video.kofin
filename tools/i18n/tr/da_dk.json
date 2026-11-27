@@ -129,7 +129,7 @@
   "#30318": "Komprimer billedmateriale",
   "#30319": "Genkod begrænset billedmateriale med JPEG-kvalitet 90. Ingen effekt uden en opløsningsgrænse.",
   "#30320": "Maksimal billedopløsning",
-  "#30321": "Begræns højden på synkroniseret billedmateriale. Original beholder serverens størrelse.",
+  "#30321": "Begræns størrelsen på billedmateriale fra serveren. Auto følger Kodis billedcache: 1080p til baggrunde, 720p til plakater og logoer.",
   "#30322": "Original",
   "#30326": "Underret om ændringer i serverforbindelsen",
   "#30327": "Vis en notifikation, når serveren opretter forbindelse, mister forbindelsen eller genstarter.",

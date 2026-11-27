@@ -524,10 +524,20 @@ def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
     short-circuit freezes the state the next change should have moved."""
     from kofin.plugin import listitems
 
+    def caps(image_query, wide_query):
+        monkeypatch.setattr(
+            listitems,
+            "art_query",
+            lambda wide=False: wide_query if wide else image_query,
+        )
+        return metadata.inputs_token("http://s", "k", LIB, " / ")
+
     base = metadata.inputs_token("http://s", "k", LIB, " / ")
-    monkeypatch.setattr(listitems, "art_query", lambda: "&MaxHeight=720&Quality=90")
-    capped = metadata.inputs_token("http://s", "k", LIB, " / ")
+    capped = caps("&MaxHeight=720&Quality=90", "&MaxHeight=720&Quality=90")
     assert capped != base
+    # Automatic: the wide images' cap moves the token on its own.
+    assert caps("&MaxHeight=720&Quality=90", "&MaxHeight=1080&Quality=90") != capped
+    capped = caps("&MaxHeight=720&Quality=90", "&MaxHeight=720&Quality=90")
     monkeypatch.setattr(metadata.time, "timezone", 12345)
     assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped
 

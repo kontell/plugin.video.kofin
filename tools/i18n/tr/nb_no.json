@@ -129,7 +129,7 @@
   "#30318": "Komprimer bildemateriale",
   "#30319": "Kod om begrenset bildemateriale med JPEG-kvalitet 90. Ingen effekt uten en oppløsningsgrense.",
   "#30320": "Maksimal bildeoppløsning",
-  "#30321": "Begrens høyden på synkronisert bildemateriale. Original beholder serverens størrelse.",
+  "#30321": "Begrens størrelsen på bildemateriale fra serveren. Auto følger Kodis bildebuffer: 1080p for bakgrunner, 720p for plakater og logoer.",
   "#30322": "Original",
   "#30326": "Varsle ved endringer i servertilkoblingen",
   "#30327": "Vis et varsel når serveren kobler til, kobler fra eller starter på nytt.",

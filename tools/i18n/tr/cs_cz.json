@@ -129,7 +129,7 @@
   "#30318": "Komprimovat grafiku",
   "#30319": "Překóduje zmenšenou grafiku do JPEG s kvalitou 90. Bez omezení rozlišení nemá efekt.",
   "#30320": "Maximální rozlišení grafiky",
-  "#30321": "Omezí výšku synchronizované grafiky. Originál zachová velikost ze serveru.",
+  "#30321": "Omezí velikost grafiky ze serveru. Volba Automaticky odpovídá mezipaměti obrázků Kodi: 1080p pro pozadí, 720p pro plakáty a loga.",
   "#30322": "Originál",
   "#30326": "Upozorňovat na změny připojení k serveru",
   "#30327": "Zobrazí oznámení, když se server připojí, odpojí nebo restartuje.",

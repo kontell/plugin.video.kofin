@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "Kuvituksen enimmäistarkkuus"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "Rajoita synkronoidun kuvituksen korkeutta. Alkuperäinen säilyttää palvelimen koon."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "Rajoita palvelimelta haettavan kuvituksen kokoa. Automaattinen noudattaa Kodin kuvavälimuistia: 1080p taustakuville, 720p julisteille ja logoille."
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "Synkronoidut kirjastot pysyvät Kodissa, kunnes kirjaudut uudelleen; toi
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "%s/%s kappaletta jonossa"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"

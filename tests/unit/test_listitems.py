@@ -419,6 +419,52 @@ def test_art_query_is_memoised_for_a_moment(monkeypatch):
     listitems.forget_art_query()
 
 
+def test_automatic_caps_each_image_at_the_height_kodi_caches_it(monkeypatch):
+    """Kodi caches a 16:9 image at 1080 and any other at 720: a backdrop, a
+    landscape thumb and an episode's own still are wide; a poster, a logo and
+    the show's poster on an episode are not."""
+    from kofin.plugin import listitems
+
+    monkeypatch.setattr(listitems.settings, "get_int", lambda key: -1)
+    monkeypatch.setattr(listitems.settings, "get_bool", lambda key: True)
+    listitems.forget_art_query()
+    tall, wide = "&MaxHeight=720&Quality=90", "&MaxHeight=1080&Quality=90"
+    episode = {
+        "Id": "e1",
+        "Type": "Episode",
+        "ImageTags": {"Primary": "p", "Thumb": "t", "Logo": "l"},
+        "BackdropImageTags": ["b"],
+        "SeriesId": "s1",
+        "SeriesPrimaryImageTag": "sp",
+    }
+    movie = {"Id": "m1", "Type": "Movie", "ImageTags": {"Primary": "p"}}
+
+    art = listitems.art_for(episode, SERVER)
+    poster = listitems.art_for(movie, SERVER)["poster"]
+
+    assert art["thumb"].endswith("/Items/e1/Images/Primary?tag=p" + wide)
+    assert art["landscape"].endswith("?tag=t" + wide)
+    assert art["fanart"].endswith("/Backdrop/0?tag=b" + wide)
+    assert art["clearlogo"].endswith("?tag=l" + tall)
+    assert art["poster"].endswith("/Items/s1/Images/Primary?tag=sp" + tall)
+    assert poster.endswith("/Items/m1/Images/Primary?tag=p" + tall)
+    assert listitems.art_inputs() == [tall, wide]
+    assert listitems.person_query() == "&MaxHeight=400&MaxWidth=400&Quality=90"
+    listitems.forget_art_query()
+
+
+def test_a_fixed_cap_is_one_query_for_every_image(monkeypatch):
+    from kofin.plugin import listitems
+
+    for cap, query in ((480, "&MaxHeight=480"), (0, "")):
+        monkeypatch.setattr(listitems.settings, "get_int", lambda key, cap=cap: cap)
+        monkeypatch.setattr(listitems.settings, "get_bool", lambda key: False)
+        listitems.forget_art_query()
+        assert listitems.art_query() == listitems.art_query(wide=True) == query
+        assert listitems.art_inputs() == query
+    listitems.forget_art_query()
+
+
 def test_a_persons_portrait_is_capped_at_400_whatever_the_artwork_cap(monkeypatch):
     """The video scanner caches a row's actor thumbs at import, and a
     portrait is a thumb beside a name, so the artwork cap alone is too high

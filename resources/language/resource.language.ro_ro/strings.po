@@ -713,8 +713,8 @@ msgid "Maximum artwork resolution"
 msgstr "Rezoluție maximă a graficii"
 
 msgctxt "#30321"
-msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr "Limitează înălțimea graficii sincronizate. Original păstrează dimensiunea de pe server."
+msgid "Cap the size of artwork from the server. Auto matches Kodi's image cache: 1080p for backdrops, 720p for posters and logos."
+msgstr "Limitează dimensiunea graficii de pe server. Auto urmează memoria cache de imagini a Kodi: 1080p pentru fundaluri, 720p pentru postere și logouri."
 
 msgctxt "#30322"
 msgid "Original"
@@ -1959,3 +1959,11 @@ msgstr "Bibliotecile sincronizate rămân în Kodi până te autentifici din nou
 msgctxt "#30897"
 msgid "Queued %s of %s tracks"
 msgstr "%s din %s piese puse în coadă"
+
+msgctxt "#30898"
+msgid "480p"
+msgstr "480p"
+
+msgctxt "#30899"
+msgid "540p"
+msgstr "540p"
