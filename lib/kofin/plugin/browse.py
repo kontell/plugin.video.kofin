@@ -220,6 +220,12 @@ MEDIA_ICONS = {
     "recordings": "DefaultPVRRecordings.png",
 }
 
+# The libraries the root lists when Kodi opens it from the Music window: the
+# server's collection types that can hold audio, mixed folders ("" and
+# "folders") included. A DVR's recordings library is a mixed folder to the
+# server, and stays.
+AUDIO_COLLECTIONS = frozenset({"music", "playlists", "books", "folders", ""})
+
 NODE_ICONS: dict[str, Any] = {
     "recent": {
         "movies": "DefaultRecentlyAddedMovies.png",
@@ -652,10 +658,14 @@ def root(request: Request) -> None:
         return
     api = _api()
     entries: list[tuple[str, xbmcgui.ListItem, bool]] = []
+    # Kodi opens an add-on that provides several types with the window's type
+    # in content_type (CAddonsDirectory::GetScriptsAndPlugins): "audio" from
+    # the Music window, where the root leaves out every video listing.
+    audio = request.params.get("content_type") == "audio"
 
     import xbmc
 
-    if api is not None:
+    if api is not None and not audio:
         # First, the way the web client leads with it: the one entry that is
         # about what the viewer was in the middle of rather than about where it
         # is filed. Offered without asking the server whether it has anything —
@@ -679,6 +689,7 @@ def root(request: Request) -> None:
             )
         )
 
+    if api is not None:
         # Search sits with Continue watching and Next up, above the
         # libraries: they are ways in that are not a place, and a viewer
         # who knows what they want should not have to pick a library first.
@@ -707,6 +718,8 @@ def root(request: Request) -> None:
         for view in views:
             if view.get("CollectionType") == "livetv":
                 continue  # live TV is pvr.kofin's job
+            if audio and (view.get("CollectionType") or "") not in AUDIO_COLLECTIONS:
+                continue
             collection = _collection_type(view)
             li = listitems.build(view, api.server)
             # Stock Default*.png on icon and thumb (structural_art); server
