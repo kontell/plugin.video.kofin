@@ -1495,7 +1495,9 @@ class Library(threading.Thread):
             item = self.store.item(item_id)
             if item is None:
                 continue
-            item["UserData"] = dict(item.get("UserData") or {}, **entry)
+            # The server's whole user data for the item, with every empty
+            # field left out: merged, a date the server cleared would stand.
+            item["UserData"] = dict(entry)
             items.append(item)
         if items:
             self.store.publish(items)

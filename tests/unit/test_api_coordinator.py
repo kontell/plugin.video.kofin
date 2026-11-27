@@ -555,6 +555,40 @@ def test_websocket_changes_fetch_known_items_and_defer_unknown_ones(store, monke
     assert store.state("a").operation == "remove"
 
 
+def test_user_data_marked_unwatched_drops_the_last_played_date(store, monkeypatch):
+    """The server leaves an empty field out of its user data, so an item
+    marked unwatched arrives with no LastPlayedDate, and the date it had must
+    not survive into the row (metadata.userdata clears Kodi's)."""
+    from kofin.sync.backends.api import metadata
+
+    played = movie(
+        UserData={
+            "ItemId": "a",
+            "Played": True,
+            "PlayCount": 4,
+            "LastPlayedDate": "2026-11-27T13:04:46Z",
+            "IsFavorite": True,
+        }
+    )
+    store.publish([played], library=LIB)
+    store.set_watermark(watermark="x", enumerated=time.time())
+    w = worker(store, Server({LIB: [played]}), [LIB], monkeypatch)
+    w._catchup_due = 10**9
+
+    unwatched = {
+        "ItemId": "a",
+        "Played": False,
+        "PlayCount": 0,
+        "PlaybackPositionTicks": 0,
+        "IsFavorite": True,
+    }
+    w.command("userdata", [unwatched])
+
+    item = store.records(pinned=False)["a"].item
+    assert item["UserData"] == unwatched
+    assert metadata.userdata(item)["lastplayed"] == ""
+
+
 def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeypatch):
     from kofin.sync.backends.api import library
 
