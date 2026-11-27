@@ -221,8 +221,9 @@ MEDIA_ICONS = {
 }
 
 # The libraries the root lists when Kodi opens it from the Music window: the
-# collection types that can hold audio, mixed folders ("" and "folders")
-# included.
+# server's collection types that can hold audio, mixed folders ("" and
+# "folders") included. A DVR's recordings library is a mixed folder to the
+# server, and stays.
 AUDIO_COLLECTIONS = frozenset({"music", "playlists", "books", "folders", ""})
 
 NODE_ICONS: dict[str, Any] = {
@@ -717,9 +718,9 @@ def root(request: Request) -> None:
         for view in views:
             if view.get("CollectionType") == "livetv":
                 continue  # live TV is pvr.kofin's job
-            collection = _collection_type(view)
-            if audio and collection not in AUDIO_COLLECTIONS:
+            if audio and (view.get("CollectionType") or "") not in AUDIO_COLLECTIONS:
                 continue
+            collection = _collection_type(view)
             li = listitems.build(view, api.server)
             # Stock Default*.png on icon and thumb (structural_art); server
             # Primary stays on poster for the focus pane (InfoWallThumbVar

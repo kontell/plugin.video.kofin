@@ -661,7 +661,8 @@ def test_root_leads_with_continue_watching(monkeypatch, directory):
 
 def test_root_from_the_music_window_lists_no_video(monkeypatch, directory):
     """Opened with content_type=audio, the root keeps search and the
-    libraries that can hold audio, and leaves out every video listing."""
+    libraries that can hold audio, and leaves out every video listing. A
+    library is judged by the server's type, never by its name."""
     api = ResumeApi(
         views=[
             {"Id": "v1", "Name": "Movies", "CollectionType": "movies"},
@@ -670,7 +671,8 @@ def test_root_from_the_music_window_lists_no_video(monkeypatch, directory):
             {"Id": "v4", "Name": "Clips", "CollectionType": "musicvideos"},
             {"Id": "v5", "Name": "Playlists", "CollectionType": "playlists"},
             {"Id": "v6", "Name": "Mixed", "CollectionType": ""},
-            {"Id": "v7", "Name": "Recordings", "CollectionType": ""},
+            {"Id": "v7", "Name": "Field Recordings", "CollectionType": None},
+            {"Id": "v8", "Name": "Home videos", "CollectionType": "homevideos"},
         ]
     )
     monkeypatch.setattr(browse, "_api", lambda: api)
@@ -682,7 +684,7 @@ def test_root_from_the_music_window_lists_no_video(monkeypatch, directory):
     assert not any("mode=nextepisodes" in path for path in paths)
     assert "mode=search" in paths[0]
     views = [path.split("view=")[1].split("&")[0] for path in paths if "view=" in path]
-    assert views == ["v3", "v5", "v6"]
+    assert views == ["v3", "v5", "v6", "v7"]
 
 
 def test_root_from_the_video_window_lists_every_library(monkeypatch, directory):
