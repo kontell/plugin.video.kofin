@@ -108,7 +108,7 @@
     <description lang="zh_CN">播放来自 Jellyfin 服务器的电影、电视剧和音乐。</description>
     <description lang="zh_TW">播放 Jellyfin 伺服器上的電影、影集與音樂。</description>
     <news>v1.0.1
-- Artwork is fetched at the size Kodi keeps it, with new 480p and 540p limits for smaller devices.
+- Artwork is fetched at the size Kodi keeps it, with new 480p and 540p limits for weaker devices.
 - Several new movies or episodes are added faster, with less flicker on the home screen.
 - Pressing Back while something is starting to play no longer freezes Kodi for several seconds.
 - Kofin uses far less of the processor while Kodi sits idle.
