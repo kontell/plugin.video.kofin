@@ -25,6 +25,18 @@ def test_manage_options_favorite_label_follows_state(monkeypatch):
     assert fav[0][1]["mode"] == "unfavorite"
 
 
+def test_manage_options_favorite_names_a_library_row(monkeypatch):
+    """The favourite action re-lists a kofin listing at once and leaves a
+    library listing to the pass (actions._set_favorite)."""
+    item = {"Id": "i1", "UserData": {}}
+
+    listing = _options(monkeypatch, item, False, dynamic=True)
+    library = _options(monkeypatch, item, False, dynamic=False)
+
+    assert listing[0][1] == {"mode": "favorite", "id": "i1"}
+    assert library[0][1] == {"mode": "favorite", "id": "i1", "library": "1"}
+
+
 def test_manage_options_delete_gated_by_setting(monkeypatch):
     item = {"Id": "i1", "Name": "The Movie", "UserData": {}, "CanDelete": True}
 

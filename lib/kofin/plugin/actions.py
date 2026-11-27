@@ -87,7 +87,12 @@ def _set_favorite(request: Request, value: bool) -> None:
         LOG.warning("favorite toggle failed: %s", error)
         toast.show(settings.localized(30507), toast.ERROR)
         return
-    _refresh()
+    # A library row (library=1) is Kodi's, and moves only when the pass files
+    # the server's echo: the pass's scan ends a library job, and Kodi re-lists
+    # every window then (CVideoLibraryQueue::Refresh). Re-listed now, the
+    # window shows the same rows.
+    if not request.params.get("library"):
+        _refresh()
 
 
 def delete_item(request: Request) -> None:
